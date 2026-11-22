@@ -55,13 +55,13 @@ if owner then
 end
 local Content=require('weread.lib.content')
 local Position=require('weread.lib.position_source')
-local fallback=0
 Content.fetch_single_chapter_source=function(_,_,book,chapter,state)
     state.css='web-fallback';local web=body..(input.mismatch and '<!-- different -->' or '')
     return web,assert(Position.capture(book,chapter,web,'web_xhtml'))
 end
 Content.finalize_single_chapter_content=function(_,_,_,_,xhtml)
-    fallback=fallback+1;return xhtml,{}
+    local marker=assert(io.open(home..'/fallback','wb'));assert(marker:write('1'));assert(marker:close())
+    return xhtml,{}
 end
 local book={book_id=book_id,bookVersion=owner and input.book_version or 1,title='Temporary book',author='Fixture'}
 local chapter={chapterUid=uid,chapterIdx=1,title='Temporary chapter'}
@@ -76,11 +76,35 @@ local Downloader=require('weread.lib.downloader')
 local last_message
 local downloader=Downloader:new{client=client,settings=settings,refresh_shelf=function() end,
     show_info=function(message) last_message=message end}
+local trapper=require('ui/trapper')
+local manager=require('ui/uimanager')
+local socket=require('socket')
+local ffiutil=require('ffi/util')
+job.trapper=trapper
 downloader._setStage=function() end
 downloader._perf=function() end
 downloader._scheduleGuarded=function() end
-downloader:_step(job)
+local function step()
+    local done, failure
+    assert(trapper:wrap(function()
+        local ok,err=pcall(downloader._step,downloader,job)
+        if not ok then failure=err end
+        done=true
+    end))
+    local deadline=socket.gettime()+60
+    manager:setInputTimeout(0)
+    while not done do
+        manager:handleInput()
+        assert(socket.gettime()<deadline,'downloader worker timed out')
+        ffiutil.usleep(10000)
+    end
+    assert(not failure,failure)
+end
+step()
 assert(job.index==2 and #job.selected==1 and #job.failed==0)
+local marker=io.open(home..'/fallback','rb')
+local fallback=marker and 1 or 0
+if marker then marker:close() end
 if input.mismatch then
     assert(fallback==1 and #job.assets==0 and job.state.css=='web-fallback')
 else
@@ -91,7 +115,7 @@ end
 local finished,path
 job.on_complete=function(ok,value) finished=ok;path=value end
 if input.switch then scope_alive=false end
-downloader:_step(job)
+step()
 if input.switch then
     assert(finished==false and path=='account_changed' and last_message and not next(values.books))
 else
