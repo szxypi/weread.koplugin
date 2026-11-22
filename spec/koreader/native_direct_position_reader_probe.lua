@@ -9,7 +9,7 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local settings=require('weread.lib.settings'):new();assert(settings.data_dir==home..'/weread')
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',{wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
+settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
 local scope=assert(settings:get_auth_scope());assert(settings:auth_scope_matches(scope))
 assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
 local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
