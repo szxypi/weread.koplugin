@@ -185,14 +185,16 @@ function M.chapter_start(document,book_id,uid,expected)
     end)
 end
 
-local function open_index(document,book_id,uid,options,metadata)
+local function open_index(document,book_id,uid,options,metadata,direct_source)
     return protected(function()
         local self = setmetatable({ document=document, options=options or {}, book_id=tostring(book_id),
             stats={steps=0,checkpoints=1} },Index)
         self:_check()
         -- This pins the current open archive, never a pathname or library record.
         local source
-        if metadata then
+        if direct_source then
+            source=direct_source
+        elseif metadata then
             local snapshot = Source.document_metadata(document,book_id,uid)
             if snapshot and snapshot.metadata == metadata then source = snapshot.record end
         else source = Source.read_document(document,book_id,uid) end
@@ -201,7 +203,7 @@ local function open_index(document,book_id,uid,options,metadata)
         self:_check()
         self.basis = Source.coordinate_basis(source.format)
         if not self.basis then fail('format_unsupported') end
-        if not metadata then
+        if not metadata and not direct_source then
             self.map = Coordinates.build(source.raw,{format=source.format,allow_multiple_bodies=true})
             if not self.map then fail("source_unsupported") end
         end
@@ -210,7 +212,7 @@ local function open_index(document,book_id,uid,options,metadata)
         if type(self.root) ~= 'string' or fragment(self.root) ~= self.root then fail('chapter_unavailable') end
         -- Ordinal lookup is only a candidate. Verify CREngine's actual Source
         -- attribute against the archive-bound rendered member, ignoring titles.
-        if metadata then
+        if metadata or direct_source then
             local member = M.member(document,self.root .. '.0')
             if not member or member.root ~= self.root or member.render_path ~= source.render_path then fail('chapter_mismatch') end
         else
@@ -257,6 +259,25 @@ function M.open_prepared(document,book_id,metadata,options)
     local record = Source.decode_metadata(metadata)
     if not record or record.book_id ~= tostring(book_id) then return nil, 'source_dom/source_unavailable' end
     return open_index(document,book_id,record.chapter_uid,options,metadata)
+end
+
+-- A native single-chapter EPUB has no Web source metadata. Its caller must
+-- first verify the cache and original bytes in a worker and keep the reader
+-- and account pinned for the entire cooperative DOM walk.
+function M.open_direct_prepared(document,book_id,uid,identity,options)
+    local Access=require('weread.lib.read_access')
+    if not document or Access.book_id(book_id)~=book_id or Access.book_id(uid)~=uid
+        or type(identity)~='table' or type(identity.file_id)~='string' or #identity.file_id~=64
+        or not identity.file_id:match('^[a-f0-9]+$') or identity.book_id~=book_id
+        or not require('weread.lib.native_position_protocol').integer(identity.book_version,0,2147483647)
+        or type(options)~='table' or type(options.is_current)~='function' then return nil,'source_dom/source_unavailable' end
+    local actual=Identity.read_document(document,book_id)
+    if actual.file_id~=identity.file_id or actual.book_id~=book_id or actual.book_version~=identity.book_version then
+        return nil,'source_dom/file_changed'
+    end
+    local source={book_id=book_id,chapter_uid=uid,file_id=identity.file_id,
+        render_path='OEBPS/text/chapter.xhtml',format='web_xhtml'}
+    return open_index(document,book_id,uid,options,nil,source)
 end
 
 local function copy(point) return {ptr=point.ptr,flat=point.flat,xp=point.xp} end

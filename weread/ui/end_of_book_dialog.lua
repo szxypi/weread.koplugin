@@ -125,6 +125,10 @@ function M.show(opts, callbacks)
         table.insert(buttons, {{id='native_position_check',text=_('Check native reading position'),
             callback=function() dismiss_then(callbacks.on_native_position_check) end}})
     end
+    if callbacks.on_native_cloud_position then
+        table.insert(buttons, {{id='native_cloud_position',text=_('Open cloud reading position'),
+            callback=function() dismiss_then(callbacks.on_native_cloud_position) end}})
+    end
 
     if opts.show_claim_location then
         table.insert(buttons, {{

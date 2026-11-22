@@ -1,8 +1,10 @@
 package.path='./?.lua;'..package.path
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
-local scheduled={}
-package.preload['ui/uimanager']=function() return {scheduleIn=function(_,_,task) scheduled[#scheduled+1]=task end,unschedule=function() end} end
+local scheduled={};local shown
+package.preload['ui/uimanager']=function() return {scheduleIn=function(_,_,task) scheduled[#scheduled+1]=task end,
+    unschedule=function() end,show=function(_,widget) shown=widget end,close=function() end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_,opts) return opts end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
 local in_worker=false;local page=1;local scope={vid='123',epoch=1};local account='owner';local current=true
 local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_sha256=string.rep('c',64),file_id=string.rep('a',64)}
@@ -29,6 +31,7 @@ package.preload['weread.lib.native_read_recovery']=function() return {cancel=fun
     job.recovery_attempted=true;native_renewals=native_renewals+1;opts.complete(true,selected);return true
 end} end
 local why
+local cloud_relation='different';local cloud_error;local cloud_offset=200
 package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if why then return nil,why end
@@ -36,9 +39,29 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
         file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
         source_current=true,upload_verified=false}
 end} end
+package.preload['weread.lib.native_direct_cloud']=function() return {prepare=function(_,_,e,file,context,n,w,active)
+    assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
+    if cloud_error then return nil,cloud_error end
+    local point={book_id=e.book_id,chapter_uid=e.chapter_uid,chapter_idx=e.chapter_idx,chapter_offset=123,
+        file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
+        source_current=true,upload_verified=false}
+    local result={position=point,relation=cloud_relation}
+    if cloud_relation=='different' then result.cloud_offset=cloud_offset;result.anchor={co=cloud_offset,
+        text='unique sample anchor for navigation',point_offset=2,point_unit='unicode_scalars',basis='filtered_xhtml_utf16'} end
+    return result
+end} end
+package.preload['weread.lib.source_dom']=function() return {open_direct_prepared=function(doc,book,uid,id,options)
+    assert(not in_worker and doc and book=='42' and uid=='37' and id==identity and options.is_current())
+    return {locate_anchor=function(_,anchor) return {co=anchor.co,book_id=book,chapter_uid=uid,file_id=id.file_id,
+        render_path='OEBPS/text/chapter.xhtml',xpointer='/cloud'} end}
+end} end
+package.preload['weread.lib.reader_position']=function() return {
+    goto_xpointer=function(_,xp) assert(xp=='/cloud');page=2;return true end,
+    snapshot=function() return {} end,contains_anchor=function(_,_,xp) return xp=='/cloud' end,
+} end
 local Position=require('weread.ui.native_direct_position')
 local function fixture()
-    scheduled={};page=1;current=true;why=nil;account='owner'
+    scheduled={};shown=nil;page=1;current=true;why=nil;account='owner';cloud_relation='different';cloud_error=nil;cloud_offset=200
     local s={jobs={},infos=0};local doc={file='/tmp/weread/native-reader-v1/file.epub'}
     local host={ui={document=doc,view={view_mode='page'}},_reader_session_gen=1,client={},
         settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,sco) return sco==scope and current end},
@@ -74,4 +97,29 @@ expect(native_renewals==1 and #s.jobs==2,'definite native expiry did not renew o
 why=nil;s.result(2);expect(s.infos==1 and not host._native_direct_position,'native renewal did not complete')
 host,s=fixture();Position.start(host,entry);s.capture();local job=s.jobs[1];in_worker=true;local result=job.task();in_worker=false;Position.cancel(host);job.callback(result)
 expect(s.infos==0 and not host._native_direct_position,'cancelled check delivered a result')
+host,s=fixture();Position.start(host,entry);s.capture();page=2;Position.on_view_changed(host)
+expect(s.cancelled and not host._native_direct_position,'moving the page did not cancel in-flight reads')
+host,s=fixture();expect(Position.start(host,entry,{cloud=true}),'cloud action did not start');s.capture();s.result(1)
+expect(shown and shown.ok_callback and shown.cancel_callback and page==1,'different cloud point skipped confirmation')
+shown.ok_callback();s.capture();expect(#s.jobs==2,'cloud target was not rechecked before navigation');s.result(2)
+expect(page==2 and s.message=='Opened the cloud reading position in this chapter.' and not host._native_direct_position,
+    'confirmed cloud target was not verified and opened')
+host,s=fixture();Position.start(host,entry,{cloud=true});s.capture();s.result(1);shown.cancel_callback()
+expect(page==1 and s.infos==0 and not host._native_direct_position,'cancel moved the reader')
+host,s=fixture();Position.start(host,entry,{cloud=true});s.capture();s.result(1);page=3;shown.ok_callback()
+expect(page==3 and s.infos==0 and not host._native_direct_position,'stale confirmation moved the reader')
+host,s=fixture();Position.start(host,entry,{cloud=true});s.capture();s.result(1);shown.ok_callback();s.capture()
+cloud_offset=250;s.result(2)
+expect(page==1 and s.message=='The cloud position changed during the check. Your current page is kept.',
+    'cloud changed after confirmation but the reader moved')
+host,s=fixture();cloud_relation='other_chapter';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+expect(s.message=='The cloud reading position is in another chapter. Your current page is kept.' and page==1,
+    'another chapter was treated as a local target')
+host,s=fixture();cloud_relation='same';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+expect(s.message=='The current page matches the cloud reading position.' and page==1,'matching cloud position was not reported')
+host,s=fixture();cloud_offset=123;Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+expect(s.infos==1 and shown==nil and page==1,'inconsistent worker comparison was accepted')
+host,s=fixture();cloud_error='cloud_changed';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+expect(s.message=='The cloud position changed during the check. Your current page is kept.' and page==1,
+    'changed remote state did not stop navigation')
 print('PASS: native position UI checks live page and never touches document from worker ('..checks..' checks)')

@@ -13,16 +13,16 @@ local function chars(text)
 end
 local function fixture(raw,text,options)
     options=options or {}
-    local book,chapter={book_id='synthetic-dom',bookVersion=7},{chapterUid=11}
+    local book,chapter={book_id=options.book_id or 'synthetic-dom',bookVersion=7},{chapterUid=11}
     local render='<html><body>'..text..'</body></html>'
     local root='/body/DocFragment[1]'
-    local path='OEBPS/text/chapter-001.xhtml'
+    local path=options.path or 'OEBPS/text/chapter-001.xhtml'
     local source=assert(Source.capture(book,chapter,raw,options.format or 'web_xhtml'))
     local identity=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(render))
     local meta=assert(Source.bind(source,assert(Identity.decode(identity)),path,Crypto.sha256_hex(render)))
     local archive={ [Identity.PATH]=identity,[Source.meta_path(11)]=meta,[path]=render,
         [Source.raw_path(source.raw_sha256)]=raw,
-        ['OEBPS/content.opf']='<package><manifest><item id="c" href="text/chapter-001.xhtml"/></manifest><spine><itemref idref="c"/></spine></package>' }
+        ['OEBPS/content.opf']='<package><manifest><item id="c" href="'..path:sub(7)..'"/></manifest><spine><itemref idref="c"/></spine></package>' }
     local physical,starts={},{}
     local at=1
     for _,character in ipairs(chars(text)) do
@@ -242,4 +242,24 @@ for _,bad_anchor in ipairs({{}, {co=point.co,text='short',point_offset=0,basis='
     expect(not native_index:locate_anchor(bad_anchor),'unbounded/invalid prepared anchor accepted')
 end
 expect(not Dom.open_prepared(prepared_doc,'other',metadata),'foreign prepared metadata accepted')
+local _,_,direct_doc,direct_archive=fixture(raw,text,{book_id='42',path='OEBPS/text/chapter.xhtml'})
+direct_doc.getHTMLFromXPointers=function(self) return self:getHTMLFromXPointer() end
+direct_archive[Source.meta_path(11)]=nil
+local direct_identity=Identity.read_document(direct_doc,'42')
+local direct_read=direct_doc.getDocumentFileContent
+direct_doc.getDocumentFileContent=function(self,name)
+    expect(name==Identity.PATH or name=='OEBPS/content.opf','direct DOM read source or rendered bytes on UI thread')
+    return direct_read(self,name)
+end
+local direct=assert(Dom.open_direct_prepared(direct_doc,'42','11',direct_identity,{is_current=function() return true end}))
+local direct_point=assert(direct:locate_anchor(assert(map:anchor(point.co))))
+expect(direct_point.co==point.co and direct_point.xpointer==located.xpointer,'direct chapter anchor changed')
+expect(not Dom.open_direct_prepared(direct_doc,'43','11',direct_identity,{is_current=function() return true end}),
+    'foreign direct book accepted')
+expect(not Dom.open_direct_prepared(direct_doc,'42','11',direct_identity,{}),'unguarded direct DOM accepted')
+local bad_identity={book_id='42',file_id=direct_identity.file_id}
+expect(not Dom.open_direct_prepared(direct_doc,'42','11',bad_identity,{is_current=function() return true end}),
+    'direct file without a version accepted')
+expect(not Dom.open_direct_prepared(direct_doc,'42','11',direct_identity,{is_current=function() return false end}),
+    'stale direct reader accepted')
 print(('source_dom_spec: %d checks'):format(checks))

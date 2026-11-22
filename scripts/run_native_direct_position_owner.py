@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -43,8 +44,13 @@ def main(argv=None):
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
                 WEREAD_DIRECT_OWNER_TMPFS='1')
             phase='native_chapter'
-            code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_ui_probe.lua'),
-                str(plugin)],env,raw,runtime,timeout=180)
+            code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                str(plugin),str(REPO/'spec/koreader/native_direct_owner_ui_probe.lua')],env,raw,runtime,timeout=180)
+            if code:
+                report['probe_exit']=code
+                match=re.search(rb'native_direct_owner_ui_probe\.lua:(\d+)',out)
+                if not match:match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                if match:report['probe_line']=int(match.group(1))
             prepared=frame(out,b'WEREAD_DIRECT_OWNER=')
             if not prepared.get('ok'):
                 if prepared.get('reason') in {'auth_expired','rate_limited','service_rejected','unavailable','not_entitled'}:
@@ -55,14 +61,21 @@ def main(argv=None):
             if not path.is_file() or profile not in path.parents:raise ValueError('path')
             phase='reader_position'
             private=dict(path=str(path),book_id=payload['book_id'],uid=payload['uid'],credentials=payload['credentials'],
-                web_cookies=payload['web_cookies'])
+                web_cookies=payload['web_cookies'],cloud=payload.get('cloud') is True,start_page=payload.get('start_page',1))
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_position_probe.lua'),
                 str(plugin)],env,json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=180)
             position=frame(out,b'WEREAD_DIRECT_OWNER_POSITION=')
             if position.get('ok') is False and position.get('reason') in {'invalid','unavailable','source_changed',
-                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited'}:
+                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited','cloud_changed'}:
                 report['reason']=position['reason']
-            if (code or repaint or set(position)!={'ok','text','point_offset','offset'} or position['ok'] is not True
+            fields={'ok','text','point_offset','offset'}
+            if private['cloud']:
+                fields|={'relation','opened'}
+                if position.get('opened') is True:fields.add('target')
+                if (position.get('relation') not in {'same','no_chapter','other_chapter','target_unavailable','different'}
+                        or type(position.get('opened')) is not bool
+                        or position['opened']!=(position['relation']=='different')):raise ValueError('cloud')
+            if (code or repaint or set(position)!=fields or position['ok'] is not True
                     or not isinstance(position['text'],str) or not 1<=len(position['text'].encode())<=8192
                     or type(position['point_offset']) is not int or type(position['offset']) is not int):
                 raise ValueError('position')

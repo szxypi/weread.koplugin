@@ -23,10 +23,15 @@ function M.cancel(host)
     if host._native_direct_position_worker then host._native_direct_position_worker:cancel() end
     if ctx.web_job and host.source_recovery then host.source_recovery:cancel(ctx.web_job) end
     Recovery.cancel(host,ctx.native_job or {})
+    if ctx.confirm then UI:close(ctx.confirm);ctx.confirm=nil end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
     ctx.busy,ctx.thread,ctx.input=nil,nil,nil
 end
-function M.start(host,entry)
+function M.on_view_changed(host)
+    local ctx=host._native_direct_position
+    if ctx and not ctx.committing and ctx.is_current and not ctx.is_current() then M.cancel(host) end
+end
+function M.start(host,entry,options)
     local reader=host.ui;local doc=reader and reader.document
     local scope=host.settings:get_auth_scope()
     if not doc or not scope or not host.settings:auth_scope_matches(scope)
@@ -50,6 +55,7 @@ function M.start(host,entry)
     end
     M.cancel(host)
     local ctx={reader=reader,document=doc,file=doc.file,scope=scope,entry=entry,identity=identity,location=location,
+        compare=options and options.cloud==true or false,
         session=host._reader_session_gen or 0,account=host.library_db and host.library_db:accountKey(),native=native,web=web}
     host._native_direct_position=ctx
     local function page_current()
@@ -64,12 +70,14 @@ function M.start(host,entry)
     local function access_current()
         return NativeAccess.matches(host.settings,ctx.native) and Currentness.matches(host.settings,ctx.web)
     end
+    ctx.is_current=function() return page_current() and access_current() end
     local function fail(message)
         if host._native_direct_position~=ctx then return end
         local live=page_current();M.cancel(host)
         if live then host:showInfo(_(message or 'Could not check this reading position.')) end
     end
-    host:showBusy(_('Checking the current reading position...'),function() M.cancel(host) end);ctx.busy=host.busy_message
+    host:showBusy(_(ctx.compare and 'Checking cloud reading position...' or 'Checking the current reading position...'),
+        function() M.cancel(host) end);ctx.busy=host.busy_message
     if not host._native_direct_position_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
             scheduler=UI,codec=host.client,max_bytes=65536,timeout=180} end)
@@ -115,6 +123,11 @@ function M.start(host,entry)
                 return host.settings:auth_scope_matches(scope) and NativeAccess.matches(host.settings,selected_native)
                     and Currentness.matches(host.settings,selected_web)
             end
+            if ctx.compare then
+                local value,why=require('weread.lib.native_direct_cloud').prepare(host.client,host.settings,
+                    entry,ctx.file,ctx.input,selected_native,selected_web,active)
+                return value and {comparison=value} or {error=why or 'unavailable'}
+            end
             local value,why=require('weread.lib.native_direct_position').prepare(host.client,host.settings,
                 entry,ctx.file,ctx.input,selected_native,selected_web,active)
             return value and {position=value} or {error=why or 'unavailable'}
@@ -123,14 +136,122 @@ function M.start(host,entry)
             if not page_current() or not access_current() then M.cancel(host);return end
             if type(result)=='table' and result.error=='web_expired' then renew_web();return end
             if type(result)=='table' and result.error=='auth_expired' then renew_native();return end
-            local p=type(result)=='table' and result.position
+            local comparison=type(result)=='table' and result.comparison
+            local p
+            if ctx.compare then p=type(comparison)=='table' and comparison.position
+            else p=type(result)=='table' and result.position end
             if type(p)~='table' or p.book_id~=entry.book_id or p.chapter_uid~=entry.chapter_uid
                 or p.chapter_idx~=entry.chapter_idx or p.file_id~=entry.file_id or p.book_version~=entry.book_version
                 or p.raw_sha256~=entry.source_sha256 or p.basis~='filtered_xhtml_utf16'
                 or p.source_current~=true or p.upload_verified~=false or not Protocol.integer(p.chapter_offset,0,2147483647) then
                 local message=type(result)=='table' and result.error=='source_changed'
-                    and 'The chapter source changed, so the reading position could not be checked.' or nil
+                    and 'The chapter source changed, so the reading position could not be checked.'
+                    or type(result)=='table' and result.error=='cloud_changed'
+                    and 'The cloud position changed during the check. Your current page is kept.'
+                    or type(result)=='table' and result.error=='rate_limited'
+                    and 'WeRead is limiting requests. Please try again later.' or nil
                 fail(message);return
+            end
+            if ctx.compare then
+                local relation=comparison.relation
+                local messages={same='The current page matches the cloud reading position.',
+                    no_chapter='There is no cloud reading position yet. Your current page is kept.',
+                    other_chapter='The cloud reading position is in another chapter. Your current page is kept.',
+                    target_unavailable='The cloud position could not be located in this chapter. Your current page is kept.'}
+                if messages[relation] then M.cancel(host);host:showInfo(_(messages[relation]));return end
+                local anchor=comparison.anchor
+                if relation~='different' or type(anchor)~='table' or anchor.co~=comparison.cloud_offset
+                    or comparison.cloud_offset==p.chapter_offset
+                    or not Protocol.integer(anchor.co,0,2147483647) or anchor.basis~='filtered_xhtml_utf16'
+                    or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12
+                    or #anchor.text>8192 or not Protocol.integer(anchor.point_offset,0,8192) then fail();return end
+                if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
+                local confirm
+                confirm=require('ui/widget/confirmbox'):new{
+                    text=_('The cloud position differs from this page. Open the cloud position in this chapter?'),
+                    ok_text=_('Open cloud position'),cancel_text=_('Keep current page'),keep_dialog_open=true,
+                    cancel_callback=function()
+                        if host._native_direct_position==ctx and ctx.confirm==confirm then
+                            ctx.confirm=nil;M.cancel(host)
+                        end
+                    end,
+                    ok_callback=function()
+                        if not page_current() or not access_current() then M.cancel(host);return end
+                        UI:close(confirm);ctx.confirm=nil
+                        host:showBusy(_('Locating cloud reading position...'),function() M.cancel(host) end);ctx.busy=host.busy_message
+                        local locate
+                        ctx.thread=coroutine.create(function()
+                            local first,last=true,os.clock()
+                            local index=require('weread.lib.source_dom').open_direct_prepared(doc,entry.book_id,entry.chapter_uid,identity,{
+                                is_current=function() return page_current() and access_current() end,
+                                yield=function()
+                                    if first or os.clock()-last>=0.02 then first=false;coroutine.yield();last=os.clock() end
+                                end,
+                            })
+                            return index and index:locate_anchor(anchor) or nil
+                        end)
+                        locate=function()
+                            ctx.task=nil
+                            if not page_current() or not access_current() then M.cancel(host);return end
+                            local ok,point=coroutine.resume(ctx.thread)
+                            if not ok then fail();return end
+                            if coroutine.status(ctx.thread)~='dead' then
+                                ctx.task=locate;UI:scheduleIn(0.1,ctx.task);return
+                            end
+                            ctx.thread=nil
+                            if type(point)~='table' or point.co~=anchor.co or point.book_id~=entry.book_id
+                                or point.chapter_uid~=entry.chapter_uid or point.file_id~=entry.file_id
+                                or point.render_path~='OEBPS/text/chapter.xhtml' or type(point.xpointer)~='string'
+                                or #point.xpointer>4096 or not page_current() or not access_current() then
+                                fail('The cloud position could not be located in this chapter. Your current page is kept.');return
+                            end
+                            -- The confirmation and DOM walk may take time. Re-read
+                            -- both sources and cloud state before moving the page.
+                            local native_now,web_now=ctx.native,ctx.web
+                            local called,started=pcall(host._native_direct_position_worker.start,host._native_direct_position_worker,function()
+                                local function active()
+                                    return host.settings:auth_scope_matches(scope) and NativeAccess.matches(host.settings,native_now)
+                                        and Currentness.matches(host.settings,web_now)
+                                end
+                                local value,why=require('weread.lib.native_direct_cloud').prepare(host.client,host.settings,
+                                    entry,ctx.file,ctx.input,native_now,web_now,active)
+                                return value and {comparison=value} or {error=why or 'unavailable'}
+                            end,function(fresh)
+                                if host._native_direct_position~=ctx then return end
+                                if not page_current() or not access_current() then M.cancel(host);return end
+                                local next_value=type(fresh)=='table' and fresh.comparison
+                                local next_point=type(next_value)=='table' and next_value.position
+                                local next_anchor=type(next_value)=='table' and next_value.anchor
+                                local same=type(next_point)=='table' and type(next_anchor)=='table'
+                                    and next_value.relation=='different' and next_value.cloud_offset==comparison.cloud_offset
+                                if same then
+                                    for _,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','file_id',
+                                        'book_version','raw_sha256','basis','source_current','upload_verified'}) do
+                                        if next_point[key]~=p[key] then same=false end
+                                    end
+                                    for _,key in ipairs({'co','text','point_offset','point_unit','basis'}) do
+                                        if next_anchor[key]~=anchor[key] then same=false end
+                                    end
+                                end
+                                if not same then fail('The cloud position changed during the check. Your current page is kept.');return end
+                                local geometry=require('weread.lib.reader_position')
+                                ctx.committing=true
+                                local applied=geometry.goto_xpointer(reader,point.xpointer)
+                                ctx.committing=false
+                                local frame=geometry.snapshot(doc,reader.view and reader.view.view_mode,
+                                    host.progress_sync and host.progress_sync.get_viewport_height and host.progress_sync.get_viewport_height())
+                                local verified=applied and geometry.contains_anchor(doc,frame,point.xpointer)
+                                if host._native_direct_position~=ctx then return end
+                                M.cancel(host)
+                                host:showInfo(_(verified and 'Opened the cloud reading position in this chapter.'
+                                    or 'Could not confirm the cloud position. Please check the current page.'))
+                            end)
+                            if not called or not started then fail() end
+                        end
+                        ctx.task=locate;UI:scheduleIn(0.1,ctx.task)
+                    end,
+                }
+                ctx.confirm=confirm;UI:show(confirm);return
             end
             M.cancel(host)
             host:showInfo(_('The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'))

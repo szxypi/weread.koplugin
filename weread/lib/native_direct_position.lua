@@ -18,7 +18,7 @@ local function same(first,second)
     return true
 end
 M.same=same
-function M.prepare(client,settings,entry,file,context,native,web,current)
+function M.prepare(client,settings,entry,file,context,native,web,current,target_offset)
     local function active()
         local ok,value=pcall(current)
         return ok and value==true and NativeAccess.matches(settings,native) and Currentness.matches(settings,web)
@@ -33,7 +33,8 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         or context.book_id~=entry.book_id or context.chapter_uid~=entry.chapter_uid
         or context.file~=file or type(context.identity)~='table' or context.identity.file_id~=entry.file_id
         or context.identity.book_id~=entry.book_id or context.identity.book_version~=entry.book_version
-        or context.render_path~='OEBPS/text/chapter.xhtml' or not active() then return nil,'invalid' end
+        or context.render_path~='OEBPS/text/chapter.xhtml'
+        or target_offset~=nil and not Protocol.integer(target_offset,0,2147483647) or not active() then return nil,'invalid' end
     local ok,result=pcall(function()
         local first=Cache.identify(settings,native.scope.vid,file,active)
         if not same(first,entry) then return {error='file_changed'} end
@@ -52,11 +53,17 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         if not map then return {error='source_unsupported'} end
         local offset=Worker.locate_verified_map(map,context.text,context.point_offset)
         if not Protocol.integer(offset,0,2147483647) then return {error='anchor_unavailable'} end
+        local target
+        if target_offset~=nil then
+            target=map:anchor(target_offset,{segment_only=true}) or map:anchor(target_offset)
+            local reverse=target and map:locate_point(target.text,target.point_offset)
+            if not reverse or reverse.co~=target_offset then target=nil end
+        end
         local later=Cache.identify(settings,native.scope.vid,file,active)
         if not same(later,entry) or not active() then return {error='file_changed'} end
         return {position={book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
             chapter_offset=offset,file_id=entry.file_id,book_version=entry.book_version,raw_sha256=entry.source_sha256,
-            basis='filtered_xhtml_utf16',source_current=true,upload_verified=false}}
+            basis='filtered_xhtml_utf16',source_current=true,upload_verified=false},anchor=target}
     end)
     if not ok then
         if not active() then return nil,'session_changed' end
@@ -65,6 +72,6 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         return nil,'unavailable'
     end
     if result.error then return nil,result.error end
-    return result.position
+    return result.position,nil,result.anchor
 end
 return M

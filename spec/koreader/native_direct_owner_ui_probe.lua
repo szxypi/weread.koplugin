@@ -42,7 +42,7 @@ local function wait(predicate)
         UIManager:setInputTimeout(0);UIManager:handleInput();socket.sleep(.01)
     end
 end
-local result
+local result,failure
 local worker=require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=client,max_bytes=8*1024*1024,timeout=180}
 local host={settings=settings,client=client,discovery_epoch=1,_reader_session_gen=1,
     library_db={accountKey=function() return 'synthetic' end,getChapters=function() return {} end},ui={},isNetworkConnected=function() return true end,
@@ -61,6 +61,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     _native_direct_worker={cancel=function() worker:cancel() end,start=function(_,task,callback)
         return worker:start(task,function(value)
             if type(value)=='table' and value.source_sha256 then result=value end
+            if type(value)=='table' and value.error then failure=value.error end
             callback(value)
         end)
     end}}
@@ -78,6 +79,11 @@ assert(index and menu.item_table[index].select_enabled)
 assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position and notes do not sync to WeRead.'))
 menu:onMenuSelect(menu.item_table[index])
 wait(function() return host.failed or host.opened end)
+if host.failed then
+    local allowed={not_entitled=true,auth_expired=true,rate_limited=true,service_rejected=true,session_changed=true,
+        catalog_changed=true,unavailable=true,invalid_source=true,invalid_image=true,remote_unsupported=true,storage=true}
+    print('WEREAD_DIRECT_OWNER='..json.encode{ok=false,reason=allowed[failure] and failure or 'unavailable'});return
+end
 assert(not host.failed and result and result.source_sha256==input.source_sha256
     and result.book_version==input.book_version and not host._native_direct_reading and not host.busy_message)
 local first_path,first_missing=host.opened,result.missing_images

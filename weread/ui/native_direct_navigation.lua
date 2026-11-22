@@ -142,6 +142,11 @@ function M.start(host,direction)
                 local entry=ctx.entry;M.cancel(host)
                 require('weread.ui.native_direct_position').start(host,entry)
             end,
+            on_native_cloud_position=function()
+                if not current() then return end
+                local entry=ctx.entry;M.cancel(host)
+                require('weread.ui.native_direct_position').start(host,entry,{cloud=true})
+            end,
             on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
             on_search=function() if current() then M.cancel(host);host:showSearch() end end,
             on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,

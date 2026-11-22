@@ -7,7 +7,8 @@ local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_s
     file_id=string.rep('a',64),key=string.rep('b',64),copy=0,catalog_sha256=string.rep('c',64),
     catalog_order=2,catalog_count=3,catalog_prev='36',catalog_next='38'}
 local scope={vid='123',epoch=1};local native={scope=scope};local web={web={cookies={wr_vid='123'}}}
-local live=true;local source_changed=false;local file_changed=false;local web_error;local anchor_ok=true;local source_requests=0;local web_requests=0
+local live=true;local source_changed=false;local file_changed=false;local web_error;local anchor_ok=true
+local target_reversible=true;local source_requests=0;local web_requests=0
 package.preload['weread.lib.native_direct_cache']=function() return {
     valid_entry=function(e,id,account) return e==entry and id=='42' and account=='123' end,
     identify=function() if file_changed then return nil end;return entry end,
@@ -23,7 +24,10 @@ package.preload['weread.lib.source_currentness']=function() return {
     fetch=function(_,expected) web_requests=web_requests+1;if web_error then error(web_error,0) end;return expected end,
     packet=function(actual,expected) return actual==expected end,
 } end
-package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {} end} end
+package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {
+    anchor=function(_,co) return {co=co,text='valid target anchor',point_offset=2} end,
+    locate_point=function() return target_reversible and {co=2000} or nil end,
+} end} end
 package.preload['weread.lib.source_position_worker']=function() return {MAX_CONTEXT_BYTES=8192,
     locate_verified_map=function() return anchor_ok and 1234 or nil end} end
 local Position=require('weread.lib.native_direct_position')
@@ -34,7 +38,12 @@ local value=check();local reason
 expect(value and value.chapter_offset==1234 and value.basis=='filtered_xhtml_utf16'
     and value.source_current and value.upload_verified==false,'matching source did not produce read-only position')
 expect(source_requests==1 and web_requests==1,'position proof did not read each source')
-source_changed=true;value,reason=check();expect(not value and reason=='source_changed' and web_requests==1,'changed native source reached web proof')
+local _,_,target=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,2000)
+expect(target and target.co==2000,'verified target anchor missing')
+target_reversible=false;_,_,target=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,2000)
+expect(not target,'non-reversible target anchor accepted');target_reversible=true
+local previous_web_requests=web_requests
+source_changed=true;value,reason=check();expect(not value and reason=='source_changed' and web_requests==previous_web_requests,'changed native source reached web proof')
 source_changed=false;file_changed=true;value,reason=check();expect(not value and reason=='file_changed','unverified file accepted')
 file_changed=false;web_error='source_currentness/source_changed';value,reason=check();expect(not value and reason=='source_changed','web mismatch accepted')
 web_error='source_currentness/web_expired';value,reason=check();expect(not value and reason=='web_expired','expired web login lost its classification')
