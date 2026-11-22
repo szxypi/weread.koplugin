@@ -245,6 +245,10 @@ function M:showDiscoverySearch(initial_keyword)
                 Popup.close(owner)
                 self:loadDiscoveryBatch('search',keyword,0,false,false,{public_search=true})
             end },
+        },{
+            { text = _("Recent searches"), callback = function()
+                if valid() then require("weread.ui.recent_searches").open(self, dialog) end
+            end },
         }},
     }
     local on_close=dialog.onCloseWidget
@@ -403,6 +407,11 @@ function M:cancelDiscoveryRequest()
 end
 
 function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
+    if kind=='search' and cursor==0 and not previous and not refresh then
+        pcall(function()
+            require('weread.lib.recent_searches').record(self,keyword,type(context)=='table' and context.public_search==true or false)
+        end)
+    end
     return require("weread.ui.discovery_request").load(self, kind, keyword, cursor, previous, refresh, context)
 end
 

@@ -293,6 +293,7 @@ local popup_cases=0
 local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
 local saved_searches=dofile(fixtures..'saved_searches_case.lua')(plugin,mode,pump,evidence)
+local recent_searches=dofile(fixtures..'recent_searches_case.lua')(plugin,mode,pump,evidence)
 local home_refresh_cases=dofile(fixtures..'home_refresh_failure_case.lua')(plugin,pump)
 local incomplete_shelf=dofile(fixtures..'shelf_incomplete_case.lua')(plugin)
 for _kind_index,kind in ipairs({'sort','filter','search'}) do
@@ -605,7 +606,7 @@ end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
-report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
+report.volatile_restart=true;report.saved_searches=saved_searches;report.recent_searches=recent_searches;report.incomplete_shelf=incomplete_shelf
 report.mixed_group_identities=true
 report.uncertain_group_membership=true
 report.download_identity=true

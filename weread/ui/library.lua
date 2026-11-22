@@ -266,6 +266,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    self._guest_recent_searches=nil
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     self._resume_chapter_prefetch=nil
