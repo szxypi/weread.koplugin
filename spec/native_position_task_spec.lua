@@ -98,6 +98,19 @@ for _i,kind in ipairs({'accepted','delayed','noack','changed'}) do
     expect(kind~='delayed' or out.readbacks==3 and f.waits==2)
     f.run();expect(f.posts==1,'initial operation repeated')
 end
+-- XHTML may start without a server summary. A missing post-write summary is
+-- not evidence that the requested summary was saved, even after an ACK.
+local function missing_fixture(after_missing)
+    local raw=progress(before);raw.book.summary=nil
+    local initial=fixture();initial.record.metadata.basis='filtered_xhtml_utf16'
+    initial.record.metadata.before=assert(State.from_missing_summary(raw,'41'));initial.saved=F.clone(initial.record)
+    local returned=progress(after);if after_missing then returned.book.summary=nil end
+    initial.queue={{bookId='41',version=0},raw,shelf,{feature={}},{succ=1},returned,shelf}
+    return initial
+end
+f=missing_fixture(false);out=f.run();expect(out.kind=='confirmed' and f.posts==1 and f.saved.phase=='verified')
+f=missing_fixture(true);out=f.run();expect(out.kind=='unconfirmed' and f.posts==1 and f.saved.phase=='acknowledged')
+out=f.resolve();expect(out.kind=='unconfirmed' and f.posts==1,'missing readback summary caused a replay')
 -- Optional diagnostics expose a fixed label only, before any transport claim.
 f=fixture();f.options.diagnose_preflight=true;f.queue[2]=progress(after)
 out=f.run();expect(out.kind=='unavailable' and out.preflight_failure=='changed' and f.posts==0)

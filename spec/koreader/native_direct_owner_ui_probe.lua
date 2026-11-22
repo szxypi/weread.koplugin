@@ -68,7 +68,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
 host:showBookMenu({book_id=input.book_id,title='Synthetic native book',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
 for _,button in ipairs(view._action_buttons) do
-    if button.text==require('weread.lib.plugin_util').tr('Read E-Ink chapter (local only)') then action=button end
+    if button.text==require('weread.lib.plugin_util').tr('Read E-Ink chapter') then action=button end
 end
 assert(action and action.enabled~=false);action.callback()
 wait(function() return host.failed or host._native_direct_reading and host._native_direct_reading.menu end)
@@ -76,7 +76,7 @@ assert(not host.failed)
 local ctx=assert(host._native_direct_reading);local menu=assert(ctx.menu);local index
 for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
 assert(index and menu.item_table[index].select_enabled)
-assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position and notes do not sync to WeRead.'))
+assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position can be synced manually. Notes do not sync yet.'))
 menu:onMenuSelect(menu.item_table[index])
 wait(function() return host.failed or host.opened end)
 if host.failed then

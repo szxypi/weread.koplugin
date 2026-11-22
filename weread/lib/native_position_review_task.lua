@@ -33,7 +33,8 @@ function M.run(client,settings,access,record,journal,gate)
                 assert(P.integer(info[key],0,2147483647) and (version==nil or version==info[key]),'native_position/version');version=info[key]
             end end
             assert(version~=nil,'native_position/version')
-            local snapshot=State.snapshot(auth:_request('position_progress',BASE..'/book/getProgress?bookId='..id,nil,access.credentials),id)
+            local snapshot=State.snapshot(auth:_request('position_progress',BASE..'/book/getProgress?bookId='..id,nil,access.credentials),id,
+                {allow_missing_summary=record.metadata.basis=='filtered_xhtml_utf16'})
             local value={point=snapshot.position,counts=snapshot.counts,version=version,shelf_sha256=Shelf.state_hash(auth:read_shelf(access.credentials))}
             assert(O.valid(value) and current(),'native_position/stale')
             out.readbacks=_i

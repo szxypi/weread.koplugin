@@ -35,6 +35,8 @@ package.preload['weread.lib.native_read_recovery']=function() return {cancel=fun
 end} end
 local why
 local cloud_relation='different';local cloud_error;local cloud_offset=200;local cloud_stamp=string.rep('e',64);local target_error
+local upload_offset,upload_pending,upload_started,upload_accepted,upload_cancelled,review_archived
+local upload_callback,upload_guard,review_pending
 package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if why then return nil,why end
@@ -42,6 +44,31 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
         file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
         source_current=true,upload_verified=false}
 end} end
+package.preload['weread.lib.native_direct_upload_preview']=function() return {prepare=function(_,_,e,file,context,n,w,active)
+    assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
+    if why then return nil,why end
+    local point={book_id=e.book_id,chapter_uid=e.chapter_uid,chapter_idx=e.chapter_idx,chapter_offset=123,
+        file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
+        source_current=true,upload_verified=false}
+    return {position=point,before={book_id='42',chapter_uid='37',chapter_idx=2,chapter_offset=upload_offset,
+        raw_percent=10,summary='previous summary'},desired={book_id='42',chapter_uid='37',chapter_idx=2,
+        chapter_offset=123,raw_percent=10,summary='new summary'},counts={readingTime=1,recordReadingTime=2,ttsTime=0},
+        version=7,shelf_sha256=string.rep('d',64),source_sha256=e.source_sha256,file_id=e.file_id,
+        basis='filtered_xhtml_utf16',dispatch_authorized=false}
+end} end
+package.preload['weread.lib.native_position_service']=function() return {new=function() return {
+    pending=function() return upload_pending end,cancel=function() upload_cancelled=true end,
+    start=function(_,metadata,guard,callback)
+        assert(not in_worker and guard() and metadata.desired.chapter_offset==123)
+        upload_started=upload_started+1;upload_callback,upload_guard=callback,guard;return true
+    end,accept=function(_,token) assert(token=='valid');upload_accepted=true;return true end,
+} end} end
+package.preload['weread.lib.native_position_review']=function() return {new=function() return {
+    cancel=function() end,current=function(_,token) return token=='review' end,
+    start=function(_,guard,callback,pending)
+        assert(not in_worker and guard() and pending==review_pending);callback({kind='observed',percent=10},'review');return true
+    end,archive=function(_,token) assert(token=='review');review_archived=true;return true end,
+} end} end
 package.preload['weread.lib.native_direct_cloud']=function() return {valid_target=function(v)
     return type(v)=='table' and v.book_id=='42' and type(v.stamp)=='string' end,
     same_target=function(a,b)
@@ -82,11 +109,12 @@ package.preload['weread.lib.reader_position']=function() return {
 local Position=require('weread.ui.native_direct_position')
 local function fixture()
     scheduled={};shown=nil;page=1;current=true;why=nil;account='owner';cloud_relation='different';cloud_error=nil;cloud_offset=200
-    cloud_stamp=string.rep('e',64);target_error=nil
+    cloud_stamp=string.rep('e',64);target_error=nil;upload_offset=200;upload_pending=nil;upload_started=0
+    upload_accepted=false;upload_cancelled=false;review_archived=false;upload_callback=nil;upload_guard=nil
     local s={jobs={},infos=0};local doc={file='/tmp/weread/native-reader-v1/file.epub'}
     local host={ui={document=doc,view={view_mode='page'}},_reader_session_gen=1,client={},
         settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,sco) return sco==scope and current end},
-        library_db={accountKey=function() return account end},isNetworkConnected=function() return true end,
+        library_db={accountKey=function() return account end,open=function() end},isNetworkConnected=function() return true end,
         showBusy=function(self,_,cancel) self.busy_message={};s.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) s.infos=s.infos+1;s.message=message end,
@@ -103,7 +131,7 @@ local function fixture()
     return host,s
 end
 local host,s=fixture();expect(Position.start(host,entry),'position action did not start');s.capture();s.result(1)
-expect(s.message=='The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'
+expect(s.message=='The local reading position was checked against the chapter source.'
     and not host._native_direct_position,'read-only success not reported')
 host,s=fixture();Position.start(host,entry);s.capture();in_worker=true;local stale=s.jobs[1].task();in_worker=false;page=2;s.jobs[1].callback(stale)
 expect(s.infos==0 and not host._native_direct_position,'changed viewport accepted stale source point')
@@ -154,4 +182,36 @@ expect(s.infos==1 and shown==nil and page==1,'inconsistent worker comparison was
 host,s=fixture();cloud_error='cloud_changed';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
 expect(s.message=='The cloud position changed during the check. Your current page is kept.' and page==1,
     'changed remote state did not stop navigation')
+host,s=fixture();expect(Position.start(host,entry,{upload=true}),'upload action did not start');s.capture();s.result(1)
+expect(shown and shown.ok_callback and upload_started==0,'upload skipped confirmation')
+shown.ok_callback();expect(#s.jobs==2 and upload_started==0,'upload skipped fresh proof');s.result(2)
+expect(upload_started==1 and upload_guard(),'verified upload was not dispatched')
+upload_callback({kind='confirmed',attempted=true},'valid')
+expect(upload_accepted and s.message=='Cloud reading position synced and checked.' and not host._native_direct_position,
+    'confirmed receipt was not accepted')
+host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.cancel_callback()
+expect(upload_started==0 and upload_cancelled and not host._native_direct_position,'cancel dispatched upload')
+host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();upload_offset=201;s.result(2)
+expect(upload_started==0 and s.message=='The cloud position changed during the check. Your current page is kept.',
+    'changed cloud baseline was uploaded')
+host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);page=2;shown.ok_callback()
+expect(upload_started==0 and not host._native_direct_position,'changed page dispatched upload')
+host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();s.result(2)
+upload_callback({kind='unconfirmed',attempted=true},nil)
+expect(not upload_accepted and s.message=='The sync result could not be confirmed. Choose sync again to review it.',
+    'unconfirmed write was reported successful')
+host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();s.result(2)
+page=2;Position.on_view_changed(host);upload_callback({kind='confirmed',attempted=true},'valid')
+expect(upload_cancelled and not upload_accepted and s.infos==0 and not host._native_direct_position,
+    'changed page accepted a late upload receipt')
+host,s=fixture();upload_offset=123;Position.start(host,entry,{upload=true});s.capture();s.result(1)
+expect(upload_started==0 and s.message=='The current page matches the cloud reading position.','matching position was rewritten')
+host,s=fixture();review_pending={phase='pending'};upload_pending=review_pending
+Position.start(host,entry,{upload=true});expect(shown and upload_started==0,'pending write skipped review')
+shown.ok_callback();expect(shown and shown.ok_callback and not review_archived,'review skipped archival choice')
+shown.ok_callback();expect(review_archived and upload_started==0
+    and s.message=='Previous result archived. Choose sync again to check the current page.','pending review sent or erased without choice')
+host=fixture();review_pending={phase='pending'};upload_pending=review_pending
+Position.start(host,entry,{upload=true});shown.cancel_callback()
+expect(not review_archived and upload_started==0 and not host._native_direct_position,'cancelled review changed pending record')
 print('PASS: native position UI checks live page and never touches document from worker ('..checks..' checks)')

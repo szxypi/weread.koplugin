@@ -1,5 +1,5 @@
 -- Read-only preparation for a native chapter upload. The result is not a
--- dispatch grant: the position journal does not accept this source basis.
+-- dispatch grant; the UI must recheck it before using the position service.
 local Access=require('weread.lib.native_read_access')
 local Currentness=require('weread.lib.source_currentness')
 local Auth=require('weread.lib.native_authorization')
@@ -17,7 +17,10 @@ local function web_matches(raw,before)
         return empty~=nil
     end
     local p,why,provided=Remote.project(raw,before.book_id,'web')
-    return not why and p~=nil and provided.chapter_uid and provided.chapter_idx and provided.chapter_offset
+    local node=Remote.node(raw,before.book_id)
+    local summary_matches=node and (State.missing_summary(before) and node.summary==nil and node.chapterTitle==nil
+        or not State.missing_summary(before) and node.summary==before.summary)
+    return summary_matches and not why and p~=nil and provided.chapter_uid and provided.chapter_idx and provided.chapter_offset
         and tostring(p.chapter_uid)==before.chapter_uid and p.chapter_idx==before.chapter_idx
         and p.chapter_offset==before.chapter_offset and p.raw_percent==before.raw_percent
 end
@@ -35,7 +38,8 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         local base='https://i.weread.qq.com'
         local encoded=Protocol.urlencode(entry.book_id)
         local function snapshot()
-            return State.snapshot(auth:_request('position_progress',base..'/book/getProgress?bookId='..encoded,nil,native.credentials),entry.book_id)
+            return State.snapshot(auth:_request('position_progress',base..'/book/getProgress?bookId='..encoded,nil,native.credentials),entry.book_id,
+                {allow_missing_summary=true})
         end
         local info=auth:_request('position_metadata',base..'/book/info?bookId='..encoded,nil,native.credentials)
         if P.id(info.bookId)~=entry.book_id then return {error='source_changed'} end

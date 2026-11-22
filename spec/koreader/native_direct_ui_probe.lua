@@ -49,13 +49,13 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
 host:showBookMenu({book_id='42',title='Synthetic native book',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
 for _,button in ipairs(view._action_buttons) do
-    if button.text==require('weread.lib.plugin_util').tr('Read E-Ink chapter (local only)') then action=button end
+    if button.text==require('weread.lib.plugin_util').tr('Read E-Ink chapter') then action=button end
 end
 assert(action and action.enabled~=false);action.callback()
 wait(function() return host._native_direct_reading and host._native_direct_reading.menu end)
 local menu=host._native_direct_reading.menu
 assert(#menu.item_table==1 and menu.item_table[1].select_enabled)
-assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position and notes do not sync to WeRead.'))
+assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position can be synced manually. Notes do not sync yet.'))
 menu:onMenuSelect(menu.item_table[1])
 wait(function() return host.opened~=nil end)
 assert(not host._native_direct_reading and not host.busy_message)

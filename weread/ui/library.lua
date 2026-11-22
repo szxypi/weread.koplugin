@@ -1608,10 +1608,10 @@ function M:showBookMenu(book)
         end)}
     end
     if require('weread.lib.native_position_protocol').id(book_id) then
-        actions[#actions+1]={text=_('Read E-Ink chapter (local only)'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
+        actions[#actions+1]={text=_('Read E-Ink chapter'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
         end)}
-        actions[#actions+1]={text=_('Read saved E-Ink chapter (local only)'),callback=self:safeCallback(_('Read saved E-Ink chapter'),function()
+        actions[#actions+1]={text=_('Read saved E-Ink chapter'),callback=self:safeCallback(_('Read saved E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{cached=true}) end
         end)}
     end

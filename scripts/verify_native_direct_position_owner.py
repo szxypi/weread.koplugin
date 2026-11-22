@@ -59,6 +59,7 @@ def main(argv=None):
     parser.add_argument('--start-page',type=int,choices=range(1,21),default=1)
     parser.add_argument('--cloud',action='store_true',help='Also check cloud comparison and local navigation')
     parser.add_argument('--upload-preview',action='store_true',help='Read-only native upload preflight; no dispatch')
+    parser.add_argument('--upload-dry-run',action='store_true',help='Exercise UI and block the native POST')
     parser.add_argument('--current-cloud-chapter',action='store_true',help='Select the explicit readable cloud chapter')
     parser.add_argument('--cloud-denied',action='store_true',help='Exercise a confirmed unavailable cloud chapter')
     parser.add_argument('--cloud-cross',action='store_true',help='Exercise a confirmed readable cloud chapter across files')
@@ -66,6 +67,7 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
     if args.upload_preview and (not args.cloud or args.cloud_cross or args.cloud_denied):parser.error('upload preview requires --cloud without cross or denied')
+    if args.upload_dry_run and (not args.cloud or args.cloud_cross or args.cloud_denied or args.upload_preview):parser.error('upload dry run requires --cloud')
     if args.current_cloud_chapter and not args.cloud:parser.error('current cloud chapter requires --cloud')
     if args.cloud_denied and (not args.cloud or args.current_cloud_chapter):parser.error('cloud denied requires a different chapter')
     if args.cloud_cross and (not args.cloud or args.current_cloud_chapter or args.cloud_denied):parser.error('cloud cross requires a readable different chapter')
@@ -123,7 +125,7 @@ def main(argv=None):
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']),web_cookies=saved['cookies'],cloud=args.cloud,
-                upload_preview=args.upload_preview,
+                upload_preview=args.upload_preview,upload_dry_run=args.upload_dry_run,
                 cloud_denied=args.cloud_denied,cloud_cross=args.cloud_cross,
                 target_uid=str(baseline_point['chapter_uid']) if args.cloud_cross else None,start_page=args.start_page)
             data=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
@@ -149,7 +151,7 @@ def main(argv=None):
             output=result['position']
             current={key:output[key] for key in ('ok','text','point_offset','offset')}
             if not independent_offset(native['source'],current):raise ValueError('offset')
-            if args.cloud and not args.upload_preview:
+            if args.cloud and not (args.upload_preview or args.upload_dry_run):
                 relation=output.get('relation');opened=output.get('opened')
                 target_source=target_native['source'] if args.cloud_cross else native['source']
                 if opened and not independent_offset(target_source,output.get('target')):raise ValueError('cloud_offset')
@@ -166,8 +168,9 @@ def main(argv=None):
                 actual_reader_position=True,independent_offset_matches=True,temporary_profile_removed=True,
                 credential_file_audit=True,credentials_written_to_files=False,installed_bytes_match=True,
                 shelf_unchanged=True,cloud_upload=False)
-            if args.cloud and not args.upload_preview:report.update(cloud_comparison=relation,cloud_position_opened=opened,cloud_unchanged=True)
+            if args.cloud and not (args.upload_preview or args.upload_dry_run):report.update(cloud_comparison=relation,cloud_position_opened=opened,cloud_unchanged=True)
             if args.upload_preview:report.update(upload_preview=True,cloud_unchanged=True)
+            if args.upload_dry_run:report.update(upload_dry_run=True,cloud_unchanged=True,progress_post_blocked=True)
             if args.cloud_denied:report['cloud_chapter_denied']=True
             if args.cloud_cross:report.update(cross_chapter=True,target_native_web_source_matches=True)
     except (Exception,KeyboardInterrupt) as error:

@@ -60,4 +60,8 @@ for _i,index in ipairs({2,5}) do
 end
 out=f:run();expect(out.kind=='observed' and out.readbacks==2 and out.observation.point.kind=='no_chapter'
     and out.observation.counts.readingTime==55 and f.row.phase=='pending' and f.archives==0,'absent state lost unknown receipt history')
+f=fixture();f.row.metadata.basis='filtered_xhtml_utf16'
+for _i,index in ipairs({2,5}) do f.queue[index].book.summary=nil end
+out=f:run();expect(out.kind=='observed' and out.observation.point.kind=='position_without_summary'
+    and f.row.phase=='pending' and f.archives==0,'summary absence prevented read-only review')
 print('native_position_review_task_spec: '..checks..' checks')

@@ -33,7 +33,7 @@ local function wait(predicate)
 end
 host:showBookMenu({book_id=input.book_id,title='Synthetic native book',author='Fixture',chapters={}})
 local detail=assert(host._book_detail_view);local action
-local label=require('weread.lib.plugin_util').tr('Read saved E-Ink chapter (local only)')
+local label=require('weread.lib.plugin_util').tr('Read saved E-Ink chapter')
 for _,button in ipairs(detail._action_buttons) do if button.text==label then action=button end end
 assert(action and action.enabled~=false);action.callback()
 wait(function() return host.failed or host._native_direct_reading and host._native_direct_reading.menu end)

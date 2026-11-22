@@ -27,7 +27,7 @@ local function snapshot(auth,selected,metadata,info)
     local raw=auth:_request('position_progress',BASE..'/book/getProgress?bookId='..metadata.book_id,nil,selected.credentials)
     local shelf=auth:read_shelf(selected.credentials)
     assert(Shelf.state_hash(shelf)==metadata.shelf_sha256,'native_position/shelf_changed')
-    return State.snapshot(raw,metadata.book_id)
+    return State.snapshot(raw,metadata.book_id,{allow_missing_summary=metadata.basis=='filtered_xhtml_utf16'})
 end
 local function current(settings,selected,record,store,metadata,options,read_only)
     if type(options.is_current)~='function' or not selected or selected.renewal_pending or not P.credentials(selected.credentials)

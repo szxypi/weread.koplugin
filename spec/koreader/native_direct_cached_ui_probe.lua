@@ -32,7 +32,7 @@ end
 host:showBookMenu({book_id='42',title='Synthetic native book',author='Fixture',chapters={}})
 local detail=assert(host._book_detail_view);local action
 local tr=require('weread.lib.plugin_util').tr
-local label=test=='normal' and 'Read E-Ink chapter (local only)' or 'Read saved E-Ink chapter (local only)'
+local label=test=='normal' and 'Read E-Ink chapter' or 'Read saved E-Ink chapter'
 for _,button in ipairs(detail._action_buttons) do if button.text==tr(label) then action=button end end
 assert(action and action.enabled~=false);action.callback()
 wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)

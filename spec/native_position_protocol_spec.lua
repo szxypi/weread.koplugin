@@ -39,6 +39,7 @@ for _i,key in ipairs({'source_sha256','shelf_sha256','file_id','version'}) do
     expect(not C.same(metadata,changed))
 end
 local changed=F.clone(metadata);changed.desired.summary='different';expect(not C.same(metadata,changed))
-for _i,mutate in ipairs({function(p) p.basis='filtered_xhtml_utf16' end,function(p) p.before=nil end,function(p) p.counts.extra=0 end,
+local xhtml=F.clone(metadata);xhtml.basis='filtered_xhtml_utf16';expect(C.valid(xhtml) and not C.same(metadata,xhtml))
+for _i,mutate in ipairs({function(p) p.basis='unknown' end,function(p) p.before=nil end,function(p) p.counts.extra=0 end,
     function(p) p.desired.extra=true end,function(p) p.version=true end}) do local p=F.clone(metadata);mutate(p);expect(not C.valid(p)) end
 print('PASS native_position_protocol_spec '..checks)

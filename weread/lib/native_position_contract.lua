@@ -10,12 +10,14 @@ end
 local fields={book_id=true,before=true,desired=true,counts=true,version=true,shelf_sha256=true,source_sha256=true,file_id=true,basis=true}
 local point_fields={book_id=true,chapter_uid=true,chapter_idx=true,chapter_offset=true,raw_percent=true,summary=true}
 function M.valid(value)
-    if type(value)~='table' or value.basis~='raw_txt_utf16' or type(value.file_id)~='string' or #value.file_id==0 or #value.file_id>256
+    if type(value)~='table' or value.basis~='raw_txt_utf16' and value.basis~='filtered_xhtml_utf16'
+        or type(value.file_id)~='string' or #value.file_id==0 or #value.file_id>256
         or value.file_id:find('[%z%c]') or not Hash.hash(value.shelf_sha256) or not Hash.hash(value.source_sha256)
         or not P.integer(value.version,0,2147483647) or type(value.book_id)~='string' or P.id(value.book_id)~=value.book_id then return false end
     local count=0;for key in pairs(value) do if not fields[key] then return false end;count=count+1 end;if count~=9 then return false end
     local ok=pcall(function()
         assert(State.valid(value.before) and value.before.book_id==value.book_id)
+        assert(not State.missing_summary(value.before) or value.basis=='filtered_xhtml_utf16')
         assert(not State.none(value.before) or State.zero(value.counts))
         for _i,point in ipairs({value.desired}) do
             P.point(point);assert(point.book_id==value.book_id)

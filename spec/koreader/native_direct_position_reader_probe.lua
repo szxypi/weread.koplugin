@@ -35,12 +35,15 @@ active.client.request=function(self,options)
     local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
     assert(url=='https://i.weread.qq.com/book/info?bookId=42'
         or url=='https://i.weread.qq.com/book/getProgress?bookId=42'
-        or input.mode:find('^preview') and url=='https://i.weread.qq.com/shelf/sync'
+        or (input.mode:find('^preview') or input.mode:find('^upload')) and url=='https://i.weread.qq.com/shelf/sync'
+        or input.mode:find('^upload') and (url=='https://i.weread.qq.com/feature?synckey=0'
+            or url=='https://i.weread.qq.com/book/read')
         or url=='https://i.weread.qq.com/book/chapterInfos'
         or url:find('https://i.weread.qq.com/book/chapterdownload?',1,true)==1
         or url=='https://weread.qq.com/api/userInfo?userVid=12345678'
         or url=='https://weread.qq.com/web/book/chapterInfos'
-        or input.mode:find('^preview') and url:find('https://weread.qq.com/web/book/getProgress?',1,true)==1
+        or (input.mode:find('^preview') or input.mode:find('^upload'))
+            and url:find('https://weread.qq.com/web/book/getProgress?',1,true)==1
         or url:find('https://weread.qq.com/web/reader/',1,true)==1
         or url:find('https://weread.qq.com/web/book/chapter/e_',1,true)==1)
     if url:find('https://weread.qq.com/web/',1,true)==1 then
@@ -73,10 +76,13 @@ host._native_direct_position_worker={cancel=function() native_worker:cancel() en
             return {error=why}
         end
     end
-    return native_worker:start(task,function(value) point=value.position or value.comparison and value.comparison.position;callback(value) end)
+    return native_worker:start(task,function(value)
+        point=value.position or value.comparison and value.comparison.position or value.preview and value.preview.position;callback(value)
+    end)
 end}
 local function open_menu()
-    local id=(input.mode:find('^cloud') or input.mode:find('^cross_')) and 'native_cloud_position' or 'native_position_check'
+    local id=input.mode:find('^upload') and 'native_upload_position'
+        or (input.mode:find('^cloud') or input.mode:find('^cross_')) and 'native_cloud_position' or 'native_position_check'
     assert(host:onShowWeReadQuickMenu())
     wait(function()
         local top=UI:getTopmostVisibleWidget()
@@ -85,7 +91,32 @@ local function open_menu()
     UI:forceRePaint();assert(UI:getTopmostVisibleWidget():getButtonById(id)):onTapSelectButton()
 end
 open_menu()
-if input.mode=='move' or input.mode=='cloud_move' then
+if input.mode:find('^upload') then
+    wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
+    assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
+    local confirm=host._native_direct_position.confirm
+    if input.mode=='upload_cancel' then
+        confirm.cancel_callback();assert(not host._native_direct_position)
+    else
+        confirm.ok_callback();wait(function() return host.checked_message~=nil end)
+        local tr=require('weread.lib.plugin_util').tr
+        local expected=input.mode=='upload_changed' and 'The cloud position changed during the check. Your current page is kept.'
+            or (input.mode=='upload_lost_ack' or input.mode=='upload_missing_after')
+                and 'The sync result could not be confirmed. Choose sync again to review it.'
+            or 'Cloud reading position synced and checked.'
+        assert(host.checked_message==tr(expected),'unexpected upload result')
+        if input.mode=='upload_lost_ack' or input.mode=='upload_missing_after' then
+            host.checked_message=nil;open_menu()
+            wait(function() return host._native_direct_position and host._native_direct_position.confirm end)
+            host._native_direct_position.confirm.ok_callback()
+            wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
+            assert(not host.checked_message and host._native_direct_position.confirm,'review failed')
+            host._native_direct_position.confirm.ok_callback()
+            wait(function() return host.checked_message~=nil end)
+            assert(host.checked_message==tr('Previous result archived. Choose sync again to check the current page.'))
+        end
+    end
+elseif input.mode=='move' or input.mode=='cloud_move' then
     wait(function() return native_worker.job~=nil end)
     assert(reader.rolling and reader.document:getPageCount()>2);reader.rolling:onGotoPage(2);UI:forceRePaint()
     wait(function() return native_worker.job==nil end)
@@ -146,10 +177,8 @@ else
         assert(host.checked_message==tr('There is no cloud reading position yet. Your current page is kept.'))
     elseif input.mode=='preview_changed' or input.mode=='preview_web_changed' then
         assert(host.checked_message==tr('The cloud position changed during the check. Your current page is kept.') and not point)
-    elseif input.mode=='preview_missing' then
-        assert(host.checked_message==tr('Could not check this reading position.') and not point)
     else
-        assert(host.checked_message==tr('The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'))
+        assert(host.checked_message==tr('The local reading position was checked against the chapter source.'))
         assert(point and point.upload_verified==false and point.source_current and point.basis=='filtered_xhtml_utf16')
     end
 end

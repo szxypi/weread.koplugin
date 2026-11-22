@@ -31,9 +31,10 @@ package.preload['weread.lib.native_authorization']=function() return {new=functi
 package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,ns,ws,active,_,options)
     assert(e==entry and file=='/native' and context=='context' and ns==native and ws==web and active() and options.prepare_summary)
     if mode=='source' then return nil,'source_changed' end
-    local p=point();p.summary=nil
-    if mode=='initial' then p.chapterUid,p.chapterIdx,p.chapterOffset,p.progress=0,0,0,0 end
+    local p=point();if mode=='missing_summary' then p.summary=nil end
+    if mode=='initial' then p.chapterUid,p.chapterIdx,p.chapterOffset,p.progress,p.summary=0,0,0,0,nil end
     if mode=='web' then p.chapterOffset=99 end
+    if mode=='web_summary' then p.summary='other summary' end
     for _i=1,mode=='one_web' and 1 or 2 do
         checks=checks+1;if not options.verify_progress(p) then return nil,'cloud_changed' end
     end
@@ -51,13 +52,16 @@ expect(value and value.desired.chapter_offset==30 and value.desired.raw_percent=
 local bound={};for key,item in pairs(value) do if key~='position' and key~='dispatch_authorized' then bound[key]=item end end
 bound.book_id=entry.book_id
 local Contract=require('weread.lib.native_position_contract')
-expect(not Contract.valid(bound),'read-only XHTML preview was accepted as a dispatch grant')
+expect(Contract.valid(bound) and value.dispatch_authorized==false,'preview did not preserve its explicit read-only boundary')
 bound.basis='raw_txt_utf16';expect(Contract.valid(bound),'dispatch test fixture was invalid independently of its basis')
 value=prepare('initial');expect(value and value.before.kind=='no_chapter' and value.desired.raw_percent==0,
     'explicit empty cloud position with zero counters was rejected')
-for _,case in ipairs({{'missing_summary','baseline_unavailable'},{'changed','cloud_changed'},{'counts','cloud_changed'},
+value=prepare('missing_summary');expect(value and value.before.kind=='position_without_summary' and value.before.summary==nil,
+    'missing summary was not represented explicitly')
+for _,case in ipairs({{'changed','cloud_changed'},{'counts','cloud_changed'},
     {'initial_counts','baseline_unavailable'},
     {'shelf','cloud_changed'},{'version','source_changed'},{'source','source_changed'},{'web','cloud_changed'},
+    {'web_summary','cloud_changed'},
     {'one_web','cloud_changed'}}) do
     value,why=prepare(case[1]);expect(not value and why==case[2],'invalid preview accepted: '..case[1])
 end

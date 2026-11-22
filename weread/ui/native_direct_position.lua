@@ -21,6 +21,8 @@ function M.cancel(host)
     host._native_direct_position=nil
     if ctx.task then UI:unschedule(ctx.task);ctx.task=nil end
     if host._native_direct_position_worker then host._native_direct_position_worker:cancel() end
+    if ctx.service then ctx.service:cancel() end
+    if ctx.review then ctx.review:cancel() end
     if ctx.web_job and host.source_recovery then host.source_recovery:cancel(ctx.web_job) end
     Recovery.cancel(host,ctx.native_job or {})
     if ctx.confirm then UI:close(ctx.confirm);ctx.confirm=nil end
@@ -55,7 +57,7 @@ function M.start(host,entry,options)
     end
     M.cancel(host)
     local ctx={reader=reader,document=doc,file=doc.file,scope=scope,entry=entry,identity=identity,location=location,
-        compare=options and options.cloud==true or false,
+        compare=options and options.cloud==true or false,upload=options and options.upload==true or false,
         session=host._reader_session_gen or 0,account=host.library_db and host.library_db:accountKey(),native=native,web=web}
     host._native_direct_position=ctx
     local function page_current()
@@ -76,7 +78,60 @@ function M.start(host,entry,options)
         local live=page_current();M.cancel(host)
         if live then host:showInfo(_(message or 'Could not check this reading position.')) end
     end
-    host:showBusy(_(ctx.compare and 'Checking cloud reading position...' or 'Checking the current reading position...'),
+    if ctx.upload then
+        if ctx.compare or not host.library_db or type(host.library_db.open)~='function' then
+            fail('Could not prepare the reading position sync.');return false
+        end
+        ctx.service=require('weread.lib.native_position_service'):new{
+            settings=host.settings,client=host.client,library=host.library_db,scheduler=UI}
+        local pending,reason=ctx.service:pending()
+        if reason then fail('Could not check the previous position sync.');return false end
+        if pending then
+            ctx.review=require('weread.lib.native_position_review'):new{
+                settings=host.settings,client=host.client,library=host.library_db,scheduler=UI}
+            local function cancel() if host._native_direct_position==ctx then M.cancel(host) end end
+            local function inspect()
+                if not ctx.is_current() then cancel();return end
+                if ctx.confirm then UI:close(ctx.confirm);ctx.confirm=nil end
+                host:showBusy(_('Checking the previous position sync...'),cancel);ctx.busy=host.busy_message
+                local started=ctx.review:start(ctx.is_current,function(result,token)
+                    if host._native_direct_position~=ctx then return end
+                    if not ctx.is_current() then cancel();return end
+                    if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
+                    if result.kind~='observed' or not token then fail('Could not check the previous position sync.');return end
+                    local title=_('Previous book')
+                    if type(pending.metadata)=='table' and type(host.library_db.getBook)=='function' then
+                        local ok,book=pcall(host.library_db.getBook,host.library_db,pending.metadata.book_id)
+                        if ok and type(book)=='table' and type(book.title)=='string' and #book.title>0 and #book.title<=512
+                            and not book.title:find('[%z%c]') then title=book.title end
+                    end
+                    if type(result.percent)~='number' or result.percent~=result.percent or result.percent<0 or result.percent>100 then
+                        fail('Could not check the previous position sync.');return
+                    end
+                    local observed=result.no_chapter and string.format(_('No cloud position for “%s”.'),title)
+                        or string.format(_('Current cloud percentage for “%s”: %s%%.'),title,string.format('%.0f',result.percent))
+                    local dialog
+                    dialog=require('ui/widget/confirmbox'):new{
+                        text=observed..'\n\n'.._('Archive the previous result without resending? A delayed update may still arrive.'),
+                        ok_text=_('Archive previous result'),cancel_text=_('Keep pending record'),keep_dialog_open=true,
+                        cancel_callback=cancel,ok_callback=function()
+                            if not ctx.is_current() or ctx.confirm~=dialog or not ctx.review:current(token) then cancel();return end
+                            local archived=ctx.review:archive(token);M.cancel(host)
+                            host:showInfo(_(archived and 'Previous result archived. Choose sync again to check the current page.'
+                                or 'Could not archive the previous position sync.'))
+                        end}
+                    ctx.confirm=dialog;UI:show(dialog)
+                end,pending)
+                if not started then fail('Could not check the previous position sync.') end
+            end
+            ctx.confirm=require('ui/widget/confirmbox'):new{
+                text=_('A previous position sync needs review. Check its current cloud state without resending?'),
+                ok_text=_('Check cloud position'),cancel_text=_('Keep pending record'),keep_dialog_open=true,
+                ok_callback=inspect,cancel_callback=cancel}
+            UI:show(ctx.confirm);return true
+        end
+    end
+    host:showBusy(_(ctx.upload and 'Preparing reading position sync...' or ctx.compare and 'Checking cloud reading position...' or 'Checking the current reading position...'),
         function() M.cancel(host) end);ctx.busy=host.busy_message
     if not host._native_direct_position_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
@@ -86,6 +141,7 @@ function M.start(host,entry,options)
     end
     local launch
     local function renew_native()
+        ctx.confirmed_metadata=nil
         ctx.native_job=ctx.native_job or {}
         local selected={native=ctx.native,base_revision=Crypto.sha256_hex(scope.vid..'\0'..tostring(scope.epoch))}
         local started=Recovery.start(host,ctx.native_job,selected,{capture=native_capture,
@@ -98,6 +154,7 @@ function M.start(host,entry,options)
         if not started then fail('E-Ink authorization expired. Please authorize again.') end
     end
     local function renew_web()
+        ctx.confirmed_metadata=nil
         if ctx.web_attempted or not host.source_recovery then
             fail('WeRead login expired. Please sign in again and retry.');return
         end
@@ -123,7 +180,11 @@ function M.start(host,entry,options)
                 return host.settings:auth_scope_matches(scope) and NativeAccess.matches(host.settings,selected_native)
                     and Currentness.matches(host.settings,selected_web)
             end
-            if ctx.compare then
+            if ctx.upload then
+                local value,why=require('weread.lib.native_direct_upload_preview').prepare(host.client,host.settings,
+                    entry,ctx.file,ctx.input,selected_native,selected_web,active)
+                return value and {preview=value} or {error=why or 'unavailable'}
+            elseif ctx.compare then
                 local value,why=require('weread.lib.native_direct_cloud').prepare(host.client,host.settings,
                     entry,ctx.file,ctx.input,selected_native,selected_web,active)
                 return value and {comparison=value} or {error=why or 'unavailable'}
@@ -138,7 +199,8 @@ function M.start(host,entry,options)
             if type(result)=='table' and result.error=='auth_expired' then renew_native();return end
             local comparison=type(result)=='table' and result.comparison
             local p
-            if ctx.compare then p=type(comparison)=='table' and comparison.position
+            if ctx.upload then p=type(result)=='table' and type(result.preview)=='table' and result.preview.position
+            elseif ctx.compare then p=type(comparison)=='table' and comparison.position
             else p=type(result)=='table' and result.position end
             if type(p)~='table' or p.book_id~=entry.book_id or p.chapter_uid~=entry.chapter_uid
                 or p.chapter_idx~=entry.chapter_idx or p.file_id~=entry.file_id or p.book_version~=entry.book_version
@@ -149,8 +211,58 @@ function M.start(host,entry,options)
                     or type(result)=='table' and result.error=='cloud_changed'
                     and 'The cloud position changed during the check. Your current page is kept.'
                     or type(result)=='table' and result.error=='rate_limited'
-                    and 'WeRead is limiting requests. Please try again later.' or nil
+                    and 'WeRead is limiting requests. Please try again later.'
+                    or type(result)=='table' and result.error=='baseline_unavailable'
+                    and 'The cloud position could not be safely checked. Your current page is kept.' or nil
                 fail(message);return
+            end
+            if ctx.upload then
+                local preview=result.preview;local Contract=require('weread.lib.native_position_contract')
+                local State=require('weread.lib.native_cloud_state')
+                local metadata={book_id=entry.book_id,before=preview.before,desired=preview.desired,counts=preview.counts,
+                    version=preview.version,shelf_sha256=preview.shelf_sha256,source_sha256=preview.source_sha256,
+                    file_id=preview.file_id,basis=preview.basis}
+                if preview.dispatch_authorized~=false or not Contract.valid(metadata)
+                    or metadata.basis~='filtered_xhtml_utf16' or metadata.source_sha256~=entry.source_sha256
+                    or metadata.file_id~=entry.file_id or metadata.version~=entry.book_version
+                    or metadata.desired.book_id~=p.book_id or metadata.desired.chapter_uid~=p.chapter_uid
+                    or metadata.desired.chapter_idx~=p.chapter_idx or metadata.desired.chapter_offset~=p.chapter_offset
+                    or metadata.desired.raw_percent~=metadata.before.raw_percent then fail();return end
+                if not State.none(metadata.before) and metadata.before.chapter_uid==metadata.desired.chapter_uid
+                    and metadata.before.chapter_idx==metadata.desired.chapter_idx
+                    and metadata.before.chapter_offset==metadata.desired.chapter_offset then
+                    M.cancel(host);host:showInfo(_('The current page matches the cloud reading position.'));return
+                end
+                if not ctx.confirmed_metadata then
+                    if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
+                    local dialog
+                    dialog=require('ui/widget/confirmbox'):new{
+                        text=_('Save this page as your cloud reading position? The cloud percentage is kept until WeRead updates it.'),
+                        ok_text=_('Sync this page'),cancel_text=_('Keep cloud position'),keep_dialog_open=true,
+                        cancel_callback=function() if host._native_direct_position==ctx then M.cancel(host) end end,
+                        ok_callback=function()
+                            if not ctx.is_current() or ctx.confirm~=dialog then M.cancel(host);return end
+                            UI:close(dialog);ctx.confirm=nil;ctx.confirmed_metadata=metadata
+                            host:showBusy(_('Rechecking reading position...'),function() M.cancel(host) end);ctx.busy=host.busy_message
+                            launch()
+                        end}
+                    ctx.confirm=dialog;UI:show(dialog);return
+                end
+                if not Contract.same(metadata,ctx.confirmed_metadata) then
+                    fail('The cloud position changed during the check. Your current page is kept.');return
+                end
+                local started,why=ctx.service:start(metadata,ctx.is_current,function(out,token)
+                    if host._native_direct_position~=ctx then return end
+                    if not ctx.is_current() then M.cancel(host);return end
+                    local confirmed=out.kind=='confirmed' and token and ctx.service:accept(token)
+                    M.cancel(host)
+                    host:showInfo(_(confirmed and 'Cloud reading position synced and checked.'
+                        or out.attempted and 'The sync result could not be confirmed. Choose sync again to review it.'
+                        or 'Could not sync this position. Your current page is kept.'))
+                end)
+                if not started then fail(why=='pending' and 'A previous position sync needs review. Choose sync again.'
+                    or 'Could not sync this position. Your current page is kept.') end
+                return
             end
             if ctx.compare then
                 local relation=comparison.relation
@@ -319,7 +431,7 @@ function M.start(host,entry,options)
                 ctx.confirm=confirm;UI:show(confirm);return
             end
             M.cancel(host)
-            host:showInfo(_('The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'))
+            host:showInfo(_('The local reading position was checked against the chapter source.'))
         end)
         if not ok or not started then fail() end
     end

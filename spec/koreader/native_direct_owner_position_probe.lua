@@ -21,7 +21,14 @@ client.request=function(self,options)
     local url,headers=options.url,options.headers or {};local native='https://i.weread.qq.com';local web='https://weread.qq.com'
     assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     if url==native..'/book/info?bookId='..input.book_id then assert(options.method=='GET')
-    elseif input.upload_preview and url==native..'/shelf/sync' then assert(options.method=='GET')
+    elseif (input.upload_preview or input.upload_dry_run) and url==native..'/shelf/sync' then assert(options.method=='GET')
+    elseif input.upload_dry_run and url==native..'/feature?synckey=0' then assert(options.method=='GET')
+    elseif input.upload_dry_run and url==native..'/book/read' then
+        assert(options.method=='POST' and options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
+        local body=json.decode(options.body)
+        assert(body.bookId==input.book_id and body.chapterUid==tonumber(input.uid) and body.readingTime==0
+            and type(body.summary)=='string' and #body.summary>0)
+        error('owner_dry_run/blocked',0) -- Never forward a progress write to the network.
     elseif input.cloud and url==native..'/book/getProgress?bookId='..input.book_id then assert(options.method=='GET')
     elseif url==native..'/book/chapterInfos' then
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -36,7 +43,7 @@ client.request=function(self,options)
     elseif url==web..'/web/book/chapterInfos' then
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id)
         for key in pairs(body) do assert(key=='bookIds') end
-    elseif input.upload_preview and url:find(web..'/web/book/getProgress?',1,true)==1 then
+    elseif (input.upload_preview or input.upload_dry_run) and url:find(web..'/web/book/getProgress?',1,true)==1 then
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true))
     elseif url==require('weread.lib.protocol').reader_url(input.book_id,input.uid)
         or input.cloud_cross and url==require('weread.lib.protocol').reader_url(input.book_id,input.target_uid) then assert(options.method=='GET')
@@ -64,7 +71,8 @@ if input.start_page and input.start_page>1 then
 end
 local entry=assert(require('weread.lib.native_direct_cache').identify(settings,scope.vid,input.path,function() return true end))
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.file_id)
-local host={ui=reader,settings=settings,client=client,library_db={accountKey=function() return 'owner' end},
+local library=input.upload_dry_run and require('weread.lib.library_db'):new(settings) or {accountKey=function() return 'owner' end}
+local host={ui=reader,settings=settings,client=client,library_db=library,
     _reader_session_gen=1,isNetworkConnected=function() return true end,
     showBusy=function(self,label,cancel)
         self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message)
@@ -106,16 +114,25 @@ host._native_direct_position_worker={cancel=function() worker:cancel() end,start
         end
     end
     return worker:start(task,function(value)
-        point=value.position or value.comparison and value.comparison.position or point
+        point=value.position or value.comparison and value.comparison.position or value.preview and value.preview.position or point
         comparison=comparison or value.comparison;reason=value.error;callback(value)
     end)
 end}
-assert(require('weread.ui.native_direct_position').start(host,entry,{cloud=input.cloud==true and not input.upload_preview}))
+assert(require('weread.ui.native_direct_position').start(host,entry,{cloud=input.cloud==true and not input.upload_preview and not input.upload_dry_run,
+    upload=input.upload_dry_run==true}))
 wait(function() return host.checked_message~=nil or not host._native_direct_position
     or host._native_direct_position.confirm~=nil end)
 local tr=require('weread.lib.plugin_util').tr
 local opened,denied,cancelled=false,false,false
-if input.cloud and not input.upload_preview and host._native_direct_position and host._native_direct_position.confirm then
+if input.upload_dry_run then
+    assert(host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
+    host._native_direct_position.confirm.ok_callback()
+    wait(function() return host.checked_message~=nil or not host._native_direct_position end)
+    assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.'))
+    local pending=assert(require('weread.lib.native_position_store'):new(library,client):read())
+    assert(pending.phase=='pending' and pending.metadata.basis=='filtered_xhtml_utf16')
+end
+if input.cloud and not input.upload_preview and not input.upload_dry_run and host._native_direct_position and host._native_direct_position.confirm then
     assert(comparison and (comparison.relation=='different' or comparison.relation=='other_chapter'))
     if comparison.relation=='other_chapter' and not input.cloud_denied and not input.cloud_cross then
         host._native_direct_position.confirm.cancel_callback();cancelled=not host._native_direct_position
@@ -132,13 +149,13 @@ if input.cloud and not input.upload_preview and host._native_direct_position and
         denied=input.cloud_denied and host.checked_message==tr('The cloud chapter is not available to this account.') or false
     end
 end
-local expected=input.cloud and not input.upload_preview and comparison and ({same='The current page matches the cloud reading position.',
+local expected=input.cloud and not input.upload_preview and not input.upload_dry_run and comparison and ({same='The current page matches the cloud reading position.',
     no_chapter='There is no cloud reading position yet. Your current page is kept.',
     other_chapter='The cloud reading position is in another chapter. Your current page is kept.',
     target_unavailable='The cloud position could not be located in this chapter. Your current page is kept.',
     different='Opened the cloud reading position in this chapter.'})[comparison.relation]
-    or 'The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'
-if not cancelled and not denied and not opened and host.checked_message~=tr(expected) then
+    or 'The local reading position was checked against the chapter source.'
+if not input.upload_dry_run and not cancelled and not denied and not opened and host.checked_message~=tr(expected) then
     local allowed={invalid=true,unavailable=true,source_changed=true,anchor_unavailable=true,source_unsupported=true,
         file_changed=true,session_changed=true,auth_expired=true,web_expired=true,rate_limited=true,cloud_changed=true,
         baseline_unavailable=true,summary_unavailable=true}
@@ -146,7 +163,8 @@ if not cancelled and not denied and not opened and host.checked_message~=tr(expe
 end
 assert(point and point.upload_verified==false and point.source_current and point.basis=='filtered_xhtml_utf16')
 local report={ok=true,text=anchor.text,point_offset=anchor.point_offset,offset=point.chapter_offset}
-if input.upload_preview then report.upload_preview=true
+if input.upload_dry_run then report.upload_dry_run=true
+elseif input.upload_preview then report.upload_preview=true
 elseif input.cloud then
     assert(comparison and comparison.relation);report.relation=comparison.relation;report.opened=opened
     if input.cloud_denied then report.denied=denied end
