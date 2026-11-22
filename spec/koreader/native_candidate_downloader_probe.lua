@@ -107,11 +107,16 @@ if input.cancel then
     job.progress_dialog=require('ui/widget/trapwidget'):new{ text=nil }
     job.progress_dialog.close=function(widget) manager:close(widget) end
     manager:show(job.progress_dialog)
-    manager:scheduleIn(0.25,function()
+    local function cancel_after_request()
+        if not lfs.attributes(home..'/slow-request') then
+            manager:scheduleIn(0.05,cancel_after_request)
+            return
+        end
         job.cancelled=true
         assert(type(job.progress_dialog.dismiss_callback)=='function')
         job.progress_dialog.dismiss_callback()
-    end)
+    end
+    manager:scheduleIn(0.05,cancel_after_request)
     step()
     assert(finished==false and reason=='fixture_cancel' and not lfs.attributes(workspace.path)
         and not next(values.books) and #job.selected==0)

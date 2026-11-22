@@ -21,7 +21,8 @@ class SlowHandler(Handler):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
         if self.server.mode == 'cancel' and target.path == '/book/info':
             self.server.slow_entered = True
-            time.sleep(2)
+            self.server.slow_marker.touch()
+            time.sleep(5)
         try:
             super().dispatch()
         except (BrokenPipeError, ConnectionResetError):
@@ -52,6 +53,7 @@ def run(runtime):
                                switch=switch, cancel=cancel)
                 server.mode, server.paths, server.leaked = 'cancel' if cancel else 'remote', [], False
                 server.slow_entered = False
+                server.slow_marker = Path(root) / 'slow-request'
                 server.catalog_valid = server.download_valid = True
                 result = subprocess.run([str(runtime / 'luajit'), str(REPO / 'spec/koreader/native_candidate_downloader_probe.lua'),
                                          str(REPO)], input=json.dumps(payload), text=True, env=env,
