@@ -136,6 +136,8 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local direct_interval=package.loaded['weread.lib.native_direct_interval']
+    if direct_interval then direct_interval.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
@@ -263,6 +265,7 @@ end
 
 function M:onPageUpdate()
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
+    local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.on_view_changed(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
@@ -282,6 +285,7 @@ end
 
 function M:onPosUpdate()
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
+    local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.on_view_changed(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
@@ -300,6 +304,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
@@ -565,6 +570,8 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
+    local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end
@@ -667,6 +674,8 @@ function M:onNetworkConnected()
 end
 
 function M:onNetworkDisconnected()
+    local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
+    local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(self) end
     local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end

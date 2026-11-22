@@ -37,25 +37,29 @@ class Handler(BaseHTTPRequestHandler):
         code,headers,data=200,{},None
         if target.hostname=='i.weread.qq.com' and target.path=='/book/info' and self.command=='GET':
             data=json.dumps(dict(bookId='42',format='epub',version=1)).encode()
-        elif target.hostname=='i.weread.qq.com' and target.path=='/shelf/sync' and self.command=='GET' and server.mode.startswith(('preview','upload')):
+        elif target.hostname=='i.weread.qq.com' and target.path=='/shelf/sync' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             data=json.dumps(dict(books=[dict(bookId='42',finishReading=0,secret=0)],archive=[])).encode()
-        elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET' and server.mode.startswith('upload'):
+        elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET' and server.mode.startswith(('upload','interval')):
             server.valid &= parse_qs(target.query)=={'synckey':['0']}
             data=json.dumps(dict(feature={})).encode()
-        elif target.hostname=='i.weread.qq.com' and target.path=='/book/read' and self.command=='POST' and server.mode.startswith('upload'):
+        elif target.hostname=='i.weread.qq.com' and target.path=='/book/read' and self.command=='POST' and server.mode.startswith(('upload','interval')):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             server.valid &= (request.get('bookId')=='42' and request.get('chapterUid')==37 and request.get('chapterIdx')==1
                 and type(request.get('chapterOffset')) is int and bool(request.get('summary')) and request.get('readingTime')==0)
             server.cloud_offset=request['chapterOffset'];server.cloud_summary=request['summary']
-            data=json.dumps({} if server.mode=='upload_lost_ack' else dict(succ=1)).encode()
+            posts=sum(path=='/book/read' for _,_,path in server.calls)
+            data=json.dumps({} if server.mode=='upload_lost_ack' or server.mode=='interval_noack' and posts==2 else dict(succ=1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'bookId':['42']}
             if server.mode=='cloud_move':time.sleep(0.8)
             count=sum(path=='/book/getProgress' for _,_,path in server.calls)
             uid,index,offset,progress,summary=37,1,CLOUD_OFFSET,50,'Synthetic cloud point'
-            if server.mode.startswith('upload'):
+            if server.mode.startswith(('upload','interval')):
                 offset,summary=server.cloud_offset,server.cloud_summary
                 if server.mode=='upload_changed' and count>=3:offset+=1
+                if server.mode=='interval_conflict':
+                    post_index=next((i for i,(_,_,path) in enumerate(server.calls) if path=='/book/read'),len(server.calls))
+                    if sum(path=='/book/getProgress' for _,_,path in server.calls[post_index+1:])>=2:offset+=1
             if server.mode=='cloud_changed' and count==2:offset+=1
             if server.mode=='cloud_after' and count>=3:offset+=1
             if server.mode=='cloud_other' or server.mode.startswith('cross_'):uid,index,offset=38,2,CROSS_OFFSET
@@ -82,11 +86,11 @@ class Handler(BaseHTTPRequestHandler):
             server.valid &= parse_qs(target.query)=={'userVid':['12345678']}
             headers['Set-Cookie']='wr_skey'+'=synthetic-refreshed-cookie; Path=/; Secure'
             data=json.dumps(dict(vid='12345678')).encode()
-        elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET' and server.mode.startswith(('preview','upload')):
+        elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             count=sum(path=='/web/book/getProgress' for _,_,path in server.calls)
-            offset=(server.cloud_offset if server.mode.startswith('upload') else CLOUD_OFFSET)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
+            offset=(server.cloud_offset if server.mode.startswith(('upload','interval')) else CLOUD_OFFSET)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
             response=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=offset,progress=50,
-                summary=server.cloud_summary if server.mode.startswith('upload') else 'Synthetic cloud point')
+                summary=server.cloud_summary if server.mode.startswith(('upload','interval')) else 'Synthetic cloud point')
             if server.mode in ('preview_missing','upload_missing_before'):response.pop('summary')
             data=json.dumps(response).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
@@ -101,6 +105,7 @@ class Handler(BaseHTTPRequestHandler):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             server.valid &= request.get('b')==weread_e('42') and request.get('c') in (weread_e('37'),weread_e('38'))
             if server.mode=='move' and target.path.endswith('e_0'):time.sleep(0.8)
+            if server.mode=='interval_move' and target.path.endswith('e_0') and any(path=='/book/read' for _,_,path in server.calls):time.sleep(0.8)
             raw=BODY2 if request.get('c')==weread_e('38') else BODY
             if server.mode=='mismatch':raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
             data=shards(raw)[['e_0','e_1','e_3'].index(target.path.rsplit('/',1)[1])].encode()
@@ -130,7 +135,8 @@ def compare_offset(result):
 MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_changed','cloud_after','cloud_other','cloud_empty',
        'preview','preview_changed','preview_web_changed','preview_missing',
        'upload','upload_cancel','upload_changed','upload_lost_ack','upload_missing_before','upload_missing_after',
-       'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable')
+       'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable',
+       'interval','interval_conflict','interval_noack','interval_move','interval_offline')
 
 def run(runtime,modes=MODES):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -158,11 +164,12 @@ def run(runtime,modes=MODES):
                         child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_reader_probe.lua')],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                         result=frame(child,'WEREAD_POSITION_READER=');assert result['ok'] and result['mode']==mode
-                        if mode in ('match','preview','preview_missing','upload','upload_missing_before'):compare_offset(result)
+                        if mode in ('match','preview','preview_missing','upload','upload_missing_before','interval'):compare_offset(result)
                         assert server.valid and not server.leaked
                         writes=[path for _,_,path in server.calls if path in ('/web/book/read','/book/read')]
-                        assert writes==(['/book/read'] if mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else [])
-                        if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload')):
+                        write_count=2 if mode in ('interval','interval_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else 0
+                        assert writes==['/book/read']*write_count, (mode,writes)
+                        if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload','interval')):
                             assert sum(path=='/web/book/chapter/e_0' for _,_,path in server.calls)==(2 if mode in ('cloud','cloud_after') else 1)
                         if mode.startswith('cloud') and mode!='cloud_move':
                             assert sum(path=='/book/getProgress' for _,_,path in server.calls)==(4 if mode in ('cloud','cloud_after') else 2)

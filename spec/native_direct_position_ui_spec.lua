@@ -113,7 +113,8 @@ local function fixture()
     upload_accepted=false;upload_cancelled=false;review_archived=false;upload_callback=nil;upload_guard=nil
     local s={jobs={},infos=0};local doc={file='/tmp/weread/native-reader-v1/file.epub'}
     local host={ui={document=doc,view={view_mode='page'}},_reader_session_gen=1,client={},
-        settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,sco) return sco==scope and current end},
+        settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,sco) return sco==scope and current end,
+            get=function(_,key) if key=='sync' then return {upload_interval_minutes=1} end end},
         library_db={accountKey=function() return account end,open=function() end},isNetworkConnected=function() return true end,
         showBusy=function(self,_,cancel) self.busy_message={};s.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
@@ -189,6 +190,8 @@ expect(upload_started==1 and upload_guard(),'verified upload was not dispatched'
 upload_callback({kind='confirmed',attempted=true},'valid')
 expect(upload_accepted and s.message=='Cloud reading position synced and checked.' and not host._native_direct_position,
     'confirmed receipt was not accepted')
+expect(host._native_direct_interval and host._native_direct_interval.context.baseline.position.chapter_offset==123,
+    'manual success did not establish a session baseline')
 host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.cancel_callback()
 expect(upload_started==0 and upload_cancelled and not host._native_direct_position,'cancel dispatched upload')
 host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();upload_offset=201;s.result(2)
@@ -214,4 +217,24 @@ shown.ok_callback();expect(review_archived and upload_started==0
 host=fixture();review_pending={phase='pending'};upload_pending=review_pending
 Position.start(host,entry,{upload=true});shown.cancel_callback()
 expect(not review_archived and upload_started==0 and not host._native_direct_position,'cancelled review changed pending record')
+local function automatic()
+    local value;value={current=function() return current end,done=function(status,metadata,location)
+        value.status,value.metadata,value.location=status,metadata,location
+    end,baseline={position={book_id='42',chapter_uid='37',chapter_idx=2,chapter_offset=200,raw_percent=10,summary='previous summary'},
+        counts={readingTime=1,recordReadingTime=2,ttsTime=0},version=7,shelf_sha256=string.rep('d',64),
+        source_sha256=entry.source_sha256,file_id=entry.file_id}}
+    return value
+end
+host,s=fixture();local auto=automatic();expect(Position.start(host,entry,{upload=true,automatic=auto}),'automatic check did not start')
+s.capture();s.result(1);expect(#s.jobs==2 and not shown and upload_started==0,'automatic check showed a dialog or skipped recheck')
+s.result(2);expect(upload_started==1,'automatic check did not dispatch')
+upload_callback({kind='confirmed',attempted=true},'valid')
+expect(auto.status=='confirmed' and auto.metadata.desired.chapter_offset==123 and upload_accepted and s.infos==0,
+    'automatic success was not handed to its owner silently')
+host,s=fixture();auto=automatic();Position.start(host,entry,{upload=true,automatic=auto});s.capture();upload_offset=201;s.result(1)
+expect(auto.status=='conflict' and upload_started==0 and s.infos==0,'changed cloud baseline was automatically overwritten')
+host=fixture();auto=automatic();upload_pending={phase='pending'};Position.start(host,entry,{upload=true,automatic=auto})
+expect(auto.status=='unconfirmed' and upload_started==0 and not shown,'pending write was automatically replayed')
+host,s=fixture();auto=automatic();Position.start(host,entry,{upload=true,automatic=auto});s.capture();page=2;Position.on_view_changed(host)
+expect(auto.status=='cancelled' and upload_started==0,'page change did not cancel automatic preparation')
 print('PASS: native position UI checks live page and never touches document from worker ('..checks..' checks)')

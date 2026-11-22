@@ -1,5 +1,4 @@
--- Inspect one native reader page against an independently verified source.
--- This action is read-only and cannot authorize a cloud progress write.
+-- Parent-owned native reader position checks and guarded cloud sync.
 local UI=require('ui/uimanager')
 local Context=require('weread.lib.source_context')
 local Identity=require('weread.lib.book_file_identity')
@@ -28,36 +27,44 @@ function M.cancel(host)
     if ctx.confirm then UI:close(ctx.confirm);ctx.confirm=nil end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
     ctx.busy,ctx.thread,ctx.input=nil,nil,nil
+    if ctx.automatic then pcall(ctx.automatic.done,ctx.auto_status or 'cancelled',ctx.auto_metadata,ctx.location) end
 end
 function M.on_view_changed(host)
     local ctx=host._native_direct_position
     if ctx and not ctx.committing and ctx.is_current and not ctx.is_current() then M.cancel(host) end
 end
 function M.start(host,entry,options)
+    local automatic=options and options.automatic
+    if automatic and (type(automatic)~='table' or type(automatic.current)~='function' or type(automatic.done)~='function'
+        or type(automatic.baseline)~='table' or options.upload~=true or options.cloud==true
+        or host._native_direct_position or not automatic.current()) then return false end
+    if not automatic and options and (options.upload or options.cloud) then
+        local interval=package.loaded['weread.lib.native_direct_interval'];if interval then interval.cancel(host) end
+    end
     local reader=host.ui;local doc=reader and reader.document
     local scope=host.settings:get_auth_scope()
     if not doc or not scope or not host.settings:auth_scope_matches(scope)
         or not require('weread.lib.native_direct_cache').valid_entry(entry,entry and entry.book_id,scope.vid) then return false end
     local online=host.isNetworkConnected and host:isNetworkConnected() or not host.isNetworkConnected and host:isNetworkOnline()
-    if not online then host:showOffline(_('Check native reading position'));return false end
+    if not online then if not automatic then host:showOffline(_('Check native reading position')) end;return false end
     local native=NativeAccess.capture(host.settings);local web=Currentness.capture(host.settings)
     if not native or native.renewal_pending or type(native.scope)~='table' or not web or type(web.web)~='table'
         or type(web.web.cookies)~='table' or web.web.cookies.wr_vid~=scope.vid or native.scope.vid~=scope.vid then
-        host:showInfo(_('Sign in and authorize E-Ink access before checking this position.'));return false
+        if not automatic then host:showInfo(_('Sign in and authorize E-Ink access before checking this position.')) end;return false
     end
     if not Protocol.integer(entry.chapter_idx,0,1000000) then
-        host:showInfo(_('Chapter position metadata is unavailable. Refresh the chapter list and reopen it.'));return false
+        if not automatic then host:showInfo(_('Chapter position metadata is unavailable. Refresh the chapter list and reopen it.')) end;return false
     end
     local mode=reader.view and reader.view.view_mode or 'page'
     local location=Context.location(doc,mode)
     local identity=Identity.read_document(doc,entry.book_id)
     if not location or identity.book_id~=entry.book_id or identity.file_id~=entry.file_id
         or identity.book_version~=entry.book_version then
-        host:showInfo(_('The current reading page could not be verified.'));return false
+        if not automatic then host:showInfo(_('The current reading page could not be verified.')) end;return false
     end
     M.cancel(host)
     local ctx={reader=reader,document=doc,file=doc.file,scope=scope,entry=entry,identity=identity,location=location,
-        compare=options and options.cloud==true or false,upload=options and options.upload==true or false,
+        compare=options and options.cloud==true or false,upload=options and options.upload==true or false,automatic=automatic,
         session=host._reader_session_gen or 0,account=host.library_db and host.library_db:accountKey(),native=native,web=web}
     host._native_direct_position=ctx
     local function page_current()
@@ -72,10 +79,13 @@ function M.start(host,entry,options)
     local function access_current()
         return NativeAccess.matches(host.settings,ctx.native) and Currentness.matches(host.settings,ctx.web)
     end
-    ctx.is_current=function() return page_current() and access_current() end
+    ctx.is_current=function() return page_current() and access_current() and (not automatic or automatic.current()) end
     local function fail(message)
         if host._native_direct_position~=ctx then return end
-        local live=page_current();M.cancel(host)
+        local live=page_current()
+        if automatic then ctx.auto_status=message=='The cloud position changed during the check. Your current page is kept.'
+            and 'conflict' or 'failed';M.cancel(host);return end
+        M.cancel(host)
         if live then host:showInfo(_(message or 'Could not check this reading position.')) end
     end
     if ctx.upload then
@@ -87,6 +97,7 @@ function M.start(host,entry,options)
         local pending,reason=ctx.service:pending()
         if reason then fail('Could not check the previous position sync.');return false end
         if pending then
+            if automatic then ctx.auto_status='unconfirmed';M.cancel(host);return true end
             ctx.review=require('weread.lib.native_position_review'):new{
                 settings=host.settings,client=host.client,library=host.library_db,scheduler=UI}
             local function cancel() if host._native_direct_position==ctx then M.cancel(host) end end
@@ -131,8 +142,10 @@ function M.start(host,entry,options)
             UI:show(ctx.confirm);return true
         end
     end
-    host:showBusy(_(ctx.upload and 'Preparing reading position sync...' or ctx.compare and 'Checking cloud reading position...' or 'Checking the current reading position...'),
-        function() M.cancel(host) end);ctx.busy=host.busy_message
+    if not automatic then
+        host:showBusy(_(ctx.upload and 'Preparing reading position sync...' or ctx.compare and 'Checking cloud reading position...' or 'Checking the current reading position...'),
+            function() M.cancel(host) end);ctx.busy=host.busy_message
+    end
     if not host._native_direct_position_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
             scheduler=UI,codec=host.client,max_bytes=65536,timeout=180} end)
@@ -171,7 +184,7 @@ function M.start(host,entry,options)
         end
     end
     launch=function()
-        if not page_current() or not access_current() then M.cancel(host);return end
+        if not ctx.is_current() then M.cancel(host);return end
         ctx.generation=(ctx.generation or 0)+1;local generation=ctx.generation
         local selected_native,selected_web=ctx.native,ctx.web
         local ok,started=pcall(host._native_direct_position_worker.start,host._native_direct_position_worker,function()
@@ -194,7 +207,7 @@ function M.start(host,entry,options)
             return value and {position=value} or {error=why or 'unavailable'}
         end,function(result)
             if host._native_direct_position~=ctx or ctx.generation~=generation then return end
-            if not page_current() or not access_current() then M.cancel(host);return end
+            if not ctx.is_current() then M.cancel(host);return end
             if type(result)=='table' and result.error=='web_expired' then renew_web();return end
             if type(result)=='table' and result.error=='auth_expired' then renew_native();return end
             local comparison=type(result)=='table' and result.comparison
@@ -228,12 +241,23 @@ function M.start(host,entry,options)
                     or metadata.desired.book_id~=p.book_id or metadata.desired.chapter_uid~=p.chapter_uid
                     or metadata.desired.chapter_idx~=p.chapter_idx or metadata.desired.chapter_offset~=p.chapter_offset
                     or metadata.desired.raw_percent~=metadata.before.raw_percent then fail();return end
+                if automatic then
+                    local b=automatic.baseline
+                    if not State.equal(metadata.before,b.position) or not Protocol.same_counts(metadata.counts,b.counts)
+                        or metadata.version~=b.version or metadata.shelf_sha256~=b.shelf_sha256
+                        or metadata.source_sha256~=b.source_sha256 or metadata.file_id~=b.file_id then
+                        fail('The cloud position changed during the check. Your current page is kept.');return
+                    end
+                end
                 if not State.none(metadata.before) and metadata.before.chapter_uid==metadata.desired.chapter_uid
                     and metadata.before.chapter_idx==metadata.desired.chapter_idx
                     and metadata.before.chapter_offset==metadata.desired.chapter_offset then
-                    M.cancel(host);host:showInfo(_('The current page matches the cloud reading position.'));return
+                    if automatic then ctx.auto_status,ctx.auto_metadata='same',metadata;M.cancel(host);return end
+                    M.cancel(host);require('weread.lib.native_direct_interval').arm_session(host,entry,ctx,metadata,'before')
+                    host:showInfo(_('The current page matches the cloud reading position.'));return
                 end
                 if not ctx.confirmed_metadata then
+                    if automatic then ctx.confirmed_metadata=metadata;launch();return end
                     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
                     local dialog
                     dialog=require('ui/widget/confirmbox'):new{
@@ -255,7 +279,12 @@ function M.start(host,entry,options)
                     if host._native_direct_position~=ctx then return end
                     if not ctx.is_current() then M.cancel(host);return end
                     local confirmed=out.kind=='confirmed' and token and ctx.service:accept(token)
+                    if automatic then
+                        ctx.auto_status=confirmed and 'confirmed' or out.attempted and 'unconfirmed' or 'failed'
+                        ctx.auto_metadata=confirmed and metadata or nil;M.cancel(host);return
+                    end
                     M.cancel(host)
+                    if confirmed then require('weread.lib.native_direct_interval').arm_session(host,entry,ctx,metadata,'desired') end
                     host:showInfo(_(confirmed and 'Cloud reading position synced and checked.'
                         or out.attempted and 'The sync result could not be confirmed. Choose sync again to review it.'
                         or 'Could not sync this position. Your current page is kept.'))

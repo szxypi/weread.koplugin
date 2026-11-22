@@ -502,7 +502,7 @@ function M:getSettingsMenuItems()
                             local minutes=ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)
                             return T(_("Timed progress sync: %1"),minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes))
                         end,
-                        help_text = _("Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. Reading time is controlled separately."),
+                        help_text = _("Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. For E-Ink chapters, sync once in each reading session. Reading time is controlled separately."),
                         sub_item_table_func = function() return self:getProgressIntervalMenuItems() end,
                     },
                 }
@@ -1344,6 +1344,7 @@ function M:getProgressIntervalMenuItems()
                 config.upload_interval_minutes=minutes
                 self.settings:set("sync",config);self.settings:flush()
                 if self.progress_sync then self.progress_sync.interval:reschedule() end
+                local direct=package.loaded['weread.lib.native_direct_interval'];if direct then direct.on_settings_changed(self) end
                 if menu then menu:updateItems() end
             end)}
     end

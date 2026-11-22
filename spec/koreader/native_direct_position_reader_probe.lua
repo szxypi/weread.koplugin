@@ -10,6 +10,9 @@ local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local settings=require('weread.lib.settings'):new();assert(settings.data_dir==home..'/weread')
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
 settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
+if input.mode:find('^interval') then
+    local sync=settings:get('sync',{});sync.upload_interval_minutes=1;settings:set('sync',sync);settings:flush()
+end
 local scope=assert(settings:get_auth_scope());assert(settings:auth_scope_matches(scope))
 assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
 local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
@@ -35,14 +38,14 @@ active.client.request=function(self,options)
     local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
     assert(url=='https://i.weread.qq.com/book/info?bookId=42'
         or url=='https://i.weread.qq.com/book/getProgress?bookId=42'
-        or (input.mode:find('^preview') or input.mode:find('^upload')) and url=='https://i.weread.qq.com/shelf/sync'
-        or input.mode:find('^upload') and (url=='https://i.weread.qq.com/feature?synckey=0'
+        or (input.mode:find('^preview') or input.mode:find('^upload') or input.mode:find('^interval')) and url=='https://i.weread.qq.com/shelf/sync'
+        or (input.mode:find('^upload') or input.mode:find('^interval')) and (url=='https://i.weread.qq.com/feature?synckey=0'
             or url=='https://i.weread.qq.com/book/read')
         or url=='https://i.weread.qq.com/book/chapterInfos'
         or url:find('https://i.weread.qq.com/book/chapterdownload?',1,true)==1
         or url=='https://weread.qq.com/api/userInfo?userVid=12345678'
         or url=='https://weread.qq.com/web/book/chapterInfos'
-        or (input.mode:find('^preview') or input.mode:find('^upload'))
+        or (input.mode:find('^preview') or input.mode:find('^upload') or input.mode:find('^interval'))
             and url:find('https://weread.qq.com/web/book/getProgress?',1,true)==1
         or url:find('https://weread.qq.com/web/reader/',1,true)==1
         or url:find('https://weread.qq.com/web/book/chapter/e_',1,true)==1)
@@ -52,6 +55,7 @@ active.client.request=function(self,options)
     return requests(self,options)
 end
 active.showInfo=function(self,message) self.checked_message=message end
+active.showTransientInfo=function(self,message) self.transient_message=message end
 end
 configure(host)
 local open_file=host.openFile
@@ -81,7 +85,7 @@ host._native_direct_position_worker={cancel=function() native_worker:cancel() en
     end)
 end}
 local function open_menu()
-    local id=input.mode:find('^upload') and 'native_upload_position'
+    local id=(input.mode:find('^upload') or input.mode:find('^interval')) and 'native_upload_position'
         or (input.mode:find('^cloud') or input.mode:find('^cross_')) and 'native_cloud_position' or 'native_position_check'
     assert(host:onShowWeReadQuickMenu())
     wait(function()
@@ -91,7 +95,7 @@ local function open_menu()
     UI:forceRePaint();assert(UI:getTopmostVisibleWidget():getButtonById(id)):onTapSelectButton()
 end
 open_menu()
-if input.mode:find('^upload') then
+if input.mode:find('^upload') or input.mode:find('^interval') then
     wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
     assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
     local confirm=host._native_direct_position.confirm
@@ -105,6 +109,30 @@ if input.mode:find('^upload') then
                 and 'The sync result could not be confirmed. Choose sync again to review it.'
             or 'Cloud reading position synced and checked.'
         assert(host.checked_message==tr(expected),'unexpected upload result')
+        if input.mode:find('^interval') then
+            local timer=assert(host._native_direct_interval,'manual sync did not establish interval baseline')
+            local now=os.time();timer.now=function() return now end
+            assert(reader.rolling and reader.document:getPageCount()>3)
+            reader.rolling:onGotoPage(2);UI:forceRePaint()
+            wait(function() return timer.task~=nil end)
+            if input.mode=='interval_offline' then host.isNetworkConnected=function() return false end end
+            now=timer.due;local fire=timer.task;UI:unschedule(fire);fire()
+            if input.mode=='interval_move' then
+                wait(function() return native_worker.job~=nil end)
+                reader.rolling:onGotoPage(3);UI:forceRePaint()
+                wait(function() return not host._native_direct_position and timer.task~=nil end)
+                assert(host._native_direct_interval==timer,'page change lost the verified baseline')
+            elseif input.mode=='interval' then
+                wait(function() return not timer.attempt end)
+                assert(host._native_direct_interval==timer and not timer.dirty and not host.transient_message,
+                    'automatic upload did not confirm the new baseline')
+            else
+                wait(function() return not host._native_direct_interval end)
+                if input.mode~='interval_offline' then assert(host.transient_message,'paused timer did not report the result') end
+                reader.rolling:onGotoPage(3);UI:forceRePaint()
+                assert(not host._native_direct_interval,'paused timer restarted without a manual check')
+            end
+        end
         if input.mode=='upload_lost_ack' or input.mode=='upload_missing_after' then
             host.checked_message=nil;open_menu()
             wait(function() return host._native_direct_position and host._native_direct_position.confirm end)
