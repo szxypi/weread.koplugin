@@ -1,0 +1,18 @@
+{
+  "scope": "one existing XHTML chapter in isolated KOReader ReaderUI",
+  "screen": "600x800",
+  "production_native_ui_and_worker": true,
+  "source_viewport_and_signed_bodies_independently_checked": true,
+  "account_data_posts": 2,
+  "explicit_success_receipts": 2,
+  "independent_two_channel_readbacks": 2,
+  "original_position_and_summary_restored": true,
+  "fresh_post_run_read_only_verification": true,
+  "intent_phase": "retired",
+  "reading_counts_and_visible_shelves_unchanged": true,
+  "authentication_posts": 0,
+  "web_progress_posts": 0,
+  "credential_file_audit_passed": true,
+  "temporary_profile_removed": true,
+  "limitations": ["one account and chapter", "isolated ReaderUI host", "missing-summary real write untested", "server history and recent-reading time not verified", "physical Kindle untested"]
+}

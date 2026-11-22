@@ -202,6 +202,7 @@ function Client:json_decode(text)
     if not ok_json then
         error("JSON module is not available")
     end
+    text = require("weread.lib.json_unicode").normalize(text)
     if json.decode then
         return json.decode(text)
     end

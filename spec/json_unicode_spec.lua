@@ -1,0 +1,18 @@
+package.path='./?.lua;'..package.path
+local U=require('weread.lib.json_unicode')
+local function test(source,expected) assert(U.normalize(source)==expected,source) end
+test([=[{"text":"\uD83D\uDE00"}]=],[=[{"text":"😀"}]=])
+test([=[{"\ud83d\ude00":"a\ud83d\ude00b"}]=],[=[{"😀":"a😀b"}]=])
+test([=[{"text":"\\uD83D\\uDE00"}]=],[=[{"text":"\\uD83D\\uDE00"}]=])
+test([=[{"text":"\\\uD83D\uDE00"}]=],[=[{"text":"\\😀"}]=])
+test([=[{"text":"\uD83D\u0041"}]=],[=[{"text":"\uD83D\u0041"}]=])
+test([=[{"text":"\uDE00\uD83D"}]=],[=[{"text":"\uDE00\uD83D"}]=])
+test([=[{"text":"\uD83D\uDE0"}]=],[=[{"text":"\uD83D\uDE0"}]=])
+test([=[{"text":"\uD83D\uDE00\uD800\uDC00"}]=],[=[{"text":"😀𐀀"}]=])
+test([=[{"text":"\uDBFF\uDFFF"}]=],[=[{"text":"􏿿"}]=])
+test([=[{"text":"a\"\uD83D\uDE00b"}]=],[=[{"text":"a\"😀b"}]=])
+test([=[{"text":"normal 😀 and 中文"}]=],[=[{"text":"normal 😀 and 中文"}]=])
+test([=[\uD83D\uDE00]=],[=[\uD83D\uDE00]=])
+test('"'..string.rep('\\uD83D\\uDE00',600)..'"','"'..string.rep('😀',600)..'"')
+assert(U.normalize(nil)==nil)
+print('PASS: JSON surrogate pairs decoded without changing literal escapes')

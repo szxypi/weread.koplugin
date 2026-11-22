@@ -1,0 +1,10 @@
+"""One durable account-scoped, two-slot native ReaderUI trial."""
+from native_direct_ui_trial_broker import PROTOCOL,validate_plan
+from secure_native_txt_roundtrip import NativeTxtRoundtripStore
+
+
+class NativeDirectUITrialStore(NativeTxtRoundtripStore):
+    service='org.codex.weread.goal-native-direct-ui-position-v1'
+    protocol=PROTOCOL
+
+    def validate_plan(self,plan):validate_plan(plan)

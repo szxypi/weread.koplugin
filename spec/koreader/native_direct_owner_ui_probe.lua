@@ -7,7 +7,7 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local scope={vid=input.credentials.vid,epoch=1}
-local settings={data_dir=home,cache_dir=home,get=function(_,_,default) return default end,
+local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,get=function(_,_,default) return default end,
     get_book=function() return nil end,get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
 local store={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local original=Access.capture
