@@ -16,8 +16,9 @@ class PreviewTests(unittest.TestCase):
         session.assert_not_called(); native.assert_not_called(); command.assert_not_called()
 
     def test_write_modes_require_saved_session_and_invalid_dimensions_fail(self):
-        for options in (['--apply'], ['--prepare'], ['--retry'], ['--third'], ['--saved-session','--retry'],
+        for options in (['--apply'], ['--prepare'], ['--retry'], ['--third'], ['--fourth'], ['--saved-session','--retry'],
                         ['--saved-session','--third'], ['--saved-session','--prepare','--retry','--third'],
+                        ['--saved-session','--fourth'], ['--saved-session','--prepare','--third','--fourth'],
                         ['--saved-session','--prepare','--apply'], ['--width', '0']):
             with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 task.main(options)
@@ -45,6 +46,13 @@ class PreviewTests(unittest.TestCase):
              patch.object(task,'manual_command') as runner,contextlib.redirect_stdout(io.StringIO()) as out:
             journal.return_value.read.return_value=(None,None)
             self.assertEqual(task.main(['--saved-session','--third','--apply']),1)
+        session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
+
+    def test_fourth_without_prepared_scope_stops_before_credentials(self):
+        with patch.object(task,'OrdinaryReconnectFourthStore') as journal,patch.object(task,'SessionStore') as session, \
+             patch.object(task,'manual_command') as runner,contextlib.redirect_stdout(io.StringIO()) as out:
+            journal.return_value.read.return_value=(None,None)
+            self.assertEqual(task.main(['--saved-session','--fourth','--apply']),1)
         session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
 
     def test_rejected_read_reports_status_without_response_data(self):

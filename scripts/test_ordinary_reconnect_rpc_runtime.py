@@ -24,10 +24,10 @@ import ordinary_reconnect_observe
 import ordinary_reconnect_live
 from ordinary_reconnect_restore import RestoreProbe, restore
 from ordinary_partial_recovery import RecoveryProbe, binding as recovery_binding, checked_pair, observed_point, restore_once
-from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
-from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
-from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore, PROTOCOL, HASHES, entered_point
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,FourthPartialRecoveryStore
+from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore,FourthRecoveryRenewalStore
+from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore,FourthRestoreReadbackStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore, PROTOCOL, HASHES, entered_point
 from test_secure_native_session import Backend
 from verify_cb_fixture_reconnect_trial import source_summary
 from verify_position_roundtrip import DEFAULT_TOKEN, same_position
@@ -48,11 +48,12 @@ def main():
     failure.add_argument('--retry-recovery',action='store_true');failure.add_argument('--retry-recovery-noack',action='store_true')
     failure.add_argument('--retry-restore-noack',action='store_true');failure.add_argument('--retry-success',action='store_true')
     failure.add_argument('--retry-enter-noack',action='store_true')
-    failure.add_argument('--retry-enter-read-failure',action='store_true');p.add_argument('--third-scope',action='store_true')
+    failure.add_argument('--retry-enter-read-failure',action='store_true')
+    scope=p.add_mutually_exclusive_group();scope.add_argument('--third-scope',action='store_true');scope.add_argument('--fourth-scope',action='store_true')
     p.add_argument('--preserve-position-percent',action='store_true');a=p.parse_args()
     retry_recovery_mode=a.retry_recovery or a.retry_recovery_noack or a.retry_enter_noack or a.retry_enter_read_failure
     retry_mode=retry_recovery_mode or a.retry_restore_noack or a.retry_success
-    if a.third_scope and not retry_mode:p.error('third scope requires a retry scenario')
+    if (a.third_scope or a.fourth_scope) and not retry_mode:p.error('separate scope requires a retry scenario')
     server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True;server.enter_preserves_percent=True
     if a.preserve_position_percent:
         if not a.retry_success:p.error('preserved-percent scenario requires success')
@@ -119,7 +120,7 @@ def main():
         dry={};preview(command+['--dry'],payload,check_body,dry,check_context=check_context)
         if dry.get('result')!='READER_POSITION_DRY_VERIFIED' or server.request_totals.get(('/web/book/read',''),0)!=0:
             raise ValueError('mock/dry')
-        store=(OrdinaryReconnectThirdStore if a.third_scope else OrdinaryReconnectRetryStore if retry_mode else OrdinaryReconnectStore)(Backend());store.reserve(captured['plan'])
+        store=(OrdinaryReconnectFourthStore if a.fourth_scope else OrdinaryReconnectThirdStore if a.third_scope else OrdinaryReconnectRetryStore if retry_mode else OrdinaryReconnectStore)(Backend());store.reserve(captured['plan'])
         class LocalOpener:
             def __init__(self):self.opener=build_opener(ProxyHandler({}))
             def open(self,request,timeout):
@@ -178,8 +179,8 @@ def main():
                 if (state_hash(recovered['web_shelf'])!=captured['plan']['web_shelf_core_sha256']
                         or state_hash(recovered['native_shelf'])!=captured['plan']['native_shelf_core_sha256']):
                     raise ValueError('mock/restore_readback')
-                proof=(ThirdRestoreReadbackStore if a.third_scope else RestoreReadbackStore)(Backend())
-                bridge=(ThirdRecoveryRenewalStore if a.third_scope else RetryRecoveryRenewalStore)(Backend());selected=captured['plan']
+                proof=(FourthRestoreReadbackStore if a.fourth_scope else ThirdRestoreReadbackStore if a.third_scope else RestoreReadbackStore)(Backend())
+                bridge=(FourthRecoveryRenewalStore if a.fourth_scope else ThirdRecoveryRenewalStore if a.third_scope else RetryRecoveryRenewalStore)(Backend());selected=captured['plan']
                 proof.record(dict(original_intent_sha256=hashlib.sha256(original_receipt.pending).hexdigest(),owner_sha256=selected['owner_sha256'],
                     native_grant_sha256=digest(grant),renewal_bridge_sha256='0'*64,source_sha256=selected['source_sha256'],
                     catalog_sha256=selected['catalog_sha256'],web_shelf_core_sha256=selected['web_shelf_core_sha256'],
@@ -202,7 +203,7 @@ def main():
                     raise ValueError('mock/read_failure')
                 import ordinary_partial_recovery as partial
                 original_state,original_receipt=store.read()
-                recovery=(ThirdPartialRecoveryStore if a.third_scope else RetryPartialRecoveryStore if retry_recovery_mode else PartialRecoveryStore)(Backend())
+                recovery=(FourthPartialRecoveryStore if a.fourth_scope else ThirdPartialRecoveryStore if a.third_scope else RetryPartialRecoveryStore if retry_recovery_mode else PartialRecoveryStore)(Backend())
                 with patch.object(partial,'decode_content_shards',return_value=source):
                     expected=captured['plan']['target'] if retry_recovery_mode and not (a.retry_enter_noack or a.retry_enter_read_failure) else observed_point(captured['plan'])
                     observed=checked_pair(web,LocalNative(),grant,captured['plan'],expected,lambda:True)
@@ -252,7 +253,7 @@ def main():
         print(json.dumps(dict(result='PASS',mock_only=True,noack=a.noack,restore_noack=a.restore_noack,dry_body_bound=True,dry_posts=0,
                               claimed_posts=report['claimed_posts'],acknowledged_posts=report['acknowledged_posts'],
                               verified=report['independently_verified'],coordinator=True,actual_reader=True,
-                              retry_scope=retry_mode,third_scope=a.third_scope,partial_recovery=a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode,retry_recovery=retry_recovery_mode,
+                              retry_scope=retry_mode,third_scope=a.third_scope,fourth_scope=a.fourth_scope,partial_recovery=a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode,retry_recovery=retry_recovery_mode,
                               recovery_noack=a.partial_recovery_noack or a.retry_recovery_noack,read_failure_after_enter=a.retry_enter_read_failure,
                               enter_noack=a.retry_enter_noack,restore_readback_resolved=a.retry_restore_noack,restore_verified=restored,
                               position_percent_modes=report.get('position_percent_modes'),real_account_posts=0)))

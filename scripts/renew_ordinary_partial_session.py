@@ -10,9 +10,9 @@ import json
 import resource
 
 from secure_native_session import NativeSessionStore
-from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
-from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,FourthPartialRecoveryStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore
+from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore,FourthRecoveryRenewalStore
 from secure_weread_session import MacKeychain,SessionStore
 from txt_full_summary import digest
 from verify_eink_login import BASE,ProbeError
@@ -23,13 +23,14 @@ from verify_native_txt_position import Native
 def execute(original,original_receipt,session,native_store,bridge,saved,previous,current,report,*,reader_factory=Native,renewal_factory=RenewalProbe):
     if (type(original),type(bridge)) not in ((OrdinaryReconnectStore,RecoveryRenewalStore),
                                              (OrdinaryReconnectRetryStore,RetryRecoveryRenewalStore),
-                                             (OrdinaryReconnectThirdStore,ThirdRecoveryRenewalStore)):
+                                             (OrdinaryReconnectThirdStore,ThirdRecoveryRenewalStore),
+                                             (OrdinaryReconnectFourthStore,FourthRecoveryRenewalStore)):
         raise ValueError('ordinary_renewal/scope')
     if (any(isinstance(getattr(item,'backend',None),MacKeychain) for item in (original,session,native_store,bridge))
             and (reader_factory is not Native or renewal_factory is not RenewalProbe)):
         raise ValueError('ordinary_renewal/scope')
     state,receipt=original.read()
-    allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged','restore_pending','restore_acknowledged') if type(original) in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore) else ('enter_acknowledged',)
+    allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged','restore_pending','restore_acknowledged') if type(original) in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore) else ('enter_acknowledged',)
     if (not state or state['phase'] not in allowed or receipt!=original_receipt
             or digest(previous)!=state['plan']['grant_sha256'] or digest(saved)!=state['plan']['web_session_sha256']
             or digest(saved['vid'])!=state['plan']['owner_sha256'] or previous.get('vid')!=saved['vid']
@@ -70,9 +71,9 @@ def execute(original,original_receipt,session,native_store,bridge,saved,previous
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--renew',action='store_true')
-    scope=p.add_mutually_exclusive_group();scope.add_argument('--retry',action='store_true');scope.add_argument('--third',action='store_true');a=p.parse_args(argv)
+    scope=p.add_mutually_exclusive_group();scope.add_argument('--retry',action='store_true');scope.add_argument('--third',action='store_true');scope.add_argument('--fourth',action='store_true');a=p.parse_args(argv)
     if a.saved_session!=a.renew:p.error('pair saved session and renewal')
-    scoped=a.retry or a.third
+    scoped=a.retry or a.third or a.fourth
     if scoped and not a.saved_session:p.error('separate scope requires saved session')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts_attempted=0,
                 authentication_posts_may_have_occurred=False,private_data_on_regular_disk=False)
@@ -81,17 +82,17 @@ def main(argv=None):
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0))
             from verify_native_thought_trial import other_pending
-            original=(OrdinaryReconnectThirdStore if a.third else OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,receipt=original.read()
-            recovery=(ThirdPartialRecoveryStore if a.third else RetryPartialRecoveryStore if a.retry else PartialRecoveryStore)()
-            bridge=(ThirdRecoveryRenewalStore if a.third else RetryRecoveryRenewalStore if a.retry else RecoveryRenewalStore)()
+            original=(OrdinaryReconnectFourthStore if a.fourth else OrdinaryReconnectThirdStore if a.third else OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,receipt=original.read()
+            recovery=(FourthPartialRecoveryStore if a.fourth else ThirdPartialRecoveryStore if a.third else RetryPartialRecoveryStore if a.retry else PartialRecoveryStore)()
+            bridge=(FourthRecoveryRenewalStore if a.fourth else ThirdRecoveryRenewalStore if a.third else RetryRecoveryRenewalStore if a.retry else RecoveryRenewalStore)()
             allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged','restore_pending','restore_acknowledged') if scoped else ('enter_acknowledged',)
             if (not state or state['phase'] not in allowed or recovery.read()[0] is not None
-                    or bridge.read()[0] is not None or other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third)):
+                    or bridge.read()[0] is not None or other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third,exclude_ordinary_reconnect_fourth=a.fourth)):
                 raise ValueError('ordinary_renewal/scope')
             session=SessionStore();saved=session.load();native_store=NativeSessionStore();previous=native_store.load(saved['vid'])
             def current():
                 return (original.read()[1]==receipt and session.load()==saved and native_store.load(saved['vid'])==previous
-                        and recovery.read()[0] is None and not other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third))
+                        and recovery.read()[0] is None and not other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third,exclude_ordinary_reconnect_fourth=a.fourth))
             execute(original,receipt,session,native_store,bridge,saved,previous,current,report)
     except Exception:
         report['result']='UNVERIFIED'

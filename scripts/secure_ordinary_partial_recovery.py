@@ -90,3 +90,8 @@ class RetryPartialRecoveryStore(PartialRecoveryStore):
 class ThirdPartialRecoveryStore(RetryPartialRecoveryStore):
     service='org.codex.weread.goal-ordinary-partial-recovery-v3'
     lock_name='codex-ordinary-partial-recovery-v3-'
+
+
+class FourthPartialRecoveryStore(RetryPartialRecoveryStore):
+    service='org.codex.weread.goal-ordinary-partial-recovery-v4'
+    lock_name='codex-ordinary-partial-recovery-v4-'

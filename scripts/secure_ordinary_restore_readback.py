@@ -57,3 +57,8 @@ class RestoreReadbackStore:
 class ThirdRestoreReadbackStore(RestoreReadbackStore):
     service='org.codex.weread.goal-ordinary-restore-readback-v3'
     lock_name='codex-ordinary-restore-readback-v3-'
+
+
+class FourthRestoreReadbackStore(RestoreReadbackStore):
+    service='org.codex.weread.goal-ordinary-restore-readback-v4'
+    lock_name='codex-ordinary-restore-readback-v4-'

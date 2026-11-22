@@ -1,9 +1,9 @@
 import hashlib
 import unittest
 
-from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
-from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
-from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore
+from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore,FourthRecoveryRenewalStore
+from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore,FourthRestoreReadbackStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
 from test_secure_ordinary_reconnect_trial import plan
@@ -60,6 +60,18 @@ class ReadbackProofTests(unittest.TestCase):
         original.close_after_restore_readback(receipt,proof,bridge)
         self.assertEqual(original.read()[0]['phase'],'baseline_readback_after_enter')
         self.assertNotEqual(proof.service,old_proof.service)
+
+    def test_fourth_readback_rejects_third_scope_proof_or_bridge(self):
+        original=OrdinaryReconnectFourthStore(Backend());receipt=original.reserve(self.plan)
+        receipt=original.advance(receipt,'prepared','enter_pending')
+        item=self.binding();item['original_intent_sha256']=hashlib.sha256(receipt.pending).hexdigest()
+        old=ThirdRestoreReadbackStore(Backend());old.record(item)
+        proof=FourthRestoreReadbackStore(Backend());proof.record(item)
+        bridge=FourthRecoveryRenewalStore(Backend())
+        with self.assertRaises(StoreError):original.close_after_restore_readback(receipt,old,bridge)
+        with self.assertRaises(StoreError):original.close_after_restore_readback(receipt,proof,ThirdRecoveryRenewalStore(Backend()))
+        original.close_after_restore_readback(receipt,proof,bridge)
+        self.assertEqual(original.read()[0]['phase'],'baseline_readback_after_enter')
 
 
 if __name__=='__main__':unittest.main()

@@ -124,6 +124,8 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 针对这一后续观察，试验核对在位置请求后可接受服务端返回目标百分比或保留原百分比；两端仍必须一致，章节、精确坐标、摘要、目录、原文、时长和书架均按对应实际状态核对，其他百分比与两端不一致均拒绝。位置读取会记录百分比采用的分支，原位置恢复仍要求精确匹配。两尺寸合成服务保留原百分比的完整往返通过：[普通尺寸](validation-assets/2026-11-22/ordinary-preserved-percent-small.json)、[KO2](validation-assets/2026-11-22/ordinary-preserved-percent-ko2.json)；这不代表真实账号已验证该分支或服务端百分比已同步。
 
+新增第四个独立范围，原有记录保持封存。两尺寸合成服务覆盖原百分比保留的[普通尺寸](validation-assets/2026-11-22/ordinary-fourth-mock-preserved-small.json)和 [KO2](validation-assets/2026-11-22/ordinary-fourth-mock-preserved-ko2.json)完整往返，以及 KO2 尺寸目标百分比、读取失败和各阶段回执缺失后的恢复或不重发；这些合成结果不代表真实账号通过。首次真实准备时原生授权返回 401，独立读取再次确认过期，未修改书籍；同设备续期一次后重新[零写入准备](validation-assets/2026-11-22/ordinary-fourth-owner-prepared-v2.json)通过，见[首次准备](validation-assets/2026-11-22/ordinary-fourth-owner-prepared.json)、[过期核对](validation-assets/2026-11-22/ordinary-fourth-native-expiry-check.json)和[续期](validation-assets/2026-11-22/ordinary-fourth-native-renewal.json)。
+
 ## 普通 TXT 重连后的真实同步与恢复
 
 随后使用真实账号的一章普通 TXT，在 KO2 模拟尺寸从插件进入原生阅读器，模拟断网并翻页，保存本机位置后重连，选择「保留 KOReader 进度」。实际原生同步发送一次零时长位置请求；明确回执和插件回读后，宿主独立核对网页／墨水屏位置及摘要、原文和目录、原生阅读时长计数与网页书架投影，才放行一次恢复原位置的请求。恢复后再次独立核对；另在全新宿主进程连续两次只读核对，原章节、偏移、百分比、摘要和上述观察状态均一致。两次数据请求均获得明确回执，验收期间没有网页位置写入或授权请求。

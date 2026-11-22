@@ -93,7 +93,7 @@ class RawExcerptTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
                'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore',
-               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeReconnectTrialStore','OrdinaryReconnectStore','OrdinaryReconnectRetryStore','OrdinaryReconnectThirdStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore','ReadtimeTrialStore','CrossDayTrialStore',
+               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeReconnectTrialStore','OrdinaryReconnectStore','OrdinaryReconnectRetryStore','OrdinaryReconnectThirdStore','OrdinaryReconnectFourthStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore','ReadtimeTrialStore','CrossDayTrialStore',
                'MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as context:
             factories={name:context.enter_context(patch.object(shared,name)) for name in names}

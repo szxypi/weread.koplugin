@@ -9,8 +9,8 @@ import hashlib
 from fetch_weread_epub import decode_content_shards,weread_e
 from ordinary_reconnect_restore import RestoreProbe
 from readtime_upload_model import integer
-from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,validate_binding,validate_retry_binding
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,entered_point,validate_plan
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,FourthPartialRecoveryStore,validate_binding,validate_retry_binding
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore,entered_point,validate_plan
 from secure_weread_session import COOKIE_NAMES
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
@@ -94,7 +94,8 @@ def recovery_scope(original,original_state,recovery,bound,plan):
         if phase!='enter_acknowledged' or 'observed_state' in bound:raise ValueError('ordinary_recovery/intent')
         return observed_point(plan)
     if (type(original),type(recovery)) not in ((OrdinaryReconnectRetryStore,RetryPartialRecoveryStore),
-                                               (OrdinaryReconnectThirdStore,ThirdPartialRecoveryStore)):
+                                               (OrdinaryReconnectThirdStore,ThirdPartialRecoveryStore),
+                                               (OrdinaryReconnectFourthStore,FourthPartialRecoveryStore)):
         raise ValueError('ordinary_recovery/intent')
     if bound.get('original_phase')!=phase:raise ValueError('ordinary_recovery/intent')
     observed=bound.get('observed_state')

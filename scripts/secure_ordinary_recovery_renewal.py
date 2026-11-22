@@ -76,3 +76,8 @@ class RetryRecoveryRenewalStore(RecoveryRenewalStore):
 class ThirdRecoveryRenewalStore(RetryRecoveryRenewalStore):
     service='org.codex.weread.goal-ordinary-recovery-renewal-v3'
     lock_name='codex-ordinary-recovery-renewal-v3-'
+
+
+class FourthRecoveryRenewalStore(RetryRecoveryRenewalStore):
+    service='org.codex.weread.goal-ordinary-recovery-renewal-v4'
+    lock_name='codex-ordinary-recovery-renewal-v4-'

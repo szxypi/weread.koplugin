@@ -13,9 +13,9 @@ import traceback
 
 from ordinary_partial_recovery import RecoveryProbe,binding,checked_pair,observed_point,restore_once,verified_grant
 from secure_native_session import NativeSessionStore
-from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
-from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,FourthPartialRecoveryStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore
+from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore,FourthRecoveryRenewalStore
 from secure_weread_session import COOKIE_NAMES,SessionStore
 from txt_full_summary import digest
 from verify_native_txt_position import Native
@@ -41,10 +41,10 @@ def choose_retry_state(plan,phase,raw):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true')
     mode=p.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--apply',action='store_true')
-    scope=p.add_mutually_exclusive_group();scope.add_argument('--retry',action='store_true');scope.add_argument('--third',action='store_true')
+    scope=p.add_mutually_exclusive_group();scope.add_argument('--retry',action='store_true');scope.add_argument('--third',action='store_true');scope.add_argument('--fourth',action='store_true')
     a=p.parse_args(argv)
     if (a.prepare or a.apply)!=a.saved_session:p.error('pair saved session with exactly one mode')
-    scoped=a.retry or a.third
+    scoped=a.retry or a.third or a.fourth
     if scoped and not a.saved_session:p.error('separate scope requires saved session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False,original_trial_verified=False)
@@ -53,14 +53,14 @@ def main(argv=None):
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));report['phase']='intent'
             from verify_native_thought_trial import other_pending
-            original=(OrdinaryReconnectThirdStore if a.third else OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,original_receipt=original.read()
-            recovery=(ThirdPartialRecoveryStore if a.third else RetryPartialRecoveryStore if a.retry else PartialRecoveryStore)();rstate,rreceipt=recovery.read()
+            original=(OrdinaryReconnectFourthStore if a.fourth else OrdinaryReconnectThirdStore if a.third else OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,original_receipt=original.read()
+            recovery=(FourthPartialRecoveryStore if a.fourth else ThirdPartialRecoveryStore if a.third else RetryPartialRecoveryStore if a.retry else PartialRecoveryStore)();rstate,rreceipt=recovery.read()
             allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged') if scoped else ('enter_acknowledged',)
             if (not state or state['phase'] not in allowed or original_receipt is None
                     or a.prepare and rstate is not None or a.apply and (not rstate or rstate['phase']!='prepared')
-                    or other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third)):raise ValueError('ordinary_recovery/intent')
+                    or other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third,exclude_ordinary_reconnect_fourth=a.fourth)):raise ValueError('ordinary_recovery/intent')
             plan=state['plan'];store=SessionStore();saved=store.load();grant=NativeSessionStore().load(saved['vid'])
-            bridge=(ThirdRecoveryRenewalStore if a.third else RetryRecoveryRenewalStore if a.retry else RecoveryRenewalStore)();bridge_state,bridge_receipt=bridge.read()
+            bridge=(FourthRecoveryRenewalStore if a.fourth else ThirdRecoveryRenewalStore if a.third else RetryRecoveryRenewalStore if a.retry else RecoveryRenewalStore)();bridge_state,bridge_receipt=bridge.read()
             if digest(saved)!=plan['web_session_sha256']:raise ValueError('ordinary_recovery/session')
             grant_sha,bridge_sha=verified_grant(plan,original_receipt,saved,grant,bridge_state,bridge_receipt)
             private.update(str(v) for v in saved['cookies'].values());private.update(str(v) for v in grant.values() if isinstance(v,str))
@@ -74,7 +74,7 @@ def main(argv=None):
                          and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
                 return (now==state and receipt==original_receipt and store.load()==saved
                         and NativeSessionStore().load(saved['vid'])==grant and bridge.read()==(bridge_state,bridge_receipt) and cookies==saved['cookies']
-                        and not other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third))
+                        and not other_pending(exclude_ordinary_reconnect_trial=not scoped,exclude_ordinary_reconnect_retry=a.retry,exclude_ordinary_reconnect_third=a.third,exclude_ordinary_reconnect_fourth=a.fourth))
             report['phase']='readback'
             if scoped:
                 if current() is not True:raise ValueError('ordinary_recovery/currentness')

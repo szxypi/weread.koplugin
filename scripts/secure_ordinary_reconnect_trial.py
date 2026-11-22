@@ -151,13 +151,14 @@ class OrdinaryReconnectStore:
 
     def retire_after_partial_recovery(self, receipt, recovery):
         """Seal the partial attempt only after its distinct recovery is retired."""
-        from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
+        from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore,FourthPartialRecoveryStore
         if not isinstance(receipt,Receipt) or not isinstance(recovery,PartialRecoveryStore):
             raise StoreError('ordinary_trial/recovery')
         with self.lock():
             state,raw=self._load();completed,_=recovery.read()
-            if type(self) in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore):
-                expected=ThirdPartialRecoveryStore if type(self) is OrdinaryReconnectThirdStore else RetryPartialRecoveryStore
+            if type(self) in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore,OrdinaryReconnectFourthStore):
+                expected={OrdinaryReconnectRetryStore:RetryPartialRecoveryStore,OrdinaryReconnectThirdStore:ThirdPartialRecoveryStore,
+                          OrdinaryReconnectFourthStore:FourthPartialRecoveryStore}[type(self)]
                 phase_ok=(type(recovery) is expected and state and completed and completed['binding'].get('original_phase')==state['phase'] and
                     (state['phase'] in ('enter_pending','enter_acknowledged','enter_verified') and completed and completed['binding'].get('observed_state')=='entered'
                      or state['phase'] in ('position_pending','position_acknowledged') and completed and completed['binding'].get('observed_state') in ('entered','target')))
@@ -180,11 +181,13 @@ class OrdinaryReconnectRetryStore(OrdinaryReconnectStore):
 
     def close_after_restore_readback(self,receipt,proof,bridge):
         """Seal an uncertain attempt only after a separate verified baseline readback."""
-        from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore
-        from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
-        expected_proof,expected_bridge=((ThirdRestoreReadbackStore,ThirdRecoveryRenewalStore) if type(self) is OrdinaryReconnectThirdStore
-                                        else (RestoreReadbackStore,RetryRecoveryRenewalStore))
-        if type(self) not in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore):raise StoreError('ordinary_trial/readback')
+        from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore,FourthRestoreReadbackStore
+        from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore,FourthRecoveryRenewalStore
+        scopes={OrdinaryReconnectRetryStore:(RestoreReadbackStore,RetryRecoveryRenewalStore),
+                OrdinaryReconnectThirdStore:(ThirdRestoreReadbackStore,ThirdRecoveryRenewalStore),
+                OrdinaryReconnectFourthStore:(FourthRestoreReadbackStore,FourthRecoveryRenewalStore)}
+        if type(self) not in scopes:raise StoreError('ordinary_trial/readback')
+        expected_proof,expected_bridge=scopes[type(self)]
         if not isinstance(receipt,Receipt) or type(proof) is not expected_proof or type(bridge) is not expected_bridge:
             raise StoreError('ordinary_trial/readback')
         with self.lock():
@@ -216,3 +219,8 @@ class OrdinaryReconnectThirdStore(OrdinaryReconnectRetryStore):
     """Independent scope; previous trial and recovery records remain immutable."""
     service='org.codex.weread.goal-ordinary-reconnect-v3'
     lock_name='codex-ordinary-reconnect-v3-'
+
+
+class OrdinaryReconnectFourthStore(OrdinaryReconnectRetryStore):
+    service='org.codex.weread.goal-ordinary-reconnect-v4'
+    lock_name='codex-ordinary-reconnect-v4-'
