@@ -263,4 +263,15 @@ expect(batch_dl.index == 26,
 expect(#scheduled == 1,
     "resume batch should schedule one continuation instead of one per chapter")
 
+local changed_result
+settings.auth_scope_matches=function() return false end
+local stale_job={resumable=true,full_auth_scope={vid='12345678',epoch=1},
+    workspace={path='/cache/book/.weread-download-resume-full'},
+    on_complete=function(ok,reason) expect(not ok,'changed account unexpectedly completed');changed_result=reason end}
+downloader._active_job=stale_job
+local cleanup_before_switch=cleanup_count
+downloader:_step(stale_job)
+expect(changed_result=='account_changed' and not downloader._active_job and cleanup_count==cleanup_before_switch,
+    'account change did not stop and preserve the resumable full download')
+
 print(("downloader_resume_spec: %d checks"):format(checks))

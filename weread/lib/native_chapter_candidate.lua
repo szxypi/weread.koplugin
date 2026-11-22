@@ -16,7 +16,7 @@ local function fatal(reason)
     end
 end
 
-function M.fetch(client, settings, book, chapter, web, position, workspace, expected_fingerprint, check_live)
+function M.fetch(client, settings, book, chapter, web, position, workspace, expected_fingerprint, check_live, repair_asset)
     local book_id = tostring(book.book_id or book.bookId or '')
     local uid = tostring(chapter.chapterUid or chapter.chapterId or '')
     local verified = Position.resolve(position, book_id, uid)
@@ -62,18 +62,39 @@ function M.fetch(client, settings, book, chapter, web, position, workspace, expe
         local name = extension and digest and 'eink-' .. digest .. '.' .. extension
         if not name or asset.href ~= 'images/' .. name then error('native_candidate/invalid_asset', 0) end
         local path = workspace.asset_dir .. '/' .. name
-        -- The workspace is private to this download; never replace existing files.
-        if lfs.symlinkattributes(path) then error('native_candidate/storage', 0) end
-        local part = path .. '.part'
-        if lfs.symlinkattributes(part) then error('native_candidate/storage', 0) end
-        local file = io.open(part, 'wb')
-        if not file then error('native_candidate/storage', 0) end
-        local written, closed = file:write(asset.data), file:close()
-        if not written or not closed or not current() or not os.rename(part, path) then
-            os.remove(part)
-            if not current() then fatal('session_changed') end
-            error('native_candidate/storage', 0)
+        -- A multi-chapter workspace may already contain the same image. Reuse
+        -- only a regular file with exactly the expected content. A resumable
+        -- caller may authorize replacing a damaged file only when its existing
+        -- chapter checkpoint proves that it previously held these bytes.
+        local existing=lfs.symlinkattributes(path)
+        local reuse=false
+        if existing then
+            if existing.mode~='file' then error('native_candidate/storage',0) end
+            local file=io.open(path,'rb')
+            local data=file and file:read(#asset.data+1)
+            local closed=file and file:close()
+            if not closed then error('native_candidate/storage',0) end
+            if data==asset.data then reuse=true
+            else
+                local checked,allowed=false,false
+                if type(repair_asset)=='function' then checked,allowed=pcall(repair_asset,name) end
+                if not checked or allowed~=true then error('native_candidate/storage',0) end
+            end
         end
+        if not reuse then
+            local part = path .. '.part'
+            local partial=lfs.symlinkattributes(part)
+            if partial and (partial.mode~='file' or not os.remove(part)) then error('native_candidate/storage', 0) end
+            local file = io.open(part, 'wb')
+            if not file then error('native_candidate/storage', 0) end
+            local written, closed = file:write(asset.data), file:close()
+            if not written or not closed or not current() or not os.rename(part, path) then
+                os.remove(part)
+                if not current() then fatal('session_changed') end
+                error('native_candidate/storage', 0)
+            end
+        end
+        if not current() then fatal('session_changed') end
         assets[#assets + 1] = { href=asset.href, media_type=asset.media_type, path=path, size=#asset.data }
     end
     if not current() then fatal('session_changed') end

@@ -8,7 +8,7 @@
 
 验证前墨水屏授权自然过期，两个独立读取确认 HTTP 401 后执行一次同设备续期；账号、书架及钥匙串回读一致，没有账号数据修改。见[续期记录](validation-assets/2026-11-22/native-remote-renewal.json)。
 
-网络图片已作为默认关闭的[单章下载及预取试验](native-chapter-source.md#单章下载试验)的一部分接入；整书下载路径不变。网络图片域名和响应形式、跨章下载、进度与批注交互、自动恢复及实体设备验收仍需完成。
+网络图片已作为默认关闭的[单章、预取和整书试验](native-chapter-source.md#单章下载试验)的一部分接入。更多网络图片域名和响应形式、真实整书、进度与批注交互及实体设备验收仍需完成。
 
 ```sh
 luajit spec/native_chapter_remote_spec.lua

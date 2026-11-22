@@ -79,6 +79,9 @@ local settings = {
     cache_dir = root,
     get = function(_self, _key, default) return default end,
 }
+local owner_scope={vid='12345678',epoch=1}
+settings.get_auth_scope=function() return owner_scope end
+settings.auth_scope_matches=function(_,value) return value==owner_scope end
 local book = { book_id = "resume-book", title = "Resume Book", cache_dir = root }
 local chapters = {
     { chapterUid = 11, title = "One" },
@@ -259,6 +262,129 @@ local allowed,reason=pcall(Content.save_chapter_epub,settings,book,chapters[1],'
 local retained=assert(io.open(guarded_path,'rb'));local bytes=retained:read('*a');retained:close()
 expect(not allowed and reason=='chapter_prefetch/session_changed' and bytes=='previous-book'
     and not io.open(guarded_path..'.part','rb'),'failed publication guard changed an existing book or left a partial file')
+
+-- Individual native styles survive resume and footnote rendering, while a
+-- changed or missing style invalidates its chapter before EPUB publication.
+local Crypto=require('weread.lib.crypto')
+local first_css,second_css='p{color:black}','p{color:gray}'
+local first_hash,second_hash=Crypto.sha256_hex(first_css),Crypto.sha256_hex(second_css)
+local empty_style=Content.stage_full_download_style(workspace,'')
+expect(empty_style==Crypto.sha256_hex('') and Content.stage_full_download_style(workspace,'')==empty_style,
+    'empty chapter stylesheet could not be reused')
+local image_bytes='\137PNG\r\n\26\nsynthetic image'
+local image_name='eink-'..Crypto.sha256_hex(image_bytes)..'.png'
+local image_path=workspace.asset_dir..'/'..image_name
+write(image_path,image_bytes)
+local image_receipt=Content.stage_full_download_assets(workspace,
+    {{href='images/'..image_name,path=image_path,media_type='image/png'}})
+local empty_receipt=Content.stage_full_download_assets(workspace,{})
+local second_source=assert(Source.capture(book,chapters[2],'<p>second original</p>','web_xhtml'))
+local second_receipt=assert(Content.store_position_source(workspace,book,chapters[2],second_source))
+expect(Content.stage_full_download_style(workspace,first_css)==first_hash
+    and Content.stage_full_download_style(workspace,second_css)==second_hash,'stylesheet staging changed its digest')
+Content.save_full_download_chapter(workspace,chapters[1],1,'<p>first styled</p>',7,receipt,first_hash,image_receipt)
+Content.save_full_download_chapter(workspace,chapters[2],2,'<p>second styled</p>',7,second_receipt,second_hash,empty_receipt)
+expect(Content.full_download_chapter_exists(workspace,chapters[1],1,7)
+    and Content.full_download_chapter_exists(workspace,chapters[2],2,7),'per-chapter style checkpoints were not reusable')
+owner_scope={vid='87654321',epoch=1}
+local other_workspace=Content.open_full_download_workspace(settings,book)
+expect(not Content.full_download_chapter_exists(other_workspace,chapters[1],1,7)
+    and not Content.full_download_asset_repairable(other_workspace,chapters[1],1,image_name,7),
+    'another account reused or repaired a native checkpoint')
+owner_scope={vid='12345678',epoch=2}
+local relogged_workspace=Content.open_full_download_workspace(settings,book)
+expect(Content.full_download_chapter_exists(relogged_workspace,chapters[1],1,7),
+    'same-account login could not resume its native checkpoint')
+Content.save_full_download_rendered_chapter(workspace,chapters[1],1,'<p>first rendered</p>')
+Content.save_full_download_rendered_chapter(workspace,chapters[2],2,'<p>second rendered</p>')
+local function read_all(path)
+    local f=assert(io.open(path,'rb'));local value=f:read('*a');assert(f:close());return value
+end
+local rendered_first=read_all(Content.full_download_rendered_chapter_path(workspace,chapters[1],1))
+local rendered_second=read_all(Content.full_download_rendered_chapter_path(workspace,chapters[2],2))
+expect(rendered_first:find('../eink-style-'..first_hash..'.css',1,true)
+    and rendered_second:find('../eink-style-'..second_hash..'.css',1,true),
+    'footnote rendering lost chapter-specific styles')
+archive_calls={}
+local full_path=Content.save_book_epub(settings,book,chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',
+    Content.full_download_workspace_assets(workspace),nil,nil,source_identity)
+local first_style=assert(last_entry('OEBPS/eink-style-'..first_hash..'.css'))
+local second_style=assert(last_entry('OEBPS/eink-style-'..second_hash..'.css'))
+local opf=assert(last_entry('OEBPS/content.opf')).data
+expect(first_style.path==workspace.style_dir..'/eink-'..first_hash..'.css'
+    and second_style.path==workspace.style_dir..'/eink-'..second_hash..'.css'
+    and opf:find('eink-style-'..first_hash..'.css',1,true) and opf:find('eink-style-'..second_hash..'.css',1,true),
+    'EPUB failed to include chapter-specific styles in the manifest')
+write(full_path,'prior-full-book')
+expect(not pcall(Content.save_book_epub,settings,book,chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',{},nil,nil,source_identity)
+    and read_all(full_path)=='prior-full-book','EPUB omitted a required native image')
+local guarded=pcall(Content.save_book_epub,settings,book,chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',
+    Content.full_download_workspace_assets(workspace),nil,nil,source_identity,
+    nil,nil,function() return false end)
+expect(not guarded and read_all(full_path)=='prior-full-book' and not io.open(full_path..'.part','rb'),
+    'failed full-book account guard replaced the previously downloaded book')
+write(first_style.path,'corrupt')
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1)
+    and not Content.full_download_rendered_chapter_exists(workspace,chapters[1],1),
+    'corrupt stylesheet was accepted for resume or publication')
+expect(not pcall(Content.save_book_epub,settings,book,chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',{},nil,nil,source_identity),
+    'EPUB was published with a corrupt chapter stylesheet')
+expect(Content.full_download_style_repairable(workspace,chapters[1],1,first_hash,7)
+    and not Content.full_download_style_repairable(workspace,chapters[1],1,first_hash,8)
+    and not Content.full_download_style_repairable(workspace,chapters[2],2,first_hash,7),
+    'stylesheet repair was not limited to the original chapter and source version')
+expect(not pcall(Content.stage_full_download_style,workspace,first_css),'unproven style replacement was allowed')
+expect(Content.stage_full_download_style(workspace,first_css,function(digest)
+    return Content.full_download_style_repairable(workspace,chapters[1],1,digest,7)
+end)==first_hash and read_all(first_style.path)==first_css,'proven stylesheet could not be repaired')
+write(image_path,'corrupt image')
+expect(Content.full_download_workspace_used_asset_names(workspace)[image_name],
+    'a damaged native asset name was available for reuse by another source')
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1)
+    and not Content.full_download_rendered_chapter_exists(workspace,chapters[1],1)
+    and Content.full_download_chapter_exists(workspace,chapters[2],2),
+    'damaged native image was accepted or invalidated an unrelated chapter')
+expect(Content.full_download_asset_repairable(workspace,chapters[1],1,image_name,7)
+    and not Content.full_download_asset_repairable(workspace,chapters[1],1,image_name,8)
+    and not Content.full_download_asset_repairable(workspace,chapters[2],2,image_name,7),
+    'asset repair was not limited to the original chapter and source version')
+write(image_path,image_bytes)
+local asset_receipt_path=workspace.asset_receipt_dir..'/assets-'..image_receipt..'.txt'
+local saved_asset_receipt=read_all(asset_receipt_path)
+write(asset_receipt_path,saved_asset_receipt..image_name..'\n')
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),
+    'corrupted asset receipt was accepted')
+expect(not Content.full_download_asset_repairable(workspace,chapters[1],1,image_name,7),
+    'corrupt asset receipt authorized a replacement')
+expect(Content.stage_full_download_assets(workspace,
+    {{href='images/'..image_name,path=image_path,media_type='image/png'}})==image_receipt
+    and read_all(asset_receipt_path)==saved_asset_receipt,'freshly verified assets could not repair their receipt')
+os.remove(image_path)
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),'missing native image was accepted')
+write(image_path,image_bytes)
+local styled_checkpoint=read_all(checkpoint_path)
+write(checkpoint_path,styled_checkpoint..'style_sha256='..first_hash..'\n')
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),'duplicate style identity was accepted')
+write(checkpoint_path,styled_checkpoint:gsub('assets_sha256='..image_receipt..'\n',''))
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),'missing native asset receipt was accepted')
+write(checkpoint_path,styled_checkpoint:gsub('position_receipt='..receipt..'\n',''))
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),
+    'native checkpoint without original position source was accepted')
+write(checkpoint_path,styled_checkpoint:gsub('native_owner_sha256='..workspace.native_owner..'\n',''))
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1),
+    'native checkpoint without an owner was accepted')
+write(checkpoint_path,styled_checkpoint:gsub('style_sha256='..first_hash..'\n',''))
+expect(not Content.full_download_chapter_exists(workspace,chapters[1],1)
+    and not Content.full_download_rendered_chapter_exists(workspace,chapters[1],1),
+    'missing native stylesheet identity was treated as a legacy chapter')
+write(checkpoint_path,styled_checkpoint)
+write(Content.full_download_rendered_chapter_path(workspace,chapters[1],1),rendered_first:gsub(first_hash,second_hash))
+expect(not Content.full_download_rendered_chapter_exists(workspace,chapters[1],1),
+    'rendered chapter accepted another chapter stylesheet')
 
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),

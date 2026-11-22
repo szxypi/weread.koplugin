@@ -778,6 +778,7 @@ local zh = {
     ["Frontlight"] = "前光设置",
     ["Download book images"] = "下载图书图片",
     ["Experimental E-Ink resources for single chapters"] = "实验性墨水屏章节资源（仅单章）",
+    ["Experimental E-Ink resources for full books"] = "实验性墨水屏章节资源（整书）",
     ["The account changed. The chapter download was stopped."] = "账号已切换，章节下载已停止。",
     ["E-Ink authorization expired. Sign in again or turn off experimental E-Ink resources."] = "墨水屏授权已过期，请重新登录或关闭实验性墨水屏章节资源。",
     ["Experimental E-Ink resources could not be downloaded. Try again later or turn them off."] = "无法下载实验性墨水屏章节资源，请稍后重试或关闭该选项。",

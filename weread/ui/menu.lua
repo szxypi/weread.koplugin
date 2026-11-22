@@ -538,6 +538,19 @@ function M:getSettingsMenuItems()
                         end),
                     },
                     {
+                        text = _('Experimental E-Ink resources for full books'),
+                        keep_menu_open = true,
+                        checked_func = function()
+                            return self.settings:get('cache').native_full_book_resources == true
+                        end,
+                        callback = self:safeCallback(_('Experimental E-Ink resources for full books'), function()
+                            local cache = self.settings:get('cache')
+                            cache.native_full_book_resources = not cache.native_full_book_resources
+                            self.settings:set('cache', cache)
+                            self.settings:flush()
+                        end),
+                    },
+                    {
                         text = _("Public account article images"),
                         keep_menu_open = true,
                         checked_func = function()

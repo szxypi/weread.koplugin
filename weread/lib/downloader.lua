@@ -403,6 +403,10 @@ function Downloader:_prefetchStage(dl, state)
     self:_setStage(dl, title, stage == "epub" and 1 or 0)
 end
 
+local function full_scope_current(settings,dl)
+    return not dl.full_auth_scope or settings.auth_scope_matches and settings:auth_scope_matches(dl.full_auth_scope)
+end
+
 local function prefetch_current(settings,dl)
     if dl.native_chapter_resources then
         local cache=settings:get('cache',{})
@@ -735,17 +739,17 @@ function Downloader:start(book, chapters, suffix, options)
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
         auth_scope = options.prefetch and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
+        full_auth_scope = resumable and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
         full_auth_recovery = options.full_auth_recovery == true and resumable,
         manual_auth_recovery = options.manual_auth_recovery == true and options.prefetch ~= true,
         detect_expired_login = options.prefetch ~= true,
         on_reading_auth_updated = options.on_reading_auth_updated,
     }
-    -- Restrict the experimental resource path to a single, freshly downloaded
-    -- chapter: whole-book checkpoints share one stylesheet across chapters.
     local download_cache = self.settings.get and self.settings:get('cache', {}) or {}
-    dl.native_chapter_resources = dl.single_chapter and download_cache.download_book_images == true
-        and download_cache.native_chapter_resources == true
+    dl.native_chapter_resources = download_cache.download_book_images == true
+        and (dl.single_chapter and download_cache.native_chapter_resources == true
+            or dl.resumable and download_cache.native_full_book_resources == true)
     if dl.native_chapter_resources then
         dl.native_selected = require('weread.lib.native_read_access').capture(self.settings)
         dl.native_chapter_resources = dl.native_selected ~= nil and not dl.native_selected.renewal_pending
@@ -978,6 +982,13 @@ function Downloader:_retryChapterSource(dl, err)
     if rate_limited(err) then self:_rateLimit(dl);return false end
     if type(err) == 'string' and err:match('^native_candidate/') then
         dl.native_failure = err:match('^native_candidate/([a-z_]+)')
+        if dl.resumable then
+            self:_preserveWorkspace(dl,dl.native_failure)
+            self.show_info(_(dl.native_failure=='auth_expired'
+                and 'E-Ink authorization expired. Sign in again or turn off experimental E-Ink resources.'
+                or 'Experimental E-Ink resources could not be downloaded. Try again later or turn them off.'))
+            return false
+        end
         self:_failChapter(dl, err)
         return false
     end
@@ -1180,6 +1191,7 @@ function Downloader:_finishChapter(dl)
         return finalize()
     end)
     if dl.cancelled then self:_step(dl); return end
+    if dl.resumable and not full_scope_current(self.settings,dl) then self:_step(dl);return end
     self:_perf(dl, "images_and_finalize", started, "ok=", tostring(ok))
     if not ok then
         self:_failChapter(dl, result)
@@ -1189,9 +1201,27 @@ function Downloader:_finishChapter(dl)
     dl.state = result.state
     local uid = tostring(chapter.chapterUid or dl.index)
     if dl.resumable then
-        Content.save_full_download_css(dl.workspace, dl.state.css)
-        Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml,
-            FileIdentity.check(dl.source_identity, dl.book), dl.current.position_receipt)
+        local checkpoint_ok,checkpoint_error=pcall(function()
+            return self:_runInterruptible(dl,function()
+                if not full_scope_current(self.settings,dl) then error('download/session_changed',0) end
+                if dl.native_chapter_resources
+                    and not require('weread.lib.native_read_access').matches(self.settings,dl.native_selected) then
+                    error('native_candidate/session_changed',0)
+                end
+                Content.save_full_download_css(dl.workspace, dl.state.css)
+                Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml,
+                    FileIdentity.check(dl.source_identity, dl.book), dl.current.position_receipt,
+                    dl.current.native_style, dl.current.native_asset_receipt)
+                if not full_scope_current(self.settings,dl) then error('download/session_changed',0) end
+                return true
+            end)
+        end)
+        if dl.cancelled then self:_step(dl);return end
+        if not full_scope_current(self.settings,dl) then self:_step(dl);return end
+        if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings,dl.native_selected) then
+            self:_step(dl);return
+        end
+        if not checkpoint_ok then self:_failChapter(dl,checkpoint_error);return end
         dl.completed[dl.index] = true
         dl.completed_count = dl.completed_count + 1
     else
@@ -1236,12 +1266,21 @@ function Downloader:_step(dl)
         return
     end
 
+    if dl.resumable and not full_scope_current(self.settings,dl) then
+        self:_preserveWorkspace(dl,'account_changed')
+        if not dl.prefetch then self.show_info(_('The account changed. The chapter download was stopped.')) end
+        return
+    end
+
     if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
-        self:_releaseStandby(dl)
-        self:_cleanupWorkspace(dl)
-        if dl.progress_dialog then dl.progress_dialog:close(); dl.progress_dialog = nil end
-        self:_notifyCompletion(dl, false, 'account_changed')
-        self:_finishJob(dl)
+        if dl.resumable then self:_preserveWorkspace(dl,'account_changed')
+        else
+            self:_releaseStandby(dl)
+            self:_cleanupWorkspace(dl)
+            if dl.progress_dialog then dl.progress_dialog:close(); dl.progress_dialog = nil end
+            self:_notifyCompletion(dl, false, 'account_changed')
+            self:_finishJob(dl)
+        end
         if not dl.prefetch then self.show_info(_('The account changed. The chapter download was stopped.')) end
         return
     end
@@ -1308,6 +1347,7 @@ function Downloader:_step(dl)
         if dl.resumable and not dl.workspace_verified then
             local completed_count = self:_restoreFullDownloadCheckpoint(dl)
             if dl.cancelled then self:_step(dl); return end
+            if not full_scope_current(self.settings,dl) then self:_step(dl);return end
             if completed_count < dl.total then
                 for chapter_index = 1, dl.total do
                     if not dl.completed[chapter_index] then
@@ -1334,6 +1374,13 @@ function Downloader:_step(dl)
         local save_started = time.now()
         local ok, package = pcall(function()
             return self:_runInterruptible(dl, function()
+                local function native_guard()
+                    if not full_scope_current(self.settings,dl) or dl.native_chapter_resources
+                        and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+                        error('native_candidate/session_changed', 0)
+                    end
+                    return true
+                end
                 local function source_for(uid)
                     local receipt = dl.position_sources and dl.position_sources[uid]
                     return receipt and { workspace = dl.workspace, receipt = receipt } or nil
@@ -1346,12 +1393,7 @@ function Downloader:_step(dl)
                         self.settings, dl.book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
                         dl.state.css, dl.source_identity, source_for(uid), nil,
-                        dl.native_chapter_resources and function()
-                            if not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
-                                error('native_candidate/session_changed', 0)
-                            end
-                            return true
-                        end or nil
+                        (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
                     )
                 elseif dl.separate_chapters then
                     local paths = {}
@@ -1389,7 +1431,8 @@ function Downloader:_step(dl)
                         dl.suffix,
                         dl.resumable and Content.full_download_workspace_assets(dl.workspace) or dl.assets,
                         dl.state.css, cover_data, dl.source_identity,
-                        { workspace = dl.workspace, receipts = dl.position_sources or {} }
+                        { workspace = dl.workspace, receipts = dl.position_sources or {} }, nil,
+                        (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
                     )
                 end
                 return { path = path, chapter_paths = chapter_paths, cache_dir = dl.book.cache_dir }
@@ -1399,6 +1442,10 @@ function Downloader:_step(dl)
         local chapter_paths = ok and package and package.chapter_paths
         if ok and package then dl.book.cache_dir = package.cache_dir or dl.book.cache_dir end
         if dl.cancelled then self:_step(dl); return end
+        if dl.resumable and not full_scope_current(self.settings,dl) then self:_step(dl);return end
+        if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+            self:_step(dl); return
+        end
         if ok then
             self:_cleanupWorkspace(dl)
         end
@@ -1575,20 +1622,52 @@ function Downloader:_step(dl)
             local xhtml, source = Content.fetch_single_chapter_source(
                 client, self.settings, dl.book, chapter, dl.state)
             local candidate
+            local native_style,native_asset_receipt
             if dl.native_chapter_resources then
                 candidate = require('weread.lib.native_chapter_candidate').fetch(
                     client, self.settings, dl.book, chapter, xhtml, source, dl.workspace,
-                    dl.native_selected and dl.native_selected.fingerprint)
-                if candidate then xhtml, dl.state.css = candidate.xhtml, candidate.css end
+                    dl.native_selected and dl.native_selected.fingerprint,nil,
+                    dl.resumable and function(name)
+                        local version=FileIdentity.check(dl.source_identity,dl.book)
+                        if dl.source_identity and dl.source_identity.changed then return false end
+                        return Content.full_download_asset_repairable(dl.workspace,chapter,dl.index,name,
+                            version)
+                    end or nil)
+                if candidate then
+                    xhtml=candidate.xhtml
+                    dl.state.used_asset_names=dl.state.used_asset_names or {}
+                    for _,asset in ipairs(candidate.assets) do
+                        local name=asset.href:match('^images/([^/]+)$')
+                        if not name then error('native_candidate/invalid_asset',0) end
+                        dl.state.used_asset_names[name]=true
+                    end
+                    if dl.resumable then
+                        local staged,value=pcall(function()
+                            return {style=Content.stage_full_download_style(dl.workspace,
+                                candidate.css..'\n'..Footnotes.FOOTNOTES_CSS,function(digest)
+                                    local version=FileIdentity.check(dl.source_identity,dl.book)
+                                    if dl.source_identity and dl.source_identity.changed then return false end
+                                    return Content.full_download_style_repairable(dl.workspace,chapter,dl.index,digest,
+                                        version)
+                                end),
+                                assets=Content.stage_full_download_assets(dl.workspace,candidate.assets)}
+                        end)
+                        if not staged then error('native_candidate/storage',0) end
+                        native_style,native_asset_receipt=value.style,value.assets
+                    else dl.state.css=candidate.css end
+                end
             end
             local receipt = source and Content.store_position_source(dl.workspace, dl.book, chapter, source)
             FileIdentity.check(dl.source_identity, dl.book)
             return { xhtml = xhtml, position_receipt = receipt, state = dl.state, book = reader_book(dl.book),
                 native_assets = candidate and candidate.assets,
+                native_style = native_style,
+                native_asset_receipt = native_asset_receipt,
                 source_changed = dl.source_identity and dl.source_identity.changed }
         end)
     end)
     if dl.cancelled then self:_step(dl); return end
+    if dl.resumable and not full_scope_current(self.settings,dl) then self:_step(dl);return end
     if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
         self:_step(dl); return
     end
@@ -1619,7 +1698,8 @@ function Downloader:_step(dl)
             "chapter_uid=", uid, "error=", log_error(scan))
     end
     dl.current = { chapter = chapter, xhtml = xhtml, position_receipt = result.position_receipt,
-        native_assets = result.native_assets }
+        native_assets = result.native_assets, native_style = result.native_style,
+        native_asset_receipt = result.native_asset_receipt }
     self:_finishChapter(dl)
 end
 

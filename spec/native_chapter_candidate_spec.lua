@@ -69,6 +69,15 @@ end
 source_reason=nil;remote_reason='rate_limited'
 local ok,err=pcall(fetch);assert(not ok and err=='download_read/rate_limited')
 remote_reason=nil
-ok,err=pcall(fetch);assert(not ok and err=='native_candidate/storage','must not overwrite existing staged asset')
+local reused=assert(fetch());assert(reused.assets[1].path==result.assets[1].path,'identical staged image should be reused')
+local damaged=assert(io.open(result.assets[1].path,'wb'));assert(damaged:write('other'));assert(damaged:close())
+ok,err=pcall(fetch);assert(not ok and err=='native_candidate/storage','must not overwrite a different staged asset')
+local repaired=assert(Candidate.fetch({}, {},book,chapter,body,position,workspace,nil,nil,function(name)
+    return result.assets[1].href=='images/'..name
+end))
+local restored=assert(io.open(repaired.assets[1].path,'rb'));assert(restored:read('*a')==image);assert(restored:close())
+os.remove(result.assets[1].path)
+local stale=assert(io.open(result.assets[1].path..'.part','wb'));assert(stale:write('partial'));assert(stale:close())
+assert(fetch().assets[1].path==result.assets[1].path,'regular interrupted image must be recoverable')
 os.remove(result.assets[1].path);os.remove(root)
 print('PASS: native candidate proof, resources, fallback, stop conditions and staging')
