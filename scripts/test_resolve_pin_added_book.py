@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
-from secure_pin_trial import PinTrialStore
+from secure_pin_trial import PinTrialStore,SERVICE_V3
+from secure_native_cloud_pin_trial import NativeCloudPinTrialStore
+from test_secure_pin_trial import Backend
 from test_pin_trial_contract import Fixture
 from verify_pin_preflight import fingerprint,reading_fingerprint
 from resolve_pin_added_book import cleanup,RemovalProbe
@@ -57,6 +59,34 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_READING_VERIFIED')
         self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_reading_restored')
         self.assertFalse(f.store.pending())
+    def test_v3_cleanup_only_before_native_reservation(self):
+        for phase in ('add_acknowledged','add_verified'):
+            f=Fixture(False);f.store=PinTrialStore(Backend(),service=SERVICE_V3)
+            f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+            _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+            _,raw=f.store.advance(raw,'add_pending');_,raw=f.store.advance(raw,'add_acknowledged')
+            if phase=='add_verified':_,raw=f.store.advance(raw,'add_verified')
+            f.present=True;inner=NativeCloudPinTrialStore(Backend())
+            with self.subTest(phase=phase):
+                result=cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True,
+                               progress_digest=reading_fingerprint,reading_only=True,inner=inner)
+                self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_READING_VERIFIED')
+                self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_reading_restored')
+    def test_v3_blocks_if_native_reservation_exists_or_reading_changed(self):
+        for reason in ('missing_inner','reserved_inner','changed_progress'):
+            f=Fixture(False);f.store=PinTrialStore(Backend(),service=SERVICE_V3)
+            f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+            _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+            _,raw=f.store.advance(raw,'add_pending');_,raw=f.store.advance(raw,'add_acknowledged');f.store.advance(raw,'add_verified')
+            f.present=True;inner=NativeCloudPinTrialStore(Backend())
+            if reason=='reserved_inner':
+                inner=type('Reserved',(),{'read':lambda self:({'phase':'possible_dispatch'},b'record')})()
+            if reason=='changed_progress':f.progress['book']['chapterOffset']=1
+            with self.subTest(reason=reason),self.assertRaises(ValueError):
+                cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True,
+                        progress_digest=reading_fingerprint,reading_only=True,inner=None if reason=='missing_inner' else inner)
+            self.assertEqual(f.writes,[]);self.assertEqual(f.store.read()[0]['phase'],'add_verified')
+
     def test_removal_transport_is_one_shot(self):
         p=RemovalProbe();p.target='42';creds={'vid':'123','accessToken':'synthetic'};p.grant=fingerprint(creds)
         with patch('verify_eink_login.NativeProbe.request',return_value={'succ':1}) as request:

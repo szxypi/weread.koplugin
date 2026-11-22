@@ -1,0 +1,87 @@
+{
+  "result": "PASS",
+  "size": "600",
+  "real_account_data_posts": 0,
+  "cases": [
+    {
+      "case": "normal",
+      "result": "PASS",
+      "host_mock_posts": 2,
+      "native_mock_posts": 2,
+      "outer_intent_state": "restored",
+      "inner_intent_state": "retired"
+    },
+    {
+      "case": "lost-ack",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "empty-ack",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "no-pin",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "no-unpin",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 2,
+      "outer_intent_state": "unpin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "changed-flag",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "changed-group",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "position-change",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "host-loss",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 1,
+      "outer_intent_state": "pin_pending",
+      "inner_intent_state": "possible_dispatch"
+    },
+    {
+      "case": "dry-run-fail",
+      "result": "PASS",
+      "host_mock_posts": 1,
+      "native_mock_posts": 0,
+      "outer_intent_state": "add_verified",
+      "inner_intent_state": "absent"
+    }
+  ]
+}

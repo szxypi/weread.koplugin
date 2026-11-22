@@ -7,7 +7,8 @@ from urllib.parse import urlencode
 
 from pin_trial_contract import verify
 from secure_native_session import NativeSessionStore
-from secure_pin_trial import PinTrialStore,SERVICE_V2
+from secure_pin_trial import PinTrialStore,SERVICE,SERVICE_V2,SERVICE_V3
+from secure_native_cloud_pin_trial import NativeCloudPinTrialStore
 from secure_weread_session import ACCOUNT,MacKeychain,SessionStore
 from verify_eink_login import BASE
 from verify_finish_roundtrip import acknowledged
@@ -22,17 +23,19 @@ def baseline(state,current,read,progress_digest=progress_fingerprint):
         current();sources,progress=read()
         if set(sources)!={'native','web','gateway'}:raise ValueError('cleanup/channels')
         target=verify(sources,state['plans'],True)
-        if any(row['pinned']=={'value':True} for row in target.values()):raise ValueError('cleanup/pinned')
+        if any(row['pinned'] not in ({'reason':'missing'},{'value':False}) for row in target.values()):raise ValueError('cleanup/pinned')
         values.append((target,progress_digest(progress)))
-    if values[0]!=values[1]:raise ValueError('cleanup/unstable')
+    if values[0]!=values[1] or values[0][1]!=state['progress_sha256']:raise ValueError('cleanup/unstable')
     return values[0]
 
 
-def cleanup(store,current,read,remove,apply=False,*,progress_digest=progress_fingerprint,reading_only=False):
+def cleanup(store,current,read,remove,apply=False,*,progress_digest=progress_fingerprint,reading_only=False,inner=None):
     state,raw=store.read()
-    if not state or state['phase']!='add_acknowledged':raise ValueError('cleanup/phase')
+    if not state or state['phase'] not in (('add_acknowledged','add_verified') if store.service==SERVICE_V3 else ('add_acknowledged',)):raise ValueError('cleanup/phase')
+    if store.service==SERVICE_V3 and (inner is None or inner.read()[0] is not None):raise ValueError('cleanup/native_intent')
     baseline(state,current,read,progress_digest)
     if not apply:return {'result':'CLEANUP_PREVIEW_VERIFIED','account_data_posts_attempted':0}
+    if store.service==SERVICE_V3 and inner.read()[0] is not None:raise ValueError('cleanup/native_intent')
     _,raw=store.cleanup(raw)
     response=remove()
     if not acknowledged(response):raise ValueError('cleanup/receipt')
@@ -61,14 +64,15 @@ class RemovalProbe(PinProbe):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true');parser.add_argument('--v2',action='store_true');args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true');version=parser.add_mutually_exclusive_group();version.add_argument('--v2',action='store_true');version.add_argument('--v3',action='store_true');args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('--apply requires --saved-session')
     report={'result':'OFFLINE_ONLY','account_data_posts_attempted':0,'no_automatic_replay':True,'credentials_written_to_files':False}
-    p=RemovalProbe();web=KeyWeb();store=PinTrialStore(service=SERVICE_V2) if args.v2 else PinTrialStore();saved=credentials=key=None
+    p=RemovalProbe();web=KeyWeb();store=PinTrialStore(service=SERVICE_V3 if args.v3 else SERVICE_V2 if args.v2 else SERVICE);inner=NativeCloudPinTrialStore() if args.v3 else None;saved=credentials=key=None
     try:
         if args.saved_session:
             state,_=store.read()
-            if not state or state['phase']!='add_acknowledged':raise ValueError('cleanup/phase')
+            if not state or state['phase'] not in (('add_acknowledged','add_verified') if args.v3 else ('add_acknowledged',)):raise ValueError('cleanup/phase')
+            if inner and inner.read()[0] is not None:raise ValueError('cleanup/native_intent')
             saved=SessionStore().load();owner=saved['vid'];credentials=NativeSessionStore().load(owner)
             if state['plans']['native']['membership']['owner']!=owner or state['plans']['native']['membership']['grant_sha256']!=fingerprint(credentials):raise ValueError('cleanup/owner')
             key_store=MacKeychain(service=SERVICE,account=ACCOUNT);key=validate(json.loads(key_store.load()),owner)['key']
@@ -76,7 +80,7 @@ def main(argv=None):
             p.target=state['plans']['native']['membership']['book_id'];p.grant=fingerprint(credentials);web.vid=owner
             for name,value in saved['cookies'].items():web.set_cookie(name,value)
             def current():
-                if (SessionStore().load()['vid']!=owner or NativeSessionStore().load(owner)!=credentials
+                if (inner and inner.read()[0] is not None or SessionStore().load()['vid']!=owner or NativeSessionStore().load(owner)!=credentials
                     or hashlib.sha256(validate(json.loads(key_store.load()),owner)['key'].encode()).hexdigest()!=state['skill_sha256']):raise ValueError('cleanup/owner')
                 web.verify_account()
             def read():
@@ -85,12 +89,12 @@ def main(argv=None):
                 progress=p.request('pin_progress',BASE+'/book/getProgress?'+urlencode({'bookId':p.target}),credentials=credentials)
                 return sources,progress
             report.update(cleanup(store,current,read,lambda:p.remove(credentials),apply=args.apply,
-                                  progress_digest=reading_fingerprint if args.v2 else progress_fingerprint,reading_only=args.v2))
-            if args.v2:report['progress_projection']='exclude_server_clock_and_book_update_time'
+                                  progress_digest=reading_fingerprint if args.v2 or args.v3 else progress_fingerprint,reading_only=args.v2 or args.v3,inner=inner))
+            if args.v2 or args.v3:report['progress_projection']='exclude_server_clock_and_book_update_time'
     except (Exception,KeyboardInterrupt) as error:
         report['result']='UNVERIFIED'
         if str(error) in {'cleanup/phase','cleanup/owner','cleanup/key','cleanup/channels','cleanup/pinned',
-                          'cleanup/unstable','cleanup/receipt','cleanup/progress','native_shelf/presence',
+                          'cleanup/unstable','cleanup/native_intent','cleanup/receipt','cleanup/progress','native_shelf/presence',
                           'native_shelf/unrelated_change'}:report['detail']=str(error)
     finally:
         report['account_data_posts_attempted']=p.attempts

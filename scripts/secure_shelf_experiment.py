@@ -65,7 +65,7 @@ class ShelfExperimentStore:
     @staticmethod
     def _pin_pending():
         module=__import__('secure_pin_trial')
-        return any(module.PinTrialStore(service=service).pending() for service in (module.SERVICE,module.SERVICE_V2))
+        return any(module.PinTrialStore(service=service).pending() for service in (module.SERVICE,module.SERVICE_V2,module.SERVICE_V3))
 
     def begin(self,plan):
         validate_plan(plan)
