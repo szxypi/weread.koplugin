@@ -1,0 +1,13 @@
+{
+  "result": "ORDINARY_RECONNECT_INDEPENDENT_READBACK_VERIFIED",
+  "checked_at": "2026-11-22T11:07:44.978580+00:00",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "independent_readbacks": 2,
+  "original_position_and_summary": true,
+  "time_counts_unchanged": true,
+  "source_catalog_shelf_fields_checked": true,
+  "shelf_check": "core_only",
+  "no_automatic_replay": true
+}

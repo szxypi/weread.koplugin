@@ -126,6 +126,8 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 新增第四个独立范围，原有记录保持封存。两尺寸合成服务覆盖原百分比保留的[普通尺寸](validation-assets/2026-11-22/ordinary-fourth-mock-preserved-small.json)和 [KO2](validation-assets/2026-11-22/ordinary-fourth-mock-preserved-ko2.json)完整往返，以及 KO2 尺寸目标百分比、读取失败和各阶段回执缺失后的恢复或不重发；这些合成结果不代表真实账号通过。首次真实准备时原生授权返回 401，独立读取再次确认过期，未修改书籍；同设备续期一次后重新[零写入准备](validation-assets/2026-11-22/ordinary-fourth-owner-prepared-v2.json)通过，见[首次准备](validation-assets/2026-11-22/ordinary-fourth-owner-prepared.json)、[过期核对](validation-assets/2026-11-22/ordinary-fourth-native-expiry-check.json)和[续期](validation-assets/2026-11-22/ordinary-fourth-native-renewal.json)。
 
+2026-11-22 的第四次真实普通 XHTML 重连验证在 KO2 模拟尺寸完成：通过插件书架进入原生阅读器，模拟断网翻页并保存位置，重连后选择本机进度。两次原生进度请求各获得明确回执，每次之后均由网页及墨水屏通道独立核对；位置请求后的两轮回读均确认精确章节、坐标和摘要为目标，百分比保留原值，不能据此宣称目标百分比已同步。随后一次零时长请求恢复原位置并获得明确回执；全新进程再独立读回两轮，原位置、摘要、时长计数、原文、目录和书架核心状态一致。共三次账号数据请求、零授权请求；完整书架其他字段、最近阅读排序及服务端历史不保证恢复。范围已封存，不可重发。见[实际往返](validation-assets/2026-11-22/ordinary-fourth-owner-apply.json)及[新进程复核](validation-assets/2026-11-22/ordinary-fourth-owner-independent.json)。本次仅覆盖一本书的一章、软件模拟网络切换；实体 KO2、多设备并发、其他正文及百分比行为仍需验证。
+
 ## 普通 TXT 重连后的真实同步与恢复
 
 随后使用真实账号的一章普通 TXT，在 KO2 模拟尺寸从插件进入原生阅读器，模拟断网并翻页，保存本机位置后重连，选择「保留 KOReader 进度」。实际原生同步发送一次零时长位置请求；明确回执和插件回读后，宿主独立核对网页／墨水屏位置及摘要、原文和目录、原生阅读时长计数与网页书架投影，才放行一次恢复原位置的请求。恢复后再次独立核对；另在全新宿主进程连续两次只读核对，原章节、偏移、百分比、摘要和上述观察状态均一致。两次数据请求均获得明确回执，验收期间没有网页位置写入或授权请求。
