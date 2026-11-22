@@ -238,6 +238,8 @@ function M:closeWeReadUI()
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
     if direct_position then direct_position.cancel(self) end
+    local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open']
+    if direct_cloud then direct_cloud.cancel(self) end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end

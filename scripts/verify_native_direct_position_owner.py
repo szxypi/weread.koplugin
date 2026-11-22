@@ -59,12 +59,16 @@ def main(argv=None):
     parser.add_argument('--start-page',type=int,choices=range(1,21),default=1)
     parser.add_argument('--cloud',action='store_true',help='Also check cloud comparison and local navigation')
     parser.add_argument('--current-cloud-chapter',action='store_true',help='Select the explicit readable cloud chapter')
+    parser.add_argument('--cloud-denied',action='store_true',help='Exercise a confirmed unavailable cloud chapter')
+    parser.add_argument('--cloud-cross',action='store_true',help='Exercise a confirmed readable cloud chapter across files')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
     if args.current_cloud_chapter and not args.cloud:parser.error('current cloud chapter requires --cloud')
+    if args.cloud_denied and (not args.cloud or args.current_cloud_chapter):parser.error('cloud denied requires a different chapter')
+    if args.cloud_cross and (not args.cloud or args.current_cloud_chapter or args.cloud_denied):parser.error('cloud cross requires a readable different chapter')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
-    saved=credentials=web=native_api=None;phase='start'
+    saved=credentials=web=native_api=target_native=None;phase='start'
     try:
         if args.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));phase='credentials'
@@ -81,19 +85,26 @@ def main(argv=None):
                 count_keys=('readingTime','recordReadingTime','ttsTime')
                 baseline_counts={key:baseline_node.get(key) for key in count_keys}
                 if any(type(value) is not int or value<0 for value in baseline_counts.values()):raise ValueError('counts')
-                if args.current_cloud_chapter:
+                if args.cloud_denied:
+                    uid=str(baseline_point.get('chapter_uid',''))
+                    matches=[row for row in sample['expected']['chapters'] if str(row['uid'])==uid and row['uid']>0]
+                    if len(matches)!=1 or matches[0].get('free_or_owned') is not False or uid==str(chapter['uid']):
+                        raise ValueError('cloud_chapter_not_denied')
+                if args.current_cloud_chapter or args.cloud_cross:
                     uid=str(baseline_point.get('chapter_uid',''))
                     found=[row for row in sample['expected']['chapters'] if str(row['uid'])==uid and row['uid']>0
                            and row.get('free_or_owned') and row.get('wordCount',0)>=200]
                     if len(found)!=1:raise ValueError('cloud_chapter_unavailable')
-                    chapter=found[0]
+                    if args.cloud_cross and uid==str(chapter['uid']):raise ValueError('cloud_chapter_not_different')
                     fields=dict(bookId=sample['book_id'],chapters='0,'+uid,bookType='epub',bookVersion=sample['expected']['version'],
                         pf='wechat_wx-2001-android-100-weread',pfkey='pfKey',zoneId=1,quote='',release=1,
                         stopAutoPayWhenBNE=1,preload=2,preview=0,offline=1)
                     remote=ChapterProbe();remote.archive_url=NATIVE_BASE+'/book/chapterdownload?'+urlencode(fields)
                     package,envelope=remote.download(remote.archive_url,credentials)
-                    native=read(package,password(envelope,credentials['vid']),uid)
-                    if not native['html']:raise ValueError('unsupported_sample')
+                    selected_native=read(package,password(envelope,credentials['vid']),uid)
+                    if not selected_native['html']:raise ValueError('unsupported_sample')
+                    if args.current_cloud_chapter:chapter=found[0];native=selected_native
+                    else:target_native=selected_native
             phase='web_source';web=WebSourceProbe();web.vid=saved['vid']
             for key,value in saved['cookies'].items():web.set_cookie(key,value)
             web.verify_account();web.book_id=sample['book_id'];web.chapter=str(chapter['uid'])
@@ -101,9 +112,17 @@ def main(argv=None):
             fields=make_content_params(web.book_id,web.chapter,reader.psvts,sc=1)
             parts=[web.request(key,BASE+'/web/book/chapter/'+key,fields,as_json=False) for key in ('e_0','e_1','e_3')]
             if decode_content_shards(*parts).encode()!=native['source']:raise ValueError('source_changed')
+            if args.cloud_cross:
+                phase='target_web_source';web.chapter=str(baseline_point['chapter_uid'])
+                other=read_reader_state(web.request('reader',reader_url_for(web.book_id,web.chapter),as_json=False))
+                other_fields=make_content_params(web.book_id,web.chapter,other.psvts,sc=1)
+                parts=[web.request(key,BASE+'/web/book/chapter/'+key,other_fields,as_json=False) for key in ('e_0','e_1','e_3')]
+                if decode_content_shards(*parts).encode()!=target_native['source']:raise ValueError('target_source_changed')
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
-                search_token=search_token(native['source']),web_cookies=saved['cookies'],cloud=args.cloud,start_page=args.start_page)
+                search_token=search_token(native['source']),web_cookies=saved['cookies'],cloud=args.cloud,
+                cloud_denied=args.cloud_denied,cloud_cross=args.cloud_cross,
+                target_uid=str(baseline_point['chapter_uid']) if args.cloud_cross else None,start_page=args.start_page)
             data=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(data)>65536:raise ValueError('input_limit')
             phase='reader_position';report['credentials_written_to_files']=None
@@ -114,7 +133,7 @@ def main(argv=None):
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','reader_position','credential_audit'}:report['runner_phase']=result['phase']
                 if type(result.get('profile_removed')) is bool:report['temporary_profile_removed']=result['profile_removed']
-                for key in ('probe_exit','probe_line'):
+                for key in ('probe_exit','probe_line','position_exit','position_line'):
                     if type(result.get(key)) is int:report[key]=result[key]
                 if result.get('reason') in {'auth_expired','rate_limited','service_rejected','unavailable','not_entitled',
                         'invalid','source_changed','anchor_unavailable','source_unsupported','file_changed','session_changed','web_expired','cloud_changed'}:
@@ -129,7 +148,8 @@ def main(argv=None):
             if not independent_offset(native['source'],current):raise ValueError('offset')
             if args.cloud:
                 relation=output.get('relation');opened=output.get('opened')
-                if opened and not independent_offset(native['source'],output.get('target')):raise ValueError('cloud_offset')
+                target_source=target_native['source'] if args.cloud_cross else native['source']
+                if opened and not independent_offset(target_source,output.get('target')):raise ValueError('cloud_offset')
             phase='final_account';web.verify_account()
             if args.cloud:
                 phase='final_cloud';last=native_api.request('progress',progress_url,credentials=credentials)
@@ -144,6 +164,8 @@ def main(argv=None):
                 credential_file_audit=True,credentials_written_to_files=False,installed_bytes_match=True,
                 shelf_unchanged=True,cloud_upload=False)
             if args.cloud:report.update(cloud_comparison=relation,cloud_position_opened=opened,cloud_unchanged=True)
+            if args.cloud_denied:report['cloud_chapter_denied']=True
+            if args.cloud_cross:report.update(cross_chapter=True,target_native_web_source_matches=True)
     except (Exception,KeyboardInterrupt) as error:
         report.update(result='UNVERIFIED',phase=phase)
         if 'HTTP 401' in str(error):report['reason']='auth_expired'

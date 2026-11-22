@@ -42,6 +42,10 @@ local _,_,target=Position.prepare({}, {},entry,context.file,context,native,web,f
 expect(target and target.co==2000,'verified target anchor missing')
 target_reversible=false;_,_,target=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,2000)
 expect(not target,'non-reversible target anchor accepted');target_reversible=true
+target=Position.prepare_target({}, {},entry,context.file,native,web,function() return live end,2000)
+expect(target and target.co==2000,'cross-chapter target preparation failed')
+target_reversible=false;target=Position.prepare_target({}, {},entry,context.file,native,web,function() return live end,2000)
+expect(not target,'cross-chapter target accepted a non-reversible anchor');target_reversible=true
 local previous_web_requests=web_requests
 source_changed=true;value,reason=check();expect(not value and reason=='source_changed' and web_requests==previous_web_requests,'changed native source reached web proof')
 source_changed=false;file_changed=true;value,reason=check();expect(not value and reason=='file_changed','unverified file accepted')

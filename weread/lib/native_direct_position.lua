@@ -18,6 +18,29 @@ local function same(first,second)
     return true
 end
 M.same=same
+local function source_map(client,settings,entry,file,native,web,active)
+    local first=Cache.identify(settings,native.scope.vid,file,active)
+    if not same(first,entry) then return nil,'file_changed' end
+    local source,why=NativeSource.fetch(client,settings,native,entry.book_id,entry.chapter_uid,{is_current=active})
+    if not source then return nil,why or 'unavailable' end
+    if source.is_text~=false or source.book_version~=entry.book_version
+        or source.reading_catalog_sha256~=entry.catalog_sha256 and entry.catalog_sha256~=nil
+        or type(source.body)~='string' or #source.body<1 or #source.body>Coordinates.MAX_BYTES
+        or Crypto.sha256_hex(source.body)~=entry.source_sha256 then return nil,'source_changed' end
+    local expected=Currentness.expected{book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
+        raw_sha256=entry.source_sha256,raw_bytes=#source.body}
+    if not expected then return nil,'invalid' end
+    local checked=Currentness.fetch(client,expected,web,'web_xhtml')
+    if not Currentness.packet(checked,expected) or not active() then return nil,'source_changed' end
+    local map=Coordinates.build(source.body,{format='web_xhtml',allow_multiple_bodies=true})
+    if not map then return nil,'source_unsupported' end
+    return map
+end
+local function target_anchor(map,offset)
+    local anchor=map:anchor(offset,{segment_only=true}) or map:anchor(offset)
+    local reverse=anchor and map:locate_point(anchor.text,anchor.point_offset)
+    return reverse and reverse.co==offset and anchor or nil
+end
 function M.prepare(client,settings,entry,file,context,native,web,current,target_offset)
     local function active()
         local ok,value=pcall(current)
@@ -36,28 +59,13 @@ function M.prepare(client,settings,entry,file,context,native,web,current,target_
         or context.render_path~='OEBPS/text/chapter.xhtml'
         or target_offset~=nil and not Protocol.integer(target_offset,0,2147483647) or not active() then return nil,'invalid' end
     local ok,result=pcall(function()
-        local first=Cache.identify(settings,native.scope.vid,file,active)
-        if not same(first,entry) then return {error='file_changed'} end
-        local source,why=NativeSource.fetch(client,settings,native,entry.book_id,entry.chapter_uid,{is_current=active})
-        if not source then return {error=why or 'unavailable'} end
-        if source.is_text~=false or source.book_version~=entry.book_version
-            or source.reading_catalog_sha256~=entry.catalog_sha256 and entry.catalog_sha256~=nil
-            or type(source.body)~='string' or #source.body<1 or #source.body>Coordinates.MAX_BYTES
-            or Crypto.sha256_hex(source.body)~=entry.source_sha256 then return {error='source_changed'} end
-        local expected=Currentness.expected{book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
-            raw_sha256=entry.source_sha256,raw_bytes=#source.body}
-        if not expected then return {error='invalid'} end
-        local checked=Currentness.fetch(client,expected,web,'web_xhtml')
-        if not Currentness.packet(checked,expected) or not active() then return {error='source_changed'} end
-        local map=Coordinates.build(source.body,{format='web_xhtml',allow_multiple_bodies=true})
-        if not map then return {error='source_unsupported'} end
+        local map,why=source_map(client,settings,entry,file,native,web,active)
+        if not map then return {error=why} end
         local offset=Worker.locate_verified_map(map,context.text,context.point_offset)
         if not Protocol.integer(offset,0,2147483647) then return {error='anchor_unavailable'} end
         local target
         if target_offset~=nil then
-            target=map:anchor(target_offset,{segment_only=true}) or map:anchor(target_offset)
-            local reverse=target and map:locate_point(target.text,target.point_offset)
-            if not reverse or reverse.co~=target_offset then target=nil end
+            target=target_anchor(map,target_offset)
         end
         local later=Cache.identify(settings,native.scope.vid,file,active)
         if not same(later,entry) or not active() then return {error='file_changed'} end
@@ -73,5 +81,35 @@ function M.prepare(client,settings,entry,file,context,native,web,current,target_
     end
     if result.error then return nil,result.error end
     return result.position,nil,result.anchor
+end
+-- Prepare a cloud target without assuming that the newly opened viewport has
+-- selectable text. The caller still owns page and account lifetime checks.
+function M.prepare_target(client,settings,entry,file,native,web,current,offset)
+    local function active()
+        local ok,value=pcall(current)
+        return ok and value==true and NativeAccess.matches(settings,native) and Currentness.matches(settings,web)
+    end
+    if type(current)~='function' or type(native)~='table' or type(native.scope)~='table' or native.renewal_pending
+        or type(web)~='table' or type(web.web)~='table' or type(web.web.cookies)~='table'
+        or web.web.cookies.wr_vid~=native.scope.vid or not Cache.valid_entry(entry,entry and entry.book_id,native.scope.vid)
+        or not hash(entry.file_id) or not Protocol.integer(entry.chapter_idx,0,1000000)
+        or not Protocol.integer(offset,0,2147483647) or not active() then return nil,'invalid' end
+    local ok,result=pcall(function()
+        local map,why=source_map(client,settings,entry,file,native,web,active)
+        if not map then return {error=why} end
+        local anchor=target_anchor(map,offset)
+        if not anchor then return {error='target_unavailable'} end
+        local later=Cache.identify(settings,native.scope.vid,file,active)
+        if not same(later,entry) or not active() then return {error='file_changed'} end
+        return {anchor=anchor}
+    end)
+    if not ok then
+        if not active() then return nil,'session_changed' end
+        if result=='source_currentness/web_expired' then return nil,'web_expired' end
+        if result=='source_currentness/source_changed' or result=='source_currentness/catalog_changed' then return nil,'source_changed' end
+        return nil,'unavailable'
+    end
+    if result.error then return nil,result.error end
+    return result.anchor
 end
 return M

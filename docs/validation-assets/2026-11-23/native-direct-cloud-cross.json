@@ -1,0 +1,27 @@
+{
+  "feature": "native_direct_cross_chapter_cloud_resume",
+  "installed_koreader_synthetic": {
+    "screen_sizes": ["600x800", "1264x1680"],
+    "saved_and_downloaded_target": "PASS",
+    "target_text_independently_checked": "PASS",
+    "unavailable_target_and_cancel": "PASS",
+    "unlocatable_target_keeps_original_chapter": "PASS",
+    "cloud_change_before_and_after_switch": "PASS",
+    "progress_write_requests": 0
+  },
+  "owner_readonly": {
+    "cross_chapter_screen_sizes": ["600x800", "1264x1680"],
+    "cross_chapter_navigation": "PASS",
+    "same_chapter_ko2": "PASS",
+    "unavailable_target_ko2": "PASS",
+    "independent_target_offset": "PASS",
+    "native_web_sources_match": true,
+    "isolated_reader_hosts": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "cloud_progress_and_shelf_unchanged": true,
+    "temporary_profiles_removed": true
+  },
+  "cloud_progress_upload_enabled": false,
+  "physical_kindle_tested": false
+}

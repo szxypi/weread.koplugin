@@ -156,12 +156,76 @@ function M.start(host,entry,options)
                 local relation=comparison.relation
                 local messages={same='The current page matches the cloud reading position.',
                     no_chapter='There is no cloud reading position yet. Your current page is kept.',
-                    other_chapter='The cloud reading position is in another chapter. Your current page is kept.',
                     target_unavailable='The cloud position could not be located in this chapter. Your current page is kept.'}
                 if messages[relation] then M.cancel(host);host:showInfo(_(messages[relation]));return end
+                if relation=='other_chapter' then
+                    local cloud=require('weread.lib.native_direct_cloud');local wanted=comparison.target
+                    if not cloud.valid_target(wanted) or wanted.book_id~=entry.book_id
+                        or wanted.chapter_uid==entry.chapter_uid then fail();return end
+                    if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
+                    local confirm
+                    confirm=require('ui/widget/confirmbox'):new{
+                        text=_('The cloud position is in another chapter. Open the saved chapter or download it if needed?'),
+                        ok_text=_('Open cloud chapter'),cancel_text=_('Keep current page'),keep_dialog_open=true,
+                        cancel_callback=function()
+                            if host._native_direct_position==ctx and ctx.confirm==confirm then ctx.confirm=nil;M.cancel(host) end
+                        end,
+                        ok_callback=function()
+                            if not page_current() or not access_current() then M.cancel(host);return end
+                            UI:close(confirm);ctx.confirm=nil
+                            host:showBusy(_('Preparing the cloud chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
+                            local saved=host.settings.get_book and host.settings:get_book(entry.book_id) or nil
+                            if type(saved)~='table' or tostring(saved.book_id or saved.bookId or '')~=entry.book_id then saved={} end
+                            local function text(value,fallback)
+                                return type(value)=='string' and #value<=2048 and not value:find('[%z%c]')
+                                    and require('weread.lib.protocol').utf8_substr(value,#value)==value and value or fallback
+                            end
+                            local book={book_id=entry.book_id,title=text(saved.title,entry.book_id),author=text(saved.author,'')}
+                            local target_native,target_web=ctx.native,ctx.web
+                            local called,started=pcall(host._native_direct_position_worker.start,host._native_direct_position_worker,function()
+                                local function active()
+                                    return host.settings:auth_scope_matches(scope) and NativeAccess.matches(host.settings,target_native)
+                                        and Currentness.matches(host.settings,target_web)
+                                end
+                                local value,why=require('weread.lib.native_direct_cloud_target').resolve(host.client,host.settings,
+                                    entry,ctx.file,ctx.input,target_native,target_web,active,wanted,book)
+                                return value and {resolved=value} or {error=why or 'unavailable'}
+                            end,function(result_)
+                                if host._native_direct_position~=ctx then return end
+                                if not page_current() or not access_current() then M.cancel(host);return end
+                                local resolved=type(result_)=='table' and result_.resolved
+                                if type(resolved)~='table' or not cloud.same_target(resolved.target,wanted)
+                                    or not require('weread.lib.native_direct_path').contains(host.settings,resolved.path)
+                                    or not require('weread.lib.native_direct_cache').valid_entry(resolved.entry,entry.book_id,scope.vid)
+                                    or resolved.entry.chapter_uid~=wanted.chapter_uid or resolved.entry.chapter_idx~=wanted.chapter_idx then
+                                    local why=type(result_)=='table' and result_.error
+                                    fail(why=='not_entitled' and 'The cloud chapter is not available to this account.'
+                                        or why=='target_unavailable' and 'The cloud position could not be located in the target chapter. Your current page is kept.'
+                                        or why=='cloud_changed' and 'The cloud position changed during the check. Your current page is kept.'
+                                        or why=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+                                        or why=='auth_expired' and 'E-Ink authorization expired. Please authorize again.'
+                                        or why=='web_expired' and 'WeRead login expired. Please sign in again and retry.'
+                                        or why=='catalog_changed' and 'The chapter list changed. Please open it again.'
+                                        or 'Could not prepare the cloud chapter. Your current page is kept.');return
+                                end
+                                local handoff=require('weread.lib.native_direct_cloud_handoff').prepare(host,ctx,resolved,function(next_host,next_entry,target,native_,web_)
+                                    return require('weread.ui.native_direct_cloud_open').receive(next_host,next_entry,target,native_,web_)
+                                end)
+                                if not handoff then fail();return end
+                                local path=resolved.path;M.cancel(host);host:openFile(path,handoff)
+                            end)
+                            if not called or not started then fail() end
+                        end,
+                    }
+                    ctx.confirm=confirm;UI:show(confirm);return
+                end
                 local anchor=comparison.anchor
+                local cloud=require('weread.lib.native_direct_cloud')
                 if relation~='different' or type(anchor)~='table' or anchor.co~=comparison.cloud_offset
                     or comparison.cloud_offset==p.chapter_offset
+                    or not cloud.valid_target(comparison.target) or comparison.target.book_id~=entry.book_id
+                    or comparison.target.chapter_uid~=entry.chapter_uid or comparison.target.chapter_idx~=entry.chapter_idx
+                    or comparison.target.chapter_offset~=comparison.cloud_offset
                     or not Protocol.integer(anchor.co,0,2147483647) or anchor.basis~='filtered_xhtml_utf16'
                     or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12
                     or #anchor.text>8192 or not Protocol.integer(anchor.point_offset,0,8192) then fail();return end
@@ -224,6 +288,7 @@ function M.start(host,entry,options)
                                 local next_anchor=type(next_value)=='table' and next_value.anchor
                                 local same=type(next_point)=='table' and type(next_anchor)=='table'
                                     and next_value.relation=='different' and next_value.cloud_offset==comparison.cloud_offset
+                                    and cloud.same_target(next_value.target,comparison.target)
                                 if same then
                                     for _,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','file_id',
                                         'book_version','raw_sha256','basis','source_current','upload_verified'}) do

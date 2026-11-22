@@ -22,6 +22,10 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
     local point={book_id='42',chapter_uid='37',chapter_idx=2,chapter_offset=20,upload_verified=false}
     return point,nil,target and not target_missing and {co=target,text='valid anchor text',point_offset=2,
         point_unit='unicode_scalars',basis='filtered_xhtml_utf16'} or nil
+end,prepare_target=function(_,_,e,file,ns,ws,active,offset)
+    assert(e.book_id=='42' and e.chapter_uid=='38' and file=='/target' and ns==native and ws==web and active())
+    if source_error then return nil,source_error end
+    return {co=offset,text='valid target anchor',point_offset=2,point_unit='unicode_scalars',basis='filtered_xhtml_utf16'}
 end} end
 local C=require('weread.lib.native_direct_cloud')
 local function check(first,last)
@@ -37,7 +41,14 @@ expect(value and value.relation=='different','read-only cloud position required 
 local empty_summary=snapshot(37,2,25,4);empty_summary.summary='';value,why=check(without_summary,empty_summary)
 expect(not value and why=='cloud_changed','changed summary presence was ignored')
 target_missing=true;value=check(different);expect(value and value.relation=='target_unavailable' and not value.anchor,'unlocatable target exposed')
-target_missing=false;value=check(snapshot(38,3,25,5));expect(value and value.relation=='other_chapter' and not value.anchor,'foreign chapter treated as current')
+target_missing=false;local other=snapshot(38,3,25,5);value=check(other)
+expect(value and value.relation=='other_chapter' and not value.anchor and C.valid_target(value.target),'foreign chapter target was not bound')
+local wanted=value.target;local target_entry={book_id='42',chapter_uid='38',chapter_idx=3};calls=0;snapshots={other,other}
+local destination=C.prepare_destination({}, {},target_entry,'/target',native,web,function() return live end,wanted)
+expect(destination and destination.anchor.co==25 and calls==2,'destination did not verify cloud and source')
+local altered=snapshot(38,3,26,5);calls=0;snapshots={altered,altered}
+destination,why=C.prepare_destination({}, {},target_entry,'/target',native,web,function() return live end,wanted)
+expect(not destination and why=='cloud_changed' and calls==1,'changed destination was accepted')
 value=check(snapshot(0,0,0,0));expect(value and value.relation=='no_chapter','empty cloud not represented')
 value,why=check(snapshot(37,3,25,4));expect(not value and why=='cloud_changed' and calls==1,'inconsistent chapter index accepted')
 value,why=check(same,different);expect(not value and why=='cloud_changed' and calls==2,'changed remote position accepted')

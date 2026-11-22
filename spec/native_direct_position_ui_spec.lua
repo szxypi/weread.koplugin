@@ -8,6 +8,8 @@ package.preload['ui/widget/confirmbox']=function() return {new=function(_,opts) 
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
 local in_worker=false;local page=1;local scope={vid='123',epoch=1};local account='owner';local current=true
 local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_sha256=string.rep('c',64),file_id=string.rep('a',64)}
+local wanted={book_id='42',chapter_uid='38',chapter_idx=3,chapter_offset=222,stamp=string.rep('d',64)}
+local target_entry={book_id='42',chapter_uid='38',chapter_idx=3,book_version=7,file_id=string.rep('b',64)}
 local identity={book_id='42',book_version=7,file_id=entry.file_id};local native={scope=scope};local web={web={cookies={wr_vid='123'}}}
 package.preload['weread.lib.source_context']=function() return {
     location=function() assert(not in_worker,'child accessed native document');return {xpointer='xp'..page,page=page,pos=0,view_mode='page'} end,
@@ -22,7 +24,8 @@ package.preload['weread.lib.source_context']=function() return {
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function()
     assert(not in_worker,'child read native document identity');return identity end} end
 package.preload['weread.lib.native_direct_cache']=function() return {valid_entry=function(v,id,owner)
-    return v==entry and id=='42' and owner=='123' end} end
+    return (v==entry or v==target_entry) and id=='42' and owner=='123' end} end
+package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,path) return path=='/target' end} end
 package.preload['weread.lib.native_read_access']=function() return {capture=function() return native end,matches=function() return current end} end
 package.preload['weread.lib.source_currentness']=function() return {capture=function() return web end,matches=function() return current end} end
 local web_renewals,native_renewals=0,0
@@ -31,7 +34,7 @@ package.preload['weread.lib.native_read_recovery']=function() return {cancel=fun
     job.recovery_attempted=true;native_renewals=native_renewals+1;opts.complete(true,selected);return true
 end} end
 local why
-local cloud_relation='different';local cloud_error;local cloud_offset=200
+local cloud_relation='different';local cloud_error;local cloud_offset=200;local cloud_stamp=string.rep('e',64);local target_error
 package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if why then return nil,why end
@@ -39,16 +42,33 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
         file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
         source_current=true,upload_verified=false}
 end} end
-package.preload['weread.lib.native_direct_cloud']=function() return {prepare=function(_,_,e,file,context,n,w,active)
+package.preload['weread.lib.native_direct_cloud']=function() return {valid_target=function(v)
+    return type(v)=='table' and v.book_id=='42' and type(v.stamp)=='string' end,
+    same_target=function(a,b)
+        return a and b and a.book_id==b.book_id and a.chapter_uid==b.chapter_uid and a.chapter_idx==b.chapter_idx
+            and a.chapter_offset==b.chapter_offset and a.stamp==b.stamp
+    end,prepare=function(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if cloud_error then return nil,cloud_error end
     local point={book_id=e.book_id,chapter_uid=e.chapter_uid,chapter_idx=e.chapter_idx,chapter_offset=123,
         file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
         source_current=true,upload_verified=false}
     local result={position=point,relation=cloud_relation}
-    if cloud_relation=='different' then result.cloud_offset=cloud_offset;result.anchor={co=cloud_offset,
+    if cloud_relation=='other_chapter' then result.target=wanted end
+    if cloud_relation=='different' then result.cloud_offset=cloud_offset
+        result.target={book_id='42',chapter_uid='37',chapter_idx=2,chapter_offset=cloud_offset,stamp=cloud_stamp}
+        result.anchor={co=cloud_offset,
         text='unique sample anchor for navigation',point_offset=2,point_unit='unicode_scalars',basis='filtered_xhtml_utf16'} end
     return result
+end} end
+package.preload['weread.lib.native_direct_cloud_target']=function() return {resolve=function(_,_,e,file,context,n,w,active,target,book)
+    assert(in_worker and e==entry and file==context.file and n==native and w==web and active() and target==wanted and book.book_id=='42')
+    if target_error then return nil,target_error end
+    return {path='/target',entry=target_entry,target=wanted,reused=true}
+end} end
+package.preload['weread.lib.native_direct_cloud_handoff']=function() return {prepare=function(host,ctx,resolved,callback)
+    assert(not in_worker and host._native_direct_position==ctx and ctx.is_current() and resolved.entry==target_entry and callback)
+    return function() return true end
 end} end
 package.preload['weread.lib.source_dom']=function() return {open_direct_prepared=function(doc,book,uid,id,options)
     assert(not in_worker and doc and book=='42' and uid=='37' and id==identity and options.is_current())
@@ -62,6 +82,7 @@ package.preload['weread.lib.reader_position']=function() return {
 local Position=require('weread.ui.native_direct_position')
 local function fixture()
     scheduled={};shown=nil;page=1;current=true;why=nil;account='owner';cloud_relation='different';cloud_error=nil;cloud_offset=200
+    cloud_stamp=string.rep('e',64);target_error=nil
     local s={jobs={},infos=0};local doc={file='/tmp/weread/native-reader-v1/file.epub'}
     local host={ui={document=doc,view={view_mode='page'}},_reader_session_gen=1,client={},
         settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,sco) return sco==scope and current end},
@@ -69,6 +90,7 @@ local function fixture()
         showBusy=function(self,_,cancel) self.busy_message={};s.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) s.infos=s.infos+1;s.message=message end,
+        openFile=function(_,path,callback) s.opened=path;s.handoff=callback end,
         showOffline=function() error('unexpected offline') end,
         source_recovery={start=function(_,_,old,valid,callback)
             web_renewals=web_renewals+1;assert(old==web and valid());callback(web);return true,{} end,cancel=function() end},
@@ -112,9 +134,19 @@ host,s=fixture();Position.start(host,entry,{cloud=true});s.capture();s.result(1)
 cloud_offset=250;s.result(2)
 expect(page==1 and s.message=='The cloud position changed during the check. Your current page is kept.',
     'cloud changed after confirmation but the reader moved')
+host,s=fixture();Position.start(host,entry,{cloud=true});s.capture();s.result(1);shown.ok_callback();s.capture()
+cloud_stamp=string.rep('f',64);s.result(2)
+expect(page==1 and s.message=='The cloud position changed during the check. Your current page is kept.',
+    'changed cloud snapshot at the same offset was accepted')
 host,s=fixture();cloud_relation='other_chapter';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
-expect(s.message=='The cloud reading position is in another chapter. Your current page is kept.' and page==1,
-    'another chapter was treated as a local target')
+expect(shown and shown.ok_callback and page==1,'another chapter did not request confirmation')
+shown.ok_callback();s.result(2)
+expect(s.opened=='/target' and type(s.handoff)=='function' and page==1 and not host._native_direct_position,
+    'verified cloud chapter was not handed off')
+host,s=fixture();cloud_relation='other_chapter';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+shown.ok_callback();target_error='not_entitled';s.result(2)
+expect(not s.opened and s.message=='The cloud chapter is not available to this account.' and page==1,
+    'unavailable chapter was opened')
 host,s=fixture();cloud_relation='same';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
 expect(s.message=='The current page matches the cloud reading position.' and page==1,'matching cloud position was not reported')
 host,s=fixture();cloud_offset=123;Position.start(host,entry,{cloud=true});s.capture();s.result(1)

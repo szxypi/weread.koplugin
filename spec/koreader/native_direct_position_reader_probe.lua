@@ -26,11 +26,12 @@ local function wait(predicate)
 end
 Reader:showReader(input.path)
 wait(function() return Reader.instance and Reader.instance.document and Reader.instance.weread end)
-local reader=Reader.instance;local host=reader.weread
-host.settings.mock_endpoint=input.mock_endpoint
-host.isNetworkConnected=function() return true end
-local requests=host.client.request
-host.client.request=function(self,options)
+local reader=Reader.instance;local host=reader.weread;local destination_host
+local function configure(active)
+active.settings.mock_endpoint=input.mock_endpoint
+active.isNetworkConnected=function() return true end
+local requests=active.client.request
+active.client.request=function(self,options)
     local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
     assert(url=='https://i.weread.qq.com/book/info?bookId=42'
         or url=='https://i.weread.qq.com/book/getProgress?bookId=42'
@@ -45,15 +46,24 @@ host.client.request=function(self,options)
     end
     return requests(self,options)
 end
+active.showInfo=function(self,message) self.checked_message=message end
+end
+configure(host)
+local open_file=host.openFile
+host.openFile=function(self,path,callback,...)
+    return open_file(self,path,function(next_reader)
+        destination_host=assert(next_reader.weread);configure(destination_host)
+        return callback(next_reader)
+    end,...)
+end
 local native_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=65536,timeout=180}
 local captured,point
 host._native_direct_position_worker={cancel=function() native_worker:cancel() end,start=function(_,task,callback)
     local ctx=assert(host._native_direct_position);captured={text=ctx.input.text,offset=ctx.input.point_offset}
     return native_worker:start(task,function(value) point=value.position or value.comparison and value.comparison.position;callback(value) end)
 end}
-host.showInfo=function(self,message) self.checked_message=message end
 local function open_menu()
-    local id=input.mode:find('^cloud') and 'native_cloud_position' or 'native_position_check'
+    local id=(input.mode:find('^cloud') or input.mode:find('^cross_')) and 'native_cloud_position' or 'native_position_check'
     assert(host:onShowWeReadQuickMenu())
     wait(function()
         local top=UI:getTopmostVisibleWidget()
@@ -82,6 +92,36 @@ elseif input.mode=='cloud' or input.mode=='cloud_cancel' or input.mode=='cloud_a
         assert(host.checked_message==require('weread.lib.plugin_util').tr('Opened the cloud reading position in this chapter.'))
         assert(reader.document:getCurrentPage()~=before and not host._native_direct_position)
     end
+elseif input.mode=='cloud_other' or input.mode:find('^cross_') then
+    wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
+    assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm)
+    local confirm=host._native_direct_position.confirm
+    if input.mode=='cloud_other' then
+        confirm.cancel_callback();assert(not host._native_direct_position and Reader.instance==reader)
+    else
+        confirm.ok_callback()
+        if input.mode=='cross_changed' or input.mode=='cross_denied' or input.mode=='cross_unlocatable' then
+            wait(function() return host.checked_message~=nil end)
+            local expected=input.mode=='cross_changed' and 'The cloud position changed during the check. Your current page is kept.'
+                or input.mode=='cross_denied' and 'The cloud chapter is not available to this account.'
+                or 'The cloud position could not be located in the target chapter. Your current page is kept.'
+            assert(host.checked_message==require('weread.lib.plugin_util').tr(expected) and Reader.instance==reader)
+        elseif input.mode=='cross_after_switch' then
+            wait(function() return destination_host and destination_host.checked_message~=nil end)
+            assert(Reader.instance~=reader and Reader.instance.weread==destination_host
+                and destination_host.checked_message==require('weread.lib.plugin_util').tr('The cloud position changed during the check. Your current page is kept.'))
+            assert(Reader.instance.document:getCurrentPage()<=2)
+        else
+            wait(function() return destination_host and destination_host.checked_message~=nil end)
+            assert(Reader.instance~=reader and Reader.instance.weread==destination_host
+                and destination_host.checked_message==require('weread.lib.plugin_util').tr('Opened the cloud reading position in this chapter.'))
+            assert(Reader.instance.document.file~=input.path and Reader.instance.document:getCurrentPage()>2)
+            local matches=assert(Reader.instance.document:findAllText('Target paragraph 0100',false,0,3,false,0))
+            assert(#matches==1 and matches[1].start and Reader.instance.document:isXPointerInCurrentPage(matches[1].start),
+                'the independently identified cloud target is not on the opened page')
+            if input.mode=='cross_cached' then assert(Reader.instance.document.file==input.second) end
+        end
+    end
 else
     wait(function() return host.checked_message~=nil end)
     local tr=require('weread.lib.plugin_util').tr
@@ -89,8 +129,6 @@ else
         assert(host.checked_message==tr('The chapter source changed, so the reading position could not be checked.') and not point)
     elseif input.mode=='cloud_changed' then
         assert(host.checked_message==tr('The cloud position changed during the check. Your current page is kept.') and not point)
-    elseif input.mode=='cloud_other' then
-        assert(host.checked_message==tr('The cloud reading position is in another chapter. Your current page is kept.'))
     elseif input.mode=='cloud_empty' then
         assert(host.checked_message==tr('There is no cloud reading position yet. Your current page is kept.'))
     else

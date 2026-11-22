@@ -17,9 +17,18 @@ local auth=require('weread.lib.native_authorization'):new(client,{expected_vid=s
     is_current=function() return Access.matches(settings,selected) end})
 local catalog=require('weread.lib.native_book_catalog').read(auth,input.credentials,'42','native_catalog');auth:cancel()
 local row=assert(catalog.reading_chapters[1]);assert(row.chapterUid=='37' and row.chapterIdx==1)
-row.catalog_order=1;row.catalog_count=1
+row.catalog_order=1;row.catalog_count=#catalog.reading_chapters;row.catalog_next=catalog.reading_chapters[2] and catalog.reading_chapters[2].chapterUid
 local expected={book_id='42',chapter_uid='37',book_version=catalog.version,
     reading_catalog_sha256=catalog.reading_digest,access_fingerprint=selected.fingerprint}
 local result=assert(require('weread.lib.native_direct_reader').build(client,settings,
     {book_id='42',title='Synthetic',author='Fixture'},row,expected,{is_current=function() return true end}))
-print('WEREAD_POSITION_PREPARED='..json.encode{path=result.path})
+local second
+if input.mode=='cross_cached' then
+    local next_row=assert(catalog.reading_chapters[2]);assert(next_row.chapterUid=='38' and next_row.downloadable)
+    next_row.catalog_order=2;next_row.catalog_count=#catalog.reading_chapters;next_row.catalog_prev=row.chapterUid
+    local next_expected={book_id='42',chapter_uid='38',book_version=catalog.version,
+        reading_catalog_sha256=catalog.reading_digest,access_fingerprint=selected.fingerprint}
+    second=assert(require('weread.lib.native_direct_reader').build(client,settings,
+        {book_id='42',title='Synthetic',author='Fixture'},next_row,next_expected,{is_current=function() return true end})).path
+end
+print('WEREAD_POSITION_PREPARED='..json.encode{path=result.path,second=second})

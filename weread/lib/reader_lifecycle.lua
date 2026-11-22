@@ -140,6 +140,8 @@ function M:onReaderReady()
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
     if direct_position then direct_position.cancel(self) end
+    local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open']
+    if direct_cloud then direct_cloud.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     local local_file=self.ui and self.ui.document and self.ui.document.file
@@ -261,6 +263,7 @@ end
 
 function M:onPageUpdate()
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
+    local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
@@ -279,6 +282,7 @@ end
 
 function M:onPosUpdate()
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
+    local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
@@ -300,6 +304,8 @@ function M:onCloseDocument()
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
     if direct_position then direct_position.cancel(self) end
+    local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open']
+    if direct_cloud then direct_cloud.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end
