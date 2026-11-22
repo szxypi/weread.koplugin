@@ -75,7 +75,7 @@ local job={book=book,chapters={chapter},index=1,total=1,state={workspace=workspa
 local Downloader=require('weread.lib.downloader')
 local last_message
 local downloader=Downloader:new{client=client,settings=settings,refresh_shelf=function() end,
-    show_info=function(message) last_message=message end}
+    show_info=function(message) last_message=message end,show_transient=function() end}
 local trapper=require('ui/trapper')
 local manager=require('ui/uimanager')
 local socket=require('socket')
@@ -99,6 +99,24 @@ local function step()
         ffiutil.usleep(10000)
     end
     assert(not failure,failure)
+end
+if input.cancel then
+    local finished,reason
+    job.cancel_reason='fixture_cancel'
+    job.on_complete=function(ok,value) finished=ok;reason=value end
+    job.progress_dialog=require('ui/widget/trapwidget'):new{ text=nil }
+    job.progress_dialog.close=function(widget) manager:close(widget) end
+    manager:show(job.progress_dialog)
+    manager:scheduleIn(0.25,function()
+        job.cancelled=true
+        assert(type(job.progress_dialog.dismiss_callback)=='function')
+        job.progress_dialog.dismiss_callback()
+    end)
+    step()
+    assert(finished==false and reason=='fixture_cancel' and not lfs.attributes(workspace.path)
+        and not next(values.books) and #job.selected==0)
+    print('WEREAD_CANDIDATE_RESULT='..json.encode{ok=true,cancelled=true})
+    return
 end
 step()
 assert(job.index==2 and #job.selected==1 and #job.failed==0)

@@ -8,21 +8,36 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+import time
+from urllib.parse import parse_qs, urlsplit
 
 from test_native_chapter_source_runtime import Handler
 
 REPO = Path(__file__).resolve().parent.parent
 
 
+class SlowHandler(Handler):
+    def dispatch(self):
+        target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if self.server.mode == 'cancel' and target.path == '/book/info':
+            self.server.slow_entered = True
+            time.sleep(2)
+        try:
+            super().dispatch()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
 def run(runtime):
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), SlowHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for width, height, dpi, mismatch, switch in ((600, 800, 167, False, False),
-                                                     (1264, 1680, 300, False, False),
-                                                     (600, 800, 167, True, False),
-                                                     (600, 800, 167, False, True)):
+        for width, height, dpi, mismatch, switch, cancel in ((600, 800, 167, False, False, False),
+                                                             (1264, 1680, 300, False, False, False),
+                                                             (600, 800, 167, True, False, False),
+                                                             (600, 800, 167, False, True, False),
+                                                             (600, 800, 167, False, False, True)):
             with tempfile.TemporaryDirectory(prefix='weread-candidate-', dir='/dev/shm') as root:
                 xdg = Path(root) / 'xdg'
                 xdg.mkdir(mode=0o700)
@@ -34,8 +49,9 @@ def run(runtime):
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                refreshToken='synthetic-refresh', deviceId='eink334691225' + '0' * 19),
                                mock_endpoint='http://127.0.0.1:' + str(server.server_port), mismatch=mismatch,
-                               switch=switch)
-                server.mode, server.paths, server.leaked = 'remote', [], False
+                               switch=switch, cancel=cancel)
+                server.mode, server.paths, server.leaked = 'cancel' if cancel else 'remote', [], False
+                server.slow_entered = False
                 server.catalog_valid = server.download_valid = True
                 result = subprocess.run([str(runtime / 'luajit'), str(REPO / 'spec/koreader/native_candidate_downloader_probe.lua'),
                                          str(REPO)], input=json.dumps(payload), text=True, env=env,
@@ -45,8 +61,12 @@ def run(runtime):
                 marker = 'WEREAD_CANDIDATE_RESULT='
                 line = next(line for line in result.stdout.splitlines() if line.startswith(marker))
                 data = json.loads(line[len(marker):])
-                assert data == dict(ok=True, fallback=int(mismatch), assets=int(not mismatch), stopped=switch), data
-                assert len(server.paths) == (3 if mismatch else 4), server.paths
+                if cancel:
+                    assert data == dict(ok=True, cancelled=True), data
+                    assert server.slow_entered and not server.paths, server.paths
+                else:
+                    assert data == dict(ok=True, fallback=int(mismatch), assets=int(not mismatch), stopped=switch), data
+                    assert len(server.paths) == (3 if mismatch else 4), server.paths
                 assert not server.leaked and server.catalog_valid and server.download_valid
         print('PASS: downloader native resources, Web-proof fallback and offline KOReader render')
     finally:
