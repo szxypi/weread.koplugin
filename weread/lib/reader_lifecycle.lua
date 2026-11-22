@@ -499,6 +499,8 @@ function M:maybePrefetchNextChapter(book_id, recovered)
                 and require('weread.ui.prefetch_auth_recovery').start(self,book,next_chapter) then return end
             local reason = value == "offline" and _("Network is not connected")
                 or value == 'web_expired' and _('WeRead login expired. Please sign in again and retry.')
+                or value == 'native_auth_expired' and _('E-Ink authorization expired. Sign in again or turn off experimental E-Ink resources.')
+                or value == 'native_resource_failed' and _('Experimental E-Ink resources could not be downloaded. Try again later or turn them off.')
                 or value == 'rate_limited' and _('WeRead is limiting requests. Please try again later.')
                 or value == "low_memory" and _("Not enough free memory; prefetch skipped")
                 or value == "worker_unavailable" and _("Background prefetch is unavailable")
@@ -510,6 +512,10 @@ function M:maybePrefetchNextChapter(book_id, recovered)
                 "title=", title,
                 "reason=", log_error(value))
             self:showPrefetchNotice(T(_("Next chapter prefetch failed: %1"), reason))
+            if retry_requested and (value=='native_auth_expired' or value=='native_resource_failed') then
+                self:showInfo(reason)
+                return
+            end
             if retry_requested then
                 local source_file = file
                 local retry_cache = self.settings:get("cache")

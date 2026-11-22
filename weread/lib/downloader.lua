@@ -404,8 +404,14 @@ function Downloader:_prefetchStage(dl, state)
 end
 
 local function prefetch_current(settings,dl)
-    return not dl.auth_scope or settings:auth_scope_matches(dl.auth_scope)
-        and WorkerSettings.fingerprint(settings)==dl.auth_fingerprint
+    if dl.native_chapter_resources then
+        local cache=settings:get('cache',{})
+        if cache.native_chapter_resources~=true or cache.download_book_images~=true then return false,'setting_disabled' end
+    end
+    return (not dl.auth_scope or settings:auth_scope_matches(dl.auth_scope)
+        and WorkerSettings.fingerprint(settings)==dl.auth_fingerprint)
+        and (not dl.native_chapter_resources
+            or require('weread.lib.native_read_access').matches(settings,dl.native_selected))
 end
 
 function Downloader:_applyPrefetchResult(dl, result)
@@ -421,8 +427,9 @@ function Downloader:_applyPrefetchResult(dl, result)
         self:_finishJob(dl)
         return
     end
-    if not prefetch_current(self.settings,dl) then
-        self:_notifyCompletion(dl,false,'account_changed')
+    local current,current_reason=prefetch_current(self.settings,dl)
+    if not current then
+        self:_notifyCompletion(dl,false,current_reason or 'account_changed')
         self:_finishJob(dl)
         return
     end
@@ -433,7 +440,12 @@ function Downloader:_applyPrefetchResult(dl, result)
             reason='web_expired'
         elseif rate_limited(reason) then reason='rate_limited'
         elseif type(reason)=='string' and (reason=='chapter_prefetch/session_changed'
-            or reason:match('^chapter_prefetch/session_changed[\r\n]')) then reason='account_changed' end
+            or reason:match('^chapter_prefetch/session_changed[\r\n]')
+            or reason=='native_candidate/session_changed'
+            or reason:match('^native_candidate/session_changed[\r\n]')) then reason='account_changed'
+        elseif type(reason)=='string' and (reason=='native_candidate/auth_expired'
+            or reason:match('^native_candidate/auth_expired[\r\n]')) then reason='native_auth_expired'
+        elseif type(reason)=='string' and reason:match('^native_candidate/') then reason='native_resource_failed' end
         self:_notifyCompletion(dl, false, reason)
         self:_finishJob(dl)
         return
@@ -503,7 +515,8 @@ function Downloader:_startPrefetchWorker(dl)
         timeout = 180,
         task = function(context)
             return ChapterWorker.run(self.settings, self.client, dl.book,
-                dl.chapters[1], context, dl.auth_scope, dl.auth_fingerprint)
+                dl.chapters[1], context, dl.auth_scope, dl.auth_fingerprint,
+                dl.native_chapter_resources and dl.native_selected.fingerprint or nil)
         end,
         on_launch = function(pid, available_kb)
             if self._active_job ~= dl then return end
@@ -776,8 +789,9 @@ function Downloader:start(book, chapters, suffix, options)
                 self:_finishJob(dl)
                 return
             end
-            if not prefetch_current(self.settings,dl) then
-                self:_notifyCompletion(dl,false,'account_changed');self:_finishJob(dl);return
+            local current,current_reason=prefetch_current(self.settings,dl)
+            if not current then
+                self:_notifyCompletion(dl,false,current_reason or 'account_changed');self:_finishJob(dl);return
             end
             self:_startPrefetchWorker(dl)
         end)

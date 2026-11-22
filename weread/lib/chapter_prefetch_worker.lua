@@ -10,12 +10,16 @@ local function empty_footnote_stats()
         backlinks = 0, removed_note_blocks = 0, unresolved = 0, fallback = 0 }
 end
 
-function M.run(settings, client, book, chapter, context, expected_scope, expected_fingerprint)
+function M.run(settings, client, book, chapter, context, expected_scope, expected_fingerprint, expected_native_fingerprint)
     local auth_result = WorkerSettings.capture(settings)
     local scope=expected_scope or settings.get_auth_scope and settings:get_auth_scope()
+    local native_selected
     local function check_current()
         context.checkCancelled()
         if scope and (not settings.auth_scope_matches or not settings:auth_scope_matches(scope)) then
+            error('chapter_prefetch/session_changed',0)
+        end
+        if native_selected and not require('weread.lib.native_read_access').matches(settings,native_selected) then
             error('chapter_prefetch/session_changed',0)
         end
         return true
@@ -25,6 +29,13 @@ function M.run(settings, client, book, chapter, context, expected_scope, expecte
         check_current()
         if expected_fingerprint and WorkerSettings.fingerprint(settings)~=expected_fingerprint then
             error('chapter_prefetch/session_changed',0)
+        end
+        if expected_native_fingerprint then
+            native_selected=require('weread.lib.native_read_access').capture(settings)
+            if not native_selected or native_selected.renewal_pending
+                or native_selected.fingerprint~=expected_native_fingerprint then
+                error('chapter_prefetch/session_changed',0)
+            end
         end
         client = require('weread.lib.book_reading_client').wrap(client, book, chapter)
         context.emit { stage = "reader" }
@@ -55,6 +66,14 @@ function M.run(settings, client, book, chapter, context, expected_scope, expecte
         end
         check_current()
 
+        local native
+        if native_selected and cache.download_book_images and workspace then
+            native=require('weread.lib.native_chapter_candidate').fetch(client,settings,book,chapter,
+                xhtml,position_source,workspace,expected_native_fingerprint,check_current)
+            check_current()
+            if native then xhtml,state.css=native.xhtml,native.css end
+        end
+
         local uid = tostring(chapter.chapterUid or chapter.chapterId or "1")
         local scan_ok, scan = pcall(Footnotes.scan_chapter, xhtml, chapter)
         context.emit { stage = cache.download_book_images and "images" or "process" }
@@ -62,8 +81,9 @@ function M.run(settings, client, book, chapter, context, expected_scope, expecte
             check_current()
             context.emit { stage = "images", current = current, count = total }
         end
-        local finalized, assets = Content.finalize_single_chapter_content(
-            client, settings, book, chapter, xhtml, state)
+        local finalized, assets
+        if native then finalized,assets=xhtml,native.assets
+        else finalized,assets=Content.finalize_single_chapter_content(client,settings,book,chapter,xhtml,state) end
         check_current()
 
         local stats = empty_footnote_stats()

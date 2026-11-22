@@ -123,4 +123,53 @@ ok,err=pcall(Worker.run,settings,{}, {book_id='book'},{chapterUid='2'},context)
 assert(not ok and tostring(err):find('chapter_prefetch/session_changed',1,true) and not saved and calls[#calls]=='cleanup',
     'changed account was allowed to publish a prefetched chapter')
 
+-- Native resources are used only with the parent's captured grant, while the
+-- original Web position source continues through the normal EPUB save path.
+scope_current=true
+local native_current,native_calls,native_mode=true,0,'success'
+local selected={fingerprint='grant-1'}
+package.loaded['weread.lib.native_read_access']={
+    capture=function() return selected end,
+    matches=function(_,value) return value==selected and native_current end,
+}
+local original={format='web_xhtml'}
+package.loaded['weread.lib.native_chapter_candidate']={fetch=function(_,_,_,_,web,proof,workspace,expected)
+    native_calls=native_calls+1
+    assert(web=='web-body' and proof==original and workspace and expected=='grant-1')
+    if native_mode=='fallback' then return nil end
+    if native_mode=='expired' then error('native_candidate/auth_expired',0) end
+    if native_mode=='switched' then native_current=false end
+    return {xhtml='native-body',css='native-css',assets={{href='images/verified.png',path='/tmp/work/images/verified.png'}}}
+end}
+content.fetch_single_chapter_source=function() return 'web-body',original end
+local saved_mode
+content.finalize_single_chapter_content=function(_,_,_,_,xhtml)
+    assert(xhtml=='web-body');return 'web-final',{}
+end
+content.save_chapter_epub=function(_,_,_,body,assets,css,_,proof,_,guard)
+    guard();assert(proof==original)
+    if native_mode=='fallback' then
+        assert(body=='web-final' and #assets==0 and css=='\nstandard-footnote-css')
+    else
+        assert(body=='native-body' and #assets==1 and css=='native-css\nstandard-footnote-css')
+    end
+    saved_mode=native_mode;return '/tmp/book-chapter.epub'
+end
+local function native_run()
+    return Worker.run(settings,{}, {book_id='book'}, {chapterUid='2'},context,nil,nil,'grant-1')
+end
+native_run();assert(saved_mode=='success' and native_calls==1)
+native_mode='fallback';native_run();assert(saved_mode=='fallback' and native_calls==2)
+native_mode='expired';local before=native_calls
+ok,err=pcall(native_run)
+assert(not ok and tostring(err):find('native_candidate/auth_expired',1,true)
+    and native_calls==before+1 and saved_mode=='fallback' and calls[#calls]=='cleanup')
+native_mode='switched';native_current=true
+ok,err=pcall(native_run)
+assert(not ok and tostring(err):find('chapter_prefetch/session_changed',1,true)
+    and saved_mode=='fallback' and calls[#calls]=='cleanup')
+native_current=true;selected.fingerprint='different';before=native_calls
+ok,err=pcall(native_run)
+assert(not ok and tostring(err):find('chapter_prefetch/session_changed',1,true) and native_calls==before)
+
 print("chapter_prefetch_worker_spec: isolated settings and complete pipeline passed")

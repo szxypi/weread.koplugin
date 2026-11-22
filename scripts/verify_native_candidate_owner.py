@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true', required=True)
     parser.add_argument('--book-offset', type=int, default=0, choices=range(0, 51))
+    parser.add_argument('--prefetch', action='store_true')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER, required=True)
     args = parser.parse_args()
     report = dict(result='UNVERIFIED', account_data_writes=0, authorization_requests=0,
@@ -41,16 +42,22 @@ def main():
                        search_token=search_token(native['source']))
         child = subprocess.run(args.lua_command, input=json.dumps(payload).encode(), stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, timeout=120, check=False)
-        marker = b'WEREAD_CANDIDATE_RESULT='
+        marker = b'WEREAD_PREFETCH_RESULT=' if args.prefetch else b'WEREAD_CANDIDATE_RESULT='
         if child.returncode or child.stdout.count(marker) != 1 or len(child.stdout) > 65536:
             raise ValueError('native_downloader_failed')
         result = json.loads(child.stdout.split(marker, 1)[1].splitlines()[0])
-        if (set(result) != {'ok', 'fallback', 'assets', 'stopped'} or result['ok'] is not True
-                or result['fallback'] != 0 or result['stopped'] is not False
-                or type(result['assets']) is not int or result['assets'] < 1):
-            raise ValueError('native_downloader_unverified')
-        report.update(result='PASS', independent_originals_identical=True, native_downloader_completed=True,
-                      source_metadata_preserved=True, image_decoded_offline=True, staged_assets=result['assets'])
+        if args.prefetch:
+            if result != dict(ok=True, fallback=0, expired=False, cancel=False, rejected=False):
+                raise ValueError('native_downloader_unverified')
+            report.update(result='PASS', independent_originals_identical=True, native_prefetch_completed=True,
+                          source_metadata_preserved=True, image_decoded_offline=True)
+        else:
+            if (set(result) != {'ok', 'fallback', 'assets', 'stopped'} or result['ok'] is not True
+                    or result['fallback'] != 0 or result['stopped'] is not False
+                    or type(result['assets']) is not int or result['assets'] < 1):
+                raise ValueError('native_downloader_unverified')
+            report.update(result='PASS', independent_originals_identical=True, native_downloader_completed=True,
+                          source_metadata_preserved=True, image_decoded_offline=True, staged_assets=result['assets'])
     except Exception as exc:
         # Never emit request bodies, identifiers, text, paths or exception details.
         allowed = {'web_unavailable', 'source_not_identical', 'native_downloader_failed', 'native_downloader_unverified'}

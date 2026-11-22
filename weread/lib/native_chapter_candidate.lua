@@ -16,7 +16,7 @@ local function fatal(reason)
     end
 end
 
-function M.fetch(client, settings, book, chapter, web, position, workspace, expected_fingerprint)
+function M.fetch(client, settings, book, chapter, web, position, workspace, expected_fingerprint, check_live)
     local book_id = tostring(book.book_id or book.bookId or '')
     local uid = tostring(chapter.chapterUid or chapter.chapterId or '')
     local verified = Position.resolve(position, book_id, uid)
@@ -27,14 +27,23 @@ function M.fetch(client, settings, book, chapter, web, position, workspace, expe
         fatal('session_changed')
     end
     if not selected or selected.renewal_pending then return nil end
-    local function current() return Access.matches(settings, selected) end
+    local function current()
+        if check_live then check_live() end
+        return Access.matches(settings, selected)
+    end
     local source, why = Source.fetch(client, settings, selected, book_id, uid, { is_current = current })
-    if not source then fatal(why); return nil end
+    if not source then
+        if check_live then check_live() end
+        fatal(why); return nil
+    end
     if not current() then fatal('session_changed') end
     if source.body ~= web then return nil end
     local prepared
     prepared, why = Remote.complete(client, source, { is_current = current })
-    if not prepared then fatal(why); return nil end
+    if not prepared then
+        if check_live then check_live() end
+        fatal(why); return nil
+    end
     if not current() then fatal('session_changed') end
     local ok_lfs, lfs = pcall(require, 'libs/libkoreader-lfs')
     if not ok_lfs then ok_lfs, lfs = pcall(require, 'lfs') end

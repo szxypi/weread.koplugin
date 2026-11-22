@@ -295,7 +295,10 @@ for _,change in ipairs({'book','chapter','worker_book','worker_chapter','missing
 end
 os.remove(temp_path)
 for _,case in ipairs({{'book_reading/web_expired\nstack traceback:','web_expired'},
-    {'download_read/rate_limited\nstack traceback:','rate_limited'}}) do
+    {'download_read/rate_limited\nstack traceback:','rate_limited'},
+    {'native_candidate/auth_expired\nstack traceback:','native_auth_expired'},
+    {'native_candidate/service_rejected\nstack traceback:','native_resource_failed'},
+    {'native_candidate/session_changed\nstack traceback:','account_changed'}}) do
     local reason
     local instance=Downloader:new{settings=fake_settings()}
     local job={book=book_a,chapters={chapter_2},prefetch=true,on_complete=function(_,value) reason=value end}
@@ -331,6 +334,56 @@ for _,change in ipairs({'epoch','credentials'}) do
     expect(completed=='account_changed' and opened==0 and not scoped_book.cached_chapters and not instance._active_job,
         'changed '..change..' accepted a stale prefetch result')
     os.remove(file_path)
+end
+local native_current=true
+local native_grant={fingerprint='native-grant'}
+package.loaded['weread.lib.native_read_access']={
+    capture=function() return native_grant end,
+    matches=function(_,value) return native_current and value==native_grant end,
+}
+for _,when in ipairs({'before_launch','before_result'}) do
+    scheduled={};native_current=true
+    local owned=fake_settings()
+    owned:set('cache',{download_book_images=true,native_chapter_resources=true})
+    local check_worker=fake_worker()
+    local completed,opened=nil,0
+    local instance=Downloader:new{client={},settings=owned,background_worker=check_worker,
+        is_connected=function() return true end,refresh_shelf=function() end,refresh_ui=function() end,
+        open_file=function() opened=opened+1 end}
+    local scoped_book={book_id='a'}
+    instance:start(scoped_book,{chapter_2},'chapter',{prefetch=true,single_chapter=true,
+        on_complete=function(_,reason) completed=reason end})
+    if when=='before_launch' then native_current=false end
+    run_scheduled()
+    if when=='before_result' then
+        expect(#check_worker.starts==1,'native prefetch did not launch')
+        instance:promotePrefetch(scoped_book,chapter_2,function() return true end)
+        native_current=false
+        check_worker.starts[1].options.on_done{ok=true,value={path='/unused'}}
+    end
+    expect(completed=='account_changed' and opened==0 and not scoped_book.cached_chapters
+        and not instance._active_job,'changed native grant accepted a stale prefetch '..when)
+end
+for _,key in ipairs({'download_book_images','native_chapter_resources'}) do
+for _,when in ipairs({'before_launch','before_result'}) do
+    scheduled={};native_current=true
+    local owned=fake_settings()
+    local cache={download_book_images=true,native_chapter_resources=true};owned:set('cache',cache)
+    local check_worker=fake_worker()
+    local completed
+    local instance=Downloader:new{client={},settings=owned,background_worker=check_worker,
+        is_connected=function() return true end,refresh_shelf=function() end,refresh_ui=function() end}
+    instance:start({book_id='a'},{chapter_2},'chapter',{prefetch=true,single_chapter=true,
+        on_complete=function(_,reason) completed=reason end})
+    if when=='before_launch' then cache[key]=false end
+    run_scheduled()
+    if when=='before_result' then
+        cache[key]=false
+        check_worker.starts[1].options.on_done{ok=true,value={path='/unused'}}
+    end
+    expect(completed=='setting_disabled' and not instance._active_job,
+        'disabled '..key..' accepted a native prefetch '..when)
+end
 end
 local queued=Downloader:new{settings=fake_settings()}
 queued._active_job={prefetch=true,cancelled=true}

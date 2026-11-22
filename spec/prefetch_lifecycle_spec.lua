@@ -163,6 +163,12 @@ starts={};scheduled={};host:maybePrefetchNextChapter('book')
 starts[1].options.on_complete(false,'rate_limited')
 expect(#scheduled==0 and information and information:find('limiting requests',1,true),
     'promoted rate-limited prefetch reopened download or hid the failure')
+for _,reason in ipairs({'native_auth_expired','native_resource_failed'}) do
+    starts={};scheduled={};information=nil;host:maybePrefetchNextChapter('book')
+    starts[1].options.on_complete(false,reason)
+    expect(#scheduled==0 and information and retried==1,
+        'promoted native prefetch retried or hid '..reason)
+end
 starts={};scheduled={};information=nil;host:maybePrefetchNextChapter('book')
 starts[1].options.on_complete(false,'book_identity_conflict')
 expect(#scheduled==0 and information and information:find('does not match',1,true),
