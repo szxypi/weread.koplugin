@@ -10,7 +10,16 @@ HTTP 401、429，以及章节包接口明确返回的登录过期／限频业务
 
 组件尚未连接书架或阅读器下载入口；图片引用与样式处理、整书下载和恢复、来源坐标隔离、后台取消、真实设备及其他格式仍需验证。现有阅读器继续使用原有下载路径。
 
+## 包内资源准备与原生渲染
+
+章节解析现在保留各段正文及样式的包内来源；资源准备按各自所在路径解析相对引用，核对样式链接，并为可识别图片生成基于内容的 EPUB 内部名称。重复目标冲突、缺失图片、无法核对的样式和不支持的标记返回失败，不猜测使用同名图片。网络图片引用会单独计数，当前不会由该组件下载，因此准备成功也不代表可离线阅读；图片签名可识别不等于完整解码验证。多个样式表、内联样式等尚未接入的格式保持未完成状态。
+
+三份真实章节经过 KOReader 原生请求及资源准备：第一份核对一个包内引用，另有一个网络引用；第二份核对两个包内引用且无网络引用；第三份缺少一个资源，正确停止准备。没有将真实正文、资源、路径或凭据保存到报告。见[样本一](validation-assets/2026-11-22/native-resources-1.json)、[样本二](validation-assets/2026-11-22/native-resources-2.json)、[样本三](validation-assets/2026-11-22/native-resources-3.json)。
+
+另以合成包在实际 KOReader 网络层完成请求、解包、资源准备、EPUB 生成及 CRE 原生正文／图片内容核对；两种模拟尺寸另以新进程离线重开，并确认生成文件没有网页原文坐标元数据。该测试不证明真实图片已渲染，也不证明所有进度写入路径均已隔离。后续仍需完整接通网络图片、来源切换、下载器和阅读器，再验证进度、批注、整书恢复及实体 Kindle。
+
 ```sh
 luajit spec/native_chapter_source_spec.lua
 python3 scripts/test_native_chapter_source_runtime.py --koreader /path/to/koreader
+python3 scripts/test_native_chapter_render_runtime.py --koreader /path/to/koreader
 ```

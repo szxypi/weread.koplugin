@@ -50,9 +50,41 @@ local ok,result=pcall(function()
             safe_href=asset.href:match('^images/native%-%d+%.[a-z]+$')~=nil,
             parent_source=asset.source:find('../',1,true)~=nil}
     end
-    return {ok=true,requests=count,body_sha256=Crypto.sha256_hex(source.body),css_sha256=Crypto.sha256_hex(source.css),
+    local output={ok=true,requests=count,body_sha256=Crypto.sha256_hex(source.body),css_sha256=Crypto.sha256_hex(source.css),
         is_text=source.is_text,web_coordinate_authority=source.coordinate_source_authoritative,assets=assets,
         image_signatures_recognized=source.image_signatures_recognized,unusable_resources=source.unusable_resources}
+    if input.prepare==true then
+        local prepared,resource_reason=require('weread.lib.native_chapter_resources').prepare(source)
+        if prepared then
+            output.resources={ok=true,localized=prepared.localized_references,remote=prepared.remote_references,
+                web_coordinate_authority=prepared.coordinate_source_authoritative}
+            if input.render==true then
+                local home=assert(os.getenv('KO_HOME'))
+                assert(os.getenv('WEREAD_SYNTHETIC')=='1' and home:match('^/dev/shm/') and prepared.remote_references==0)
+                local lfs=require('libs/libkoreader-lfs');settings.cache_dir=home..'/native-cache'
+                if not lfs.attributes(settings.cache_dir) then assert(lfs.mkdir(settings.cache_dir)) end
+                local book={book_id=input.book_id,bookVersion=source.book_version,title='Synthetic native book',author='Fixture'}
+                local chapter={chapterUid=tonumber(input.uid),chapterIdx=1,title='Synthetic chapter'}
+                local path=require('weread.lib.content').save_chapter_epub(settings,book,chapter,prepared.xhtml,prepared.assets,
+                    prepared.css,require('weread.lib.book_file_identity').capture(book),nil)
+                client.request=function() error('offline request forbidden') end
+                require('socket.http').request=function() error('offline request forbidden') end
+                local Device=require('device');require('document/canvascontext'):init(Device)
+                local doc=assert(require('document/documentregistry'):openDocument(path))
+                assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()
+                local hits=assert(doc:findAllText('Native source integrated marker 24',false,0,4,false,0))
+                assert(doc:getPageCount()>=2 and hits[1] and hits[1].start)
+                assert(not require('weread.lib.position_source').read_document(doc,input.book_id,input.uid))
+                local href=assert(prepared.assets[1]).href
+                assert(doc:getDocumentFileContent('OEBPS/'..href)==prepared.assets[1].data)
+                assert(assert(doc:getDocumentFileContent('OEBPS/style.css')):find(href,1,true))
+                doc:close();output.resources.rendered=true
+            end
+        else
+            output.resources={ok=false,reason=resource_reason}
+        end
+    end
+    return output
 end)
 if reason~='invalid' and reason~='session_changed' and reason~='rate_limited' and reason~='auth_expired' and reason~='service_rejected'
     and reason~='not_entitled' and reason~='unavailable' then reason='probe_failed' end

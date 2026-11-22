@@ -12,10 +12,16 @@ import tempfile
 import threading
 from urllib.parse import parse_qs, urlsplit
 
-from test_native_chapter_package import ENCRYPTED
+from test_native_chapter_package import ENCRYPTED, archive
 
 REPO = Path(__file__).resolve().parent.parent
 FRAME = b'\nWEREAD_NATIVE_SOURCE_RESULT='
+PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip5sAAAAASUVORK5CYII=')
+READING_BODY = ('<html><body><img src="../images/cover.png"/>'
+                + ''.join(f'<p>Native source integrated marker {i} synthetic text.</p>' for i in range(1,81))
+                + '</body></html>').encode()
+READING_PACKAGE = archive([('text/37.html', READING_BODY), ('style/book.css', 'p{background:url(../images/cover.png)}'),
+                           ('images/cover.png', PNG)])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -58,7 +64,8 @@ class Handler(BaseHTTPRequestHandler):
                 errcode = {'rate_json': -2014, 'auth_json': -2012, 'denied_json': -2041}[server.mode]
                 body = json.dumps({'errcode': errcode}).encode()
             else:
-                body = b'corrupt package' if server.mode == 'corrupt' else base64.b64decode(ENCRYPTED)
+                body = (b'corrupt package' if server.mode == 'corrupt' else READING_PACKAGE if server.mode == 'read'
+                        else base64.b64decode(ENCRYPTED))
                 if server.mode != 'missing_header':
                     headers['encryptkey'] = 'vwSvXMONEDngLYTAXw3olg=='
         else:
@@ -84,14 +91,15 @@ def run(runtime):
                        SDL_VIDEODRIVER='dummy', EMULATE_READER='1', WEREAD_SYNTHETIC='1')
             payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                             refreshToken='synthetic-refresh', deviceId='eink334691225' + '0'*19),
-                           book_id='42', uid='37', mock_endpoint=endpoint)
-            for mode, reason, count in (('ok', None, 3), ('paid', 'not_entitled', 2), ('rate', 'rate_limited', 3),
+                           book_id='42', uid='37', mock_endpoint=endpoint, prepare=True)
+            for mode, reason, count in (('ok', None, 3), ('read', None, 3), ('paid', 'not_entitled', 2), ('rate', 'rate_limited', 3),
                                         ('auth', 'auth_expired', 3), ('missing_header', 'unavailable', 3),
                                         ('corrupt', 'unavailable', 3), ('rate_json', 'rate_limited', 3),
                                         ('auth_json', 'auth_expired', 3), ('denied_json', 'service_rejected', 3),
                                         ('catalog_rejected', 'service_rejected', 2)):
                 server.mode, server.paths, server.leaked = mode, [], False
                 server.catalog_valid, server.download_valid = True, True
+                payload['render'] = mode == 'read'
                 process = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_chapter_source_probe.lua'),
                                           str(REPO)], cwd=runtime, env=env, input=json.dumps(payload).encode(),
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
@@ -102,8 +110,13 @@ def run(runtime):
                 assert not server.leaked and server.catalog_valid and server.download_valid, mode
                 if reason is None:
                     assert process.returncode == 0 and value['ok'], mode
-                    assert value['body_sha256'] == hashlib.sha256(b'<p>Synthetic</p>').hexdigest(), mode
+                    assert value['body_sha256'] == hashlib.sha256(READING_BODY if mode == 'read' else b'<p>Synthetic</p>').hexdigest(), mode
                     assert value['web_coordinate_authority'] is False, mode
+                    if mode == 'read':
+                        assert value['resources'] == dict(ok=True, localized=2, remote=0,
+                                                          web_coordinate_authority=False, rendered=True), mode
+                    else:
+                        assert value['resources'] == dict(ok=True, localized=0, remote=0, web_coordinate_authority=False), mode
                 else:
                     assert process.returncode != 0 and value == dict(ok=False, requests=count, reason=reason), mode
         print('PASS: native KOReader HTTP, entitlement, rate limit, authorization and bad package')

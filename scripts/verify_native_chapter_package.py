@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 from html.parser import HTMLParser
 import json
+import re
 import resource
 import subprocess
 from urllib.error import HTTPError, URLError
@@ -147,6 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-offset', type=int, default=0, choices=range(0, 51))
+    parser.add_argument('--prepare-assets', action='store_true')
     lua = parser.add_mutually_exclusive_group()
     lua.add_argument('--lua-command', nargs=argparse.REMAINDER)
     lua.add_argument('--lua-source-command', nargs=argparse.REMAINDER)
@@ -155,6 +157,8 @@ def main():
         parser.error('book offset requires saved session')
     if (args.lua_command or args.lua_source_command) and not args.saved_session:
         parser.error('Lua comparison requires saved session')
+    if args.prepare_assets and not args.lua_source_command:
+        parser.error('asset preparation requires a native source command')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_writes=0, authorization_requests=0, native_download_requests=0,
                   credentials_or_content_saved=False)
@@ -206,7 +210,8 @@ def main():
                     raise ProbeError('chapter/lua_comparison_mismatch')
                 report['koreader_lua_package_matches'] = True
             if args.lua_source_command:
-                payload = json.dumps(dict(credentials=credentials, book_id=sample['book_id'], uid=str(chapter['uid'])),
+                payload = json.dumps(dict(credentials=credentials, book_id=sample['book_id'], uid=str(chapter['uid']),
+                                          prepare=args.prepare_assets),
                                      separators=(',', ':')).encode()
                 child = subprocess.run(args.lua_source_command, input=payload, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, timeout=120)
@@ -222,6 +227,20 @@ def main():
                     reason = actual.get('reason') if isinstance(actual, dict) else None
                     raise ProbeError('chapter/lua_source_' + (reason if reason in allowed else 'failed'))
                 digest = lambda value: hashlib.sha256(value).hexdigest()
+                if args.prepare_assets:
+                    resources = actual.pop('resources', None)
+                    if not isinstance(resources, dict) or type(resources.get('ok')) is not bool:
+                        raise ProbeError('chapter/lua_resources_invalid')
+                    if resources['ok']:
+                        if (set(resources) != {'ok', 'localized', 'remote', 'web_coordinate_authority'}
+                                or type(resources['localized']) is not int or type(resources['remote']) is not int
+                                or not 0 <= resources['localized'] <= 10000 or not 0 <= resources['remote'] <= 10000
+                                or resources['web_coordinate_authority'] is not False):
+                            raise ProbeError('chapter/lua_resources_invalid')
+                    elif (set(resources) != {'ok', 'reason'} or not isinstance(resources['reason'], str)
+                          or not re.fullmatch(r'native_resources/[a-z_]+', resources['reason'])):
+                        raise ProbeError('chapter/lua_resources_invalid')
+                    report['resource_preparation'] = resources
                 assets = [dict(digest=digest(item['data']), mime=item['media_type'], safe_href=True,
                                parent_source='../' in item['source']) for item in native['assets']]
                 expected = dict(ok=True, requests=3, body_sha256=digest(native['source']), css_sha256=digest(native['css']),

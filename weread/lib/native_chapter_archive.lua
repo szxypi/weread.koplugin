@@ -160,7 +160,7 @@ local function read_zip(file, password, opt)
         elseif name:match("%.x?html?$") or name:match("%.txt$") or (base ~= "" and not base:find(".",1,true)) then
             bodies[#bodies+1] = {entry=entry,text=not name:match("%.x?html?$")}
         elseif name:match("%.css$") then
-            styles[#styles+1] = extract(entry)
+            styles[#styles+1] = {source=entry.name,data=extract(entry)}
         elseif opt.images ~= false and name:match("%.png$") then
             images[#images+1] = entry
         elseif opt.images ~= false and (name:match("%.jpe?g$") or name:match("%.gif$") or name:match("%.webp$")) then
@@ -219,12 +219,13 @@ local function read_zip(file, password, opt)
             if not ordered then error("E-Ink 未返回唯一章节正文") end
         end
     end
-    local parts,total_body={},0
+    local parts,part_sources,total_body={},{},0
     for _,body in ipairs(ordered) do
         local data=extract(body.entry)
         total_body=total_body+#data
         if data=="" or total_body>MAX_ENTRY or body.text~=ordered[1].text then error("E-Ink 章节清单正文为空或超限") end
         parts[#parts+1]=data
+        part_sources[#part_sources+1]={source=body.entry.name,data=data}
     end
     local body=table.concat(parts,"\n")
     local assets,unusable_resources = {},unsupported
@@ -242,7 +243,10 @@ local function read_zip(file, password, opt)
             unusable_resources=unusable_resources+1
         end
     end
-    return {body=body,is_text=ordered[1].text,css=table.concat(styles,"\n"),assets=assets,
+    local style_data={}
+    for _,style in ipairs(styles) do style_data[#style_data+1]=style.data end
+    return {body=body,is_text=ordered[1].text,css=table.concat(style_data,"\n"),assets=assets,
+        body_parts=part_sources,style_parts=styles,
         image_signatures_recognized=opt.images~=false and unusable_resources==0,unusable_resources=unusable_resources,
         coordinate_source_authoritative=false}
 end
