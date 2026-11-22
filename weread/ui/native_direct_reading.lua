@@ -36,7 +36,12 @@ local function project(model,id)
             or seen[row.chapterUid] or not text(row.title,2048) or type(row.downloadable)~='boolean'
             or row.chapterIdx~=nil and not Protocol.integer(row.chapterIdx,0,1000000) then return nil end
         seen[row.chapterUid]=true
-        rows[index]={chapterUid=row.chapterUid,title=row.title,chapterIdx=row.chapterIdx,downloadable=row.downloadable}
+        rows[index]={chapterUid=row.chapterUid,title=row.title,chapterIdx=row.chapterIdx,downloadable=row.downloadable,
+            catalog_order=index,catalog_count=#model.reading_chapters}
+    end
+    for index,row in ipairs(rows) do
+        row.catalog_prev=rows[index-1] and rows[index-1].chapterUid or nil
+        row.catalog_next=rows[index+1] and rows[index+1].chapterUid or nil
     end
     return {book_id=id,version=model.version,reading_digest=model.reading_digest,chapters=rows}
 end
@@ -60,6 +65,12 @@ function M.start(host,book,view,options)
     if not id then return false end
     local online=host.isNetworkConnected and host:isNetworkConnected() or not host.isNetworkConnected and host:isNetworkOnline()
     local offline=not online or type(options)=='table' and options.cached==true
+    local target=type(options)=='table' and options.target or nil
+    if target~=nil and (offline or type(target)~='table' or type(target.uid)~='string'
+        or Protocol.id(target.uid)~=target.uid or type(target.from_uid)~='string' or Protocol.id(target.from_uid)~=target.from_uid
+        or not hash(target.catalog_sha256) or not Protocol.integer(target.book_version,0,2147483647)
+        or not Protocol.integer(target.count,1,20000) or not Protocol.integer(target.order,1,target.count)
+        or (target.direction~=1 and target.direction~=-1)) then return false end
     local scope=host.settings:get_auth_scope()
     if not scope or not host.settings:auth_scope_matches(scope) then
         host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'))
@@ -76,7 +87,7 @@ function M.start(host,book,view,options)
     local document=host.ui and host.ui.document
     local ctx={view=view,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
-        book={book_id=id,title=title,author=author},scope=scope,offline=offline}
+        book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target}
     host._native_direct_reading=ctx
     local function view_current()
         local now=host.ui and host.ui.document
@@ -237,7 +248,19 @@ function M.start(host,book,view,options)
                 local checked=type(result)=='table' and project({book_id=result.book_id,version=result.version,
                     reading_digest=result.reading_digest,reading_chapters=result.chapters},id)
                 if not checked then fail();return end
-                ctx.catalog=checked;show_catalog(checked);return
+                ctx.catalog=checked
+                if ctx.target then
+                    local wanted=ctx.target;local chapter=checked.chapters[wanted.order]
+                    local neighbor=chapter and (wanted.direction==1 and chapter.catalog_prev or chapter.catalog_next)
+                    if checked.version~=wanted.book_version or checked.reading_digest~=wanted.catalog_sha256
+                        or #checked.chapters~=wanted.count or not chapter or chapter.chapterUid~=wanted.uid
+                        or neighbor~=wanted.from_uid then
+                        fail('The chapter list changed. Please open it again.');return
+                    end
+                    if not chapter.downloadable then fail('The adjacent E-Ink chapter is unavailable.');return end
+                    ctx.chapter=chapter;ctx.phase='chapter';launch();return
+                end
+                show_catalog(checked);return
             end
             local version=phase=='offline_open' and ctx.entry.book_version or ctx.catalog.version
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)

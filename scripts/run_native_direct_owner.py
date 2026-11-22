@@ -22,8 +22,10 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
     parser.add_argument('--ui',action='store_true',help='Exercise the native chapter selection menu')
+    parser.add_argument('--neighbor',action='store_true',help='Verify adjacent native chapters through the reader menu')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
+    if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1
             or not any(row.split()[1:3]==['/dev/shm','tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
         parser.error('Linux, KOReader and tmpfs are required')
@@ -52,12 +54,19 @@ def main(argv=None):
                               'catalog_changed','unavailable','invalid_source','invalid_image','remote_unsupported','storage'}:
                     report['reason']=reason
                 raise ValueError('native_source')
-            if code or repaint or set(result)!={'ok','path','requests','source_matches','missing_images'} or result['source_matches'] is not True \
+            fields={'ok','path','requests','source_matches','missing_images'}
+            if args.neighbor:fields|={'neighbor_path','neighbor_source_matches','neighbor_missing_images'}
+            if code or repaint or set(result)!=fields or result['source_matches'] is not True \
                     or type(result['requests']) is not int or not 5<=result['requests']<=69 \
                     or type(result['missing_images']) is not int or not 0<=result['missing_images']<=64:
                 raise ValueError('native_result')
             path=Path(result['path'])
             if not path.is_file() or profile not in path.parents:raise ValueError('native_path')
+            if args.neighbor:
+                neighbor_path=Path(result['neighbor_path'])
+                if (not neighbor_path.is_file() or profile not in neighbor_path.parents or neighbor_path==path
+                        or result['neighbor_source_matches'] is not True or type(result['neighbor_missing_images']) is not int
+                        or not 0<=result['neighbor_missing_images']<=64):raise ValueError('neighbor_path')
             offline=json.dumps(dict(path=str(path),token=payload['search_token'],uid=payload['uid'],book_id=payload['book_id'],
                                     missing_images=result['missing_images']),
                                ensure_ascii=False).encode()
@@ -72,6 +81,20 @@ def main(argv=None):
                     str(plugin),str(repo)],env,cached_input,runtime,timeout=120)
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_CACHED_UI=')!=dict(
                         ok=True,network_blocked=True,credentials_not_required=True):raise ValueError('offline_ui')
+            if args.neighbor:
+                neighbor=payload['neighbor']
+                neighbor_input=json.dumps(dict(path=str(neighbor_path),token=neighbor['search_token'],uid=neighbor['uid'],
+                    book_id=payload['book_id'],missing_images=result['neighbor_missing_images']),ensure_ascii=False).encode()
+                code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
+                    str(plugin),str(repo)],env,neighbor_input,runtime,timeout=90)
+                neighbor_expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
+                    missing_images=result['neighbor_missing_images'],warning_verified=True)
+                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=neighbor_expected:raise ValueError('neighbor_offline')
+                nav_input=json.dumps(dict(first=str(path),second=str(neighbor_path),vid=payload['credentials']['vid'])).encode()
+                code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_neighbor_offline.lua'),
+                    str(plugin),str(repo)],env,nav_input,runtime,timeout=120)
+                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE=')!=dict(
+                        ok=True,network_blocked=True,credentials_not_required=True,roundtrip=True):raise ValueError('neighbor_navigation')
             credentials=payload['credentials']
             for path in profile.rglob('*'):
                 if path.is_symlink():raise ValueError('link')
@@ -87,6 +110,8 @@ def main(argv=None):
             report.update(result='PASS',native_requests=result['requests'],source_matches=True,offline_reopen=True,
                 offline_network_guard=True,web_coordinates=False,manual_time_blocked=True,credential_file_audit=True,
                 installed_bytes_match=True,missing_images=result['missing_images'],warning_verified=True)
+            if args.neighbor:report.update(neighbor_matches=True,neighbor_offline_roundtrip=True,
+                neighbor_missing_images=result['neighbor_missing_images'])
     except (Exception,KeyboardInterrupt):pass
     finally:report['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(FRAME+json.dumps(report).encode()+b'\n')

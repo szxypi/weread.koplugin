@@ -5,6 +5,8 @@ import hashlib
 import json
 import resource
 import subprocess
+from urllib.parse import urlencode
+from native_chapter_package import password, read
 from native_chapter_remote_reference import search_token
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
@@ -19,6 +21,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
+    parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
@@ -39,6 +42,22 @@ def main(argv=None):
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']))
+            if args.neighbor:
+                rows=[row for row in sample['expected']['chapters'] if row['uid']>0]
+                index=next(i for i,row in enumerate(rows) if row['uid']==chapter['uid'])
+                if index+1>=len(rows):raise ValueError('no_neighbor')
+                neighbor=rows[index+1]
+                if not neighbor['free_or_owned'] or neighbor.get('wordCount',0)<200:raise ValueError('neighbor_unavailable')
+                uid=str(neighbor['uid'])
+                fields=dict(bookId=sample['book_id'],chapters='0,'+uid,bookType='epub',bookVersion=sample['expected']['version'],
+                    pf='wechat_wx-2001-android-100-weread',pfkey='pfKey',zoneId=1,quote='',release=1,
+                    stopAutoPayWhenBNE=1,preload=2,preview=0,offline=1)
+                second_probe=ChapterProbe()
+                second_probe.archive_url=BASE+'/book/chapterdownload?'+urlencode(fields)
+                data,envelope=second_probe.download(second_probe.archive_url,credentials)
+                second=read(data,password(envelope,credentials['vid']),uid)
+                payload['neighbor']=dict(uid=uid,source_sha256=hashlib.sha256(second['source']).hexdigest(),
+                    search_token=search_token(second['source']))
             raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(raw)>65536:raise ValueError('input_limit')
             phase='native_worker'
@@ -54,10 +73,12 @@ def main(argv=None):
                 raise ValueError('child')
             required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                       'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
+            if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
             if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                     or type(result['missing_images']) is not int or not 0<=result['missing_images']<=64
+                    or args.neighbor and (type(result['neighbor_missing_images']) is not int or not 0<=result['neighbor_missing_images']<=64)
                     or result['web_coordinates'] is not False or any(result[key] is not True for key in required-
-                        {'result','native_requests','web_coordinates','missing_images'})):
+                        {'result','native_requests','web_coordinates','missing_images','neighbor_missing_images'})):
                 raise ValueError('result')
             phase='final_shelf'
             if state_hash(probe.request('shelf',BASE+'/shelf/sync',credentials=credentials))!=baseline:raise ValueError('shelf_changed')
@@ -65,6 +86,8 @@ def main(argv=None):
                 source_matches=True,offline_reopen=True,offline_network_guard=True,web_coordinates=False,
                 manual_time_blocked=True,credential_file_audit=True,installed_bytes_match=True,
                 temporary_profile_removed=True,shelf_unchanged=True,missing_images=result['missing_images'],warning_verified=True)
+            if args.neighbor:report.update(chapters=2,neighbor_matches=True,neighbor_offline_roundtrip=True,
+                neighbor_missing_images=result['neighbor_missing_images'])
     except (Exception,KeyboardInterrupt) as error:
         report['result']='UNVERIFIED';report['phase']=phase
         if 'HTTP 401' in str(error):report['reason']='auth_expired'

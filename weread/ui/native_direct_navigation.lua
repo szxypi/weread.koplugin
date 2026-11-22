@@ -1,0 +1,169 @@
+-- Navigation for isolated native chapters. Never grant Web position authority.
+local UI=require('ui/uimanager')
+local Cache=require('weread.lib.native_direct_cache')
+local Path=require('weread.lib.native_direct_path')
+local _=require('weread.lib.plugin_util').tr
+local M={}
+
+function M.cancel(host)
+    local ctx=host._native_direct_navigation
+    if not ctx then return end
+    host._native_direct_navigation=nil
+    if host._native_direct_navigation_worker then host._native_direct_navigation_worker:cancel() end
+    if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+    ctx.busy=nil
+end
+
+function M.start(host,direction)
+    local reader=host.ui;local document=reader and reader.document
+    local path=document and document.file
+    if not Path.contains(host.settings,path) then return false end
+    local scope=host.settings:get_auth_scope()
+    if not scope or not host.settings:auth_scope_matches(scope) then
+        host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'));return true
+    end
+    M.cancel(host)
+    local ctx={reader=reader,document=document,path=path,scope=scope,session=host._reader_session_gen or 0,
+        account=host.library_db and host.library_db:accountKey()}
+    host._native_direct_navigation=ctx
+    local function current()
+        return host._native_direct_navigation==ctx and host.ui==reader and reader.document==document and document.file==path
+            and (host._reader_session_gen or 0)==ctx.session and host.settings:auth_scope_matches(scope)
+            and (not host.library_db or host.library_db:accountKey()==ctx.account)
+    end
+    local function busy(label)
+        host:showBusy(_(label),function() M.cancel(host) end);ctx.busy=host.busy_message
+    end
+    local function close_busy()
+        if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+        ctx.busy=nil
+    end
+    local function fail(message)
+        if host._native_direct_navigation~=ctx then return end
+        local live=current();M.cancel(host)
+        if live then host:showInfo(_(message)) end
+    end
+    local function details()
+        if not current() then return end
+        local id=ctx.entry.book_id
+        local book=host.settings.get_book and host.settings:get_book(id) or nil
+        if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=id then
+            book={book_id=id,title=id,author=''}
+        end
+        M.cancel(host)
+        host:showBookMenu(book)
+        return book,host._book_detail_view
+    end
+    if not host._native_direct_navigation_worker then
+        local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
+            scheduler=UI,codec=host.client,max_bytes=8*1024*1024,timeout=180} end)
+        if not ok then fail('Could not check this saved E-Ink chapter.');return true end
+        host._native_direct_navigation_worker=worker
+    end
+    local worker=host._native_direct_navigation_worker
+    local function run(task,done)
+        ctx.generation=(ctx.generation or 0)+1
+        local generation=ctx.generation
+        local called,started=pcall(worker.start,worker,task,function(value)
+            if host._native_direct_navigation~=ctx or ctx.generation~=generation then return end
+            if not current() then M.cancel(host);return end
+            done(value)
+        end)
+        if not called or not started then fail('Could not check this saved E-Ink chapter.') end
+    end
+    local function step(which)
+        if not current() then M.cancel(host);return end
+        local entry=ctx.entry
+        if not entry.catalog_sha256 then
+            fail('Chapter order is unavailable. Reopen this chapter online to update it.');return
+        end
+        local uid=which==1 and entry.catalog_next or entry.catalog_prev
+        if not uid then
+            fail(which==1 and 'You have reached the last chapter.' or 'You have reached the first chapter.');return
+        end
+        busy('Checking adjacent saved chapter...')
+        run(function()
+            local source=Cache.identify(host.settings,scope.vid,path,current)
+            if not source or source.key~=entry.key or source.copy~=entry.copy
+                or source.source_sha256~=entry.source_sha256 or source.book_version~=entry.book_version
+                or source.catalog_sha256~=entry.catalog_sha256 or source.catalog_order~=entry.catalog_order
+                or source.catalog_count~=entry.catalog_count or source.catalog_prev~=entry.catalog_prev
+                or source.catalog_next~=entry.catalog_next then return {error='changed'} end
+            local rows=Cache.list(host.settings,scope.vid,entry.book_id,current)
+            if not rows then return {error='storage'} end
+            local order=entry.catalog_order+which
+            for _,candidate in ipairs(rows) do
+                local reciprocal=which==1 and candidate.catalog_prev or candidate.catalog_next
+                if candidate.chapter_uid==uid and candidate.book_version==entry.book_version
+                    and candidate.catalog_sha256==entry.catalog_sha256 and candidate.catalog_count==entry.catalog_count
+                    and candidate.catalog_order==order and reciprocal==entry.chapter_uid then
+                    local saved=Cache.open(host.settings,scope.vid,entry.book_id,candidate,current)
+                    if saved then return {path=saved.path,book_version=saved.book_version,
+                        source_sha256=saved.source_sha256,missing_images=saved.missing_images} end
+                end
+            end
+            return {error='not_saved'}
+        end,function(value)
+            close_busy()
+            if type(value)=='table' and value.error=='not_saved' then
+                local online=host.isNetworkConnected and host:isNetworkConnected()
+                    or not host.isNetworkConnected and host:isNetworkOnline()
+                if not online then fail('The adjacent chapter is not saved. Connect to download it.');return end
+                local target={uid=uid,from_uid=entry.chapter_uid,catalog_sha256=entry.catalog_sha256,
+                    book_version=entry.book_version,count=entry.catalog_count,order=entry.catalog_order+which,direction=which}
+                local book,view=details()
+                if book and view then require('weread.ui.native_direct_reading').start(host,book,view,{target=target}) end
+                return
+            end
+            if type(value)~='table' or not Path.contains(host.settings,value.path)
+                or value.book_version~=entry.book_version or type(value.source_sha256)~='string'
+                or #value.source_sha256~=64 or not value.source_sha256:match('^[a-f0-9]+$') then
+                fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+            end
+            local destination=value.path
+            M.cancel(host)
+            host:openFile(destination)
+        end)
+    end
+    local function menu()
+        close_busy()
+        require('weread.ui.end_of_book_dialog').show({show_chapter_nav=true,show_previous_chapter=true,
+            show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=true,
+            enable_next_chapter=true,enable_book_details=true,show_sync_row=false,
+            enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function'}, {
+            on_chapter_list=function()
+                local book,view=details()
+                if book and view then require('weread.ui.native_direct_reading').start(host,book,view) end
+            end,
+            on_previous=function() step(-1) end,on_next=function() step(1) end,
+            on_book_details=function() details() end,
+            on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
+            on_search=function() if current() then M.cancel(host);host:showSearch() end end,
+            on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,
+            on_read_stats=function() if current() then M.cancel(host);host:showReadStats() end end,
+            on_reader_progress=function() if current() then require('weread.ui.reader_progress').show(host,{is_current=current}) end end,
+            on_reader_typography=function() if current() then require('weread.ui.reader_typography').show(host) end end,
+            on_reader_display=function() if current() then require('weread.ui.reader_display').show(host,{is_current=current}) end end,
+            on_delayed_screenshot=function() if current() then host:onShowWeReadDelayedScreenshot() end end,
+            on_close_book=function()
+                if not current() then return end
+                M.cancel(host);reader:onClose()
+                if path and reader.showFileManager then reader:showFileManager(path) end
+            end,
+        })
+    end
+    busy('Checking saved E-Ink chapter...')
+    run(function()
+        local entry=Cache.identify(host.settings,scope.vid,path,current)
+        return entry and {entry=entry} or {error='invalid'}
+    end,function(value)
+        if type(value)~='table' or type(value.entry)~='table'
+            or not Cache.valid_entry(value.entry,value.entry.book_id,scope.vid) then
+            fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+        end
+        ctx.entry=value.entry
+        if direction==1 or direction==-1 then close_busy();step(direction) else menu() end
+    end)
+    return true
+end
+return M

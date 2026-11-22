@@ -91,6 +91,10 @@ end
 
 function M:handleEndOfBook(status_self)
     local action = G_reader_settings and G_reader_settings:readSetting("end_document_action") or "pop-up"
+    local native_file=self.ui and self.ui.document and self.ui.document.file
+    if require('weread.lib.native_direct_path').contains(self.settings,native_file) then
+        return require('weread.ui.native_direct_navigation').start(self,action=='next_file' and 1 or nil)
+    end
     local book_id = self:detectWeReadBook()
     if not book_id then
         return self._orig_onEndOfBook(status_self)
@@ -132,6 +136,8 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
+    if direct_navigation then direct_navigation.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     local local_file=self.ui and self.ui.document and self.ui.document.file
@@ -197,6 +203,8 @@ function M:onReaderReady()
                 self:_ensureThoughtDB(weread_book_id)
             end)
         end
+    end
+    if weread_book_id or require('weread.lib.native_direct_path').contains(self.settings,local_file) then
         if not self._orig_onEndOfBook and self.ui.status and type(self.ui.status.onEndOfBook) == "function" then
             self._orig_onEndOfBook = self.ui.status.onEndOfBook
             self.ui.status.onEndOfBook = function(status_self)
@@ -284,6 +292,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
+    if direct_navigation then direct_navigation.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end

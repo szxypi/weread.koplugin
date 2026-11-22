@@ -38,7 +38,14 @@ for _,button in ipairs(detail._action_buttons) do if button.text==label then act
 assert(action and action.enabled~=false);action.callback()
 wait(function() return host.failed or host._native_direct_reading and host._native_direct_reading.menu end)
 assert(not host.failed)
-local menu=assert(host._native_direct_reading.menu);assert(#menu.item_table==1)
-menu:onMenuSelect(menu.item_table[1]);wait(function() return host.failed or host.opened end)
+local menu=assert(host._native_direct_reading.menu)
+local cache=require('weread.lib.native_direct_cache')
+local rows=assert(cache.list(settings,scope.vid,input.book_id,function() return true end))
+assert(#rows==#menu.item_table);local index
+for i,row in ipairs(rows) do
+    local file=cache.open(settings,scope.vid,input.book_id,row,function() return true end)
+    if file and file.path==input.path then assert(not index);index=i end
+end
+assert(index);menu:onMenuSelect(menu.item_table[index]);wait(function() return host.failed or host.opened end)
 assert(not host.failed and host.opened==input.path and not host._native_direct_reading)
 print('WEREAD_DIRECT_OWNER_CACHED_UI='..require('json').encode{ok=true,network_blocked=true,credentials_not_required=true})

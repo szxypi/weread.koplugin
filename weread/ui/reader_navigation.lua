@@ -11,6 +11,10 @@ local M = {}
 -- menu is a global WeRead entry point; actions that need a current WeRead book
 -- explain why they are unavailable when invoked from another document.
 function M:onShowWeReadQuickMenu()
+    local file=self.ui and self.ui.document and self.ui.document.file
+    if require('weread.lib.native_direct_path').contains(self.settings,file) then
+        return require('weread.ui.native_direct_navigation').start(self)
+    end
     return self:showEndOfBookDialog(self:detectWeReadBook())
 end
 

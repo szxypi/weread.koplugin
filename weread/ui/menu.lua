@@ -214,6 +214,12 @@ function M:getMainMenuItems()
                 self:showLocalNotesExport()
             end),
         }}
+        if require('weread.lib.native_direct_path').contains(self.settings,self.ui.document.file) then
+            local document,session=self.ui.document,self._reader_session_gen
+            table.insert(reader_items,1,{text=_('WeRead · Quick menu'),callback=self:safeCallback(_('WeRead · Quick menu'),function()
+                if self.ui.document==document and self._reader_session_gen==session then self:onShowWeReadQuickMenu() end
+            end)})
+        end
         if book_id ~= nil then
             if WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {

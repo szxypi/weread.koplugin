@@ -114,6 +114,17 @@ end end
 expect(claim~=nil,'legacy account location action was not shown')
 if claim then claim.callback() end
 expect(claimed==1,'legacy account location action did not delegate')
+local previous=0
+Dialog.show({show_chapter_nav=true,show_previous_chapter=true,show_next_chapter=true,show_sync_row=false},
+    {on_previous=function() previous=previous+1 end})
+expect(shown.buttons[1][2].id=='previous_chapter' and shown.buttons[1][3].id=='next_chapter',
+    'local native navigation did not show both adjacent actions')
+shown.buttons[1][2].callback();expect(previous==1,'previous chapter callback did not delegate')
+local sync_found=false
+for _,row in ipairs(shown.buttons) do for _,button in ipairs(row) do
+    if button.text=='Sync progress now' then sync_found=true end
+end end
+expect(not sync_found,'local native navigation exposed the cloud sync row')
 
 print(string.format(
     "end_of_book_dialog_spec: %d checks, %d failure(s)", checks, failures))

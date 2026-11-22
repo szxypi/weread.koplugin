@@ -309,6 +309,22 @@ expect(not menu_has(local_reader_items, "Sync progress now")
         and menu_has(local_reader_items, "Underlines and thoughts management"),
     "local document menu retained WeRead-only book actions")
 
+host.settings.data_dir='/data/weread'
+host.ui.document={file='/data/weread/native-reader-v1/fixture/book.epub'}
+host._reader_session_gen=7
+local direct_quick_calls=0
+host.onShowWeReadQuickMenu=function() direct_quick_calls=direct_quick_calls+1 end
+local direct_items=host:getMainMenuItems()
+local direct_quick
+for _,item in ipairs(direct_items) do if item.text=='WeRead · Quick menu' then direct_quick=item end end
+expect(direct_quick and not menu_has(direct_items,'Sync progress now'),
+    'native-only document did not expose the quick menu safely')
+if direct_quick then
+    direct_quick.callback();host._reader_session_gen=8;direct_quick.callback()
+    expect(direct_quick_calls==1,'stale native-only menu opened in a new reader session')
+end
+host.ui.document={file='/books/local.epub'}
+
 host.detectWeReadBook = function() return "book-1" end
 local weread_reader_items = host:getMainMenuItems()
 expect(menu_has(weread_reader_items, "Sync progress now")

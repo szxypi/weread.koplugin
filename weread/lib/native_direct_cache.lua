@@ -113,6 +113,17 @@ local function valid_entry(entry,book_id,account)
         and safe_text(entry.title) and NativeProtocol.integer(entry.missing_images,0,64)
         and hash(entry.text_digest) and hash(entry.source_sha256) and hash(entry.key)
         and NativeProtocol.integer(entry.copy,0,M.MAX_COPIES-1)
+        and (entry.catalog_sha256==nil and entry.catalog_order==nil and entry.catalog_count==nil
+                and entry.catalog_prev==nil and entry.catalog_next==nil
+            or hash(entry.catalog_sha256) and NativeProtocol.integer(entry.catalog_count,1,20000)
+                and NativeProtocol.integer(entry.catalog_order,1,entry.catalog_count)
+                and (entry.catalog_order==1 and entry.catalog_prev==nil
+                    or entry.catalog_order>1 and type(entry.catalog_prev)=='string'
+                        and NativeProtocol.id(entry.catalog_prev)==entry.catalog_prev and entry.catalog_prev~=entry.chapter_uid)
+                and (entry.catalog_order==entry.catalog_count and entry.catalog_next==nil
+                    or entry.catalog_order<entry.catalog_count and type(entry.catalog_next)=='string'
+                        and NativeProtocol.id(entry.catalog_next)==entry.catalog_next and entry.catalog_next~=entry.chapter_uid)
+                and (not entry.catalog_prev or not entry.catalog_next or entry.catalog_prev~=entry.catalog_next))
 end
 M.valid_entry=valid_entry
 local function read_file(lfs,path,limit)
@@ -132,8 +143,56 @@ local function read_entry(lfs,dir,key,copy,book_id,account)
     local entry={owner=owner,book_id=book,chapter_uid=uid,book_version=tonumber(version),
         chapter_idx=index~='-' and tonumber(index) or nil,title=title,missing_images=tonumber(missing),
         text_digest=text_digest,source_sha256=source,key=key,copy=copy}
-    if not valid_entry(entry,book_id,account) or entry_payload(entry)~=payload then return nil end
+    if not valid_entry(entry,book_id or entry.book_id,account) or entry_payload(entry)~=payload then return nil end
     return entry
+end
+local function ref_payload(entry)
+    return table.concat({'native-direct-catalog-v1','owner='..entry.owner,'book='..entry.book_id,
+        'chapter='..entry.chapter_uid,'content='..entry.key,'catalog='..entry.catalog_sha256,
+        'order='..tostring(entry.catalog_order),'count='..tostring(entry.catalog_count),
+        'previous='..(entry.catalog_prev or '-'),'next='..(entry.catalog_next or '-'),''},'\n')
+end
+local function read_ref(lfs,dir,entry)
+    local raw=read_file(lfs,dir..'/catalog.txt',1024)
+    if not raw then return nil end
+    local payload,digest=raw:match('^(.-)catalog_digest=([a-f0-9]+)\n$')
+    if not payload or not hash(digest) or Crypto.sha256_hex(payload)~=digest then return nil end
+    local owner,book,uid,key,catalog,order,count,previous,next_uid=payload:match('^native%-direct%-catalog%-v1\nowner=([a-f0-9]+)\nbook=([^\n]+)\nchapter=([^\n]+)\ncontent=([a-f0-9]+)\ncatalog=([a-f0-9]+)\norder=(%d+)\ncount=(%d+)\nprevious=([^\n]+)\nnext=([^\n]+)\n$')
+    if owner~=entry.owner or book~=entry.book_id or uid~=entry.chapter_uid or key~=entry.key then return nil end
+    local result={owner=owner,book_id=book,chapter_uid=uid,key=key,catalog_sha256=catalog,
+        catalog_order=tonumber(order),catalog_count=tonumber(count),catalog_prev=previous~='-' and previous or nil,
+        catalog_next=next_uid~='-' and next_uid or nil}
+    if not hash(catalog) or not NativeProtocol.integer(result.catalog_count,1,20000)
+        or not NativeProtocol.integer(result.catalog_order,1,result.catalog_count)
+        or (result.catalog_order==1)~=(result.catalog_prev==nil)
+        or (result.catalog_order==result.catalog_count)~=(result.catalog_next==nil)
+        or result.catalog_prev and (NativeProtocol.id(result.catalog_prev)~=result.catalog_prev or result.catalog_prev==uid)
+        or result.catalog_next and (NativeProtocol.id(result.catalog_next)~=result.catalog_next or result.catalog_next==uid)
+        or result.catalog_prev and result.catalog_next and result.catalog_prev==result.catalog_next
+        or ref_payload(result)~=payload then return nil end
+    return result
+end
+local function attach_ref(lfs,dir,entry)
+    local ref=read_ref(lfs,dir,entry)
+    if ref then
+        entry.catalog_sha256,entry.catalog_order,entry.catalog_count=ref.catalog_sha256,ref.catalog_order,ref.catalog_count
+        entry.catalog_prev,entry.catalog_next=ref.catalog_prev,ref.catalog_next
+    end
+    return entry
+end
+local function publish_ref(lfs,dir,entry)
+    if not entry.catalog_sha256 then return true end
+    local existing=read_ref(lfs,dir,entry)
+    if existing then return ref_payload(existing)==ref_payload(entry) end
+    if mode(lfs,dir..'/catalog.txt') or mode(lfs,dir..'/catalog.txt.part') then return false end
+    local payload=ref_payload(entry);local temp=dir..'/catalog.txt.part'
+    local file=io.open(temp,'wb');if not file then return false end
+    local ok=file:write(payload..'catalog_digest='..Crypto.sha256_hex(payload)..'\n')
+    local closed=file:close()
+    if not ok or not closed then os.remove(temp);return false end
+    if not os.rename(temp,dir..'/catalog.txt') then os.remove(temp);return false end
+    local saved=read_ref(lfs,dir,entry)
+    return saved~=nil and ref_payload(saved)==payload
 end
 local function publish_entry(lfs,dir,entry,account)
     local existing=read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)
@@ -189,7 +248,7 @@ function M.list(settings,account,book_id,current)
                     local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
                     local file=entry and mode(lfs,dir..'/'..filename(book_id,entry.chapter_uid))
                     if entry and file and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE then
-                        rows[#rows+1]=entry
+                        rows[#rows+1]=attach_ref(lfs,dir,entry)
                     end
                 end
             end
@@ -215,6 +274,10 @@ function M.open(settings,account,book_id,entry,current)
     if not attr or attr.mode~='directory' then return nil end
     local actual=read_entry(lfs,dir,entry.key,entry.copy,book_id,account)
     if not actual or entry_payload(actual)~=entry_payload(entry) then return nil end
+    if entry.catalog_sha256 then
+        local ref=read_ref(lfs,dir,actual)
+        if not ref or ref_payload(ref)~=ref_payload(entry) then return nil end
+    end
     local path=dir..'/'..filename(book_id,entry.chapter_uid)
     local receipt=read_file(lfs,dir..'/receipt.txt',256)
     local key,size,digest
@@ -225,6 +288,29 @@ function M.open(settings,account,book_id,entry,current)
         or not archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
         or current()~=true then return nil end
     return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,missing_images=entry.missing_images}
+end
+
+-- Resolve an open file back to a verified, account-bound chapter. The path is
+-- only an index: the receipt and EPUB identity are checked independently.
+function M.identify(settings,account,path,current)
+    local root=Path.root(settings)
+    if not root or type(path)~='string' or path:sub(1,#root+1)~=root..'/'
+        or type(account)~='string' or NativeProtocol.id(account)~=account then return nil end
+    local owner,book_hash,name,file=path:sub(#root+2):match('^([^/]+)/([^/]+)/([^/]+)/([^/]+)$')
+    if owner~=Crypto.sha256_hex('native-direct-account\0'..account) or not hash(book_hash) then return nil end
+    local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
+    if not key then key=name;suffix='0' end
+    local copy=tonumber(suffix)
+    if not hash(key) or not copy or tostring(copy)~=suffix or copy>=M.MAX_COPIES then return nil end
+    local lfs=fs();local dir=root..'/'..owner..'/'..book_hash..'/'..name
+    local attr=lfs and mode(lfs,dir)
+    if not attr or attr.mode~='directory' then return nil end
+    local entry=read_entry(lfs,dir,key,copy,nil,account)
+    if not entry or book_hash~=Crypto.sha256_hex('native-direct-book\0'..entry.book_id)
+        or file~=filename(entry.book_id,entry.chapter_uid) then return nil end
+    attach_ref(lfs,dir,entry)
+    local checked=M.open(settings,account,entry.book_id,entry,current)
+    return checked and entry or nil
 end
 local function content_key(account,book,chapter,prepared)
     local parts={'native-direct-content-v1',account,prepared.book_id,prepared.chapter_uid,
@@ -263,6 +349,17 @@ function M.publish(settings,account,book,chapter,prepared,current)
         or not live() or not safe_text(book.title) or not safe_text(book.author)
         or not safe_text(chapter.title) or book.book_id~=prepared.book_id or chapter.chapterUid~=prepared.chapter_uid
         or chapter.chapterIdx~=nil and not NativeProtocol.integer(chapter.chapterIdx,0,1000000)
+        or not (chapter.catalog_order==nil and chapter.catalog_count==nil
+                and chapter.catalog_prev==nil and chapter.catalog_next==nil
+            or NativeProtocol.integer(chapter.catalog_count,1,20000)
+                and NativeProtocol.integer(chapter.catalog_order,1,chapter.catalog_count)
+                and (chapter.catalog_order==1 and chapter.catalog_prev==nil
+                    or chapter.catalog_order>1 and type(chapter.catalog_prev)=='string'
+                        and NativeProtocol.id(chapter.catalog_prev)==chapter.catalog_prev and chapter.catalog_prev~=chapter.chapterUid)
+                and (chapter.catalog_order==chapter.catalog_count and chapter.catalog_next==nil
+                    or chapter.catalog_order<chapter.catalog_count and type(chapter.catalog_next)=='string'
+                        and NativeProtocol.id(chapter.catalog_next)==chapter.catalog_next and chapter.catalog_next~=chapter.chapterUid)
+                and (not chapter.catalog_prev or not chapter.catalog_next or chapter.catalog_prev~=chapter.catalog_next))
         or type(book.book_id)~='string' or NativeProtocol.id(book.book_id)~=book.book_id
         or type(chapter.chapterUid)~='string' or NativeProtocol.id(chapter.chapterUid)~=chapter.chapterUid
         or not NativeProtocol.integer(prepared.book_version,0,2147483647)
@@ -295,9 +392,14 @@ function M.publish(settings,account,book,chapter,prepared,current)
             book_id=book.book_id,chapter_uid=chapter.chapterUid,book_version=prepared.book_version,
             chapter_idx=chapter.chapterIdx,title=chapter.title,missing_images=prepared.missing_images,
             text_digest=text_digest,source_sha256=prepared.source_sha256,key=key,copy=index}
+        if chapter.catalog_order then
+            entry.catalog_sha256,entry.catalog_order,entry.catalog_count=prepared.reading_catalog_sha256,
+                chapter.catalog_order,chapter.catalog_count
+            entry.catalog_prev,entry.catalog_next=chapter.catalog_prev,chapter.catalog_next
+        end
         if not created then
             if verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
-                and publish_entry(lfs,dir,entry,account) and live() then
+                and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                     missing_images=prepared.missing_images}
             end
@@ -321,7 +423,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
                 or not archive_content(path,book,chapter,prepared)
                 or not live() or not publish_receipt(dir,key,size,digest) or not live()
                 or not verified(lfs,dir,path,book,chapter,prepared,key,text_digest)
-                or not publish_entry(lfs,dir,entry,account) or not live() then
+                or not publish_entry(lfs,dir,entry,account) or not publish_ref(lfs,dir,entry) or not live() then
                 return nil,live() and 'storage' or 'session_changed'
             end
             return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,

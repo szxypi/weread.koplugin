@@ -57,6 +57,14 @@ function M.show(opts, callbacks)
                 callback = function() dismiss_then(callbacks.on_chapter_list) end,
             },
         }
+        if opts.show_previous_chapter then
+            table.insert(nav_row, {
+                id = 'previous_chapter',
+                text = _("Previous chapter"),
+                enabled = opts.enable_previous_chapter ~= false,
+                callback = function() dismiss_then(callbacks.on_previous) end,
+            })
+        end
         if opts.show_next_chapter then
             table.insert(nav_row, {
                 id = 'next_chapter',
@@ -141,7 +149,7 @@ function M.show(opts, callbacks)
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a
     -- disabled sync button instead of a no-op/error after tapping.
-    table.insert(buttons, {
+    if opts.show_sync_row~=false then table.insert(buttons, {
         {
             text = _("Sync progress now"),
             enabled = opts.enable_sync_progress ~= false,
@@ -153,7 +161,7 @@ function M.show(opts, callbacks)
                 or _("Hide underlines, thoughts and bookmarks"),
             callback = function() dismiss_then(callbacks.on_toggle_annotations) end,
         },
-    })
+    }) end
 
     -- Final row: cancel / close book
     table.insert(buttons, {

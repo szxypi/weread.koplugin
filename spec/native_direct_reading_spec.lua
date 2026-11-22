@@ -91,4 +91,16 @@ expect(#s.jobs==3 and renewal_count==2,'chapter 401 not renewed once')
 build_error=nil;s.finish(3);expect(s.opened==1,'renewed chapter did not open')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);local old=s.jobs[1];UI.cancel(host);old.callback(old.task())
 expect(s.opened==0 and not s.items,'cancelled response changed UI')
+local target={uid='2',from_uid='1',catalog_sha256=digest,book_version=7,count=2,order=2,direction=1}
+host,s=fixture();sample.reading_chapters[2].downloadable=true
+UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)
+expect(#s.jobs==2 and not s.items,'verified adjacent download did not begin automatically')
+s.finish(2);expect(s.opened==1 and expected_chapter.chapterUid=='2','verified adjacent download did not open')
+sample.reading_chapters[2].downloadable=false
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)
+expect(#s.jobs==1 and s.message=='The adjacent E-Ink chapter is unavailable.','locked adjacent chapter was downloaded')
+host,s=fixture();local stale_target={};for key,value in pairs(target) do stale_target[key]=value end
+stale_target.catalog_sha256=string.rep('d',64)
+UI.start(host,{book_id='456'},s.view,{target=stale_target});s.finish(1)
+expect(#s.jobs==1 and s.message=='The chapter list changed. Please open it again.','changed catalog was used for adjacent download')
 print('PASS: native chapter catalog, local-only UI, session checks and renewal ('..checks..' checks)')

@@ -1,0 +1,22 @@
+{
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_checks": ["native quick menu", "previous and next", "missing chapter is not skipped", "online missing chapter download", "end of chapter action", "installed full plugin ReaderUI handoff", "local page restored after roundtrip", "offline network guard"],
+  "initial_synthetic_failures": ["test host modal hid the dialog", "test host lacked getChapters"],
+  "real_account_samples": 2,
+  "real_account_screen_sizes": ["600x800", "1264x1680"],
+  "real_account_scope": "isolated book detail and native menu host; independent offline reader",
+  "initial_real_preflight_failure": "single-download probe rejected a second download; separate bounded read-only probes used for retry",
+  "real_native_requests_per_run": 12,
+  "independent_source_matches": true,
+  "real_missing_images": [0, 0],
+  "real_offline_roundtrip": true,
+  "real_account_data_writes": 0,
+  "authentication_posts": 0,
+  "shelf_unchanged": true,
+  "credentials_written_to_test_files": false,
+  "temporary_profiles_removed": true,
+  "web_position_coordinates": false,
+  "cloud_progress_mapping_verified": false,
+  "physical_kindle_tested": false
+}
