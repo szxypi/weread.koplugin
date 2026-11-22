@@ -38,7 +38,7 @@ function M.new(input,protocol,cookie)
         local limit=timed and 3 or 2
         local target=timed and writes==2 and input.first_offset or input.next_offset
         local summary=timed and writes==2 and input.timer_summary or input.expected_summary
-        if url~=write or input.armed==false or writes>=limit or body.b~=protocol.e(input.book) or body.c~=protocol.e(input.chapter)
+        if url~=write or writes>=limit or body.b~=protocol.e(input.book) or body.c~=protocol.e(input.chapter)
             or body.ci~=input.chapter_idx or body.co~=target or body.sm~=summary
             or type(body.pr)~='number' or body.pr%1~=0 or body.pr<0 or body.pr>100
             or type(body.ct)~='number' or body.ct>os.time() or os.time()-body.ct>30 then return nil end
@@ -50,6 +50,7 @@ function M.new(input,protocol,cookie)
         if count~=(enter and 11 or 15) or not enter and body.rt~=seconds then return nil end
         local signed={};for key,value in pairs(body) do if key~='s' then signed[key]=value end end
         if body.s~=protocol.sign(protocol.sorted_query(signed)) then return nil end
+        if input.armed==false then return input.ordinary==true and 'blocked' or nil end
         return 'write'
     end
 end

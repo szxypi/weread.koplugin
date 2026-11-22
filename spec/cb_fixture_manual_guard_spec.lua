@@ -35,6 +35,11 @@ local changed={};for k,v in pairs(read) do changed[k]=v end;changed.co=46
 expect(not check(option(url,'POST',changed),1,decode))
 changed.co=45;changed.sm='different';expect(not check(option(url,'POST',changed),1,decode))
 input.armed=false;expect(not check(option(url,'POST',enter),0,decode));input.armed=true
+input.ordinary=true;input.armed=false
+expect(check(option(url,'POST',enter),0,decode)=='blocked')
+changed={};for key,value in pairs(enter) do changed[key]=value end;changed.co=46
+expect(not check(option(url,'POST',changed),0,decode))
+input.ordinary=nil;input.armed=true
 local txt=base..'/web/book/chapter/t_0';local shard={b=Protocol.e(input.book),c=Protocol.e(input.chapter),sc=1}
 expect(not check(option(txt,'POST',shard),0,decode))
 input.source_format='web_txt';local txt_check=Guard.new(input,Protocol,Cookie)

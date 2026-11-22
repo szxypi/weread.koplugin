@@ -4,7 +4,12 @@ local home=assert(os.getenv('KO_HOME'));local result={result='UNVERIFIED',phase=
 local ok,reason=pcall(function()
     local raw=io.stdin:read(8*1024*1024+1);assert(#raw<=8*1024*1024)
     local input=require('json').decode(raw)
-    assert(type(input)=='table' and type(input.book)=='string' and input.book:sub(1,3)=='CB_'
+    local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
+    local ordinary=input.ordinary==true
+    assert(input.ordinary==nil or ordinary)
+    assert(not ordinary or synthetic or input.armed==false,'ordinary fixture may not write to a real account')
+    assert(type(input)=='table' and type(input.book)=='string'
+        and (ordinary and input.book:match('^[1-9]%d*$') or not ordinary and input.book:sub(1,3)=='CB_')
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
         and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner
         and type(input.first_offset)=='number' and type(input.next_offset)=='number')
@@ -17,7 +22,7 @@ local ok,reason=pcall(function()
     assert(reconnect and not input.unicode_boundary and (discover or distance>0 and distance<=16*1024*1024)
         or not reconnect and (distance==1 and input.unicode_boundary~=true
         or distance==2 and input.source_format=='web_txt' and input.unicode_boundary==true))
-    local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
+    local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1'
     local waking=input.wake_reconnect==true;local retrying=input.wake_retry==true
     assert(not (waking and retrying) and (not waking and not retrying or reconnect and synthetic))
     local timed=input.timer==true
@@ -82,6 +87,7 @@ local ok,reason=pcall(function()
     function Client:request(options)
         if reconnect and offline and not reopening then counts[2]=counts[2]+1;error('fixture_reconnect_offline_request',0) end
         local kind=not reopening and guard(options,counts[1],function(body) return self:json_decode(body) end)
+        if kind=='blocked' then counts[2]=counts[2]+1;counts[3]=counts[3]+1;error('ordinary_reconnect_disarmed',0) end
         if not kind then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
         if kind=='write' then counts[1]=counts[1]+1
         else
@@ -250,7 +256,7 @@ local ok,reason=pcall(function()
     wait(function() return notice~=nil end)
     if input.armed==false then
         local state=assert(plugin.settings:get_book(input.book))
-        assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and not sync.verified
+        assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and (not ordinary or counts[3]==1) and not sync.verified
             and state.pending_upload_position and plugin.source_dispatch:pending(input.book),'manual dry run did not block write')
         result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1}
         if reconnect then result.offline_intent=true;result.reconnect_choice=true end

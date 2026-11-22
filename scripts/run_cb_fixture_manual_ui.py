@@ -33,6 +33,9 @@ def main():
         decoded=json.loads(payload)
         if not isinstance(decoded,dict) or not isinstance(decoded.get('cookies'),dict):raise ValueError('input')
         if decoded.get('armed') is not None and type(decoded['armed']) is not bool:raise ValueError('input')
+        if ('ordinary' in decoded and decoded['ordinary'] is not True
+                or decoded.get('ordinary') is True and decoded.get('armed') is not False
+                and os.environ.get('WEREAD_FIXTURE_SYNTHETIC')!='1'):raise ValueError('input')
         dry=decoded.get('armed') is False
         reconnect=decoded.get('reconnect') is True
         discover=decoded.get('reconnect_discover') is True

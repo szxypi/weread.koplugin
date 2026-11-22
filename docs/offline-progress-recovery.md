@@ -72,3 +72,11 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 导入书的本机位置选择还在封闭合成服务上验证了休眠中重连和唤醒后离线重试：选择前零写入，选择本机后由模拟服务独立读回。两种屏幕均通过：[休眠重连 600×800](validation-assets/2026-11-22/cb-offline-wake-mock-600.json)、[休眠重连 KO2](validation-assets/2026-11-22/cb-offline-wake-mock-ko2.json)、[离线重试 600×800](validation-assets/2026-11-22/cb-offline-wake-retry-mock-600.json)、[离线重试 KO2](validation-assets/2026-11-22/cb-offline-wake-retry-mock-ko2.json)。重试计时在模拟中加速；本轮未对真实账号执行导入书休眠后的进度写入，也未验收实体设备、真实 Wi-Fi 切换或断电。
 
 后续增加重复休眠保护：同一次休眠中的重复通知不会再次从已暂停的采集器保存位置，也不会丢弃原先的唤醒恢复意图。真实账号的普通 TXT 在 KO2 模拟尺寸完成重复休眠、断网、联网、选择云端和离线重开；原文位置及云端观察状态保持，账号数据和授权写入均为零。导入书的同一场景以合成服务及模拟写入验证。记录：[真实账号只读](validation-assets/2026-11-22/offline-repeat-suspend-owner-ko2.json)、[导入书合成测试](validation-assets/2026-11-22/offline-repeat-suspend-cb-mock-ko2.json)。
+
+## 普通书重连后的本机位置预演
+
+2026-11-22 使用真实账号的一章普通 XHTML，分别在 600×800 和 KO2 模拟尺寸离线翻页、保存、重连并选择本机位置。原生同步流程生成的首个请求在传输前被禁止发送；守卫核对了同书同章、精确原文偏移、摘要、签名及限定字段。宿主在前后独立核对网页阅读位置、原文、目录和书架投影均未变化，两次验收均为零账号数据和授权写入。原文及凭据只经过内存管道和临时内存文件系统，临时配置已清理；没有真实账号截图。
+
+同一普通书流程在两尺寸使用合成服务完成选择本机后的两次模拟请求、独立位置读回及全新离线进程重开。工具禁止对真实普通书开启写入，真实同步及写后恢复仍待后续独立验证，不能把预演视为云端同步成功；实体设备、多设备并发及实际网络变化也未验收。
+
+首次普通尺寸预演在界面结束后的书架回读被只读工具自身的请求范围拒绝，结果按未验证保留，没有数据或授权写入；修正该只读请求的阶段名并加强发送前守卫后，两尺寸重新验证通过。记录：[首次未验证](validation-assets/2026-11-22/ordinary-reconnect-owner-first-unverified.json)、[普通尺寸预演](validation-assets/2026-11-22/ordinary-reconnect-owner-preview-600.json)、[KO2 预演](validation-assets/2026-11-22/ordinary-reconnect-owner-preview-ko2.json)、[普通尺寸合成](validation-assets/2026-11-22/ordinary-reconnect-mock-600.json)、[KO2 合成](validation-assets/2026-11-22/ordinary-reconnect-mock-ko2.json)。
