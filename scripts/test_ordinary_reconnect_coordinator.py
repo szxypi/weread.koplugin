@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from ordinary_reconnect_coordinator import Coordinator
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
@@ -73,6 +74,16 @@ class CoordinatorTests(unittest.TestCase):
         gate.ack('enter', 200, {'succ': 1}); gate.verify('enter')
         with self.assertRaises(ValueError): gate.claim('position', self.wire('position'))
         self.assertEqual(self.store.read()[0]['phase'], 'enter_verified')
+
+    def test_body_expiring_during_preflight_is_never_claimed(self):
+        candidate = self.wire('enter')
+        with patch('verify_position_roundtrip.time.time', return_value=candidate['ct']) as clock:
+            def slow_before(*_):
+                clock.return_value = candidate['ct'] + 31
+                return True
+            gate = Coordinator(self.store, self.plan, self.context, self.pc, slow_before, lambda *_: True, armed=True)
+            with self.assertRaises(ValueError): gate.claim('enter', candidate)
+        self.assertEqual(self.store.read()[0]['phase'], 'prepared')
 
 
 if __name__ == '__main__': unittest.main()

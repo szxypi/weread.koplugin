@@ -22,7 +22,7 @@ from shelf_flag_change_contract import state_hash
 from readtime_upload_model import integer
 from secure_native_session import NativeSessionStore
 from secure_ordinary_reconnect_trial import PROTOCOL, validate_plan
-from secure_weread_session import SessionStore
+from secure_weread_session import COOKIE_NAMES, SessionStore
 from txt_full_summary import digest
 from verify_cb_fixture_reconnect_trial import run_ui, source_summary
 from verify_cb_txt_manual_fixture_ui_trial import manual_command
@@ -162,7 +162,7 @@ def main(argv=None):
                     reader_session=value.get('ps')==context.get('psvts'),counter=value.get('pc')==(fixed if fixed is not None else value.get('pc')),
                     fresh=type(value.get('ct')) is int and 0<=int(time.time())-value['ct']<=30,
                     signature=value.get('s')==weread_sign(sorted_query({k:v for k,v in value.items() if k!='s'})))
-                validate_body(selected,context,fixed,'enter',value);bound['valid']=True
+                validate_body(selected,context,fixed,'enter',value);bound.update(valid=True,plan=selected)
                 return True
             report['phase']='native';dry={};preview(rpc_command,payload,check_body,dry,check_context=check_context)
             if dry.get('result')!='READER_POSITION_DRY_VERIFIED' or not bound.get('valid'):raise ValueError('ordinary_rpc/dry')
@@ -188,9 +188,16 @@ def main(argv=None):
                     or not all(report['shelf_core_checks'].values()) or not all(report['shelf_stable_fields'].values())):
                 raise ValueError('ordinary_rpc/changed')
             if NativeSessionStore().load(saved['vid'])!=grant:raise ValueError('ordinary_rpc/session')
+            report['phase']='independent_host_check'
+            from ordinary_reconnect_observe import check as independent_check
+            def current():
+                cookies={cookie.name:cookie.value for cookie in web.cookies
+                         if cookie.name in COOKIE_NAMES and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
+                return store.load()==saved and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
+            independent_check(web,native,grant,bound['plan'],bound['plan']['baseline'],current)
             web.verify_account();save_refreshed_web_session(store,saved,web)
             report.update(result='ORDINARY_RPC_REAL_SOURCE_DRY_VERIFIED',phase='complete',screen_selection=web.report['selection_screen'],
-                          signed_body_bound=True,dynamic_counter_checked=scope['pclts'] is None,independent_dual_readback=True,
+                          signed_body_bound=True,dynamic_counter_checked=scope['pclts'] is None,independent_dual_readback=True,independent_host_check=True,
                           original_summary_preserved=True,source_catalog_and_stable_shelf_fields_unchanged=True,profile_removed=True)
     except Exception as error:
         report['result']='UNVERIFIED'

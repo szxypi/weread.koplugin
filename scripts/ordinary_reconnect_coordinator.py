@@ -53,6 +53,8 @@ class Coordinator:
             self.pclts = body['pc']
         if self.before(stage, deepcopy(self.plan)) is not True:
             raise ValueError('ordinary_trial/before')
+        # Independent reads may take time; do not claim an expired signature.
+        validate_body(self.plan, self.context, self.pclts, stage, body)
         if not self.armed:
             self.phase = 'blocked'
             return False
