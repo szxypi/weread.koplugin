@@ -1605,6 +1605,9 @@ function M:showBookMenu(book)
         actions[#actions+1]={text=_('Read E-Ink chapter (local only)'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
         end)}
+        actions[#actions+1]={text=_('Read saved E-Ink chapter (local only)'),callback=self:safeCallback(_('Read saved E-Ink chapter'),function()
+            if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{cached=true}) end
+        end)}
     end
     if has_cache then
         actions[#actions + 1] = {

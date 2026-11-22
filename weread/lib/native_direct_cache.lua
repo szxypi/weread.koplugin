@@ -5,7 +5,7 @@ local Identity=require('weread.lib.book_file_identity')
 local Protocol=require('weread.lib.protocol')
 local NativeProtocol=require('weread.lib.native_position_protocol')
 local Path=require('weread.lib.native_direct_path')
-local M={MAX_FILE=128*1024*1024,MAX_COPIES=100}
+local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000}
 local CHUNK=65536
 
 local function fs()
@@ -96,6 +96,136 @@ end
 local function hash(value)
     return type(value)=='string' and #value==64 and value:match('^[a-f0-9]+$')~=nil
 end
+local function entry_payload(entry)
+    return table.concat({'native-direct-entry-v1','owner='..entry.owner,'book='..entry.book_id,'chapter='..entry.chapter_uid,
+        'version='..tostring(entry.book_version),'index='..(entry.chapter_idx and tostring(entry.chapter_idx) or '-'),
+        'title='..entry.title,'missing='..tostring(entry.missing_images),'text='..entry.text_digest,
+        'source='..entry.source_sha256,''},'\n')
+end
+local function valid_entry(entry,book_id,account)
+    return type(entry)=='table' and type(entry.book_id)=='string' and entry.book_id==book_id
+        and hash(entry.owner) and (account==nil or type(account)=='string' and NativeProtocol.id(account)==account
+            and entry.owner==Crypto.sha256_hex('native-direct-account\0'..account))
+        and NativeProtocol.id(entry.book_id)==entry.book_id and type(entry.chapter_uid)=='string'
+        and NativeProtocol.id(entry.chapter_uid)==entry.chapter_uid
+        and NativeProtocol.integer(entry.book_version,0,2147483647)
+        and (entry.chapter_idx==nil or NativeProtocol.integer(entry.chapter_idx,0,1000000))
+        and safe_text(entry.title) and NativeProtocol.integer(entry.missing_images,0,64)
+        and hash(entry.text_digest) and hash(entry.source_sha256) and hash(entry.key)
+        and NativeProtocol.integer(entry.copy,0,M.MAX_COPIES-1)
+end
+M.valid_entry=valid_entry
+local function read_file(lfs,path,limit)
+    local attr=mode(lfs,path)
+    if not attr or attr.mode~='file' or attr.size<1 or attr.size>limit then return nil end
+    local file=io.open(path,'rb');if not file then return nil end
+    local raw,err=file:read(limit+1);local closed=file:close()
+    return not err and closed and raw and #raw==attr.size and raw or nil
+end
+local function read_entry(lfs,dir,key,copy,book_id,account)
+    local raw=read_file(lfs,dir..'/entry.txt',4096)
+    if not raw then return nil end
+    local payload,checksum=raw:match('^(.-)entry_digest=([a-f0-9]+)\n$')
+    if not payload or not hash(checksum) or Crypto.sha256_hex(payload)~=checksum then return nil end
+    local owner,book,uid,version,index,title,missing,text_digest,source=payload:match('^native%-direct%-entry%-v1\nowner=([a-f0-9]+)\nbook=([^\n]+)\nchapter=([^\n]+)\nversion=(%d+)\nindex=([^\n]+)\ntitle=([^\n]*)\nmissing=(%d+)\ntext=([a-f0-9]+)\nsource=([a-f0-9]+)\n$')
+    if not book or not version or not missing or index~='-' and not index:match('^%d+$') then return nil end
+    local entry={owner=owner,book_id=book,chapter_uid=uid,book_version=tonumber(version),
+        chapter_idx=index~='-' and tonumber(index) or nil,title=title,missing_images=tonumber(missing),
+        text_digest=text_digest,source_sha256=source,key=key,copy=copy}
+    if not valid_entry(entry,book_id,account) or entry_payload(entry)~=payload then return nil end
+    return entry
+end
+local function publish_entry(lfs,dir,entry,account)
+    local existing=read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)
+    if existing then
+        return existing.chapter_uid==entry.chapter_uid and existing.book_version==entry.book_version
+            and existing.text_digest==entry.text_digest and existing.source_sha256==entry.source_sha256
+            and existing.title==entry.title and existing.missing_images==entry.missing_images
+    end
+    if mode(lfs,dir..'/entry.txt') or mode(lfs,dir..'/entry.txt.part') then return false end
+    local payload=entry_payload(entry)
+    local file=io.open(dir..'/entry.txt.part','wb');if not file then return false end
+    local ok=file:write(payload..'entry_digest='..Crypto.sha256_hex(payload)..'\n')
+    local closed=file:close()
+    if not ok or not closed then os.remove(dir..'/entry.txt.part');return false end
+    if not os.rename(dir..'/entry.txt.part',dir..'/entry.txt') then os.remove(dir..'/entry.txt.part');return false end
+    return read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)~=nil
+end
+local function existing_book_dir(settings,account,book_id)
+    local lfs=fs();local root=Path.root(settings)
+    if not lfs or not root or type(account)~='string' or NativeProtocol.id(account)~=account
+        or type(book_id)~='string' or NativeProtocol.id(book_id)~=book_id then return nil end
+    local account_dir=root..'/'..Crypto.sha256_hex('native-direct-account\0'..account)
+    local book_dir=account_dir..'/'..Crypto.sha256_hex('native-direct-book\0'..book_id)
+    for _,path in ipairs({settings.data_dir,root,account_dir,book_dir}) do
+        local attr=mode(lfs,path)
+        if not attr or attr.mode~='directory' then return nil end
+    end
+    return lfs,book_dir
+end
+local function name_of(entry)
+    return entry.key..(entry.copy==0 and '' or '-'..tostring(entry.copy))
+end
+local function filename(book_id,uid)
+    return 'wr-chapter-'..Crypto.sha256_hex(book_id..'\0'..uid)..'.epub'
+end
+
+-- List bounded metadata only; a selected file is fully checked by open().
+-- Missing/corrupt sidecars and old pre-index files are left untouched.
+function M.list(settings,account,book_id,current)
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return {} end
+    local ok,result=pcall(function()
+        local rows,count={},0
+        for name in lfs.dir(book_dir) do
+            if name~='.' and name~='..' then
+                count=count+1;if count>M.MAX_ENTRIES then return nil end
+                if type(current)~='function' or current()~=true then return nil end
+                local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
+                if not key then key=name;suffix='0' end
+                local copy=tonumber(suffix)
+                if hash(key) and copy and tostring(copy)==suffix and copy<M.MAX_COPIES then
+                    local dir=book_dir..'/'..name;local attr=mode(lfs,dir)
+                    local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
+                    local file=entry and mode(lfs,dir..'/'..filename(book_id,entry.chapter_uid))
+                    if entry and file and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE then
+                        rows[#rows+1]=entry
+                    end
+                end
+            end
+        end
+        table.sort(rows,function(a,b)
+            if a.chapter_idx~=b.chapter_idx then return (a.chapter_idx or 1000001)<(b.chapter_idx or 1000001) end
+            if a.title~=b.title then return a.title<b.title end
+            if a.chapter_uid~=b.chapter_uid then return a.chapter_uid<b.chapter_uid end
+            if a.book_version~=b.book_version then return a.book_version>b.book_version end
+            if a.key~=b.key then return a.key<b.key end
+            return a.copy<b.copy
+        end)
+        return rows
+    end)
+    return ok and result or nil
+end
+
+function M.open(settings,account,book_id,entry,current)
+    if not valid_entry(entry,book_id,account) or type(current)~='function' or current()~=true then return nil end
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return nil end
+    local dir=book_dir..'/'..name_of(entry);local attr=mode(lfs,dir)
+    if not attr or attr.mode~='directory' then return nil end
+    local actual=read_entry(lfs,dir,entry.key,entry.copy,book_id,account)
+    if not actual or entry_payload(actual)~=entry_payload(entry) then return nil end
+    local path=dir..'/'..filename(book_id,entry.chapter_uid)
+    local receipt=read_file(lfs,dir..'/receipt.txt',256)
+    local key,size,digest
+    if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
+    if key~=entry.key or not size or not hash(digest) then return nil end
+    local actual_size,actual_digest=digest_file(lfs,path)
+    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest
+        or not archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
+        or current()~=true then return nil end
+    return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,missing_images=entry.missing_images}
+end
 local function content_key(account,book,chapter,prepared)
     local parts={'native-direct-content-v1',account,prepared.book_id,prepared.chapter_uid,
         tostring(prepared.book_version),prepared.catalog_sha256,prepared.reading_catalog_sha256,
@@ -132,6 +262,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
         or type(book)~='table' or type(chapter)~='table' or type(prepared)~='table'
         or not live() or not safe_text(book.title) or not safe_text(book.author)
         or not safe_text(chapter.title) or book.book_id~=prepared.book_id or chapter.chapterUid~=prepared.chapter_uid
+        or chapter.chapterIdx~=nil and not NativeProtocol.integer(chapter.chapterIdx,0,1000000)
         or type(book.book_id)~='string' or NativeProtocol.id(book.book_id)~=book.book_id
         or type(chapter.chapterUid)~='string' or NativeProtocol.id(chapter.chapterUid)~=chapter.chapterUid
         or not NativeProtocol.integer(prepared.book_version,0,2147483647)
@@ -151,7 +282,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
     local account_dir=root and directory(lfs,root,Crypto.sha256_hex('native-direct-account\0'..account))
     local book_dir=account_dir and directory(lfs,account_dir,Crypto.sha256_hex('native-direct-book\0'..book.book_id))
     if not book_dir then return nil,'storage' end
-    local filename='wr-chapter-'..Crypto.sha256_hex(book.book_id..'\0'..chapter.chapterUid)..'.epub'
+    local chapter_file=filename(book.book_id,chapter.chapterUid)
     local text_digest=Crypto.sha256_hex(prepared.xhtml)
     for index=0,M.MAX_COPIES-1 do
         if not live() then return nil,'session_changed' end
@@ -159,9 +290,14 @@ function M.publish(settings,account,book,chapter,prepared,current)
         local created=lfs.mkdir(dir)
         local attr=mode(lfs,dir)
         if not attr or attr.mode~='directory' then return nil,'storage' end
-        local path=dir..'/'..filename
+        local path=dir..'/'..chapter_file
+        local entry={owner=Crypto.sha256_hex('native-direct-account\0'..account),
+            book_id=book.book_id,chapter_uid=chapter.chapterUid,book_version=prepared.book_version,
+            chapter_idx=chapter.chapterIdx,title=chapter.title,missing_images=prepared.missing_images,
+            text_digest=text_digest,source_sha256=prepared.source_sha256,key=key,copy=index}
         if not created then
-            if verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live() then
+            if verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
+                and publish_entry(lfs,dir,entry,account) and live() then
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                     missing_images=prepared.missing_images}
             end
@@ -184,7 +320,8 @@ function M.publish(settings,account,book,chapter,prepared,current)
             if not size or not archive_identity(path,book.book_id,chapter.chapterUid,prepared.book_version,text_digest)
                 or not archive_content(path,book,chapter,prepared)
                 or not live() or not publish_receipt(dir,key,size,digest) or not live()
-                or not verified(lfs,dir,path,book,chapter,prepared,key,text_digest) then
+                or not verified(lfs,dir,path,book,chapter,prepared,key,text_digest)
+                or not publish_entry(lfs,dir,entry,account) or not live() then
                 return nil,live() and 'storage' or 'session_changed'
             end
             return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,

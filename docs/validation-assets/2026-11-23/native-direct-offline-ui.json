@@ -1,0 +1,22 @@
+{
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "scope": "isolated book detail host, native selection menu and offline worker",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_checks": ["offline selection from both entries", "no native credentials", "copied cache rejected for another account", "account switch", "damaged metadata", "damaged receipt", "damaged EPUB preserved", "multiple copies", "old file reused when indexing online"],
+  "real_account_samples": [
+    {"chapters": 1, "screen_sizes": ["1264x1680"], "missing_images": 0},
+    {"chapters": 1, "screen_sizes": ["600x800", "1264x1680"], "missing_images": 2}
+  ],
+  "real_offline_ui_in_new_process": true,
+  "offline_network_guard": true,
+  "offline_credentials_required": false,
+  "independent_source_match": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "shelf_unchanged": true,
+  "temporary_profiles_removed": true,
+  "full_plugin_reader_handoff_tested": false,
+  "offline_cross_chapter_navigation": false,
+  "cloud_progress_mapping_verified": false,
+  "physical_kindle_tested": false
+}

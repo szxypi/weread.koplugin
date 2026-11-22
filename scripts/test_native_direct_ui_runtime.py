@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Real KOReader catalog menu and worker against a synthetic native service."""
 import argparse
+import hashlib
 from http.server import ThreadingHTTPServer
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -36,6 +38,50 @@ def run(runtime):
                 result=json.loads(lines[0][len(marker):]);path=Path(result['path'])
                 assert result['ok'] and path.is_file() and root in str(path)
                 assert len(server.paths)==6 and not server.leaked and server.catalog_valid and server.download_valid
+                entry=path.parent/'entry.txt'
+                inode=path.stat().st_ino
+                entry.unlink()
+                retry=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_ui_probe.lua'),str(REPO)],
+                    input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
+                if retry.returncode:raise AssertionError(retry.stdout[-5000:]+retry.stderr[-5000:])
+                frames=[line for line in retry.stdout.splitlines() if line.startswith('WEREAD_DIRECT_UI=')]
+                assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])['path']==str(path)
+                assert path.stat().st_ino==inode and entry.is_file()
+                for scenario in ('normal','cached','other','switch','bad-entry','bad-receipt','damage'):
+                    other_account=None
+                    if scenario=='other':
+                        account_dir=path.parents[2]
+                        other_account=account_dir.parent/hashlib.sha256(b'native-direct-account\0' + b'87654321').hexdigest()
+                        shutil.copytree(account_dir,other_account)
+                    target=entry if scenario=='bad-entry' else path.parent/'receipt.txt' if scenario=='bad-receipt' else None
+                    original=target.read_bytes() if target else None
+                    if target:target.write_bytes(original+b'corrupt')
+                    cached=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cached_ui_probe.lua'),
+                        str(REPO),scenario,str(path)],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
+                    if cached.returncode:raise AssertionError(cached.stdout[-5000:]+cached.stderr[-5000:])
+                    marker='WEREAD_DIRECT_CACHED_UI='
+                    frames=[line for line in cached.stdout.splitlines() if line.startswith(marker)]
+                    assert len(frames)==1 and json.loads(frames[0][len(marker):])==dict(ok=True,case=scenario,network_blocked=True)
+                    if target:
+                        assert target.read_bytes()==original+b'corrupt'
+                        target.write_bytes(original)
+                    if other_account:shutil.rmtree(other_account)
+                damaged_size=path.stat().st_size
+                retry=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_ui_probe.lua'),str(REPO)],
+                    input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
+                if retry.returncode:raise AssertionError(retry.stdout[-5000:]+retry.stderr[-5000:])
+                frames=[line for line in retry.stdout.splitlines() if line.startswith('WEREAD_DIRECT_UI=')]
+                assert len(frames)==1
+                new_path=Path(json.loads(frames[0].split('=',1)[1])['path'])
+                assert new_path!=path and new_path.is_file() and path.stat().st_size==damaged_size
+                cached=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cached_ui_probe.lua'),
+                    str(REPO),'copies',str(new_path)],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
+                if cached.returncode:raise AssertionError(cached.stdout[-5000:]+cached.stderr[-5000:])
+                frames=[line for line in cached.stdout.splitlines() if line.startswith('WEREAD_DIRECT_CACHED_UI=')]
+                assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(ok=True,case='copies',network_blocked=True)
+                # Restore the deliberately corrupted synthetic file for rendering.
+                with path.open('r+b') as file:
+                    file.truncate(path.stat().st_size-len(b'corrupt'))
                 offline=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_offline_probe.lua'),
                     str(REPO),str(path),'1' if missing else '0'],text=True,env=env,cwd=runtime,capture_output=True,timeout=90)
                 if offline.returncode:raise AssertionError(offline.stdout+offline.stderr)

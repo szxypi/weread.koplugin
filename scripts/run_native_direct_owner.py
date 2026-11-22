@@ -66,6 +66,12 @@ def main(argv=None):
             expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
                           missing_images=result['missing_images'],warning_verified=True)
             if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=expected:raise ValueError('offline')
+            if args.ui:
+                cached_input=json.dumps(dict(path=str(path),book_id=payload['book_id'],vid=payload['credentials']['vid'])).encode()
+                code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_cached_ui_probe.lua'),
+                    str(plugin),str(repo)],env,cached_input,runtime,timeout=120)
+                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_CACHED_UI=')!=dict(
+                        ok=True,network_blocked=True,credentials_not_required=True):raise ValueError('offline_ui')
             credentials=payload['credentials']
             for path in profile.rglob('*'):
                 if path.is_symlink():raise ValueError('link')
