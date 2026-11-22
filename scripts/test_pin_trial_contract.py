@@ -47,6 +47,14 @@ class ContractTests(unittest.TestCase):
         f=Fixture(False);result=f.run()
         self.assertEqual(result['result'],'RESTORED_PIN_UNOBSERVABLE')
         self.assertEqual(result['observable_channels'],[])
+    def test_visible_but_unchanged_pin_is_not_called_unobservable(self):
+        f=Fixture();write=f.write
+        def no_pin_effect(operation):
+            result=write(operation)
+            if operation=='pin':f.pinned=False
+            return result
+        f.write=no_pin_effect
+        self.assertEqual(f.run()['result'],'RESTORED_PIN_NOT_CONFIRMED')
     def test_timeout_and_ambiguous_receipt_never_retry(self):
         for failure in ('timeout','receipt'):
             f=Fixture();f.bad=failure

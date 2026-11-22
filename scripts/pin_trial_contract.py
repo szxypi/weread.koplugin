@@ -71,7 +71,9 @@ def run(plans,progress_sha256,skill_sha256,store,current,read,write):
         _,raw=store.advance(raw,done)
     visible=[name for name in CHANNELS if observations['pin'][name]=={'value':True}
              and observations['unpin'][name]=={'value':False}]
-    return dict(result='PIN_OBSERVED_RESTORED' if visible else 'RESTORED_PIN_UNOBSERVABLE',
+    any_visible=any('value' in flag for stage in ('pin','unpin') for flag in observations[stage].values())
+    result='PIN_OBSERVED_RESTORED' if visible else 'RESTORED_PIN_NOT_CONFIRMED' if any_visible else 'RESTORED_PIN_UNOBSERVABLE'
+    return dict(result=result,
         writes_attempted=attempts,pin_states=observations,observable_channels=visible,
         original_members_flags_groups_and_progress_verified=True,intent_state='restored',no_automatic_replay=True)
 
