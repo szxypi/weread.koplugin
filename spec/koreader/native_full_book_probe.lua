@@ -37,6 +37,14 @@ local cache_dir=settings.cache_dir..'/'..Content.book_dir_name(book_id);assert(l
 local old_path=Content.book_epub_path(settings,book,'full')
 local old=assert(io.open(old_path,'wb'));assert(old:write('previous full book'));assert(old:close())
 book.cached_full_book=old_path
+local orphan_name
+if not owner then
+    local orphan='\137PNG\r\n\26\nstale unrelated native image'
+    orphan_name='eink-'..require('weread.lib.crypto').sha256_hex(orphan)..'.png'
+    local workspace=Content.open_full_download_workspace(settings,book)
+    local file=assert(io.open(workspace.asset_dir..'/'..orphan_name,'wb'))
+    assert(file:write(orphan));assert(file:close())
+end
 local function body(uid)
     if owner then
         for _,chapter in ipairs(chapters) do if chapter.chapterUid==uid then return chapter.source end end
@@ -120,7 +128,9 @@ if input.resume or input.expired then
     end
     local image_path
     for name in lfs.dir(workspace.asset_dir) do
-        if name:match('^eink%-%x+%.png$') then assert(not image_path);image_path=workspace.asset_dir..'/'..name end
+        if name~=orphan_name and name:match('^eink%-%x+%.png$') then
+            assert(not image_path);image_path=workspace.asset_dir..'/'..name
+        end
     end
     local part=assert(io.open(assert(image_path)..'.part','wb'));assert(part:write('\137PNG\r\n\26\nstale'));assert(part:close())
     if input.corrupt then
@@ -149,6 +159,11 @@ require('socket.http').request=function() error('offline network request forbidd
 local doc=assert(require('document/documentregistry'):openDocument(result))
 assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()
 local opf=assert(doc:getDocumentFileContent('OEBPS/content.opf'))
+if orphan_name then
+    assert(not opf:find(orphan_name,1,true), 'orphan native image was listed')
+    local orphan=doc:getDocumentFileContent('OEBPS/images/'..orphan_name)
+    assert(not orphan or orphan=='', 'orphan native image was packaged')
+end
 if owner then
     local styles,images={},0
     for _,chapter in ipairs(chapters) do

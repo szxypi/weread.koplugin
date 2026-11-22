@@ -1429,7 +1429,7 @@ function Downloader:_step(dl)
                         dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
                             __source_workspace = dl.workspace } or dl.bodies,
                         dl.suffix,
-                        dl.resumable and Content.full_download_workspace_assets(dl.workspace) or dl.assets,
+                        dl.resumable and Content.full_download_workspace_assets(dl.workspace,dl.chapters,dl.state.css) or dl.assets,
                         dl.state.css, cover_data, dl.source_identity,
                         { workspace = dl.workspace, receipts = dl.position_sources or {} }, nil,
                         (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil

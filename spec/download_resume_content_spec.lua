@@ -302,13 +302,37 @@ local function read_all(path)
 end
 local rendered_first=read_all(Content.full_download_rendered_chapter_path(workspace,chapters[1],1))
 local rendered_second=read_all(Content.full_download_rendered_chapter_path(workspace,chapters[2],2))
+local orphan_bytes='\137PNG\r\n\26\norphaned native image'
+local orphan_name='eink-'..Crypto.sha256_hex(orphan_bytes)..'.png'
+write(workspace.asset_dir..'/'..orphan_name,orphan_bytes)
+local web_bytes='\137PNG\r\n\26\nweb image with a native-looking name'
+local web_name='eink-'..Crypto.sha256_hex(web_bytes)..'.png'
+write(workspace.asset_dir..'/'..web_name,web_bytes)
+Content.save_full_download_rendered_chapter(workspace,chapters[2],2,'<img src="../images/'..web_name..'"/>')
+local short_rendered=read_all(Content.full_download_rendered_chapter_path(workspace,chapters[2],2))
+local image_offset=assert(short_rendered:find(web_name,1,true))
+Content.save_full_download_rendered_chapter(workspace,chapters[2],2,
+    string.rep('x',65506-image_offset)..'<img src="../images/'..web_name..'"/>')
+local selected=Content.full_download_workspace_assets(workspace,chapters,'')
+local selected_names={}
+for _,asset in ipairs(selected) do selected_names[asset.href]=true end
+expect(selected_names['images/'..image_name] and selected_names['images/'..web_name]
+    and not selected_names['images/'..orphan_name],
+    'packaging lost a referenced image or retained an orphan native image')
+Content.save_full_download_rendered_chapter(workspace,chapters[2],2,'<p>second rendered</p>')
+selected_names={}
+for _,asset in ipairs(Content.full_download_workspace_assets(workspace,chapters,'body{background:url(images/'..web_name..')}')) do
+    selected_names[asset.href]=true
+end
+expect(selected_names['images/'..web_name] and not selected_names['images/'..orphan_name],
+    'common stylesheet image was not retained or orphan image was included')
 expect(rendered_first:find('../eink-style-'..first_hash..'.css',1,true)
     and rendered_second:find('../eink-style-'..second_hash..'.css',1,true),
     'footnote rendering lost chapter-specific styles')
 archive_calls={}
 local full_path=Content.save_book_epub(settings,book,chapters,
     {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',
-    Content.full_download_workspace_assets(workspace),nil,nil,source_identity)
+    Content.full_download_workspace_assets(workspace,chapters,''),nil,nil,source_identity)
 local first_style=assert(last_entry('OEBPS/eink-style-'..first_hash..'.css'))
 local second_style=assert(last_entry('OEBPS/eink-style-'..second_hash..'.css'))
 local opf=assert(last_entry('OEBPS/content.opf')).data
@@ -316,7 +340,34 @@ expect(first_style.path==workspace.style_dir..'/eink-'..first_hash..'.css'
     and second_style.path==workspace.style_dir..'/eink-'..second_hash..'.css'
     and opf:find('eink-style-'..first_hash..'.css',1,true) and opf:find('eink-style-'..second_hash..'.css',1,true),
     'EPUB failed to include chapter-specific styles in the manifest')
+expect(not opf:find(orphan_name,1,true) and not last_entry('OEBPS/images/'..orphan_name),
+    'orphan image was included in the EPUB')
+local packaged_images=assert(last_entry('OEBPS/images')).path
+expect(packaged_images==workspace.path..'/package-images'
+    and read_all(packaged_images..'/'..image_name)==image_bytes
+    and not io.open(packaged_images..'/'..orphan_name,'rb'),
+    'the archive still streamed the unfiltered image directory')
 write(full_path,'prior-full-book')
+assert(os.execute('rm -rf '..string.format('%q',packaged_images)))
+write(packaged_images,'conflicting file')
+expect(not pcall(Content.full_download_workspace_assets,workspace,chapters,'')
+    and read_all(full_path)=='prior-full-book',
+    'a conflicting package staging path replaced the previous book')
+assert(os.remove(packaged_images))
+-- The plain-Lua test has no hard-link function, exercising the copy fallback.
+-- luacheck: push ignore 122
+io.open=function(path,mode)
+    local opened,err=original_open(path,mode)
+    if opened and mode=='wb' and path:sub(1,#packaged_images+1)==packaged_images..'/' then
+        return {write=function() return nil,'disk full' end,close=function() return opened:close() end}
+    end
+    return opened,err
+end
+local stage_ok=pcall(Content.full_download_workspace_assets,workspace,chapters,'')
+io.open=original_open
+-- luacheck: pop
+expect(not stage_ok and read_all(full_path)=='prior-full-book',
+    'failed image staging replaced the previous book')
 expect(not pcall(Content.save_book_epub,settings,book,chapters,
     {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',{},nil,nil,source_identity)
     and read_all(full_path)=='prior-full-book','EPUB omitted a required native image')

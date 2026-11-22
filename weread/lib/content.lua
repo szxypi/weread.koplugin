@@ -258,7 +258,8 @@ local function remove_tree(path)
     if type(path) ~= "string"
         or (not path:match("/%.weread%-download%-%d+%-%d+$")
             and not path:match("/%.weread%-download%-resume%-full$")
-            and not path:match("/%.weread%-download%-resume%-full/rendered%-text$")) then
+            and not path:match("/%.weread%-download%-resume%-full/rendered%-text$")
+            and not path:match("/%.weread%-download%-resume%-full/package%-images$")) then
         return nil, "refusing to remove an invalid download workspace"
     end
     local ok, ffiutil = pcall(require, "ffi/util")
@@ -742,19 +743,56 @@ function Content.full_download_completed_chapters(workspace, chapters, expected_
     return completed
 end
 
-function Content.full_download_workspace_assets(workspace)
+function Content.full_download_workspace_assets(workspace, chapters, css)
     local assets = {}
     if not workspace or not workspace.asset_dir then return assets end
+    local referenced
+    if chapters then
+        referenced = {}
+        -- Web image names can happen to look like native content-addressed
+        -- names. Keep those when the rendered text or common CSS references
+        -- them; native CSS assets are additionally bound by each receipt.
+        local function collect_names(value)
+            for name in (value or ''):gmatch('eink%-[0-9a-f]+%.[a-z]+') do
+                if native_asset_name(name) then referenced[name]=true end
+            end
+        end
+        collect_names(css)
+        for index,chapter in ipairs(chapters) do
+            local file=io.open(Content.full_download_rendered_chapter_path(workspace,chapter,index),'rb')
+            if not file then position_error(false) end
+            local tail=''
+            while true do
+                local chunk,read_error=file:read(65536)
+                if read_error then file:close();position_error(false) end
+                if not chunk then break end
+                local text=tail..chunk
+                collect_names(text)
+                tail=text:sub(-80)
+            end
+            if not file:close() then position_error(false) end
+            local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
+            if not checkpoint[1] then position_error(false) end
+            if checkpoint[7] then
+                local names=full_asset_receipt_names(workspace,checkpoint[8])
+                if not names then position_error(false) end
+                for _,name in ipairs(names) do referenced[name]=true end
+            end
+        end
+    end
     local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
     if not ok_lfs or not lfs
         or lfs.attributes(workspace.asset_dir, "mode") ~= "directory" then
         return assets
     end
+    local excluded=false
     for name in lfs.dir(workspace.asset_dir) do
         if name ~= "." and name ~= ".." then
             local path = workspace.asset_dir .. "/" .. name
-            if lfs.attributes(path, "mode") == "file" then
+            if referenced and native_asset_name(name) and not referenced[name] then
+                excluded=true
+            elseif lfs.attributes(path, "mode") == "file" then
                 local _, media_type = media_type_for_file(path)
                 if media_type and media_type:match("^image/") then
                     table.insert(assets, {
@@ -767,6 +805,42 @@ function Content.full_download_workspace_assets(workspace)
         end
     end
     table.sort(assets, function(a, b) return a.href < b.href end)
+    if excluded and #assets>0 then
+        -- The archive writer walks a whole directory. Stage only the selected
+        -- images; links avoid copying large books on filesystems that allow it.
+        local stage=workspace.path..'/package-images'
+        local mode=lfs.symlinkattributes and lfs.symlinkattributes(stage,'mode') or lfs.attributes(stage,'mode')
+        if mode then
+            if mode~='directory' then error('invalid package image directory',0) end
+            local removed,err=remove_tree(stage)
+            if not removed then error(err or 'could not reset package image directory',0) end
+        end
+        make_path(stage)
+        for _,asset in ipairs(assets) do
+            local name=basename(asset.href)
+            local target=stage..'/'..name
+            if lfs.symlinkattributes and lfs.symlinkattributes(asset.path,'mode')~='file' then
+                error('invalid package image',0)
+            end
+            local linked=type(lfs.link)=='function' and lfs.link(asset.path,target)
+            if not linked then
+                local source=assert(io.open(asset.path,'rb'))
+                local output=io.open(target,'wb')
+                if not output then source:close();error('could not stage package image',0) end
+                local ok=true
+                while ok do
+                    local chunk,read_error=source:read(65536)
+                    if read_error then ok=false;break end
+                    if not chunk then break end
+                    ok=output:write(chunk)~=nil
+                end
+                local source_closed=source:close()
+                local output_closed=output:close()
+                if not ok or not source_closed or not output_closed then error('could not stage package image',0) end
+            end
+        end
+        assets.__archive_dir=stage
+    end
     return assets
 end
 
@@ -974,7 +1048,7 @@ local function append_asset_entries(entries, assets)
         -- into the EPUB with one reader lifecycle.
         table.insert(entries, {
             name = "OEBPS/images",
-            path = disk_dir,
+            path = assets.__archive_dir or disk_dir,
             recursive = true,
         })
     end
