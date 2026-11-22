@@ -13,3 +13,8 @@ class NativeDirectUITrialStore(NativeTxtRoundtripStore):
 class NativeDirectIntervalTrialStore(NativeDirectUITrialStore):
     """Independent one-shot recovery intent for the timed reader trial."""
     service='org.codex.weread.goal-native-direct-interval-position-v1'
+
+
+class NativeDirectCloseTrialStore(NativeDirectUITrialStore):
+    """Independent one-shot recovery intent for the detached close trial."""
+    service='org.codex.weread.goal-native-direct-close-position-v1'

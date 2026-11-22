@@ -20,7 +20,7 @@ local scope={vid=input.credentials.vid,epoch=1}
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,get=function(_,key,default)
     if key=='cookies' then return input.web_cookies end
     if key=='account' then return {user_vid=scope.vid} end
-    if key=='sync' and trial.timed then return {upload_interval_minutes=1} end
+    if key=='sync' and (trial.timed or trial.closed) then return {upload_interval_minutes=1,upload_on_close=trial.closed==true} end
     return default
 end,get_book=function() return nil end,get_auth_scope=function() return scope end,
     auth_scope_matches=function(_,value) return value==scope end}
@@ -118,6 +118,7 @@ client.request=function(self,options)
     return request(self,options)
 end
 local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
+if trial.closed then UI:show(require('ui/widget/widget'):new{}) end
 local function wait(predicate)
     local deadline=socket.gettime()+150
     while not predicate() do assert(socket.gettime()<deadline,'direct_ui_trial/timeout');UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
@@ -141,11 +142,12 @@ local preview
 host._native_direct_position_worker={cancel=function() worker:cancel() end,start=function(_,task,callback)
     local ctx=assert(host._native_direct_position);anchor={text=ctx.input.text,point_offset=ctx.input.point_offset}
     return worker:start(task,function(value)
-        if trial.timed and value.preview and not ctx.automatic then preview=value.preview end
+        if (trial.timed or trial.closed) and value.preview and not ctx.automatic then preview=value.preview end
         callback(value)
     end)
 end}
 local Service=require('weread.lib.native_position_service');local start=Service.start
+local trial_finished=false
 Service.start=function(self,value,guard,callback)
     assert(sequence==1 and Contract.valid(value) and anchor)
     service,metadata=self,value;self.task_options.zone=trial.time_zone
@@ -153,12 +155,13 @@ Service.start=function(self,value,guard,callback)
     return start(self,value,guard,function(result,token)
         _G._direct_trial_outcome=result.kind;_G._direct_trial_readbacks=result.readbacks
         callback(result,token)
+        trial_finished=true
     end)
 end
 assert(require('weread.ui.native_direct_position').start(host,entry,{upload=true}))
 wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
 assert(host._native_direct_position and host._native_direct_position.confirm,'direct_ui_trial/confirmation')
-if trial.timed then
+if trial.timed or trial.closed then
     local ctx=host._native_direct_position;local p=assert(preview)
     local initial={book_id=entry.book_id,before=p.before,desired=p.desired,counts=p.counts,version=p.version,
         shelf_sha256=p.shelf_sha256,source_sha256=p.source_sha256,file_id=p.file_id,basis=p.basis}
@@ -170,32 +173,61 @@ if trial.timed then
     local timer=assert(host._native_direct_interval)
     assert(reader.rolling and doc:getPageCount()>input.start_page)
     reader.rolling:onGotoPage(input.start_page+1);UI:forceRePaint();timer:changed()
-    assert(timer.task and timer.due)
-    if not trial.natural then
-        local due=timer.due;timer.now=function() return due end
-        local fire=timer.task;UI:unschedule(fire);fire()
+    if trial.closed then
+        local Context=require('weread.lib.source_context');local original_capture=Context.capture
+        Context.capture=function(...)
+            local value=original_capture(...)
+            if value and not value.error then anchor={text=value.text,point_offset=value.point_offset} end
+            return value
+        end
+        local closed=false
+        for _,name in ipairs({'getCurrentPage','getCurrentPos','getXPointer','getPageXPointer','getNormalizedXPointer',
+            'getDocumentFileContent','getNextVisibleChar','getPrevVisibleChar','getTextFromXPointers'}) do
+            local original=doc[name]
+            if original then doc[name]=function(self,...)
+                assert(not closed,'direct_ui_trial/closed_document');return original(self,...)
+            end end
+        end
+        local Close=require('weread.lib.native_direct_close');local token=assert(Close.freeze(host))
+        Context.capture=original_capture;timer:stop();reader:onClose(false);closed=true
+        assert(Close.start(host,token));wait(function() return trial_finished or host.transient_message~=nil end)
+        assert(trial_finished,'direct_ui_trial/close_incomplete')
+        if trial.armed then assert(not host.transient_message) else assert(host.transient_message) end
+    else
+        assert(timer.task and timer.due)
+        if not trial.natural then
+            local due=timer.due;timer.now=function() return due end
+            local fire=timer.task;UI:unschedule(fire);fire()
+        end
+        wait(function() return not timer.task and not timer.attempt end)
+        if trial.armed then assert(host._native_direct_interval==timer and not timer.dirty)
+        else assert(not host._native_direct_interval and host.transient_message) end
     end
-    wait(function() return not timer.task and not timer.attempt end)
-    if trial.armed then assert(host._native_direct_interval==timer and not timer.dirty)
-    else assert(not host._native_direct_interval and host.transient_message) end
 else
     host._native_direct_position.confirm.ok_callback()
     wait(function() return host.checked_message~=nil end)
 end
 local tr=require('weread.lib.plugin_util').tr
 if not trial.armed then
-    if not trial.timed then assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.')) end
+    if not trial.timed and not trial.closed then assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.')) end
     local pending=assert(service:pending());assert(pending.phase=='pending')
     print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=0,posts=0,blocked=true})
     return
 end
-if not trial.timed then assert(host.checked_message==tr('Cloud reading position synced and checked.'),'direct_ui_trial/not_confirmed') end
+if not trial.timed and not trial.closed then assert(host.checked_message==tr('Cloud reading position synced and checked.'),'direct_ui_trial/not_confirmed') end
 assert(not service:pending(),'direct_ui_trial/not_retired')
 rpc('verified',1);sequence=2
 local Context=require('weread.lib.source_context');local Identity=require('weread.lib.book_file_identity')
 local Currentness=require('weread.lib.source_currentness');local native=assert(Access.capture(settings));local web=assert(Currentness.capture(settings))
-local location=assert(Context.location(doc,reader.view and reader.view.view_mode or 'page'))
+local location=not trial.closed and assert(Context.location(doc,reader.view and reader.view.view_mode or 'page')) or nil
+local lfs=require('libs/libkoreader-lfs');local stat=trial.closed and assert(lfs.attributes(input.path)) or nil
 local function guard()
+    if trial.closed then
+        local now=lfs.attributes(input.path)
+        return now and now.mode=='file' and now.dev==stat.dev and now.ino==stat.ino and now.size==stat.size
+            and now.modification==stat.modification and now.change==stat.change
+            and Access.matches(settings,native) and Currentness.matches(settings,web)
+    end
     local now=Context.location(doc,reader.view and reader.view.view_mode or 'page');local id=Identity.read_document(doc,entry.book_id)
     return reader.document==doc and Context.same_location(location,now) and id.file_id==entry.file_id
         and id.book_id==entry.book_id and id.book_version==entry.book_version

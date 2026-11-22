@@ -66,7 +66,8 @@ class RecoveryTests(unittest.TestCase):
             if previous is not None and owner.current==previous:return False
             raise ValueError('synthetic changed')
         patches=[patch.object(recovery,'NativeDirectUITrialStore',lambda:owner.store),
-            patch.object(recovery,'NativeDirectIntervalTrialStore',lambda:owner.store),patch.object(recovery,'SessionStore',Session),
+            patch.object(recovery,'NativeDirectIntervalTrialStore',lambda:owner.store),
+            patch.object(recovery,'NativeDirectCloseTrialStore',lambda:owner.store),patch.object(recovery,'SessionStore',Session),
             patch.object(recovery,'NativeSessionStore',Credentials),patch.object(recovery,'ChapterProbe',Chapter),
             patch.object(recovery,'WebSourceProbe',Web),patch.object(recovery,'Reads',Native),
             patch.object(recovery,'native_catalog',return_value={'format':'epub','version':1,'chapters':[{'uid':2,'free_or_owned':True}]}),
@@ -120,6 +121,16 @@ class RecoveryTests(unittest.TestCase):
 
     def test_timed_trial_unacknowledged_advance_is_not_resent(self):
         self.advance('advance_pending');code,result=self.run_case('--timed','--restore')
+        self.assertEqual((code,result['result'],self.posts),(1,'UNVERIFIED',0))
+        self.assertEqual(self.store.read()[0]['phase'],'advance_pending')
+
+    def test_closed_trial_restores_only_after_confirmed_advance(self):
+        self.advance('advance_acknowledged');code,result=self.run_case('--closed','--restore')
+        self.assertEqual((code,result['result'],self.posts),(0,'ORIGINAL_RESTORED',1))
+        self.assertEqual(self.current,self.before);self.assertEqual(self.store.read()[0]['phase'],'retired')
+
+    def test_closed_trial_unacknowledged_advance_is_not_resent(self):
+        self.advance('advance_pending');code,result=self.run_case('--closed','--restore')
         self.assertEqual((code,result['result'],self.posts),(1,'UNVERIFIED',0))
         self.assertEqual(self.store.read()[0]['phase'],'advance_pending')
 
