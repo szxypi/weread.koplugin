@@ -32,6 +32,7 @@ local defaults = {
     },
     cache = {
         download_book_images = true,
+        native_chapter_resources = false,
         download_mp_images = false,
         download_underlines_and_thoughts = false,
         prefetch_annotations = false,

@@ -525,6 +525,19 @@ function M:getSettingsMenuItems()
                         end),
                     },
                     {
+                        text = _('Experimental E-Ink resources for single chapters'),
+                        keep_menu_open = true,
+                        checked_func = function()
+                            return self.settings:get('cache').native_chapter_resources == true
+                        end,
+                        callback = self:safeCallback(_('Experimental E-Ink resources for single chapters'), function()
+                            local cache = self.settings:get('cache')
+                            cache.native_chapter_resources = not cache.native_chapter_resources
+                            self.settings:set('cache', cache)
+                            self.settings:flush()
+                        end),
+                    },
+                    {
                         text = _("Public account article images"),
                         keep_menu_open = true,
                         checked_func = function()

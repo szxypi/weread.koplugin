@@ -515,4 +515,15 @@ child_result={ok=true,value='done',auth={cookies={wr_vid='900000',wr_skey='verif
 local auth_value=auth_downloader:_runInterruptible(auth_job,function() end)
 expect(auth_value=='done' and auth_values.cookies.wr_skey=='verified-read' and changed and changed[1]~=changed[2],
     'successful worker cookie rotation did not update the owner')
+local native_failures=0
+local native_downloader=Downloader:new{}
+native_downloader._failChapter=function(_,job,err)
+    native_failures=native_failures+1
+    expect(job.native_failure=='auth_expired' and err:find('native_candidate/auth_expired',1,true),
+        'native failure classification was lost')
+end
+local native_job={chapters={{chapterUid=1}},index=1}
+expect(native_downloader:_retryChapterSource(native_job,'native_candidate/auth_expired\ntrace')==false
+    and native_failures==1 and not native_job.chapter_source_retries,
+    'expired native authorization was retried')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

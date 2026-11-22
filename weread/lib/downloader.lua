@@ -728,6 +728,15 @@ function Downloader:start(book, chapters, suffix, options)
         detect_expired_login = options.prefetch ~= true,
         on_reading_auth_updated = options.on_reading_auth_updated,
     }
+    -- Restrict the experimental resource path to a single, freshly downloaded
+    -- chapter: whole-book checkpoints share one stylesheet across chapters.
+    local download_cache = self.settings.get and self.settings:get('cache', {}) or {}
+    dl.native_chapter_resources = dl.single_chapter and download_cache.download_book_images == true
+        and download_cache.native_chapter_resources == true
+    if dl.native_chapter_resources then
+        dl.native_selected = require('weread.lib.native_read_access').capture(self.settings)
+        dl.native_chapter_resources = dl.native_selected ~= nil and not dl.native_selected.renewal_pending
+    end
     self._active_job = dl
 
     if dl.prefetch and self.settings.get_auth_scope and (not dl.auth_scope
@@ -953,6 +962,11 @@ function Downloader:_retryChapterSource(dl, err)
         return false
     end
     if rate_limited(err) then self:_rateLimit(dl);return false end
+    if type(err) == 'string' and err:match('^native_candidate/') then
+        dl.native_failure = err:match('^native_candidate/([a-z_]+)')
+        self:_failChapter(dl, err)
+        return false
+    end
     local chapter = dl.chapters[dl.index]
     local uid = tostring(chapter and chapter.chapterUid or dl.index)
     dl.chapter_source_retries = dl.chapter_source_retries or {}
@@ -1141,6 +1155,9 @@ function Downloader:_finishChapter(dl)
     local started = time.now()
     local ok, result = pcall(function()
         local function finalize(client)
+            if dl.current.native_assets then
+                return { xhtml = dl.current.xhtml, assets = dl.current.native_assets, state = dl.state }
+            end
             local xhtml, assets = Content.finalize_single_chapter_content(
                 client or self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
             return { xhtml = xhtml, assets = assets, state = dl.state }
@@ -1205,6 +1222,16 @@ function Downloader:_step(dl)
         return
     end
 
+    if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+        self:_releaseStandby(dl)
+        self:_cleanupWorkspace(dl)
+        if dl.progress_dialog then dl.progress_dialog:close(); dl.progress_dialog = nil end
+        self:_notifyCompletion(dl, false, 'account_changed')
+        self:_finishJob(dl)
+        if not dl.prefetch then self.show_info(_('The account changed. The chapter download was stopped.')) end
+        return
+    end
+
     if dl.index > dl.total then
         if #dl.selected == 0 then
             if dl.progress_dialog then
@@ -1217,7 +1244,13 @@ function Downloader:_step(dl)
             self:_notifyCompletion(dl, false, "no_chapters_downloaded")
             self:_finishJob(dl)
             if not dl.prefetch then
-                self.show_info(_("No chapters were downloaded."))
+                if dl.native_failure == 'auth_expired' then
+                    self.show_info(_('E-Ink authorization expired. Sign in again or turn off experimental E-Ink resources.'))
+                elseif dl.native_failure then
+                    self.show_info(_('Experimental E-Ink resources could not be downloaded. Try again later or turn them off.'))
+                else
+                    self.show_info(_("No chapters were downloaded."))
+                end
             end
             return
         end
@@ -1298,7 +1331,13 @@ function Downloader:_step(dl)
                     path = Content.save_chapter_epub(
                         self.settings, dl.book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
-                        dl.state.css, dl.source_identity, source_for(uid)
+                        dl.state.css, dl.source_identity, source_for(uid), nil,
+                        dl.native_chapter_resources and function()
+                            if not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+                                error('native_candidate/session_changed', 0)
+                            end
+                            return true
+                        end or nil
                     )
                 elseif dl.separate_chapters then
                     local paths = {}
@@ -1521,13 +1560,24 @@ function Downloader:_step(dl)
         return self:_runInterruptible(dl, function(client)
             local xhtml, source = Content.fetch_single_chapter_source(
                 client, self.settings, dl.book, chapter, dl.state)
+            local candidate
+            if dl.native_chapter_resources then
+                candidate = require('weread.lib.native_chapter_candidate').fetch(
+                    client, self.settings, dl.book, chapter, xhtml, source, dl.workspace,
+                    dl.native_selected and dl.native_selected.fingerprint)
+                if candidate then xhtml, dl.state.css = candidate.xhtml, candidate.css end
+            end
             local receipt = source and Content.store_position_source(dl.workspace, dl.book, chapter, source)
             FileIdentity.check(dl.source_identity, dl.book)
             return { xhtml = xhtml, position_receipt = receipt, state = dl.state, book = reader_book(dl.book),
+                native_assets = candidate and candidate.assets,
                 source_changed = dl.source_identity and dl.source_identity.changed }
         end)
     end)
     if dl.cancelled then self:_step(dl); return end
+    if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+        self:_step(dl); return
+    end
     self:_perf(dl, "chapter_source", started, "ok=", tostring(ok))
     if not ok then
         self:_retryChapterSource(dl, result)
@@ -1554,7 +1604,8 @@ function Downloader:_step(dl)
         logger.warn("footnote scan failed; chapter will keep original footnote markup:",
             "chapter_uid=", uid, "error=", log_error(scan))
     end
-    dl.current = { chapter = chapter, xhtml = xhtml, position_receipt = result.position_receipt }
+    dl.current = { chapter = chapter, xhtml = xhtml, position_receipt = result.position_receipt,
+        native_assets = result.native_assets }
     self:_finishChapter(dl)
 end
 
