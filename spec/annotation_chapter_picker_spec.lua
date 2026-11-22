@@ -53,6 +53,7 @@ function Widget:paintTo(bb, x, y)
     end
 end
 function Widget:getHeight() return self:getSize().h end
+function Widget:setText(text) self.text = text end
 function Widget:free()
     assert(not self.freed, "page widget freed twice")
     self.freed = true
@@ -134,7 +135,7 @@ for _, size in ipairs({ { 600, 800 }, { 1072, 1448 }, { 800, 600 } }) do
     assert(view.page == math.ceil(20 / view.per_page), "current chapter opened on the wrong page")
     local bounds = view[1]:getSize()
     assert(bounds.w == width and bounds.h == height, "picker layout overflows or fails to fill the screen")
-    assert(live_buttons <= 4 * view.per_page + 7, "hidden catalog rows allocated widgets")
+    assert(live_buttons <= 4 * view.per_page + 8, "hidden catalog rows allocated widgets")
     local initial = live_buttons
     assert(view.quick_add.enabled and not view.quick_clear.enabled, 'window controls had incorrect initial state')
     view.quick_add.callback()
@@ -144,6 +145,22 @@ for _, size in ipairs({ { 600, 800 }, { 1072, 1448 }, { 800, 600 } }) do
     assert(view.selected.y==#view.layout-2 and view.selected.x==1, 'quick selection lost keyboard focus')
     view.quick_add.callback();assert(model.count==10,'quick selection was not idempotent')
     view.quick_clear.callback();assert(model.count==0 and not view.quick_clear.enabled,'clear selection failed')
+    model:toggle(model.by_uid['1']);view:rebuild()
+    view.quick_range.callback()
+    assert(view.range_mode and not view.action_button.enabled and not view.quick_add.enabled
+        and view.hint_text.text == 'Choose the start chapter for the range.', 'range selection did not start')
+    view.layout[(20-1)%view.per_page+1][1].callback()
+    assert(view.range_start==20 and model.count==1
+        and view.hint_text.text == 'Choose the end chapter; catalog order is used.', 'range start changed selection')
+    view:onNextPage()
+    local last=(view.page-1)*view.per_page+1
+    view.layout[1][1].callback()
+    assert(not view.range_mode and model.count==last-20+2 and model.by_uid['1'].selected
+        and model.by_uid[tostring(last)].selected, 'range selection across pages failed')
+    view.quick_range.callback();view.quick_range.callback()
+    assert(not view.range_mode and model.count==last-20+2, 'cancelling range changed the selection')
+    view.quick_clear.callback();assert(model.count==0)
+    view.page=math.ceil(20/view.per_page);view:rebuild()
     assert(live_buttons==initial,'quick selection retained old widgets')
     for _ = 1, 30 do
         view.layout[1][2].callback() -- toggle a chapter
@@ -173,7 +190,15 @@ assert(unknown_view.quick_clear.enabled)
 unknown_view.quick_clear.callback()
 assert(unknown_model.count==0 and unknown_view.selected.y==1,
     'clearing without a current chapter left focus on a disabled shortcut')
+unknown_view.quick_range.callback()
+unknown_view.layout[1][1].callback();unknown_view.layout[1][1].callback()
+assert(not unknown_view.range_mode and unknown_model.count==1,
+    'range selection required an unrelated current chapter')
 unknown_view:onClose();assert(live_buttons==0)
+local unlinked_model=Selection:new({}, {}, {{title='Unlinked',xpointer='p'}})
+local unlinked_view=Picker.show{model=unlinked_model,on_select=function() end}
+assert(not unlinked_view.quick_range.enabled, 'range selection was enabled without linked chapters')
+unlinked_view:onClose();assert(live_buttons==0)
 -- Linked rows distinguish network fetches from local matching, while completed
 -- rows use the emphasized matched badge.
 width, height = 600, 800

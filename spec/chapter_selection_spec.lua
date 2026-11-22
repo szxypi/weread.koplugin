@@ -59,10 +59,27 @@ assert(not unknown.current and unknown:addCurrentWindow()==0 and unknown.count==
     'unknown current chapter was assumed or selected an arbitrary range')
 local unmapped=Selection:new(window_chapters,window_ranges,window_toc,5)
 assert(unmapped:addCurrentWindow()==0 and unmapped.count==0,'unmapped current chapter selected an arbitrary range')
+local interval=Selection:new(window_chapters,window_ranges,window_toc,nil)
+interval:toggle(interval.by_uid['1']);interval:toggle(interval.by_uid['15'])
+assert(interval:chapterIndex(interval.by_uid['3'])==3 and not interval:chapterIndex(interval.nodes[5]))
+assert(interval:addRange(9,3)==6 and interval.count==8 and interval.by_uid['1'].selected
+    and interval.by_uid['3'].selected and interval.by_uid['9'].selected and interval.by_uid['15'].selected
+    and not interval.by_uid['2'].selected and not interval.by_uid['5'],
+    'reverse range failed to preserve previous selections or skip an unmapped chapter')
+assert(interval:addRange(3,9)==0 and interval:addRange(3,5)==0 and interval:addRange(0,3)==0
+    and interval:addRange(3,3.5)==0 and interval.count==8,
+    'repeat or invalid range modified the selection')
+assert(interval:addRange(11,11)==1 and interval.by_uid['11'].selected, 'single-chapter range failed')
+local reordered=Selection:new(chapters,{a={toc_index=6},b={toc_index=2},c={toc_index=4}},toc,nil)
+assert(reordered:addRange(reordered:chapterIndex(reordered.by_uid.a),reordered:chapterIndex(reordered.by_uid.b))==2
+    and reordered.by_uid.a.selected and reordered.by_uid.b.selected and not reordered.by_uid.c.selected,
+    'range used local table-of-contents order instead of WeRead catalog order')
 local large = {}
 for index = 1, 10000 do large[index] = { chapterUid = tostring(index), level = index == 1 and 1 or 2 } end
 local many = Selection:new(large, {}, nil, 1, function() return "matched" end)
 assert(#many:visible() == 10000 and many.count == 0)
 many:toggle(many.nodes[1]); assert(many.count == 1, "parent checkbox selected descendants")
 many:toggle(many.nodes[5000]); assert(many.count == 2 and #many:selection() == 2)
+assert(many:addRange(1,10000)==9998 and many.count==10000 and #many:selection()==10000,
+    "large catalog range omitted chapters or toggled existing choices")
 print("chapter_selection_spec: full TOC, independent selection, refetch and 10000 chapters passed")
