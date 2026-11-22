@@ -45,12 +45,13 @@ local function archive_identity(path,book_id,uid,version,text_digest)
             [Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024})
         local identity=members and Identity.decode(members[Identity.PATH])
         local opf=members and members['OEBPS/content.opf']
-        return identity and identity.book_id==book_id and identity.book_version==Identity.version(version)
+        local matches=identity and identity.book_id==book_id and identity.book_version==Identity.version(version)
             and identity.chapter_count==1 and type(opf)=='string'
             and members[Identity.PATH]:match('\ntext_digest=([a-f0-9]+)\n')==text_digest
             and opf:find('<dc:source>'..Protocol.reader_url(book_id,uid)..'</dc:source>',1,true)~=nil
+        return matches and identity or nil
     end)
-    return ok and result==true
+    return ok and result or nil
 end
 local function archive_content(path,book,chapter,prepared)
     local rendered=require('weread.lib.content').single_chapter_xhtml(book,chapter,prepared.xhtml)
@@ -284,10 +285,11 @@ function M.open(settings,account,book_id,entry,current)
     if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
     if key~=entry.key or not size or not hash(digest) then return nil end
     local actual_size,actual_digest=digest_file(lfs,path)
-    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest
-        or not archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
-        or current()~=true then return nil end
-    return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,missing_images=entry.missing_images}
+    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest then return nil end
+    local identity=archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
+    if not identity or current()~=true then return nil end
+    return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
+        missing_images=entry.missing_images,file_id=identity.file_id}
 end
 
 -- Resolve an open file back to a verified, account-bound chapter. The path is
@@ -310,6 +312,7 @@ function M.identify(settings,account,path,current)
         or file~=filename(entry.book_id,entry.chapter_uid) then return nil end
     attach_ref(lfs,dir,entry)
     local checked=M.open(settings,account,entry.book_id,entry,current)
+    if checked then entry.file_id=checked.file_id end
     return checked and entry or nil
 end
 local function content_key(account,book,chapter,prepared)

@@ -69,7 +69,11 @@ function M.capture(document,book_id,location,options)
 
         local member=Dom.member(document,xp)
         if not member then return {error='source_unavailable'} end
-        local metadata=Source.document_metadata(document,book_id,nil,member.render_path)
+        local function get_metadata()
+            if options.metadata_resolver then return options.metadata_resolver(document,book_id,member.render_path) end
+            return Source.document_metadata(document,book_id,nil,member.render_path)
+        end
+        local metadata=get_metadata()
         if not metadata then return {error='source_unavailable'} end
         local first,last=xp,xp
         local calls=0
@@ -102,7 +106,7 @@ function M.capture(document,book_id,location,options)
         local full,prefix=Dom.normalize(extract(first,last)),Dom.normalize(extract(first,xp))
         if not full or not prefix or full:sub(1,#prefix)~=prefix then return {error='context_unavailable'} end
         check()
-        local again=Source.document_metadata(document,book_id,nil,member.render_path)
+        local again=get_metadata()
         if not again or again.metadata~=metadata.metadata then return {error='source_changed'} end
         return { file=document.file, book_id=tostring(book_id), chapter_uid=metadata.chapter_uid,
             identity=metadata.identity, metadata=metadata.metadata, render_path=member.render_path,

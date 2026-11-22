@@ -138,6 +138,8 @@ end
 function M:onReaderReady()
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
+    local direct_position=package.loaded['weread.ui.native_direct_position']
+    if direct_position then direct_position.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     local local_file=self.ui and self.ui.document and self.ui.document.file
@@ -294,6 +296,8 @@ end
 function M:onCloseDocument()
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
+    local direct_position=package.loaded['weread.ui.native_direct_position']
+    if direct_position then direct_position.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end

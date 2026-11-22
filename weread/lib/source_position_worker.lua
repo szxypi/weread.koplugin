@@ -52,6 +52,15 @@ local function match(map, text, offset)
     end
     return resolved
 end
+-- Reuse the exact, reversible local-anchor matching policy for a separately
+-- verified source. Callers must establish file and source identity themselves.
+function M.locate_verified_map(map,text,offset)
+    if type(map)~='table' or type(text)~='string' or #text>M.MAX_CONTEXT_BYTES
+        or type(offset)~='number' or offset<0 or offset%1~=0 or Dom.normalize(text)~=text
+        or offset>#boundaries(text)-1 then return nil end
+    local ok,value=pcall(match,map,text,offset)
+    return ok and value or nil
+end
 local function chapter_title(rendered)
     local title=rendered:match('<title>(.-)</title>')
     if not title then return nil end

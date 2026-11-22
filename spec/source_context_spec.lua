@@ -60,6 +60,19 @@ local invalid=Context.capture(doc,'synthetic',{xpointer='/body/DocFragment[1]/bo
 expect(invalid.error=='context_unavailable','out-of-bounds native bookmark became a source point')
 expect(reads[Identity.PATH]==1 and reads[Source.path_meta_path(frame.render_path)]==2,'large members read on UI loop')
 expect(cleared()>0,'native selection left behind')
+local resolved=0
+local custom=Context.capture(doc,'synthetic',loc,{metadata_resolver=function(document,book,path)
+    resolved=resolved+1
+    assert(document==doc and book=='synthetic' and path=='OEBPS/text/chapter.xhtml')
+    return {metadata='local-proof',identity={file_id='bound'},chapter_uid='22'}
+end})
+expect(custom.chapter_uid=='22' and custom.metadata=='local-proof' and resolved==2,
+    'explicit source metadata was not checked before and after capturing the viewport')
+resolved=0
+local changed=Context.capture(doc,'synthetic',loc,{metadata_resolver=function()
+    resolved=resolved+1;return {metadata=tostring(resolved),identity={},chapter_uid='22'}
+end})
+expect(changed.error=='source_changed','changed explicit source metadata was accepted')
 local last_doc=fixture(text,#characters(text)-1)
 frame=Context.capture(last_doc,'synthetic',assert(Context.location(last_doc,'page')))
 expect(frame.text:sub(-1)=='Z' and frame.point_offset==#characters(frame.text)-1,'final visible scalar excluded from context')

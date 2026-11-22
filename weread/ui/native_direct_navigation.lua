@@ -137,6 +137,11 @@ function M.start(host,direction)
             end,
             on_previous=function() step(-1) end,on_next=function() step(1) end,
             on_book_details=function() details() end,
+            on_native_position_check=function()
+                if not current() then return end
+                local entry=ctx.entry;M.cancel(host)
+                require('weread.ui.native_direct_position').start(host,entry)
+            end,
             on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
             on_search=function() if current() then M.cancel(host);host:showSearch() end end,
             on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,

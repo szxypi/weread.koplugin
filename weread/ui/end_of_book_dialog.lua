@@ -121,6 +121,11 @@ function M.show(opts, callbacks)
         callback = function() dismiss_then(callbacks.on_search_cached) end,
     }})
 
+    if callbacks.on_native_position_check then
+        table.insert(buttons, {{id='native_position_check',text=_('Check native reading position'),
+            callback=function() dismiss_then(callbacks.on_native_position_check) end}})
+    end
+
     if opts.show_claim_location then
         table.insert(buttons, {{
             text = _("Save this page locally for this account"),
