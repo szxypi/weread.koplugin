@@ -167,6 +167,8 @@ jobs:
           python3 scripts/test_cb_fixture_position_transport.py
           python3 scripts/test_cb_fixture_position_trial.py
           python3 scripts/test_cb_fixture_manual_trial.py
+          python3 scripts/test_cb_fixture_reconnect_trial.py
+          python3 scripts/test_resume_cb_fixture_reconnect_trial.py
           python3 scripts/test_cb_fixture_timer_trial.py
           python3 scripts/test_cb_fixture_close_trial.py
           python3 scripts/test_cb_fixture_web_time.py

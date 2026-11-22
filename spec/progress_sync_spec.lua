@@ -337,6 +337,76 @@ test('imported automatic comparison qualifies only an equal clean source point',
     eq(f.prepares,0,'automatic open prepared an upload')
 end)
 
+test('imported reconnect asks before using an offline local position',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),true,'reconnect did not compare imported positions');f.drain()
+    eq(f.remote_reads,1,'reconnect did not read the imported cloud position')
+    eq(#f.choices,1,'offline imported position did not open a choice')
+    eq(f.sync.state,'awaiting_choice','reconnect did not hold for a decision')
+    eq(f.sync.verified,false,'reconnect granted authority before a decision')
+    eq(f.prepares,0,'reconnect prepared an upload before a decision')
+    eq(#f.uploads,0,'reconnect sent a position before a decision')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'reconnect discarded the offline intent')
+    eq(f.sync:on_network_connected(),false,'duplicate reconnect replaced the active choice')
+    eq(f.remote_reads,1,'duplicate reconnect repeated the read')
+    f.choices[1].keep_local()
+    eq(f.prepares,1,'explicit local choice did not prepare a guarded send')
+    eq(f.intent.cb_guarded_sync,true,'reconnect choice lost imported source guard')
+    eq(#f.uploads,0,'reconnect choice bypassed source preparation')
+end)
+
+test('imported reconnect choice expires on a second disconnect',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),true,'first reconnect did not compare');f.drain()
+    eq(#f.choices,1,'first reconnect did not offer a choice')
+    local old=f.choices[1];f.sync:on_network_disconnected();old.keep_local();old.use_remote()
+    eq(f.prepares,0,'stale imported choice prepared an upload')
+    eq(#f.uploads,0,'stale imported choice wrote a position')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'stale choice discarded offline position')
+    eq(f.sync:on_network_connected(),true,'second reconnect did not start a fresh comparison');f.drain()
+    eq(#f.choices,2,'second reconnect did not offer a fresh choice')
+end)
+
+test('imported reconnect never offers an unknown or foreign pending write',function()
+    for _,kind in ipairs({'missing','foreign','unknown_reason','unknown_journal','manual_only'}) do
+        local f=cb_manual_fixture();local id=f.source.book_id
+        f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+        local book=f.values.books[id]
+        if kind=='missing' then book.pending_upload_position=nil
+        elseif kind=='foreign' then book.pending_upload_account='another-account'
+        elseif kind=='unknown_reason' then book.pending_upload_reason='upload_readback_unconfirmed'
+        elseif kind=='unknown_journal' then f.sync.source_dispatch.pending=function() return true end
+        else f.values.sync.pull_on_open=false end
+        local started=f.sync:on_network_connected();f.drain()
+        eq(started,kind~='manual_only','wrong reconnect start for '..kind)
+        eq(#f.choices,0,'reconnect exposed a protected state: '..kind)
+        eq(f.prepares,0,'reconnect prepared a protected state: '..kind)
+        eq(#f.uploads,0,'reconnect sent a protected state: '..kind)
+        eq(f.sync.verified,false,'reconnect verified a protected state: '..kind)
+    end
+end)
+
+test('imported reconnect does not claim a pending point without an account',function()
+    local f=cb_manual_fixture();local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(f.source.book_id,chapters))
+    f.values.account={};f.values.books[f.source.book_id].pending_upload_account=nil
+    f.sync:_resolve(local_position,remote,context,{manual=false,reconnect=true})
+    eq(#f.choices,0,'anonymous account matched unowned pending state')
+    eq(f.prepares,0,'anonymous account prepared a pending upload')
+    eq(f.sync.verified,false,'anonymous account obtained a cloud baseline')
+end)
+
+test('imported ordinary automatic opening does not reuse reconnect choice',function()
+    local f=cb_manual_fixture();local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(f.source.book_id,chapters))
+    f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(#f.choices,0,'ordinary open was treated as a reconnect')
+    eq(f.sync.verified,false,'ordinary open verified a conflicting position')
+    eq(f.prepares,0,'ordinary open prepared an upload')
+end)
+
 test('manual CB sync requires explicit choice, guarded preparation and durable dispatch',function()
     local f=cb_manual_fixture();local id=f.source.book_id
     eq(f.sync:sync_now(),true,'manual imported sync did not read cloud');f.drain()

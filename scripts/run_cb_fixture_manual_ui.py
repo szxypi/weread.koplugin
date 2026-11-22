@@ -34,10 +34,14 @@ def main():
         if not isinstance(decoded,dict) or not isinstance(decoded.get('cookies'),dict):raise ValueError('input')
         if decoded.get('armed') is not None and type(decoded['armed']) is not bool:raise ValueError('input')
         dry=decoded.get('armed') is False
+        reconnect=decoded.get('reconnect') is True
+        discover=decoded.get('reconnect_discover') is True
+        if (any(key in decoded and decoded[key] is not True for key in ('reconnect','reconnect_discover'))
+                or discover and (not reconnect or not dry)):raise ValueError('input')
         timed=decoded.get('timer') is True
         closing=decoded.get('close') is True
         reading_time=decoded.get('time') is True
-        if sum((timed,closing,reading_time))>1 or dry and (timed or closing or reading_time):raise ValueError('input')
+        if sum((timed,closing,reading_time))>1 or (dry or reconnect) and (timed or closing or reading_time):raise ValueError('input')
         secrets=[value.encode() for key,value in decoded['cookies'].items()
                  if key!='wr_vid' and isinstance(value,str) and len(value)>=8]
         if not secrets:raise ValueError('input')
@@ -66,14 +70,23 @@ def main():
                     out,err=child.communicate(payload,timeout=360);marker=b'\nWEREAD_CB_FIXTURE_MANUAL_UI='
                     if out.count(marker)==1:
                         value=json.loads(out.split(marker,1)[1].splitlines()[0])
-                        if value.get('phase') in ('decode','prepare','choice','upload','timer','close','time','reopen'):report['failure_phase']=value['phase']
+                        if value.get('phase') in ('decode','prepare','source_ready','offline_move','choice','upload','timer','close','time','reopen'):report['failure_phase']=value['phase']
                         if type(value.get('failure_line')) is int:report['failure_line']=value['failure_line']
+                        if value.get('result')=='UNVERIFIED':
+                            for key in ('reconnect_state','reconnect_pulling','reconnect_file_resume','reconnect_target','reconnect_auto','reconnect_disconnected','reconnect_has_choice','reconnect_has_box'):
+                                if key in value and (type(value[key]) is bool or key=='reconnect_state' and value[key] in ('offline','unverified','pulling','awaiting_choice','verified','unsafe','error')):report[key]=value[key]
                     if child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                         raise ValueError('native')
-                    expected=(dict(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1) if dry else
-                        dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
-                        if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,
-                            journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=3 if timed or closing or reading_time else 2,denied=0))
+                    if discover:
+                        offset=value.get('offset')
+                        if type(offset) is not int or not 0<=offset<=16*1024*1024:raise ValueError('result')
+                        expected=dict(result='DISCOVERED',offset=offset,offline_intent=True,writes=0,denied=0)
+                    else:
+                        expected=(dict(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1) if dry else
+                            dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
+                            if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,
+                                journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=3 if timed or closing or reading_time else 2,denied=0))
+                        if reconnect and not reopened:expected.update(offline_intent=True,reconnect_choice=True)
                     if closing and not reopened:expected['close_verified']=True
                     if reading_time and not reopened:expected['time_verified']=True
                     if value!=expected:raise ValueError('result')
@@ -85,16 +98,18 @@ def main():
                         try:kill_reader_session(child)
                         except (ProcessLookupError,RuntimeError):pass
                     stop(child);reap(child.pid)
-            if dry:report.update(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1,credentials_not_persisted=True)
+            if discover:report.update(result='DISCOVERED',offset=offset,offline_intent=True,writes=0,denied=0,credentials_not_persisted=True)
+            elif dry:report.update(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1,credentials_not_persisted=True)
             else:report.update(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,fresh_process=True,
                           pending_cleared=True,journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),writes=3 if timed or closing or reading_time else 2,denied=0,credentials_not_persisted=True)
+            if reconnect and not discover:report.update(offline_intent=True,reconnect_choice=True)
             if timed:report['timer_verified']=True
             if closing:report['close_verified']=True
             if reading_time:report['time_verified']=True
     except Exception:
         pass
     finally:report['profile_removed']=root is not None and not root.exists()
-    print(json.dumps(report));return int(report['result'] not in ('PASS','DRY_RUN') or not report['profile_removed'])
+    print(json.dumps(report));return int(report['result'] not in ('PASS','DRY_RUN','DISCOVERED') or not report['profile_removed'])
 
 
 if __name__=='__main__':raise SystemExit(main())

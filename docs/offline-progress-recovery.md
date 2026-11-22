@@ -51,3 +51,14 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 同样的流程先在两种尺寸使用封闭合成服务验证，旧版手动选择流程也已回归。加强位置断言的首轮合成尝试因验证工具错误地要求普通页面存在保留锚点而超时，修正为直接核对该页的原文位置后通过；没有访问真实账号。真实账号初次准备时墨水屏接口返回 401，未进入阅读器；随后一次凭据续期核对同账号和书架并保存回读，再执行上述只读验收。
 
 去敏记录：[普通尺寸](validation-assets/2026-11-22/offline-reconnect-owner-600.json)、[KO2 尺寸](validation-assets/2026-11-22/offline-reconnect-owner-ko2.json)、[首次 401](validation-assets/2026-11-22/offline-reconnect-preflight-401.json)、[授权续期](validation-assets/2026-11-22/offline-reconnect-native-renewal.json)，以及合成账号的[普通尺寸](validation-assets/2026-11-22/offline-reconnect-mock-600.json)和 [KO2 尺寸](validation-assets/2026-11-22/offline-reconnect-mock-ko2.json)。验收使用软件模拟联网变化，未模拟实体 Wi-Fi 或断电；本轮只验证选择云端分支，不代表真实重连后选择本机位置上传、多设备并发或实体 KO2 已验收。
+
+
+## 导入书重连后的本机位置选择
+
+支持来源核对的 `CB_` 导入书在开启「打开时拉取进度」后，若当前账号有离线保存的待同步位置，重连会先读取并比较云端位置，再显示本机／云端选择。重复联网事件不会重复弹窗或发送请求；只有明确选择本机后，才进入既有来源核对、一次同步与回读流程。尚未确认的旧发送、无法确认账号归属的记录及其他账号的记录不会通过这个重连入口重发。没有本机待同步记录的普通自动打开仍按原规则处理。
+
+2026-11-22 用一份新导入的自造多页 EPUB 在两种模拟屏幕完成真实账号验证：分别断网翻页、保存本机位置、重连选择本机、原生发送并由 Web 与墨水屏两端独立读回；每种尺寸还完成全新进程离线重开。两次重连共四个进度请求，阅读时长为零，测试书另有一次首次位置请求。未修改既有书籍；测试书最后单次移除，新进程两轮读取确认原书架成员、可见标记和分组恢复。服务端历史和最近阅读排序不保证恢复。联网变化由软件模拟，真实 Wi-Fi、多设备并发、其他正文和实体 KO2 仍待验收。
+
+首次尝试在首次位置确认后停止：测试正文有重复段落，仅按位置后的文字检查无法唯一识别目标，重连写入额度仍未领取。独立检查改用前后文确认唯一坐标后，以零写入预演及只读状态核对接续，未重复导入或首次位置写入。两次重连及回读通过后，工具复用了限单次读取的来源检查器，导致清理前复核失败；因此另用全新只读检查器核对原文、两端位置、时长与笔记。清理预检还因导入书的默认私密状态被保护条件误拒；确认两端状态后修正该条件，再执行一次移除并独立复核。合成测试覆盖回执丢失后的待核对与不重发。
+
+记录：[首次停止](validation-assets/2026-11-22/cb-offline-reconnect-owner.json)、[只读预演](validation-assets/2026-11-22/cb-offline-reconnect-diagnosis-final.json)、[两尺寸接续](validation-assets/2026-11-22/cb-offline-reconnect-owner-resume.json)、[清理](validation-assets/2026-11-22/cb-offline-reconnect-cleanup.json)和[独立回读](validation-assets/2026-11-22/cb-offline-reconnect-final-readback.json)；[合成往返](validation-assets/2026-11-22/cb-offline-reconnect-mock-resume.json)与[回执丢失](validation-assets/2026-11-22/cb-offline-reconnect-mock-resume-noack.json)。

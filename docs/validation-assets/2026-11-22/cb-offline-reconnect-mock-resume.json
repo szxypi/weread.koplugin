@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "case": "normal",
+  "resume": true,
+  "screens": 2,
+  "discovery_writes": 0,
+  "dry_run_writes": 0,
+  "synthetic_data_posts": 4,
+  "readback_rounds": 4,
+  "fresh_offline_reopens": 2,
+  "real_account_data_posts": 0
+}

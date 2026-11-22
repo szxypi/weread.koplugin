@@ -8,9 +8,15 @@ local ok,reason=pcall(function()
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
         and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner
         and type(input.first_offset)=='number' and type(input.next_offset)=='number')
+    local reconnect=input.reconnect==true
+    local discover=input.reconnect_discover==true
+    assert(not discover or reconnect and input.armed==false)
+    assert(input.reconnect_page==nil or reconnect and type(input.reconnect_page)=='number'
+        and input.reconnect_page%1==0 and input.reconnect_page>=2 and input.reconnect_page<=32)
     local distance=math.abs(input.next_offset-input.first_offset)
-    assert(distance==1 and input.unicode_boundary~=true
-        or distance==2 and input.source_format=='web_txt' and input.unicode_boundary==true)
+    assert(reconnect and not input.unicode_boundary and (discover or distance>0 and distance<=16*1024*1024)
+        or not reconnect and (distance==1 and input.unicode_boundary~=true
+        or distance==2 and input.source_format=='web_txt' and input.unicode_boundary==true))
     local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local timed=input.timer==true
     local closing=input.close==true
@@ -20,6 +26,7 @@ local ok,reason=pcall(function()
     local cloud=input.cloud==true
     assert((timed and 1 or 0)+(closing and 1 or 0)+(reading_time and 1 or 0)+(cloud and 1 or 0)<=1)
     assert(not (timed or closing or reading_time) or type(input.timer_summary)=='string' and #input.timer_summary>0)
+    assert(not reconnect or not (timed or closing or reading_time or cloud))
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -59,7 +66,8 @@ local ok,reason=pcall(function()
         cache.download_book_images=false;cache.show_annotations=false;value:set('cache',cache)
         return value
     end
-    local Network=require('ui/network/manager');Network.isOnline=function() return not reopening end;Network.isConnected=Network.isOnline
+    local offline=reopening
+    local Network=require('ui/network/manager');Network.isOnline=function() return not offline end;Network.isConnected=Network.isOnline
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
     assert(#Loader.enabled_plugins==1);package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
@@ -70,6 +78,7 @@ local ok,reason=pcall(function()
     local guard=dofile(fixtures..'cb_fixture_manual_guard.lua').new(input,Protocol,Cookie)
     local request=Client.request
     function Client:request(options)
+        if reconnect and offline and not reopening then counts[2]=counts[2]+1;error('fixture_reconnect_offline_request',0) end
         local kind=not reopening and guard(options,counts[1],function(body) return self:json_decode(body) end)
         if not kind then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
         if kind=='write' then counts[1]=counts[1]+1
@@ -82,7 +91,7 @@ local ok,reason=pcall(function()
     end
     local settings=Settings:new();local client=Client:new(settings);local socket=require('socket')
     local function wait(predicate)
-        local deadline=socket.gettime()+120
+        local deadline=socket.gettime()+(reconnect and 25 or 120)
         while not predicate() do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
             assert(socket.gettime()<deadline,'fixture_manual_timeout') end
     end
@@ -129,13 +138,50 @@ local ok,reason=pcall(function()
     local main=host();assert(main.library_db:putChapters(input.book,input.chapters));main:openChapter(book,target)
     wait(function() return Reader.instance and Reader.instance.weread and Reader.instance.weread._current_weread_book_id==input.book end)
     local reader=Reader.instance;local plugin=reader.weread
-    plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    plugin.isNetworkOnline=function() return not offline end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    result.phase='source_ready'
     wait(function() local point=plugin.source_position:current();return point and point.chapter_uid==input.chapter end)
-    local point=assert(plugin.source_position:current());point.chapter_offset=input.next_offset
-    local landed=false;assert(plugin:openSourcePosition(point,function(value) landed=value~=nil end))
-    wait(function() return landed and plugin.source_position:current() and plugin.source_position:current().chapter_offset==input.next_offset end)
-    result.phase='choice'
     local sync=plugin.progress_sync;local choice,box,notice
+    if reconnect then
+        local config=plugin.settings:get('sync');config.pull_on_open=true;config.ask_on_conflict=true
+        plugin.settings:set('sync',config)
+        local reads,writes,denied=tonumber(counts[0]),tonumber(counts[1]),tonumber(counts[2])
+        offline=true;plugin:onNetworkDisconnected()
+        local pages=reader.document:getPageCount();assert(pages>1)
+        local source_service=plugin.source_position;local index=assert(require('weread.lib.source_dom').open(reader.document,input.book,input.chapter))
+        local function move(page)
+            reader.rolling:onGotoPage(page);result.phase='offline_move'
+            wait(function()
+                local point=source_service:current()
+                if reader:getCurrentPage()~=page or not point or sync:current_source_target() then return false end
+                local anchor=index:locate(point.chapter_offset)
+                if not anchor or not reader.document:isXPointerInCurrentPage(anchor.xpointer) then return false end
+                local captured=index:capture(anchor.xpointer)
+                return captured and captured.co==point.chapter_offset
+            end)
+            return assert(source_service:current())
+        end
+        if input.reconnect_page then assert(input.reconnect_page<=pages) end
+        local current=move(input.reconnect_page or (reader:getCurrentPage()==1 and 2 or 1))
+        if current.chapter_offset==input.first_offset then
+            assert(not input.reconnect_page and pages>2);current=move(3)
+        end
+        assert(current.chapter_offset~=input.first_offset);sync:checkpoint_local('fixture_reconnect')
+        local saved=assert(plugin.settings:get_book(input.book));local pending=assert(saved.pending_upload_position)
+        assert(pending.source_position and pending.source_position.chapter_offset==current.chapter_offset
+            and not sync.verified and not sync.uploading and sync.state=='offline')
+        plugin:onFlushSettings();plugin:onSuspend();plugin:onResume()
+        assert(tonumber(counts[0])==reads and tonumber(counts[1])==writes and tonumber(counts[2])==denied)
+        if discover then
+            result={result='DISCOVERED',offset=current.chapter_offset,offline_intent=true,writes=0,denied=0};return
+        end
+        assert(current.chapter_offset==input.next_offset,'fixture reconnect point changed')
+    else
+        local point=assert(plugin.source_position:current());point.chapter_offset=input.next_offset
+        local landed=false;assert(plugin:openSourcePosition(point,function(value) landed=value~=nil end))
+        wait(function() return landed and plugin.source_position:current() and plugin.source_position:current().chapter_offset==input.next_offset end)
+    end
+    result.phase='choice'
     local show=UI.show
     function UI:show(widget,...)
         if choice and widget.cancel_callback==choice.keep_local then box=widget end
@@ -143,7 +189,21 @@ local ok,reason=pcall(function()
     end
     local old_choice=sync.on_choice;sync.on_choice=function(value) choice=value;old_choice(value) end
     sync.notify=function(code,data) notice={code=code,data=data} end
-    assert(sync:sync_now());wait(function() return choice and box end)
+    if reconnect then offline=false;plugin:onNetworkConnected() else assert(sync:sync_now()) end
+    wait(function()
+        if reconnect then
+            result.reconnect_state=sync.state;result.reconnect_pulling=sync.pulling==true
+            result.reconnect_file_resume=sync.file_resume~=nil;result.reconnect_target=sync:current_source_target()~=nil
+            result.reconnect_auto=sync:_config().pull_on_open==true;result.reconnect_disconnected=sync.network_disconnected==true
+            result.reconnect_has_choice=choice~=nil;result.reconnect_has_box=box~=nil
+        end
+        return choice and box
+    end)
+    if reconnect then
+        local pending=assert(plugin.settings:get_book(input.book).pending_upload_position)
+        assert(pending.source_position and pending.source_position.chapter_offset==input.next_offset and counts[1]==0)
+        plugin:onNetworkConnected();assert(sync.state=='awaiting_choice' and UI:getTopmostVisibleWidget()==box)
+    end
     assert(choice.remote_position.chapter_offset==input.first_offset and choice.local_position.source_position.chapter_offset==input.next_offset)
     if cloud then
         local account=assert(plugin.library_db:accountKey())
@@ -170,7 +230,8 @@ local ok,reason=pcall(function()
         local state=assert(plugin.settings:get_book(input.book))
         assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and not sync.verified
             and state.pending_upload_position and plugin.source_dispatch:pending(input.book),'manual dry run did not block write')
-        result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1};return
+        result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1}
+        if reconnect then result.offline_intent=true;result.reconnect_choice=true end;return
     end
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))
@@ -217,9 +278,10 @@ local ok,reason=pcall(function()
     plugin:onFlushSettings();if not closing then reader:onClose(false) end
     result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=not time_noack,
         journal_cleared=not time_noack,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
+    if reconnect then result.offline_intent=true;result.reconnect_choice=true end
     if closing then result.close_verified=true end
     if time_noack then result.time_unconfirmed=true elseif reading_time then result.time_verified=true end
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_manual_ui%.lua:(%d+):')) or 0 end
 print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result))
-os.exit((result.result=='PASS' or result.result=='DRY_RUN') and 0 or 1)
+os.exit((result.result=='PASS' or result.result=='DRY_RUN' or result.result=='DISCOVERED') and 0 or 1)

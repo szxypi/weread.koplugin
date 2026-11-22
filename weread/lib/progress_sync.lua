@@ -1387,15 +1387,21 @@ function ProgressSync:_resolve_cb(local_position,remote,context,options)
     end
     self.local_position,self.remote_position=copy(local_position),copy(remote)
     local saved=self.get_book(context.book_id) or {}
-    local pending=self.source_dispatch:pending(context.book_id)
-        or saved.pending_upload_account==self:_account_key() and saved.pending_upload_position~=nil
+    local unconfirmed=self.source_dispatch:pending(context.book_id)
+    local account=self:_account_key()
+    local local_pending=account~=nil and saved.pending_upload_account==account and saved.pending_upload_position~=nil
+    local pending=unconfirmed or local_pending
     local comparison=self:_compare_source(local_position,remote,context.chapters)
     if comparison=='same' and not pending and not remote.conflict and not options.force_choice then
         self.dirty=false;self:_mark_verified(context.book_id,'cb_positions_match',local_position,remote)
         if options.manual then self.notify('already_synced',{position=local_position}) end
         return
     end
-    if not options.manual then self.state='unverified';return end
+    -- A reconnect may offer a saved offline position, but it cannot turn an
+    -- unconfirmed dispatch into a fresh send or act for a different account.
+    local reconnect_choice=options.reconnect==true and local_pending and not unconfirmed
+        and saved.pending_upload_reason~='upload_readback_unconfirmed'
+    if not options.manual and not reconnect_choice then self.state='unverified';return end
     self.state='awaiting_choice'
     local scope,decided=self:_scope(),false
     local function current()
@@ -1948,7 +1954,7 @@ function ProgressSync:on_network_connected()
     if self.verified and not self.network_disconnected then return false end
     self.network_disconnected = nil
     self:_clear_verified("network_recheck")
-    return self:_pull({ manual = false })
+    return self:_pull({ manual = false, reconnect = true })
 end
 
 function ProgressSync:on_resume()
