@@ -44,7 +44,7 @@ function M.cancel_sync(host,preserve_sync)
     if preserve_sync then Paused.capture(host,'membership',account,job) end
 end
 local function allowed(host,account)
-    if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
+    if host._weread_suspended or not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
         or host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui
         or host._finish_offline_dialog or host._membership_offline_dialog then return false end
     if host._finish_offline_sync and host._finish_offline_sync.job then return false end

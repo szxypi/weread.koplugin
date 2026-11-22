@@ -183,6 +183,7 @@ local ok,reason=pcall(function()
         assert(tonumber(counts[0])==reads and tonumber(counts[1])==writes and tonumber(counts[2])==denied)
         if waking and not discover then
             assert(not source_service:current(),'suspend did not pause source collector')
+            plugin:onSuspend()
             plugin:onNetworkDisconnected()
             local asleep=assert(plugin.settings:get_book(input.book).pending_upload_position)
             assert(asleep.source_position and asleep.source_position.chapter_offset==current.chapter_offset,

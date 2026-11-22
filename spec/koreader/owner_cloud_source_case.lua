@@ -77,6 +77,7 @@ return function(input,mode,counters)
                 self.report.reconnect_no_requests=true
                 if input.raw_cloud_wake then
                     assert(not source:current(),'suspend did not pause source collector')
+                    plugin:onSuspend()
                     plugin:onNetworkDisconnected()
                     local asleep=assert(plugin.settings:get_book(input.book_id).pending_upload_position)
                     assert(asleep.source_position and asleep.source_position.chapter_offset==moved.chapter_offset,

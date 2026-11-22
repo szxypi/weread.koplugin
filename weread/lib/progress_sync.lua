@@ -1928,6 +1928,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
 end
 
 function ProgressSync:on_suspend(source_position)
+    if self.suspended_at ~= nil then return end
     self._suspend_was_offline = self._suspend_was_offline or self.network_disconnected == true or not self.is_online()
     self.interval:halt()
     local position = self:checkpoint_local("suspend", source_position)

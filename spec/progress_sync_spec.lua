@@ -390,6 +390,20 @@ test('network loss during sleep preserves the precise checkpoint',function()
     eq(#f.uploads,0,'sleeping disconnect sent a position')
 end)
 
+test('repeated sleep notification preserves the original checkpoint',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_suspend(f.source)
+    f.sync.get_source_position=function() return nil end
+    f.sync:on_suspend()
+    local saved=f.values.books[id]
+    eq(saved.pending_upload_position.source_position and saved.pending_upload_position.source_position.chapter_offset,150,
+        'repeated sleep replaced the exact pending position')
+    eq(saved.last_local_position.source_position and saved.last_local_position.source_position.chapter_offset,150,
+        'repeated sleep replaced the exact local position')
+    eq(f.remote_reads,0,'repeated sleep fetched cloud state')
+    eq(#f.uploads,0,'repeated sleep sent a position')
+end)
+
 test('imported reconnect retains its decision gate after an offline retry',function()
     local f=cb_manual_fixture();local online=false
     f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()

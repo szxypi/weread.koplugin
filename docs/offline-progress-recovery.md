@@ -70,3 +70,5 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 2026-11-22 在官方 KOReader 模拟器的 600×800 和 KO2 尺寸，用真实账号中的普通 TXT 书籍验证：离线翻页后休眠、休眠中断网和联网、唤醒后选择云端位置，以及全新离线进程重开。检查点保持精确位置，休眠中没有新增请求；独立核对前后云端位置、书架、正文目录及阅读计数，账号数据和授权写入均为零。记录：[普通尺寸](validation-assets/2026-11-22/offline-wake-owner-600.json)、[KO2 尺寸](validation-assets/2026-11-22/offline-wake-owner-ko2.json)。
 
 导入书的本机位置选择还在封闭合成服务上验证了休眠中重连和唤醒后离线重试：选择前零写入，选择本机后由模拟服务独立读回。两种屏幕均通过：[休眠重连 600×800](validation-assets/2026-11-22/cb-offline-wake-mock-600.json)、[休眠重连 KO2](validation-assets/2026-11-22/cb-offline-wake-mock-ko2.json)、[离线重试 600×800](validation-assets/2026-11-22/cb-offline-wake-retry-mock-600.json)、[离线重试 KO2](validation-assets/2026-11-22/cb-offline-wake-retry-mock-ko2.json)。重试计时在模拟中加速；本轮未对真实账号执行导入书休眠后的进度写入，也未验收实体设备、真实 Wi-Fi 切换或断电。
+
+后续增加重复休眠保护：同一次休眠中的重复通知不会再次从已暂停的采集器保存位置，也不会丢弃原先的唤醒恢复意图。真实账号的普通 TXT 在 KO2 模拟尺寸完成重复休眠、断网、联网、选择云端和离线重开；原文位置及云端观察状态保持，账号数据和授权写入均为零。导入书的同一场景以合成服务及模拟写入验证。记录：[真实账号只读](validation-assets/2026-11-22/offline-repeat-suspend-owner-ko2.json)、[导入书合成测试](validation-assets/2026-11-22/offline-repeat-suspend-cb-mock-ko2.json)。

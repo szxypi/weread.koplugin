@@ -55,7 +55,8 @@ def main():
                 if code or repaint or stage['result']!='PASS':raise ValueError('native_acceptance')
                 if mode=='reopen' and (stage.get('local_storage_retry_verified') is not True
                         or stage.get('dialog_retry_verified') is not True
-                        or stage.get('paused_preflight_verified') is not True):
+                        or stage.get('paused_preflight_verified') is not True
+                        or stage.get('sleep_reconnect_verified') is not True):
                     raise ValueError('local_storage_retry')
                 if mode=='retry_reopen' and (stage.get('trace_commit')!='confirmed'
                         or stage.get('trace_attempted') is not True or stage.get('trace_finished') is not True):

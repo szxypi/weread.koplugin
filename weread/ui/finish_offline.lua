@@ -129,7 +129,7 @@ local function retry_later(host,account,entry)
     UI:scheduleIn(retry.attempts==1 and 30 or 60,timer)
 end
 local function allowed(host,account)
-    if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
+    if host._weread_suspended or not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
         or ui_blocked(host) then return false end
     local private,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private or private_error then return false end

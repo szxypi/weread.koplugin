@@ -535,6 +535,8 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self._weread_suspended then return end
+    self._weread_suspended=true
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end
@@ -599,6 +601,7 @@ function M:onSuspend()
 end
 
 function M:onResume()
+    self._weread_suspended=nil
     local pending=self._resume_chapter_prefetch;self._resume_chapter_prefetch=nil
     if pending then
         UIManager:scheduleIn(.2,function()

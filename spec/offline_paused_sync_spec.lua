@@ -86,4 +86,18 @@ Finish.cancel_sync(host,true);UI:drain()
 expect(not last_finish,'interrupted preparation bypassed a pending backoff')
 host._finish_offline_retry.timer=nil;require('weread.ui.offline_paused').wake(host);UI:drain()
 expect(last_finish and last_finish.pumps==1,'preparation did not resume after backoff')
+for _,kind in ipairs({'finish','membership'}) do
+    local module=kind=='finish' and Finish or Member
+    host=fixture(kind);module.cancel_sync(host)
+    host._weread_suspended=true
+    expect(not module.pump(host),'sleeping reconnect started '..kind..' sync')
+    expect(not module.can_resume_paused(host,'one'),'sleeping dialog callback resumed '..kind..' sync')
+    expect(not last_finish and not last_member,'sleeping queue reached network service: '..kind)
+    host._weread_suspended=nil
+    expect(module.pump(host),'wake did not resume '..kind..' sync')
+    local active=kind=='finish' and last_finish or last_member
+    expect(active and active.pumps==1 and active.options.allowed(),'wake failed queue scope check: '..kind)
+    host._weread_suspended=true
+    expect(not active.options.allowed(),'sleep did not invalidate in-flight permission: '..kind)
+end
 print('offline_paused_sync_spec: '..checks..' checks')

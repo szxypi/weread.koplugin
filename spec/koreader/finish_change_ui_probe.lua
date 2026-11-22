@@ -349,6 +349,15 @@ local ok,reason=pcall(function()
             end
             if read_failure then fault(read_failure=='temporary' and 'preflight_503_once' or 'preflight_429_once') end
             local posts_before=state().posts
+            if read_failure=='pause_preflight' then
+                local requests_before=state().requests
+                plugin:onSuspend();plugin:onSuspend()
+                plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+                local until_=socket.gettime()+.3;while socket.gettime()<until_ do tick() end
+                expect(state().requests==requests_before and state().posts==posts_before)
+                expect(queue:get('41').phase=='queued' and not plugin._finish_offline_sync)
+                plugin:onResume();report.sleep_reconnect_verified=true
+            end
             plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
             if read_failure=='pause_preflight' then
                 local sync=assert(plugin._finish_offline_sync)

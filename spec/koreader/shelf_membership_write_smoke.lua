@@ -105,6 +105,17 @@ return function(reader,plugin,pump,shot,clean_popups)
         row('Change cloud membership').callback();assert(plugin._membership_offline_dialog).ok_callback()
         assert(require('weread.ui.membership_offline').get(plugin,id) and writes()==old,'offline change could not be saved again')
         clean_popups(reader)
+        do
+            plugin:onSuspend();plugin:onSuspend()
+            plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+            local until_=require('socket').gettime()+.3
+            pump(function() return require('socket').gettime()>=until_ end)
+            local sleeping_entry=assert(require('weread.ui.membership_offline').get(plugin,id))
+            assert(sleeping_entry.phase=='queued' and writes()==old and not plugin._membership_offline_sync,
+                'sleeping reconnect started the offline membership change')
+            if expected_before then plugin.isNetworkConnected=function() return false end end
+            plugin:onResume()
+        end
         local metadata,owner
         if expected_before then
             plugin:showBookshelf();owner=assert(plugin.shelf_view)
