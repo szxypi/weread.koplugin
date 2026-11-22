@@ -120,7 +120,7 @@ def run(runtime, web_corrupt_only=False, live_web_only=False):
                 chapters=[dict(chapterUid=uid,chapterIdx=i,title='Synthetic',source=body(uid),
                                search_token='Full chapter '+uid+' native marker') for i,uid in enumerate(('37','38'),1)]
                 payload=dict(owner=True,live_web=True,book_id='42',book_version=1,chapters=chapters,
-                             credentials=credentials,cookies=dict(wr_vid=credentials['vid'],wr_skey='mock-cookie'),
+                             credentials=credentials,cookies={'wr_vid':credentials['vid'],'wr_skey':'mock-cookie'},
                              mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                 server.resume=server.expired=False;server.chapters=[];server.valid=True;server.leaked=False
                 server.image_requests=server.tar_requests=0

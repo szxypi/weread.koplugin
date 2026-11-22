@@ -23,7 +23,7 @@ local chapters=owner and assert(input.chapters) or {{chapterUid='37',chapterIdx=
 if input.web_asset then chapters[3].tar='https://weread.qq.com/synthetic/resources.tar' end
 local values={cache={download_book_images=true,native_full_book_resources=true},books={[book_id]=book}}
 if live_web then
-    assert(type(input.cookies)=='table' and input.cookies.wr_vid==input.credentials.vid
+    assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.credentials.vid
         and type(input.cookies.wr_skey)=='string' and #input.cookies.wr_skey>=8)
     values.cookies=input.cookies
 end
