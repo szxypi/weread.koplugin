@@ -33,6 +33,17 @@ for _,case in ipairs({{'rate','rate_limited'},{'redirect','unavailable'},{'chang
     assert(not value and reason==case[2] and calls==1,case[1])
 end
 source.body_parts[1].data=body
+local fallback={is_current=function() return alive end,allow_missing_images=true}
+for _,failure in ipairs({'redirect','large','bad_image'}) do
+    mode,calls,alive=failure,0,true
+    local placeholder=assert(Remote.complete(client,source,fallback))
+    assert(placeholder.missing_images==1 and placeholder.downloaded_images==0 and #placeholder.assets==1
+        and placeholder.assets[1].data==require('weread.lib.native_missing_image')
+        and placeholder.xhtml:find('../'..placeholder.assets[1].href,1,true),failure)
+end
+mode,calls,alive='rate',0,true
+local stopped,stop_reason=Remote.complete(client,source,fallback)
+assert(not stopped and stop_reason=='rate_limited' and calls==1,'image fallback bypassed rate limiting')
 mode,calls,alive='ok',0,true;source.catalog_sha256='invalid'
 local value,reason=Remote.complete(client,source,options)
 assert(not value and reason=='invalid_source' and calls==0)
@@ -52,6 +63,8 @@ local unsafe={book_id='42',chapter_uid='7',book_version=1,catalog_sha256=string.
     body_parts={{source='text/7.xhtml',data='<img src="https://evil.invalid/a"/>'}},style_parts={}}
 calls,alive=0,true;value,reason=Remote.complete(client,unsafe,options)
 assert(not value and reason=='remote_unsupported' and calls==0)
+local replacement=assert(Remote.complete(client,unsafe,fallback))
+assert(replacement.missing_images==1 and calls==0 and not replacement.xhtml:find('evil.invalid',1,true))
 local many={}
 for i=1,65 do many[#many+1]='<img src="https://img.qq.com/'..i..'.png"/>' end
 local large_body=table.concat(many)

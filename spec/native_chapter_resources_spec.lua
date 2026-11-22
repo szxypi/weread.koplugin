@@ -33,7 +33,24 @@ denied(input('<img src="../unknown/p.png"/>','',duplicate),'missing')
 denied(input('<img src="../unknown/z.png"/>','',duplicate),'missing')
 denied(input('<img src="x%2Z.png"/>','',assets),'unsupported')
 denied(input('<img src="../images/cover.png" srcset="other.png 2x"/>','',assets),'unsupported_markup')
-denied(input('<p style="color:red">text</p>','',assets),'inline_style')
+local styled='<p style="width: 75%; color: red; font-size:0">text</p>'
+assert(assert(Resources.prepare(input(styled,'',assets))).xhtml==styled,
+    'simple inline typography and layout must remain intact')
+local styled_image="<img STYLE='width:100%; height:auto' src=\"../images/cover.png\"/>"
+local inline_image=assert(Resources.prepare(input(styled_image,'',assets)))
+assert(inline_image.xhtml:find("STYLE='width:100%; height:auto'",1,true)
+    and inline_image.xhtml:find('../'..inline_image.assets[1].href,1,true))
+for _,tag in ipairs({
+    '<p style=width:100%>text</p>',
+    '<p style="width:1px" style="color:red">text</p>',
+    '<p style="background:url(https://example.invalid/x)">text</p>',
+    '<p style="width:expression(alert(1))">text</p>',
+    '<p style="width:1px;@import x">text</p>',
+    '<p style="width:1&amp;2">text</p>',
+    '<p style="width:1\\70x">text</p>',
+    '<p style="width:1px/*comment*/">text</p>',
+    '<p style="unknown:10px">text</p>',
+}) do denied(input(tag,'',assets),'inline_style') end
 denied(input('<p>text</p>','@import "external.css";',assets),'css_import')
 denied(input('<p>text</p>','p{background:url("../missing.png")}',assets),'missing')
 local stale=input('<p>text</p>','',assets);stale.body='different';denied(stale,'source_changed')

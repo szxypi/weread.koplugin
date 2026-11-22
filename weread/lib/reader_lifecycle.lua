@@ -660,6 +660,7 @@ function M:detectWeReadBook()
     if not file then
         return nil
     end
+    if require('weread.lib.native_direct_path').contains(self.settings,file) then return nil end
     if self._personal_original_local_only==file then return nil end
     if require("weread.lib.notes_export").is_export_path(self.settings,file) then return nil end
     if require("weread.lib.mp_export").is_export_path(self.settings,file) then return nil end

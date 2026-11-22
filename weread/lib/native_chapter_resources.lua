@@ -99,6 +99,42 @@ local function record_remote(summary,key)
         summary.remote_urls[#summary.remote_urls+1]=key
     end
 end
+
+-- Inline declarations with ordinary layout and typography values have no
+-- external references. Keep them verbatim; complex CSS remains unverified and
+-- must not silently bypass resource localization.
+local INLINE_PROPERTIES={
+    width=true,height=true,['max-width']=true,['min-width']=true,['max-height']=true,['min-height']=true,
+    margin=true,['margin-top']=true,['margin-right']=true,['margin-bottom']=true,['margin-left']=true,
+    padding=true,['padding-top']=true,['padding-right']=true,['padding-bottom']=true,['padding-left']=true,
+    color=true,['background-color']=true,['font-size']=true,['font-weight']=true,['font-style']=true,
+    ['font-family']=true,['line-height']=true,['text-align']=true,['text-indent']=true,['text-decoration']=true,
+    ['vertical-align']=true,display=true,['white-space']=true,['word-break']=true,['letter-spacing']=true,
+    ['border-width']=true,['border-style']=true,['border-color']=true,['page-break-before']=true,['page-break-after']=true,
+}
+local function plain_inline_style(value)
+    if not valid_text(value) or value:find('[&\\@<>(){}]') or value:find('/*',1,true) then return false end
+    for declaration in (value..';'):gmatch('(.-);') do
+        if declaration:match('%S') then
+            local property,content=declaration:match('^%s*([%a][%w%-]*)%s*:%s*(.-)%s*$')
+            if not property or not INLINE_PROPERTIES[property:lower()] or content==''
+                or content:find('[^%w%s%.,%%#_%-%+!\'"]') then return false end
+        end
+    end
+    return true
+end
+
+local function check_inline_style(tag)
+    if not tag:lower():match('%sstyle%s*=') then return end
+    local count=0
+    tag:gsub('([%w_:%-]+)(%s*=%s*)(["\'])(.-)%3',function(key,_equals,_quote,value)
+        if key:lower()=='style' then
+            count=count+1
+            if count>1 or not plain_inline_style(value) then fail('inline_style') end
+        end
+    end)
+    if count~=1 then fail('inline_style') end
+end
 local function css_rewrite(css,owner,index,prefix,summary)
     if not valid_text(css) then fail('css') end
     if css:lower():find('@import',1,true) then fail('css_import') end
@@ -226,7 +262,7 @@ local function html_rewrite(body,owner,index,style_index,summary)
             elseif name and lower_tag:match('%s[%w_:%-]*src[%w_:%-]*%s*=') then
                 fail('other_source_attribute')
             end
-            if tag:lower():match('%sstyle%s*=') then fail('inline_style') end
+            check_inline_style(tag)
             out[#out+1]=tag;at=ending+1
         end
     end

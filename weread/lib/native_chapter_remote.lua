@@ -31,7 +31,7 @@ local function mime(data)
     if data:sub(1,6)=='GIF87a' or data:sub(1,6)=='GIF89a' then return 'image/gif' end
     if data:sub(1,4)=='RIFF' and data:sub(9,12)=='WEBP' then return 'image/webp' end
 end
-local SOURCE_FIELDS={'book_id','chapter_uid','book_version','catalog_sha256','source_channel',
+local SOURCE_FIELDS={'book_id','chapter_uid','book_version','catalog_sha256','reading_catalog_sha256','source_channel',
     'coordinate_source_authoritative','is_text','body','css','unusable_resources','image_signatures_recognized'}
 local PART_FIELDS={'source','data'}
 local ASSET_FIELDS={'source','data','media_type','href'}
@@ -85,44 +85,58 @@ function M.complete(client,source,options)
         if not same_source(source,saved) then return false,'source_changed' end
         return true
     end
-    local assets,total={},0
+    local assets,total,missing,downloaded,digests={},0,0,0,{}
+    local function placeholder(reference)
+        if options.allow_missing_images~=true then return false end
+        assets[#assets+1]={source=reference,data=require('weread.lib.native_missing_image'),media_type='image/png'}
+        missing=missing+1;return true
+    end
     for _,reference in ipairs(initial.remote_urls) do
         local url=M.allowed(reference)
-        if not url then return nil,'remote_unsupported' end
         local allowed,why=ready();if not allowed then return nil,why end
-        local chunks,size={},0
-        local ok,raw,code=pcall(client.request,client,{
-            url=url,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
-            diagnostic_api='native_chapter_image',timeout={5,22},
-            headers={Accept='image/*',['Referer']='https://weread.qq.com/'},
-            sink=function(chunk)
-                if chunk then
-                    size=size+#chunk
-                    if size>M.MAX_IMAGE or total+size>M.MAX_TOTAL then return nil,'response_limit' end
-                    chunks[#chunks+1]=chunk
+        if not url then
+            if not placeholder(reference) then return nil,'remote_unsupported' end
+        else
+            local chunks,size={},0
+            local ok,raw,code=pcall(client.request,client,{
+                url=url,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
+                diagnostic_api='native_chapter_image',timeout={5,22},
+                headers={Accept='image/*',['Referer']='https://weread.qq.com/'},
+                sink=function(chunk)
+                    if chunk then
+                        size=size+#chunk
+                        if size>M.MAX_IMAGE or total+size>M.MAX_TOTAL then return nil,'response_limit' end
+                        chunks[#chunks+1]=chunk
+                    end
+                    return 1
+                end,
+            })
+            allowed,why=ready();if not allowed then return nil,why end
+            code=tonumber(code)
+            if code==429 then return nil,'rate_limited' end
+            local data=ok and code==200 and size<=M.MAX_IMAGE and total+size<=M.MAX_TOTAL
+                and (type(raw)=='string' and raw or table.concat(chunks)) or nil
+            if not data or #data==0 or #data>M.MAX_IMAGE or total+#data>M.MAX_TOTAL then
+                if not placeholder(reference) then return nil,'unavailable' end
+            else
+                local media_type=mime(data)
+                if not media_type then
+                    if not placeholder(reference) then return nil,'invalid_image' end
+                else
+                    total=total+#data;downloaded=downloaded+1
+                    assets[#assets+1]={source=reference,data=data,media_type=media_type}
+                    digests[#digests+1]=Crypto.sha256_hex(data)
                 end
-                return 1
-            end,
-        })
-        allowed,why=ready();if not allowed then return nil,why end
-        if not ok then return nil,'unavailable' end
-        code=tonumber(code)
-        if code==429 then return nil,'rate_limited' end
-        if code~=200 or size>M.MAX_IMAGE or total+size>M.MAX_TOTAL then return nil,'unavailable' end
-        local data=type(raw)=='string' and raw or table.concat(chunks)
-        if #data==0 or #data>M.MAX_IMAGE or total+#data>M.MAX_TOTAL then return nil,'unavailable' end
-        local media_type=mime(data)
-        if not media_type then return nil,'invalid_image' end
-        total=total+#data
-        assets[#assets+1]={source=reference,data=data,media_type=media_type}
+            end
+        end
     end
     local allowed,why=ready();if not allowed then return nil,why end
     local result,err=Resources.prepare(source,assets)
     if not result then return nil,err end
     if result.remote_references~=0 then return nil,'source_changed' end
-    result.downloaded_images=#assets
-    result.downloaded_digests={}
-    for _,asset in ipairs(assets) do result.downloaded_digests[#result.downloaded_digests+1]=Crypto.sha256_hex(asset.data) end
+    result.downloaded_images=downloaded
+    result.downloaded_digests=digests
+    if options.allow_missing_images==true then result.missing_images=missing end
     return result
 end
 return M

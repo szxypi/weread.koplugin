@@ -97,6 +97,7 @@ function M.fetch(client,settings,selected,book_id,uid,options)
         local result=Archive.read(data,envelope,selected.credentials.vid,{chapter_uid=uid})
         assert(owns(),'native_chapter/session_changed')
         return {book_id=book_id,chapter_uid=uid,book_version=model.version,catalog_sha256=model.digest,
+            reading_catalog_sha256=model.reading_digest,
             body=result.body,is_text=result.is_text,css=result.css,assets=result.assets,
             body_parts=result.body_parts,style_parts=result.style_parts,
             image_signatures_recognized=result.image_signatures_recognized,unusable_resources=result.unusable_resources,

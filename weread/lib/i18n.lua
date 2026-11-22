@@ -851,6 +851,7 @@ local zh = {
     ["Add current and next 9 chapters"] = "添加本章起最多10章",
     ["Clear chapter selection"] = "清空所选章节",
     ["Select range"] = "选择范围",
+    ["Some images could not be loaded; placeholders are shown."] = "部分图片暂不可用，已用占位图表示。",
     ["Cancel range"] = "取消范围",
     ["Range start"] = "起点",
     ["Choose the start chapter for the range."] = "请选择范围起点章节",

@@ -1453,6 +1453,21 @@ local function rendered_file_digest(path)
     return Crypto.sha256_hex(raw)
 end
 
+function Content.single_chapter_xhtml(book,chapter,xhtml)
+    local title = chapter.title or book.title or "WeRead"
+    return [[<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN">
+<head>
+<title>]] .. xml_escape(title) .. [[</title>
+<link rel="stylesheet" type="text/css" href="../style.css"/>
+</head>
+<body>
+]] .. body_fragment(xhtml) .. [[
+</body>
+</html>]]
+end
+
 function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output, before_commit)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
@@ -1468,17 +1483,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     for asset_index, asset in ipairs(assets or {}) do
         table.insert(manifest_assets, [[<item id="asset_]] .. tostring(asset_index) .. [[" href="]] .. xml_escape(asset.href) .. [[" media-type="]] .. xml_escape(asset.media_type) .. [["/>]])
     end
-    local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN">
-<head>
-<title>]] .. xml_escape(title) .. [[</title>
-<link rel="stylesheet" type="text/css" href="../style.css"/>
-</head>
-<body>
-]] .. body_fragment(xhtml) .. [[
-</body>
-</html>]]
+    local chapter_xhtml = Content.single_chapter_xhtml(book,chapter,xhtml)
     local position_entries = {}
     local source = resolve_position_source(position_reference, book, chapter)
     local digest = Crypto.sha256_hex(xhtml)

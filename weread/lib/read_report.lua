@@ -250,7 +250,11 @@ end
 
 function ReadReport:resolve_target()
     local config = self:_config()
-    local has_document = self.get_document() ~= nil
+    local document = self.get_document()
+    if document and require('weread.lib.native_direct_path').contains(self.settings,document.file) then
+        return nil,nil,'native_direct_local_only'
+    end
+    local has_document = document ~= nil
     if config.mode == "manual"
         and tostring(config.book_id or "") ~= ""
         and (has_document or config.report_on_open == false) then
