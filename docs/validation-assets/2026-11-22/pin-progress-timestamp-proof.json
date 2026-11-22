@@ -1,0 +1,13 @@
+{
+  "result": "READBACK_VERIFIED",
+  "account_data_writes": 0,
+  "credentials_written_to_files": false,
+  "original_shelf_restored": true,
+  "progress_matches_before_add": false,
+  "current_progress_stable": true,
+  "only_book_update_time_changed_proven": true,
+  "readback_rounds": 2,
+  "channels_per_round": 3,
+  "inspection_record_resolved": true,
+  "intent_state": "add_cleanup_timestamp_changed"
+}

@@ -14,7 +14,7 @@ from secure_weread_session import ACCOUNT,MacKeychain,StoreError
 SERVICE='org.codex.weread.goal-pin-observation'
 PHASES=('prepared','add_pending','add_acknowledged','add_verified','pin_pending','pin_checked',
         'unpin_pending','unpin_checked','remove_pending','restored')
-RECOVERY_PHASES=('add_cleanup_pending','add_cleanup_restored')
+RECOVERY_PHASES=('add_cleanup_pending','add_cleanup_restored','add_cleanup_timestamp_changed')
 
 
 def validate(value):
@@ -49,7 +49,7 @@ class PinTrialStore:
         with self.lock():return self._read()
 
     def pending(self):
-        value,_=self.read();return value is not None and value['phase'] not in ('restored','add_cleanup_restored')
+        value,_=self.read();return value is not None and value['phase'] not in ('restored','add_cleanup_restored','add_cleanup_timestamp_changed')
 
     def reserve(self,plans,progress_sha256,skill_sha256):
         with self.lock():
@@ -80,5 +80,15 @@ class PinTrialStore:
             elif value['phase']=='add_cleanup_pending' and verified is True:phase='add_cleanup_restored'
             else:raise StoreError('pin_trial/sequence')
             value['phase']=phase;next_raw=canonical(validate(value));self.backend.save(next_raw)
+            if self.backend.load()!=next_raw:raise StoreError('pin_trial/readback')
+            return value,next_raw
+
+    def finish_timestamp_inspection(self,raw,*,verified=False):
+        """Keep the distinct audit outcome; never label a changed timestamp restored."""
+        with self.lock():
+            value,current=self._read()
+            if not value or not isinstance(raw,bytes) or current!=raw:raise StoreError('pin_trial/replaced')
+            if value['phase']!='add_cleanup_pending' or verified is not True:raise StoreError('pin_trial/sequence')
+            value['phase']='add_cleanup_timestamp_changed';next_raw=canonical(validate(value));self.backend.save(next_raw)
             if self.backend.load()!=next_raw:raise StoreError('pin_trial/readback')
             return value,next_raw
