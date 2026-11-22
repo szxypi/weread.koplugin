@@ -754,6 +754,8 @@ class MockServer(ThreadingHTTPServer):
             chapter = next((c for c in CHAPTERS if len(encoded) > 1 and weread_e(c["chapterUid"]) == encoded[1]), CHAPTERS[0])
             state = dict(reader=dict(bookInfo=book_metadata(book), psvts="mock-session", pclts="mock-clock",
                                      currentChapter=chapter, progress=self.get_progress(book["bookId"])))
+            if getattr(self, 'dynamic_reader_clock', False):
+                state['reader'].pop('pclts')
             if self.content_format == 'txt':
                 state['reader']['bookInfo']['format'] = 'txt'
             return 200, "<script>window.__INITIAL_STATE__=" + json.dumps(state, ensure_ascii=False) + ";(function(){})();</script>"

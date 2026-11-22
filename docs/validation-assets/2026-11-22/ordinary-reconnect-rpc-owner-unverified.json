@@ -1,0 +1,40 @@
+{
+  "result": "UNVERIFIED",
+  "checked_at": "2026-11-22T08:43:14.388931+00:00",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "guarded_write_mode": false,
+  "phase": "native",
+  "body_checks": {
+    "fields": true,
+    "app": true,
+    "book": true,
+    "chapter": true,
+    "index": true,
+    "offset": true,
+    "summary": true,
+    "percent": true,
+    "reader_session": false,
+    "counter": true,
+    "fresh": true,
+    "signature": true
+  },
+  "diagnostic": {
+    "type": "RoundTripError",
+    "frames": [
+      {
+        "function": "check_body",
+        "line": 111
+      },
+      {
+        "function": "validate_body",
+        "line": 29
+      },
+      {
+        "function": "validate_payload",
+        "line": 120
+      }
+    ]
+  }
+}

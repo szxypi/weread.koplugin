@@ -5,6 +5,7 @@ from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
 from test_ordinary_reconnect_body_guard import body
 from test_secure_native_session import Backend
 from test_secure_ordinary_reconnect_trial import plan
+from fetch_weread_epub import weread_e, sorted_query, weread_sign
 
 
 class CoordinatorTests(unittest.TestCase):
@@ -62,6 +63,16 @@ class CoordinatorTests(unittest.TestCase):
         gate.before = lambda stage, selected: selected['target']['chapter_offset'] == 300
         self.assertTrue(gate.claim('enter', original))
         self.assertEqual(self.store.read()[0]['phase'], 'enter_pending')
+
+    def test_new_reader_counter_is_bound_to_the_first_valid_body(self):
+        gate = Coordinator(self.store, self.plan, self.context, None, lambda *_: True, lambda *_: True, armed=True)
+        candidate = self.wire('enter'); candidate['pc'] = weread_e(candidate['ct'])
+        candidate['s'] = weread_sign(sorted_query({k: v for k, v in candidate.items() if k != 's'}))
+        self.assertTrue(gate.claim('enter', candidate))
+        self.assertEqual(gate.pclts, candidate['pc'])
+        gate.ack('enter', 200, {'succ': 1}); gate.verify('enter')
+        with self.assertRaises(ValueError): gate.claim('position', self.wire('position'))
+        self.assertEqual(self.store.read()[0]['phase'], 'enter_verified')
 
 
 if __name__ == '__main__': unittest.main()

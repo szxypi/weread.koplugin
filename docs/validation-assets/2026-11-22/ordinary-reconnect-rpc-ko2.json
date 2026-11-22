@@ -1,1 +1,1 @@
-{"result": "PASS", "mock_only": true, "noack": false, "dry_body_bound": true, "dry_posts": 0, "claimed_posts": 2, "acknowledged_posts": 2, "verified": 2, "coordinator": true, "actual_reader": true, "real_account_posts": 0}
+{"result": "PASS", "mock_only": true, "noack": false, "dry_body_bound": true, "dry_posts": 0, "claimed_posts": 2, "acknowledged_posts": 2, "verified": 2, "coordinator": true, "actual_reader": true, "restore_verified": true, "real_account_posts": 0}

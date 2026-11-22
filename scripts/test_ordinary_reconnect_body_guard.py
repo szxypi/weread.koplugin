@@ -4,6 +4,7 @@ import unittest
 import ordinary_reconnect_body_guard as guard
 from test_secure_ordinary_reconnect_trial import plan
 from verify_position_roundtrip import payload, weread_sign, sorted_query
+from fetch_weread_epub import weread_e
 
 
 def body(trial, context, pclts, stage):
@@ -43,6 +44,19 @@ class BodyGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError): guard.validate_body(self.plan, self.context, self.pc, 'position', candidate,
                                                                observed_at=candidate['ct'] + 31)
         with self.assertRaises(ValueError): guard.validate_body(self.plan, self.context, self.pc, 'enter', candidate)
+
+    def test_missing_context_counter_can_bind_only_a_fresh_encoded_counter(self):
+        candidate = body(self.plan, self.context, self.pc, 'enter')
+        candidate['pc'] = weread_e(candidate['ct'])
+        candidate['s'] = weread_sign(sorted_query({k: v for k, v in candidate.items() if k != 's'}))
+        self.assertTrue(guard.validate_body(self.plan, self.context, None, 'enter', candidate))
+        self.assertTrue(guard.validate_body(self.plan, dict(self.context, pclts=0), None, 'enter', candidate))
+        stale = dict(candidate, pc=weread_e(candidate['ct']-31))
+        stale['s'] = weread_sign(sorted_query({k: v for k, v in stale.items() if k != 's'}))
+        with self.assertRaises(ValueError): guard.validate_body(self.plan, self.context, None, 'enter', stale)
+        with self.assertRaises(ValueError): guard.validate_body(self.plan, dict(self.context, pclts='bound'), None, 'enter', candidate)
+        with self.assertRaises(ValueError): guard.validate_body(self.plan, dict(self.context, pclts=False), None, 'enter', candidate)
+        with self.assertRaises(ValueError): guard.validate_body(self.plan, self.context, None, 'position', candidate)
 
 
 if __name__ == '__main__': unittest.main()

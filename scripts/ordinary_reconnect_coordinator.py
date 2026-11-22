@@ -35,6 +35,10 @@ class Coordinator:
         if self.phase != 'ready' or self.index >= len(STAGES) or stage != STAGES[self.index]:
             raise ValueError('ordinary_trial/sequence')
         validate_body(self.plan, self.context, self.pclts, stage, body)
+        if self.pclts is None:
+            # The independently read context lacked a session counter. The
+            # first freshly validated body binds it for this reader session.
+            self.pclts = body['pc']
         if self.before(stage, deepcopy(self.plan)) is not True:
             raise ValueError('ordinary_trial/before')
         if not self.armed:
