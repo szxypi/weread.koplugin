@@ -19,12 +19,14 @@ def run(runtime):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for width, height, dpi, mismatch, expired, cancel, rejected in ((600, 800, 167, False, False, False, False),
-                                                                        (1264, 1680, 300, False, False, False, False),
-                                                                        (600, 800, 167, True, False, False, False),
-                                                                        (600, 800, 167, False, True, False, False),
-                                                                        (600, 800, 167, False, False, False, True),
-                                                                        (600, 800, 167, False, False, True, False)):
+        for width, height, dpi, mismatch, expired, cancel, rejected, zero_css, multi_css in ((600, 800, 167, False, False, False, False, False, False),
+                                                                        (1264, 1680, 300, False, False, False, False, False, False),
+                                                                        (1264, 1680, 300, False, False, False, False, True, False),
+                                                                        (1264, 1680, 300, False, False, False, False, False, True),
+                                                                        (600, 800, 167, True, False, False, False, False, False),
+                                                                        (600, 800, 167, False, True, False, False, False, False),
+                                                                        (600, 800, 167, False, False, False, True, False, False),
+                                                                        (600, 800, 167, False, False, True, False, False, False)):
             with tempfile.TemporaryDirectory(prefix='weread-native-prefetch-', dir='/dev/shm') as root:
                 xdg = Path(root) / 'xdg'
                 xdg.mkdir(mode=0o700)
@@ -36,9 +38,10 @@ def run(runtime):
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                refreshToken='synthetic-refresh', deviceId='eink334691225' + '0' * 19),
                                mock_endpoint='http://127.0.0.1:' + str(server.server_port),
-                               mismatch=mismatch, expired=expired, cancel=cancel, rejected=rejected)
+                               mismatch=mismatch, expired=expired, cancel=cancel, rejected=rejected, zero_css=zero_css, multi_css=multi_css)
                 server.mode, server.paths, server.leaked = ('cancel' if cancel else 'auth' if expired else
-                                                             'denied_json' if rejected else 'remote'), [], False
+                                                             'denied_json' if rejected else 'remote_zero_css' if zero_css
+                                                             else 'remote_multi_css' if multi_css else 'remote'), [], False
                 server.slow_entered = False
                 server.slow_marker = Path(root) / 'slow-request'
                 server.catalog_valid = server.download_valid = True

@@ -45,6 +45,10 @@ function M.fetch(client, settings, book, chapter, web, position, workspace, expe
         fatal(why); return nil
     end
     if not current() then fatal('session_changed') end
+    -- CRE applies root font sizes that WeRead's reader ignores. The Web path
+    -- already removes zero-size root declarations; native styles need the
+    -- identical protection before either downloader publishes the chapter.
+    prepared.css = require('weread.lib.content').sanitize_book_css(prepared.css)
     local ok_lfs, lfs = pcall(require, 'libs/libkoreader-lfs')
     if not ok_lfs then ok_lfs, lfs = pcall(require, 'lfs') end
     if not ok_lfs or lfs.attributes(workspace.asset_dir, 'mode') ~= 'directory' then

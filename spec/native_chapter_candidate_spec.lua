@@ -1,4 +1,5 @@
 package.path = './?.lua;' .. package.path
+package.preload.logger=function() return {info=function() end,warn=function() end,err=function() end,dbg=function() end} end
 local ok_lfs = pcall(require, 'lfs')
 if not ok_lfs then
     local lfs = {
@@ -18,9 +19,10 @@ package.loaded['weread.lib.native_read_access'] = {
 }
 local body = '<html><body><img src="../images/cover.png"/><p>fixture</p></body></html>'
 local image = '\137PNG\r\n\26\nfixture'
+local css='html,body{font-size:0;color:black}.hidden{font-size:0}p{color:black}'
 local source = { book_id='42', chapter_uid='37', book_version=1, catalog_sha256=string.rep('a',64),
-    source_channel='eink', coordinate_source_authoritative=false, is_text=false, body=body, css='p{color:black}',
-    body_parts={{source='text/37.xhtml',data=body}}, style_parts={{source='style/book.css',data='p{color:black}'}},
+    source_channel='eink', coordinate_source_authoritative=false, is_text=false, body=body, css=css,
+    body_parts={{source='text/37.xhtml',data=body}}, style_parts={{source='style/book.css',data=css}},
     assets={{source='images/cover.png',data=image,media_type='image/png'}}, unusable_resources=0 }
 package.loaded['weread.lib.native_chapter_source'] = { fetch=function()
     source_calls=source_calls+1
@@ -42,7 +44,10 @@ local root=os.tmpname();os.remove(root);assert(os.execute('mkdir -p '..string.fo
 local workspace={asset_dir=root}
 local function fetch(web,proof) return Candidate.fetch({}, {}, book, chapter, web or body, proof or position, workspace) end
 local result=assert(fetch())
-assert(result.xhtml:find('../images/eink-',1,true) and result.css=='p{color:black}' and #result.assets==1)
+assert(result.xhtml:find('../images/eink-',1,true) and #result.assets==1)
+assert(not result.css:match('html,body%s*%{[^}]*font%-size')
+    and result.css:find('.hidden{font-size:0}',1,true) and result.css:find('color:black',1,true),
+    'native styles must retain the same root font-size protection as Web chapters')
 local file=assert(io.open(result.assets[1].path,'rb'));assert(file:read('*a')==image);file:close()
 assert(result.assets[1].size==#image and source_calls==1 and remote_calls==1)
 assert(not fetch(body..'different') and source_calls==1, 'mismatched Web proof must stop before native request')

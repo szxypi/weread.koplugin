@@ -26,6 +26,15 @@ REMOTE_URL = 'https://img.qq.com/image.png?a=1&b=2'
 REMOTE_BODY = READING_BODY.replace(b'../images/cover.png', b'https://img.qq.com/image.png?a=1&amp;b=2')
 REMOTE_PACKAGE = archive([('text/37.html', REMOTE_BODY),
                           ('style/book.css', 'p{background:url("' + REMOTE_URL + '")}')])
+REMOTE_ZERO_CSS_PACKAGE = archive([('text/37.html', REMOTE_BODY),
+    ('style/book.css', 'html,body{font-size:0;color:black}.hidden{font-size:0}'
+                       'p{background:url("' + REMOTE_URL + '")}')])
+REMOTE_MULTI_BODY = REMOTE_BODY.replace(b'<html><body>',
+    b'<html><head><link rel="stylesheet" href="../style/b.css"/>'
+    b'<link rel="stylesheet" href="../style/a.css"/></head><body>', 1)
+REMOTE_MULTI_CSS_PACKAGE = archive([('text/37.html', REMOTE_MULTI_BODY),
+    ('style/a.css', 'p{color:black}p{background:url("' + REMOTE_URL + '")}'),
+    ('style/b.css', 'p{color:blue}')])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -80,6 +89,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps({'errcode': errcode}).encode()
             else:
                 body = (b'corrupt package' if server.mode == 'corrupt' else READING_PACKAGE if server.mode == 'read'
+                        else REMOTE_ZERO_CSS_PACKAGE if server.mode == 'remote_zero_css'
+                        else REMOTE_MULTI_CSS_PACKAGE if server.mode == 'remote_multi_css'
                         else REMOTE_PACKAGE if server.mode.startswith('remote')
                         else base64.b64decode(ENCRYPTED))
                 if server.mode != 'missing_header':

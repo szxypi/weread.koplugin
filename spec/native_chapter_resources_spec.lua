@@ -45,6 +45,44 @@ local linked=assert(Resources.prepare(with_link));assert(not linked.xhtml:find('
 denied(input('<link rel="stylesheet" href="https://example.invalid/a.css"/>','',{}),'link_tag')
 local multi=input('<p>Text</p>','a\nb',{})
 multi.style_parts={{source='style/a.css',data='a'},{source='style/b.css',data='b'}};denied(multi,'multiple_styles')
+local ordered_body='<html><head><link rel="stylesheet" href="../style/b.css"/>'
+    ..'<link rel="stylesheet" href="../style/a.css"/></head><body>Text</body></html>'
+local function ordered()
+    local value=input(ordered_body,'p{color:red}\np{color:blue}',{})
+    value.style_parts={{source='style/a.css',data='p{color:red}'},{source='style/b.css',data='p{color:blue}'}}
+    return value
+end
+local cascade=assert(Resources.prepare(ordered()))
+assert(cascade.css=='p{color:blue}\np{color:red}' and not cascade.xhtml:find('<link',1,true),
+    'stylesheet cascade must follow the document, not archive order')
+local two_parts=ordered()
+two_parts.body_parts[2]={source='text/8.xhtml',data=ordered_body}
+two_parts.body=ordered_body..'\n'..ordered_body
+assert(assert(Resources.prepare(two_parts)).css==cascade.css,'matching chapter parts must retain one ordered cascade')
+local multi_images=ordered()
+multi_images.assets=assets
+multi_images.style_parts[1].data='p{background:url(../images/cover.png)}'
+multi_images.css=multi_images.style_parts[1].data..'\n'..multi_images.style_parts[2].data
+local image_result=assert(Resources.prepare(multi_images))
+assert(image_result.css:find(image_result.assets[1].href,1,true) and image_result.localized_references==1,
+    'multi-sheet image paths must resolve from each original stylesheet')
+local missing=ordered();missing.body_parts[1].data=ordered_body:gsub('<link rel="stylesheet" href="../style/a.css"/>','')
+missing.body=missing.body_parts[1].data;denied(missing,'multiple_styles')
+local repeated=ordered();repeated.body_parts[1].data=ordered_body:gsub('../style/a.css','../style/b.css')
+repeated.body=repeated.body_parts[1].data;denied(repeated,'multiple_styles')
+local divided=ordered()
+local reversed=ordered_body:gsub('style/b%.css','style/tmp.css'):gsub('style/a%.css','style/b.css'):gsub('style/tmp%.css','style/a.css')
+divided.body_parts[2]={source='text/8.xhtml',data=reversed}
+divided.body=divided.body_parts[1].data..'\n'..divided.body_parts[2].data;denied(divided,'multiple_styles')
+local atrule=ordered();atrule.style_parts[1].data='@media screen{p{color:red}}'
+atrule.css=atrule.style_parts[1].data..'\n'..atrule.style_parts[2].data;denied(atrule,'multiple_styles')
+local malformed=ordered();malformed.style_parts[1].data='p{color:red'
+malformed.css=malformed.style_parts[1].data..'\n'..malformed.style_parts[2].data;denied(malformed,'multiple_styles')
+local trailing=ordered();trailing.style_parts[1].data='p{color:red}unfinished'
+trailing.css=trailing.style_parts[1].data..'\n'..trailing.style_parts[2].data;denied(trailing,'multiple_styles')
+local escaped_css=ordered();escaped_css.style_parts[1].data='p{content:"@email }";color:red}/* trailing */'
+escaped_css.css=escaped_css.style_parts[1].data..'\n'..escaped_css.style_parts[2].data
+assert(Resources.prepare(escaped_css),'quoted symbols and trailing comments should preserve order')
 denied(input('<body background="foo.png">Text</body>','',{}),'background_attribute')
 denied(input('<embed src="foo.bin"/>','',{}),'unsupported_markup')
 denied(input('<p>\255</p>','',{}),'source')

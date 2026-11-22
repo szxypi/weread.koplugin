@@ -189,8 +189,9 @@ local function html_rewrite(body,owner,index,style_index,summary)
                     fail('link_tag')
                 end
                 for key in pairs(attrs) do if key~='href' and key~='rel' and key~='type' then fail('link_tag') end end
-                local _,kind=lookup(style_index,owner,attrs.href)
+                local style,kind=lookup(style_index,owner,attrs.href)
                 if kind~='local' then fail('link_tag') end
+                summary.style_links[#summary.style_links+1]=style
                 tag=''
             end
             if name=='style' then fail('style_tag') end
@@ -231,6 +232,45 @@ local function html_rewrite(body,owner,index,style_index,summary)
     end
     return table.concat(out)
 end
+
+-- Combining separate CSS files is safe only at rule boundaries. At-rules can
+-- have sheet-level ordering semantics, so keep those on the existing path.
+local function concatenable(css)
+    if not valid_text(css) then return false end
+    local at,depth,boundary=1,0,true
+    while at<=#css do
+        local c=css:sub(at,at)
+        if c=='/' and css:sub(at,at+1)=='/*' then
+            local ending=css:find('*/',at+2,true)
+            if not ending then return false end
+            at=ending+2
+        elseif c=='"' or c=="'" then
+            if depth==0 then boundary=false end
+            local quote=c;at=at+1
+            while at<=#css and css:sub(at,at)~=quote do
+                if css:sub(at,at)=='\\' then at=at+1 end
+                at=at+1
+            end
+            if at>#css then return false end
+            at=at+1
+        elseif c=='\\' then
+            if at==#css then return false end
+            if depth==0 then boundary=false end
+            at=at+2
+        elseif c=='@' then return false
+        elseif c=='{' then depth=depth+1;boundary=false;at=at+1
+        elseif c=='}' then
+            depth=depth-1;if depth<0 then return false end
+            if depth==0 then boundary=true end
+            at=at+1
+        else
+            if depth==0 and not c:match('%s') then boundary=false end
+            at=at+1
+        end
+    end
+    return depth==0 and boundary
+end
+
 function M.prepare(value,remote_assets)
     local ok,result=pcall(function()
         if type(value)~='table' or value.source_channel~='eink' or value.coordinate_source_authoritative~=false
@@ -239,25 +279,41 @@ function M.prepare(value,remote_assets)
             or type(value.unusable_resources)~='number' or value.unusable_resources<0
             or value.unusable_resources%1~=0 or value.unusable_resources>2048 then fail('source') end
         local index=index_assets(value.assets,remote_assets or {})
-        -- Combining multiple CSS sheets without their original cascade order
-        -- could change formatting. Defer those packages to the existing path.
-        if #value.style_parts>1 then fail('multiple_styles') end
         local style_index={exact={}}
         for _,part in ipairs(value.style_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('css') end
             local path=clean(part.source)
             if not path or path=='' or style_index.exact[path] then fail('css') end
-            style_index.exact[path]='present'
+            if #value.style_parts>1 and not concatenable(part.data) then fail('multiple_styles') end
+            style_index.exact[path]=path
         end
-        local summary={localized=0,remote=0,remote_urls={},remote_seen={}}
-        local bodies,styles={},{}
+        local summary={localized=0,remote=0,remote_urls={},remote_seen={},style_links={}}
+        local bodies,styles,style_order={}, {}, nil
         for _,part in ipairs(value.body_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('body') end
+            summary.style_links={}
             bodies[#bodies+1]=html_rewrite(part.data,part.source,index,style_index,summary)
+            if #value.style_parts>1 then
+                local links=summary.style_links
+                if #links~=#value.style_parts then fail('multiple_styles') end
+                local seen={}
+                for link_index,path in ipairs(links) do
+                    if seen[path] or style_order and style_order[link_index]~=path then fail('multiple_styles') end
+                    seen[path]=true
+                end
+                if not style_order then style_order=links end
+            end
         end
+        local by_path={}
         for _,part in ipairs(value.style_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('css') end
-            styles[#styles+1]=css_rewrite(part.data,part.source,index,'',summary)
+            local result=css_rewrite(part.data,part.source,index,'',summary)
+            styles[#styles+1]=result
+            by_path[clean(part.source)]=result
+        end
+        if style_order then
+            styles={}
+            for _,path in ipairs(style_order) do styles[#styles+1]=by_path[path] end
         end
         local original_bodies,original_styles={},{}
         for _,part in ipairs(value.body_parts) do original_bodies[#original_bodies+1]=part.data end

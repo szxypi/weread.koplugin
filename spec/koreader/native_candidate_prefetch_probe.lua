@@ -52,6 +52,10 @@ if not owner then
     body='<html><body><img src="https://img.qq.com/image.png?a=1&amp;b=2"/>'
     for i=1,80 do body=body..'<p>Native source integrated marker '..i..' synthetic text.</p>' end
     body=body..'</body></html>'
+    if input.multi_css then
+        body=body:gsub('<html><body>','<html><head><link rel="stylesheet" href="../style/b.css"/>'
+            ..'<link rel="stylesheet" href="../style/a.css"/></head><body>',1)
+    end
 end
 assert(type(body)=='string' and #body<=2*1024*1024)
 local Content=require('weread.lib.content')
@@ -107,6 +111,16 @@ else
     assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()
     local proof=assert(Position.read_document(doc,book_id,uid))
     assert(proof.raw==body..(input.mismatch and '<!-- different -->' or ''))
+    if input.zero_css then
+        local css=assert(doc:getDocumentFileContent('OEBPS/style.css'))
+        assert(not css:match('html,body%s*%{[^}]*font%-size') and css:find('.hidden{font-size:0}',1,true))
+    end
+    if input.multi_css then
+        local css=assert(doc:getDocumentFileContent('OEBPS/style.css'))
+        local first=assert(css:find('p{color:blue}',1,true))
+        local second=assert(css:find('p{color:black}',1,true))
+        assert(first<second,'native stylesheet order changed')
+    end
     local hits=assert(doc:findAllText(owner and assert(input.search_token) or 'Native source integrated marker 24',false,0,4,false,0));assert(hits[1])
     if not input.mismatch then
         local rendered=assert(doc:getDocumentFileContent(proof.render_path))
