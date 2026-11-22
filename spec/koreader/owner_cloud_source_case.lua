@@ -10,6 +10,9 @@ return function(input,mode,counters)
         case.report.reconnect_offline_saved=false;case.report.reconnect_no_requests=false
         case.report.reconnect_choice_once=false;case.report.reconnect_intent_before_choice=false
     end
+    if input.raw_cloud_wake then
+        case.report.wake_deferred=false;case.report.wake_choice=false;case.report.wake_checkpoint_preserved=false
+    end
     local fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
     local function copy(value)
         local result={};for _i,key in ipairs(fields) do result[key]=assert(value)[key] end;return result
@@ -69,12 +72,27 @@ return function(input,mode,counters)
                 assert(pending.source_position and pending.source_position.chapter_offset==moved.chapter_offset)
                 assert(not sync.verified and not sync.uploading and sync.state=='offline')
                 self.report.reconnect_offline_saved=true;self.report.local_intent_created=true
-                plugin:onFlushSettings();plugin:onSuspend();plugin:onResume()
-                assert(not sync.verified and not sync.uploading)
+                plugin:onFlushSettings();plugin:onSuspend()
                 for i=0,6 do assert(tonumber(counters[i])==before[i],'offline request') end
                 self.report.reconnect_no_requests=true
-                set_offline(false);plugin:onNetworkConnected()
+                if input.raw_cloud_wake then
+                    assert(not source:current(),'suspend did not pause source collector')
+                    plugin:onNetworkDisconnected()
+                    local asleep=assert(plugin.settings:get_book(input.book_id).pending_upload_position)
+                    assert(asleep.source_position and asleep.source_position.chapter_offset==moved.chapter_offset,
+                        'sleeping disconnect lost the source position')
+                    self.report.wake_checkpoint_preserved=true
+                    set_offline(false);plugin:onNetworkConnected()
+                    for i=0,6 do assert(tonumber(counters[i])==before[i],'sleeping request') end
+                    assert(sync.suspended_at~=nil and not sync.pulling);self.report.wake_deferred=true
+                    plugin:onResume()
+                else
+                    plugin:onResume();assert(not sync.verified and not sync.uploading)
+                    for i=0,6 do assert(tonumber(counters[i])==before[i],'offline request') end
+                    set_offline(false);plugin:onNetworkConnected()
+                end
                 pump(function() return sync.state=='awaiting_choice' end)
+                if input.raw_cloud_wake then self.report.wake_choice=true end
                 local choice=assert(UI:getTopmostVisibleWidget());plugin:onNetworkConnected()
                 assert(UI:getTopmostVisibleWidget()==choice and sync.state=='awaiting_choice')
                 self.report.reconnect_choice_once=true

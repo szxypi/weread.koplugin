@@ -7,7 +7,7 @@ import json
 import subprocess
 import unittest
 from unittest.mock import patch,Mock
-from owner_cloud_source_contract import FLAGS,RECONNECT_FLAGS,FRAME,validate_payload,decode,decode_runner,compare
+from owner_cloud_source_contract import FLAGS,RECONNECT_FLAGS,WAKE_FLAGS,FRAME,validate_payload,decode,decode_runner,compare
 from test_owner_reading import stage as reading_stage
 from test_native_reader_trial import payload as reader_payload
 import verify_owner_cloud_source as task
@@ -139,6 +139,23 @@ class CloudSourceTests(unittest.TestCase):
             row['cloud_source'].update({key:mode=='live' for key in RECONNECT_FLAGS})
         decode_runner(frame(v),'900000',reconnect=True)
         with self.assertRaises(ValueError):decode_runner(frame(v),'900000')
+
+    def test_wake_proof_requires_reconnect_and_both_live_guards(self):
+        value=payload();value.update(raw_cloud_reconnect=True,raw_cloud_wake=True)
+        validate_payload(value,12345,reconnect=True,wake=True)
+        with self.assertRaises(ValueError):validate_payload(value,12345,reconnect=False,wake=True)
+        for mode in ('live','reopen'):
+            item=envelope(mode);item['report']['cloud_source'].update({key:mode=='live' for key in RECONNECT_FLAGS|WAKE_FLAGS})
+            decode(frame(item),'900000',mode,reconnect=True,wake=True)
+            for key in WAKE_FLAGS:
+                changed=deepcopy(item);changed['report']['cloud_source'][key]=mode!='live'
+                with self.subTest(mode=mode,key=key),self.assertRaises(ValueError):
+                    decode(frame(changed),'900000',mode,reconnect=True,wake=True)
+        v=runner()
+        for row,mode in zip(v['report']['stages'],('live','reopen')):
+            row['cloud_source'].update({key:mode=='live' for key in RECONNECT_FLAGS|WAKE_FLAGS})
+        decode_runner(frame(v),'900000',reconnect=True,wake=True)
+        with self.assertRaises(ValueError):decode_runner(frame(v),'900000',reconnect=True)
 
     def test_reader_timeout_reaps_all_worker_groups_through_existing_supervisor(self):
         child=Mock();child.communicate.side_effect=subprocess.TimeoutExpired('synthetic',180)

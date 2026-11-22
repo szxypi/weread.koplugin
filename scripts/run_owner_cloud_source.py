@@ -27,7 +27,8 @@ def reader_stage(command,environment,raw,cwd):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',required=True,type=Path);p.add_argument('--candidate',required=True,type=Path)
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--mock-port',type=int);p.add_argument('--reconnect',action='store_true');a=p.parse_args(argv);runtime=a.koreader.resolve()
+    p.add_argument('--mock-port',type=int);p.add_argument('--reconnect',action='store_true');p.add_argument('--wake',action='store_true');a=p.parse_args(argv);runtime=a.koreader.resolve()
+    if a.wake and not a.reconnect:p.error('--wake requires --reconnect')
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or not all(1<=n<=4096 for n in (a.width,a.height,a.dpi)):p.error('bounded Linux runtime required')
     if not any(line.split()[1:3]==['/dev/shm','tmpfs'] for line in Path('/proc/mounts').read_text().splitlines()):p.error('tmpfs required')
     from process_loss_runtime import enable_subreaper
@@ -36,7 +37,7 @@ def main(argv=None):
     try:
         raw=sys.stdin.buffer.read(256*1024+1)
         if len(raw)>256*1024:raise ValueError('cloud_choice/input')
-        payload=json.loads(raw);validate_payload(payload,a.mock_port,reconnect=a.reconnect);cookies=payload['cookies']
+        payload=json.loads(raw);validate_payload(payload,a.mock_port,reconnect=a.reconnect,wake=a.wake);cookies=payload['cookies']
         with tempfile.TemporaryDirectory(prefix='weread-reading-',dir='/dev/shm') as directory:
             root=Path(directory);profile=root/'profile';(profile/'plugins').mkdir(parents=True);(root/'xdg').mkdir(mode=0o700)
             extract_candidate(a.candidate,profile/'plugins')
@@ -47,7 +48,7 @@ def main(argv=None):
                 payload['cookies']=cookies
                 code,out,repaint=reader_stage([str(runtime/'luajit'),str(folder/'owner_reading_probe.lua'),mode,str(folder/'owner_cloud_source_case.lua')],
                     env,json.dumps(payload,ensure_ascii=False).encode(),runtime)
-                value=decode(out,payload['vid'],mode,reconnect=a.reconnect);report['stages'].append(value['report']);cookies=value['cookies']
+                value=decode(out,payload['vid'],mode,reconnect=a.reconnect,wake=a.wake);report['stages'].append(value['report']);cookies=value['cookies']
                 private.append(value.get('candidate_private'))
                 if code or repaint or value['report']['result']!='PASS':raise ValueError('cloud_choice/runtime')
             report.update(result='PASS',installed=check_installed(a.candidate,profile))

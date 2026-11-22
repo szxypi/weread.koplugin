@@ -62,3 +62,11 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 首次尝试在首次位置确认后停止：测试正文有重复段落，仅按位置后的文字检查无法唯一识别目标，重连写入额度仍未领取。独立检查改用前后文确认唯一坐标后，以零写入预演及只读状态核对接续，未重复导入或首次位置写入。两次重连及回读通过后，工具复用了限单次读取的来源检查器，导致清理前复核失败；因此另用全新只读检查器核对原文、两端位置、时长与笔记。清理预检还因导入书的默认私密状态被保护条件误拒；确认两端状态后修正该条件，再执行一次移除并独立复核。合成测试覆盖回执丢失后的待核对与不重发。
 
 记录：[首次停止](validation-assets/2026-11-22/cb-offline-reconnect-owner.json)、[只读预演](validation-assets/2026-11-22/cb-offline-reconnect-diagnosis-final.json)、[两尺寸接续](validation-assets/2026-11-22/cb-offline-reconnect-owner-resume.json)、[清理](validation-assets/2026-11-22/cb-offline-reconnect-cleanup.json)和[独立回读](validation-assets/2026-11-22/cb-offline-reconnect-final-readback.json)；[合成往返](validation-assets/2026-11-22/cb-offline-reconnect-mock-resume.json)与[回执丢失](validation-assets/2026-11-22/cb-offline-reconnect-mock-resume-noack.json)。
+
+## 休眠期间的网络变化
+
+休眠时先保存精确原文位置；之后即使收到断网通知，也不会用暂停中的位置采集器覆盖这个检查点。休眠期间收到联网通知不会立刻读取云端或弹窗，而是在唤醒、原文位置准备就绪后进行比较。离线重试仍保留重连选择，账号在休眠期间变更时不会用新账号处理旧位置；未确认的旧发送也不会自动重发。
+
+2026-11-22 在官方 KOReader 模拟器的 600×800 和 KO2 尺寸，用真实账号中的普通 TXT 书籍验证：离线翻页后休眠、休眠中断网和联网、唤醒后选择云端位置，以及全新离线进程重开。检查点保持精确位置，休眠中没有新增请求；独立核对前后云端位置、书架、正文目录及阅读计数，账号数据和授权写入均为零。记录：[普通尺寸](validation-assets/2026-11-22/offline-wake-owner-600.json)、[KO2 尺寸](validation-assets/2026-11-22/offline-wake-owner-ko2.json)。
+
+导入书的本机位置选择还在封闭合成服务上验证了休眠中重连和唤醒后离线重试：选择前零写入，选择本机后由模拟服务独立读回。两种屏幕均通过：[休眠重连 600×800](validation-assets/2026-11-22/cb-offline-wake-mock-600.json)、[休眠重连 KO2](validation-assets/2026-11-22/cb-offline-wake-mock-ko2.json)、[离线重试 600×800](validation-assets/2026-11-22/cb-offline-wake-retry-mock-600.json)、[离线重试 KO2](validation-assets/2026-11-22/cb-offline-wake-retry-mock-ko2.json)。重试计时在模拟中加速；本轮未对真实账号执行导入书休眠后的进度写入，也未验收实体设备、真实 Wi-Fi 切换或断电。

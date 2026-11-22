@@ -71,6 +71,17 @@ expect(f.sync.pulling and f.gets==0 and #f.queue==1,'ongoing local preparation s
 f:ready();expect(f.sync.verified and f.gets==1,'deferred local source did not wake read')
 f=fixture();f.sync:sync_now();f:ready(70)
 expect(f.gets==1 and f.choices==1 and not f.sync.verified and f.posts==0,'actual moved source position was treated as equal')
+-- onResume starts comparison before the lifecycle resumes the source service.
+-- A paused source must therefore be awaited rather than interpreted as absent.
+f=fixture();f.sync.source_state='paused';f.sync.suspended_at=90
+f.sync._suspend_pending_upload=true;f.sync._suspend_was_offline=true
+f.sync:on_resume()
+expect(f.gets==0 and f.sync.pulling and #f.queue==1,'wake fetched before paused source resumed')
+f.sync:on_source_position_changed('waiting',nil)
+expect(f.gets==0 and f.sync.pulling,'wake did not wait for source preparation')
+f:ready()
+expect(f.gets==1 and f.sync.verified and f.choices==0 and f.posts==0,'wake did not compare the actual source point')
+
 for _,event in ipairs({'paused','idle','unavailable'}) do
     f=fixture();f.sync:sync_now();f.sync:on_source_position_changed(event,nil)
     expect(f.gets==0 and f.posts==0 and not f.sync.pulling and #f.queue==0,event..' did not stop before HTTP')

@@ -10,15 +10,19 @@ from txt_coordinates import PlainSource
 FLAGS={'local_intent_created','cloud_choice','background_worker','raw_target','sync_verified','pending_cleared',
        'checkpoint_saved','truthful_notice','parent_native_guard','offline_checkpoint','offline_local_only'}
 RECONNECT_FLAGS={'reconnect_offline_saved','reconnect_no_requests','reconnect_choice_once','reconnect_intent_before_choice'}
+WAKE_FLAGS={'wake_deferred','wake_choice','wake_checkpoint_preserved'}
 
 
-def validate_payload(value,mock_port=None,*,reconnect=False):
+def validate_payload(value,mock_port=None,*,reconnect=False,wake=False):
     fields={'book_id','chapter_uid','source_text','shelf_ids','shelf_books','source_format','source_raw_sha256','source_sample_offset',
             'vid','cookies','native_source_excerpt','raw_cloud_preview'}
     if mock_port is not None:fields.add('cloud_mock_port')
     if reconnect:fields.add('raw_cloud_reconnect')
+    if wake:
+        if not reconnect:raise ValueError('cloud_choice/input')
+        fields.add('raw_cloud_wake')
     if not isinstance(value,dict) or set(value)!=fields:raise ValueError('cloud_choice/input')
-    if reconnect and value['raw_cloud_reconnect'] is not True:raise ValueError('cloud_choice/input')
+    if reconnect and value['raw_cloud_reconnect'] is not True or wake and value['raw_cloud_wake'] is not True:raise ValueError('cloud_choice/input')
     trial=value['raw_cloud_preview']
     if not isinstance(trial,dict) or set(trial)!={'baseline','target'}:raise ValueError('cloud_choice/input')
     point(trial['baseline']);point(trial['target']);validate_cookies(value['cookies'],value['vid'])
@@ -45,13 +49,14 @@ def validate_source(value):
             or value['render_path']!='OEBPS/text/chapter.xhtml'):raise ValueError('cloud_choice/private')
 
 
-def decode(raw,owner,mode,*,reconnect=False):
+def decode(raw,owner,mode,*,reconnect=False,wake=False):
     if mode not in ('live','reopen') or not isinstance(raw,bytes) or len(raw)>2*1024*1024 or raw.count(FRAME)!=1:raise ValueError('cloud_choice/frame')
     value=json.loads(raw.split(FRAME)[1])
     if not isinstance(value,dict) or not {'report','cookies'}<=set(value)<= {'report','cookies','candidate_private'}:raise ValueError('cloud_choice/envelope')
     validate_cookies(value['cookies'],owner);stage=value['report']
     if not isinstance(stage,dict):raise ValueError('cloud_choice/stage')
-    a=stage.get('cloud_source');flags=FLAGS|RECONNECT_FLAGS if reconnect else FLAGS
+    if wake and not reconnect:raise ValueError('cloud_choice/input')
+    a=stage.get('cloud_source');flags=(FLAGS|RECONNECT_FLAGS if reconnect else FLAGS)| (WAKE_FLAGS if wake else set())
     if (not isinstance(a,dict) or set(a)!=flags|{'native_denied','failed_line'} or any(type(a[k]) is not bool for k in flags)
             or any(type(a[k]) is not int or not 0<=a[k]<=cap for k,cap in (('native_denied',32),('failed_line',10000)))):
         raise ValueError('cloud_choice/stage')
@@ -59,6 +64,7 @@ def decode(raw,owner,mode,*,reconnect=False):
     if stage['result']=='PASS':
         required={'raw_target','parent_native_guard'}|({'offline_checkpoint','offline_local_only'} if mode=='reopen' else FLAGS-{'offline_checkpoint','offline_local_only'})
         if reconnect and mode=='live':required=required|RECONNECT_FLAGS
+        if wake and mode=='live':required=required|WAKE_FLAGS
         if a['native_denied'] or a['failed_line'] or any(a[k]!=(k in required) for k in flags):raise ValueError('cloud_choice/incomplete')
         private=value.get('candidate_private')
         if not isinstance(private,dict) or set(private)!={'position','checkpoint'}:raise ValueError('cloud_choice/private')
@@ -80,7 +86,7 @@ def compare(records,payload,raw):
     if records[0]!=records[1]:raise ValueError('cloud_choice/offline_changed')
 
 
-def decode_runner(raw,owner,*,reconnect=False):
+def decode_runner(raw,owner,*,reconnect=False,wake=False):
     if not isinstance(raw,bytes) or len(raw)>4*1024*1024 or raw.count(FRAME)!=1:raise ValueError('cloud_choice/frame')
     value=json.loads(raw.split(FRAME)[1])
     if not isinstance(value,dict) or set(value)!={'report','cookies','candidate_private'}:raise ValueError('cloud_choice/envelope')
@@ -92,7 +98,7 @@ def decode_runner(raw,owner,*,reconnect=False):
             or not isinstance(report['stages'],list) or len(report['stages'])>2 or not isinstance(value['candidate_private'],list)
             or len(value['candidate_private'])!=len(report['stages'])):raise ValueError('cloud_choice/report')
     for index,(stage,private) in enumerate(zip(report['stages'],value['candidate_private'])):
-        decode(FRAME+json.dumps(dict(report=stage,cookies=value['cookies'],candidate_private=private)).encode(),owner,('live','reopen')[index],reconnect=reconnect)
+        decode(FRAME+json.dumps(dict(report=stage,cookies=value['cookies'],candidate_private=private)).encode(),owner,('live','reopen')[index],reconnect=reconnect,wake=wake)
     if report['result']=='PASS':
         package=report['installed']
         if (len(report['stages'])!=2 or not report['profile_removed'] or report['error']!='none' or any(v['result']!='PASS' for v in report['stages'])

@@ -356,6 +356,112 @@ test('imported reconnect asks before using an offline local position',function()
     eq(#f.uploads,0,'reconnect choice bypassed source preparation')
 end)
 
+test('imported offline progress is compared when network returns during sleep',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected();f.sync:on_suspend();online=true
+    eq(f.sync:on_network_connected(),false,'network event while sleeping started a comparison')
+    eq(f.remote_reads,0,'sleeping reader accessed the network')
+    eq(#f.choices,0,'sleeping reader presented a choice')
+    f.sync:on_resume();f.drain()
+    eq(f.remote_reads,1,'wake did not compare the restored connection')
+    eq(#f.choices,1,'wake did not offer the saved offline position')
+    eq(f.sync.state,'awaiting_choice','wake failed to wait for the reader')
+    eq(f.prepares,0,'wake prepared a write before the reader chose')
+    eq(#f.uploads,0,'wake sent an offline position without a choice')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'wake lost the offline intent')
+    eq(f.sync:on_network_connected(),false,'late network event duplicated the wake choice')
+    eq(f.remote_reads,1,'late event repeated the wake comparison')
+end)
+
+test('network loss during sleep preserves the precise checkpoint',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_suspend(f.source)
+    local saved=f.values.books[id];local original=saved.pending_upload_position
+    eq(original.source_position.chapter_offset,150,'suspend did not capture the exact position')
+    f.sync.get_source_position=function() return nil end
+    f.sync:on_network_disconnected()
+    eq(saved.pending_upload_position.source_position and saved.pending_upload_position.source_position.chapter_offset,150,
+        'sleeping network event replaced the exact pending position')
+    eq(saved.last_local_position.source_position and saved.last_local_position.source_position.chapter_offset,150,
+        'sleeping network event replaced the exact local position')
+    eq(f.sync.state,'offline','sleeping disconnect did not record network loss')
+    eq(f.remote_reads,0,'sleeping disconnect fetched cloud state')
+    eq(#f.uploads,0,'sleeping disconnect sent a position')
+end)
+
+test('imported reconnect retains its decision gate after an offline retry',function()
+    local f=cb_manual_fixture();local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),false,'offline notification unexpectedly started a request')
+    eq(f.remote_reads,0,'offline notification accessed the network')
+    online=true;f.drain()
+    eq(f.remote_reads,1,'bounded retry did not compare after network recovery')
+    eq(#f.choices,1,'retry lost the reconnect choice')
+    eq(f.prepares,0,'retry prepared an upload without a choice')
+    eq(#f.uploads,0,'retry sent an offline position without a choice')
+end)
+
+test('wake cannot compare an imported reader under a changed account',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected();f.sync:on_suspend()
+    f.values.account={user_vid='changed-account'};f.sync:on_resume();f.drain()
+    eq(f.remote_reads,0,'wake queried cloud under another account')
+    eq(#f.choices,0,'wake offered another account the old decision')
+    eq(f.prepares,0,'wake prepared another account upload')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'account change lost the previous intent')
+end)
+
+test('offline imported wake retries with its choice gate intact',function()
+    local f=cb_manual_fixture();local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected();f.sync:on_suspend();f.sync:on_resume()
+    eq(f.remote_reads,0,'offline wake read remote progress')
+    online=true;f.drain()
+    eq(f.remote_reads,1,'wake retry did not read remote progress')
+    eq(#f.choices,1,'wake retry did not offer the saved local position')
+    eq(f.prepares,0,'wake retry prepared an upload before a decision')
+    eq(#f.uploads,0,'wake retry sent an upload before a decision')
+end)
+
+test('imported wake preserves an unconfirmed write and a held source target',function()
+    for _,kind in ipairs({'unknown_reason','unknown_journal','held_target','pending_jump'}) do
+        local f=cb_manual_fixture();local id=f.source.book_id;local online=false
+        f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+        f.sync:on_network_disconnected();f.sync:on_suspend()
+        if kind=='unknown_reason' then f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+        elseif kind=='unknown_journal' then f.sync.source_dispatch.pending=function() return true end
+        elseif kind=='held_target' then f.sync.current_source_target=function() return {upload_verified=false} end
+        else f.sync.pending_jump={synthetic=true} end
+        online=true;f.sync:on_resume();f.drain()
+        eq(#f.choices,0,'wake exposed a protected state: '..kind)
+        eq(f.prepares,0,'wake prepared a protected state: '..kind)
+        eq(#f.uploads,0,'wake sent a protected state: '..kind)
+        eq(f.sync.verified,false,'wake verified a protected state: '..kind)
+        if kind=='held_target' or kind=='pending_jump' then eq(f.remote_reads,0,'wake replaced a protected target') end
+        eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'wake lost protected intent: '..kind)
+    end
+end)
+
+test('online imported wake is not mistaken for an offline reconnect',function()
+    local f=cb_manual_fixture();f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_suspend();f.sync:on_resume();f.drain()
+    eq(#f.choices,0,'normal online wake unexpectedly offered a reconnect choice')
+    eq(f.prepares,0,'normal online wake prepared an upload')
+    eq(#f.uploads,0,'normal online wake sent an upload')
+end)
+
+test('explicit account-change event during sleep invalidates wake comparison',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected();f.sync:on_suspend()
+    f.values.account={user_vid='changed-account'};f.sync:on_account_changed();f.sync:on_resume();f.drain()
+    eq(f.remote_reads,0,'account-change event still allowed a wake comparison')
+    eq(#f.choices,0,'account-change event exposed the old decision')
+    eq(f.prepares,0,'account-change event prepared an old upload')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'account-change event lost the old intent')
+end)
+
 test('imported reconnect choice expires on a second disconnect',function()
     local f=cb_manual_fixture();local id=f.source.book_id
     f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()

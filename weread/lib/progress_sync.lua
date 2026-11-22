@@ -341,6 +341,7 @@ end
 -- session explicitly, so old dialogs, tasks and chapter downloads cannot act
 -- with the newly installed credentials.
 function ProgressSync:on_account_changed()
+    if self.suspended_at ~= nil then self._suspend_session_invalid = true end
     self.interval:halt()
     self.file_resume=nil
     self.cb_cloud_view_target=nil
@@ -351,6 +352,7 @@ function ProgressSync:on_account_changed()
     self.pending_jump, self.document_context = nil, nil
     self.remote_anchor, self.source_anchor = nil, nil
     self._suspend_pending_upload = nil
+    self._suspend_was_offline, self._reconnect_while_suspended = nil, nil
     self.checkpoint_account, self.network_disconnected = nil, nil
     self.current_book_id, self.local_position, self.remote_position = nil, nil, nil
     self.verified, self.dirty, self.state = false, false, "unverified"
@@ -1535,6 +1537,8 @@ function ProgressSync:_schedule_pull_retry(options, retry_token)
         if self.state == "awaiting_choice" then return end
         self:_pull({
             manual = false,
+            reconnect = options.reconnect == true,
+            resume = options.resume == true,
             retry = attempt,
             retry_token = retry_token,
         })
@@ -1681,7 +1685,7 @@ function ProgressSync:_pull(options)
                 if options.manual then self.notify('local_unavailable',{error=why}) end
             end
         end
-        if not SourceWait.start(self,job,current,fetch,unavailable) then fetch() end
+        if not SourceWait.start(self,job,current,fetch,unavailable,options.resume==true) then fetch() end
     end, { silent_offline = true })
     if not started and self.pull_job == job then
         SourceWait.cancel(self,job)
@@ -1773,6 +1777,7 @@ function ProgressSync:on_reader_ready()
     self.current_book_id = nil
     self.checkpoint_account = self:_account_key()
     self.network_disconnected = nil
+    self._suspend_was_offline, self._reconnect_while_suspended, self._suspend_session_invalid = nil, nil, nil
     self.local_position = nil
     self.remote_position = nil
     self.document_context = nil
@@ -1912,6 +1917,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
     self:_invalidate_pull()
     self.current_book_id = nil
     self.checkpoint_account, self.network_disconnected = nil, nil
+    self._suspend_was_offline, self._reconnect_while_suspended, self._suspend_session_invalid = nil, nil, nil
     self.verified = false
     self.local_position = nil
     self.remote_position = nil
@@ -1922,6 +1928,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
 end
 
 function ProgressSync:on_suspend(source_position)
+    self._suspend_was_offline = self._suspend_was_offline or self.network_disconnected == true or not self.is_online()
     self.interval:halt()
     local position = self:checkpoint_local("suspend", source_position)
     self.generation = self.generation + 1
@@ -1938,7 +1945,9 @@ end
 
 function ProgressSync:on_network_disconnected()
     if not self.current_book_id then return false end
-    self:checkpoint_local("network_disconnected")
+    -- Suspend already saved the live source point before pausing its collector.
+    -- A later network event must not replace it with a source-less checkpoint.
+    if self.suspended_at == nil then self:checkpoint_local("network_disconnected") end
     self.navigation_generation = self.navigation_generation + 1
     self:_invalidate_pull()
     self.upload_job, self.uploading = nil, false
@@ -1948,6 +1957,10 @@ function ProgressSync:on_network_disconnected()
 end
 
 function ProgressSync:on_network_connected()
+    if self.suspended_at ~= nil then
+        self._reconnect_while_suspended = true
+        return false
+    end
     if self.file_resume or self:_config().pull_on_open ~= true or not self.current_book_id or self.pulling
         or self.state == "awaiting_choice" or self.pending_jump or self:current_source_target() then return false end
     if self.checkpoint_account ~= self:_account_key() then return false end
@@ -1960,13 +1973,28 @@ end
 function ProgressSync:on_resume()
     local slept = self.suspended_at and self.now() - self.suspended_at or 0
     self.suspended_at = nil
+    local reconnect = self._suspend_was_offline == true or self._reconnect_while_suspended == true
+        or self.network_disconnected == true
+    local invalid_session = self._suspend_session_invalid == true
+    self._suspend_was_offline, self._reconnect_while_suspended, self._suspend_session_invalid = nil, nil, nil
     if self.file_resume then return end
     local pending = self._suspend_pending_upload
     self._suspend_pending_upload = nil
+    -- A sleeping reader belongs to the account that opened it. Do not compare
+    -- or persist its old position against credentials installed during sleep.
+    if invalid_session or self.checkpoint_account and self.checkpoint_account ~= self:_account_key() then
+        self.interval:halt()
+        self.verified, self.state = false, "unverified"
+        return
+    end
     local automatic = self:_config().pull_on_open == true
     if pending or (automatic and (slept >= RESUME_RECHECK_SECONDS or not self.verified)) then
         self:_clear_verified("resume_recheck")
-        if automatic then self:_pull({ manual = false }) end
+        if automatic then
+            if reconnect and (self.pending_jump or self:current_source_target()) then return end
+            if reconnect then self.network_disconnected = nil end
+            self:_pull({ manual = false, reconnect = reconnect, resume = true })
+        end
     end
     self.interval:refresh()
 end

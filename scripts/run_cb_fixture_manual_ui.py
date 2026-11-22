@@ -36,8 +36,11 @@ def main():
         dry=decoded.get('armed') is False
         reconnect=decoded.get('reconnect') is True
         discover=decoded.get('reconnect_discover') is True
-        if (any(key in decoded and decoded[key] is not True for key in ('reconnect','reconnect_discover'))
-                or discover and (not reconnect or not dry)):raise ValueError('input')
+        waking=decoded.get('wake_reconnect') is True
+        retrying=decoded.get('wake_retry') is True
+        if (any(key in decoded and decoded[key] is not True for key in ('reconnect','reconnect_discover','wake_reconnect','wake_retry'))
+                or discover and (not reconnect or not dry) or waking and retrying
+                or (waking or retrying) and (not reconnect or os.environ.get('WEREAD_FIXTURE_SYNTHETIC')!='1')):raise ValueError('input')
         timed=decoded.get('timer') is True
         closing=decoded.get('close') is True
         reading_time=decoded.get('time') is True
@@ -87,6 +90,8 @@ def main():
                             if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,
                                 journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=3 if timed or closing or reading_time else 2,denied=0))
                         if reconnect and not reopened:expected.update(offline_intent=True,reconnect_choice=True)
+                        if waking and not reopened:expected.update(wake_choice=True,sleep_disconnect_preserved=True)
+                        if retrying and not reopened:expected['wake_retry']=True
                     if closing and not reopened:expected['close_verified']=True
                     if reading_time and not reopened:expected['time_verified']=True
                     if value!=expected:raise ValueError('result')
@@ -103,6 +108,8 @@ def main():
             else:report.update(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,fresh_process=True,
                           pending_cleared=True,journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),writes=3 if timed or closing or reading_time else 2,denied=0,credentials_not_persisted=True)
             if reconnect and not discover:report.update(offline_intent=True,reconnect_choice=True)
+            if waking and not discover:report.update(wake_choice=True,sleep_disconnect_preserved=True)
+            if retrying and not discover:report['wake_retry']=True
             if timed:report['timer_verified']=True
             if closing:report['close_verified']=True
             if reading_time:report['time_verified']=True

@@ -11,8 +11,9 @@ function M.cancel(sync,job)
     if not wait then return end
     job.source_wait=nil;sync.scheduler:unschedule(wait.expire)
 end
-function M.start(sync,job,current,proceed,failed)
-    if not sync.prepare_upload or not sync.get_source_position or available(sync,job) or not working[sync.source_state] then return false end
+function M.start(sync,job,current,proceed,failed,wait_paused)
+    local waiting=working[sync.source_state] or wait_paused==true and sync.source_state=='paused'
+    if not sync.prepare_upload or not sync.get_source_position or available(sync,job) or not waiting then return false end
     local wait={started=sync.now()};job.source_wait=wait
     local function owned()
         if job.source_wait~=wait then return false end

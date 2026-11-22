@@ -18,6 +18,8 @@ local ok,reason=pcall(function()
         or not reconnect and (distance==1 and input.unicode_boundary~=true
         or distance==2 and input.source_format=='web_txt' and input.unicode_boundary==true))
     local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
+    local waking=input.wake_reconnect==true;local retrying=input.wake_retry==true
+    assert(not (waking and retrying) and (not waking and not retrying or reconnect and synthetic))
     local timed=input.timer==true
     local closing=input.close==true
     local reading_time=input.time==true
@@ -142,6 +144,13 @@ local ok,reason=pcall(function()
     result.phase='source_ready'
     wait(function() local point=plugin.source_position:current();return point and point.chapter_uid==input.chapter end)
     local sync=plugin.progress_sync;local choice,box,notice
+    local show=UI.show
+    function UI:show(widget,...)
+        if choice and widget.cancel_callback==choice.keep_local then box=widget end
+        return show(self,widget,...)
+    end
+    local old_choice=sync.on_choice;sync.on_choice=function(value) choice=value;old_choice(value) end
+    sync.notify=function(code,data) notice={code=code,data=data} end
     if reconnect then
         local config=plugin.settings:get('sync');config.pull_on_open=true;config.ask_on_conflict=true
         plugin.settings:set('sync',config)
@@ -170,8 +179,26 @@ local ok,reason=pcall(function()
         local saved=assert(plugin.settings:get_book(input.book));local pending=assert(saved.pending_upload_position)
         assert(pending.source_position and pending.source_position.chapter_offset==current.chapter_offset
             and not sync.verified and not sync.uploading and sync.state=='offline')
-        plugin:onFlushSettings();plugin:onSuspend();plugin:onResume()
+        plugin:onFlushSettings();plugin:onSuspend()
         assert(tonumber(counts[0])==reads and tonumber(counts[1])==writes and tonumber(counts[2])==denied)
+        if waking and not discover then
+            assert(not source_service:current(),'suspend did not pause source collector')
+            plugin:onNetworkDisconnected()
+            local asleep=assert(plugin.settings:get_book(input.book).pending_upload_position)
+            assert(asleep.source_position and asleep.source_position.chapter_offset==current.chapter_offset,
+                'sleeping disconnect lost the source position')
+            offline=false;plugin:onNetworkConnected()
+            assert(tonumber(counts[0])==reads and tonumber(counts[1])==writes and tonumber(counts[2])==denied
+                and not choice and sync.suspended_at~=nil,'sleeping reader accessed the network')
+        end
+        plugin:onResume()
+        if not waking or discover then
+            assert(tonumber(counts[0])==reads and tonumber(counts[1])==writes and tonumber(counts[2])==denied)
+        end
+        if retrying and not discover then
+            assert(sync.state=='offline' and not choice)
+            offline=false;UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+        end
         if discover then
             result={result='DISCOVERED',offset=current.chapter_offset,offline_intent=true,writes=0,denied=0};return
         end
@@ -182,14 +209,8 @@ local ok,reason=pcall(function()
         wait(function() return landed and plugin.source_position:current() and plugin.source_position:current().chapter_offset==input.next_offset end)
     end
     result.phase='choice'
-    local show=UI.show
-    function UI:show(widget,...)
-        if choice and widget.cancel_callback==choice.keep_local then box=widget end
-        return show(self,widget,...)
-    end
-    local old_choice=sync.on_choice;sync.on_choice=function(value) choice=value;old_choice(value) end
-    sync.notify=function(code,data) notice={code=code,data=data} end
-    if reconnect then offline=false;plugin:onNetworkConnected() else assert(sync:sync_now()) end
+    if reconnect and not waking and not retrying then offline=false;plugin:onNetworkConnected()
+    elseif not reconnect then assert(sync:sync_now()) end
     wait(function()
         if reconnect then
             result.reconnect_state=sync.state;result.reconnect_pulling=sync.pulling==true
@@ -231,7 +252,9 @@ local ok,reason=pcall(function()
         assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and not sync.verified
             and state.pending_upload_position and plugin.source_dispatch:pending(input.book),'manual dry run did not block write')
         result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1}
-        if reconnect then result.offline_intent=true;result.reconnect_choice=true end;return
+        if reconnect then result.offline_intent=true;result.reconnect_choice=true end
+        if waking then result.wake_choice=true;result.sleep_disconnect_preserved=true end
+        if retrying then result.wake_retry=true end;return
     end
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))
@@ -279,6 +302,8 @@ local ok,reason=pcall(function()
     result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=not time_noack,
         journal_cleared=not time_noack,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
     if reconnect then result.offline_intent=true;result.reconnect_choice=true end
+    if waking then result.wake_choice=true;result.sleep_disconnect_preserved=true end
+    if retrying then result.wake_retry=true end
     if closing then result.close_verified=true end
     if time_noack then result.time_unconfirmed=true elseif reading_time then result.time_verified=true end
 end)

@@ -36,7 +36,8 @@ def observe(api,grant,book):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);access=p.add_mutually_exclusive_group();access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
-    p.add_argument('--reconnect',action='store_true');p.add_argument('--book-from-retired-close',action='store_true');p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
+    p.add_argument('--reconnect',action='store_true');p.add_argument('--wake',action='store_true');p.add_argument('--book-from-retired-close',action='store_true');p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
+    if a.wake and not a.reconnect:p.error('--wake requires --reconnect')
     if bool(a.lua_command)!=bool(a.saved_session or a.mock) or a.book_from_retired_close and not a.saved_session:p.error('paired explicit session and private reader command required')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,private_data_on_regular_disk=False)
     web=api=grant=saved=store=server=reference=None;secrets=set();phase='init'
@@ -90,12 +91,13 @@ def main(argv=None):
             cookies={c.name:c.value for c in web.cookies} if a.mock else dict(saved['cookies']);secrets.update(cookies.values())
             payload=reading_payload(web);payload.update(vid=web.vid,cookies=cookies,native_source_excerpt=True,raw_cloud_preview=dict(baseline=baseline,target=target))
             if a.reconnect:payload['raw_cloud_reconnect']=True
+            if a.wake:payload['raw_cloud_wake']=True
             if server:payload['cloud_mock_port']=server.server_port
             command=[str(server.server_port) if server and x=='@MOCK_PORT@' else x for x in a.lua_command]
             encoded=json.dumps(payload,ensure_ascii=False).encode()
             if len(encoded)>256*1024:raise ValueError('cloud_choice/input')
             phase='reader';child=subprocess.run(command,input=encoded,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=420)
-            envelope=decode_runner(child.stdout,web.vid,reconnect=a.reconnect);report['ui']=envelope['report']
+            envelope=decode_runner(child.stdout,web.vid,reconnect=a.reconnect,wake=a.wake);report['ui']=envelope['report']
             if child.returncode or report['ui']['result']!='PASS':raise ValueError('cloud_choice/runtime')
             compare(envelope['candidate_private'],payload,raw)
             for key,value in envelope['cookies'].items():web.set_cookie(key,value)
@@ -108,7 +110,7 @@ def main(argv=None):
             if not a.mock and NativeSessionStore().load(web.vid)!=grant:raise ValueError('cloud_choice/grant_changed')
             if reference is not None and NativeCloseTrialStore().read()!=reference:raise ValueError('cloud_choice/reference_changed')
             if server and (server.native_posts or not server.preserved_counts()):raise ValueError('cloud_choice/mock_writes')
-            report.update(result='OWNER_RAW_TXT_RECONNECT_CHOICE_VERIFIED' if a.reconnect else 'OWNER_RAW_TXT_CLOUD_CHOICE_VERIFIED',independent_raw_position_checkpoint_comparisons=4,
+            report.update(result='OWNER_RAW_TXT_WAKE_CHOICE_VERIFIED' if a.wake else 'OWNER_RAW_TXT_RECONNECT_CHOICE_VERIFIED' if a.reconnect else 'OWNER_RAW_TXT_CLOUD_CHOICE_VERIFIED',independent_raw_position_checkpoint_comparisons=4,
                 complete_web_native_cloud_and_counts_preserved=True,source_catalog_unchanged=True,credentials_unchanged=True,
                 retired_reference_unchanged=reference is not None,fresh_offline_process=True)
     except (Exception,KeyboardInterrupt) as error:

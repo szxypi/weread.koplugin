@@ -331,6 +331,7 @@ local ok,reason=pcall(function()
         report.unstarted=candidate_case.report
     elseif input.raw_cloud_preview then
         assert(input.raw_cloud_reconnect==nil or input.raw_cloud_reconnect==true)
+        assert(input.raw_cloud_wake==nil or input.raw_cloud_wake==true and input.raw_cloud_reconnect==true)
         assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
             and arg[2]:match('/owner_cloud_source_case%.lua$'))
         candidate_case=dofile(arg[2])(input,mode,counters)
