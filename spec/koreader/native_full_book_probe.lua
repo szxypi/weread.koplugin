@@ -71,6 +71,16 @@ Content.finalize_single_chapter_content=function(client,settings_value,book_valu
     if input.web_asset then return real_finalize(client,settings_value,book_value,chapter,xhtml,state) end
     return xhtml,{}
 end
+if input.web_corrupt then
+    local save=Content.save_full_download_chapter
+    Content.save_full_download_chapter=function(workspace,chapter,...)
+        local result=save(workspace,chapter,...)
+        if chapter.chapterUid=='39' and not lfs.attributes(home..'/resume') then
+            error('download_read/rate_limited',0)
+        end
+        return result
+    end
+end
 if input.switch then
     local save=Content.save_book_epub
     Content.save_book_epub=function(...)
@@ -114,6 +124,21 @@ local function wait_done()
     end
 end
 start();wait_done()
+if input.web_corrupt then
+    assert(completed==false and result=='incomplete_full_book')
+    local workspace=Content.open_full_download_workspace(settings,book)
+    for i,chapter in ipairs(chapters) do assert(Content.full_download_chapter_exists(workspace,chapter,i,1,true)) end
+    local prior=assert(io.open(old_path,'rb'));assert(prior:read('*a')=='previous full book');assert(prior:close())
+    local path=workspace.asset_dir..'/fixture.png'
+    local f=assert(io.open(path,'rb'));local bytes=assert(f:read('*a'));assert(f:close())
+    assert(#bytes>20)
+    local out=assert(io.open(path,'wb'));assert(out:write(bytes:sub(1,-2)..(bytes:sub(-1)=='x' and 'y' or 'x')));assert(out:close())
+    assert(not Content.full_download_chapter_exists(workspace,chapters[3],3,1,true)
+        and Content.full_download_chapter_exists(workspace,chapters[1],1,1,true)
+        and Content.full_download_chapter_exists(workspace,chapters[2],2,1,true))
+    local marker=assert(io.open(home..'/resume','wb'));assert(marker:write('1'));assert(marker:close())
+    start();wait_done()
+end
 if input.switch then
     assert(completed==false and result=='account_changed')
     local prior=assert(io.open(old_path,'rb'));assert(prior:read('*a')=='previous full book');assert(prior:close())
@@ -221,15 +246,17 @@ for i,chapter in ipairs(chapters) do
     else
         assert(rendered:find('href="../style.css"',1,true))
         if input.web_asset then
-            local bytes=assert(doc:getDocumentFileContent('OEBPS/images/fixture.png'))
+            local name=input.web_corrupt and 'fixture-2.png' or 'fixture.png'
+            local bytes=assert(doc:getDocumentFileContent('OEBPS/images/'..name))
             local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,100,100))
             assert(bitmap:getWidth()>0);bitmap:free()
-            assert(rendered:find('../images/fixture.png',1,true))
+            assert(rendered:find('../images/'..name,1,true))
         end
     end
 end
 assert(hashes[1]~=hashes[2] and opf:find('eink-style-'..hashes[1],1,true)
     and opf:find('eink-style-'..hashes[2],1,true))
-local _,image_count=opf:gsub('media%-type="image/png"','');assert(image_count==(input.web_asset and 2 or 1))
+local _,image_count=opf:gsub('media%-type="image/png"','')
+assert(image_count==(input.web_corrupt and 3 or input.web_asset and 2 or 1))
 doc:close();manager:close(widget)
 print('WEREAD_FULL_RESULT='..json.encode{ok=true,resumed=input.resume==true,chapters=3,styles=2,images=1})

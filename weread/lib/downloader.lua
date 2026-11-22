@@ -133,7 +133,8 @@ end
 function Downloader:_restoreFullDownloadCheckpoint(dl, initial)
     local completed = self:_runInterruptible(dl, function()
         return Content.full_download_completed_chapters(
-            dl.workspace, dl.chapters, initial and dl.source_identity and dl.source_identity.book_version or nil)
+            dl.workspace, dl.chapters, initial and dl.source_identity and dl.source_identity.book_version or nil,
+            self.settings:get('cache',{}).download_book_images==true)
     end)
     if dl.cancelled then return 0 end
     local selected = {}
@@ -1209,9 +1210,13 @@ function Downloader:_finishChapter(dl)
                     error('native_candidate/session_changed',0)
                 end
                 Content.save_full_download_css(dl.workspace, dl.state.css)
+                local web_images
+                if cache.download_book_images and not dl.current.native_assets then
+                    web_images=require('weread.lib.web_image_receipt').stage(dl.workspace,chapter_assets or {})
+                end
                 Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml,
                     FileIdentity.check(dl.source_identity, dl.book), dl.current.position_receipt,
-                    dl.current.native_style, dl.current.native_asset_receipt)
+                    dl.current.native_style, dl.current.native_asset_receipt,web_images)
                 if not full_scope_current(self.settings,dl) then error('download/session_changed',0) end
                 return true
             end)

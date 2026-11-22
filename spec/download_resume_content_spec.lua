@@ -437,6 +437,77 @@ write(Content.full_download_rendered_chapter_path(workspace,chapters[1],1),rende
 expect(not Content.full_download_rendered_chapter_exists(workspace,chapters[1],1),
     'rendered chapter accepted another chapter stylesheet')
 
+-- Web image checkpoints are account-bound and detect missing or modified
+-- files, while old checkpoints remain readable when images are not required.
+local WebImages=require('weread.lib.web_image_receipt')
+local web_chapter={chapterUid=33,title='Web'}
+local web_file='共享 图片.png'
+local web_path=workspace.asset_dir..'/'..web_file
+local web_data='\137PNG\r\n\26\n'..string.rep('a',70000)
+write(web_path,web_data)
+local web_assets={{href='images/'..web_file,path=web_path,media_type='image/png'}}
+local web_digest=WebImages.stage(workspace,web_assets)
+local valid,web_names=WebImages.verify(workspace,web_digest)
+expect(valid and #web_names==1 and web_names[1]==web_file,'web image receipt rejected a valid Unicode image')
+Content.save_full_download_chapter(workspace,web_chapter,3,'<p>web</p>',7,nil,nil,nil,web_digest)
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,'<p>web</p>')
+expect(Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'complete web image checkpoint was not reusable')
+local web_checkpoint_path=Content.full_download_checkpoint_path(workspace,web_chapter,3)
+local web_checkpoint=read_all(web_checkpoint_path)
+write(web_checkpoint_path,web_checkpoint..'web_images_digest='..web_digest..'\n')
+expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'duplicate web image receipt was accepted')
+write(web_checkpoint_path,web_checkpoint:gsub('web_owner_sha256='..workspace.native_owner..'\n',''))
+expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'web image receipt without an owner was accepted')
+write(web_checkpoint_path,web_checkpoint)
+write(Content.full_download_rendered_chapter_path(workspace,chapters[1],1),rendered_first)
+local full_chapters={chapters[1],chapters[2],web_chapter}
+local without_web={}
+for _,asset in ipairs(Content.full_download_workspace_assets(workspace)) do
+    if asset.href~='images/'..web_file then without_web[#without_web+1]=asset end
+end
+write(full_path,'previous book')
+expect(not pcall(Content.save_book_epub,settings,book,full_chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',without_web,nil,nil,source_identity)
+    and read_all(full_path)=='previous book','EPUB was published without a required web image')
+archive_calls={}
+Content.save_book_epub(settings,book,full_chapters,
+    {__workspace_text_dir=workspace.rendered_text_dir,__source_workspace=workspace},'full',
+    Content.full_download_workspace_assets(workspace),nil,nil,source_identity)
+expect(assert(last_entry('OEBPS/content.opf')).data:find('images/'..web_file,1,true),
+    'EPUB manifest omitted a verified web image')
+write(web_path,web_data:sub(1,-2)..'b')
+expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'modified web image was accepted')
+write(web_path,web_data)
+os.remove(web_path)
+expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'missing web image was accepted')
+write(web_path,web_data)
+owner_scope={vid='87654321',epoch=3}
+local switched_workspace=Content.open_full_download_workspace(settings,book)
+expect(not Content.full_download_chapter_exists(switched_workspace,web_chapter,3,7,true),
+    'web image checkpoint crossed accounts')
+owner_scope={vid='12345678',epoch=4}
+local same_workspace=Content.open_full_download_workspace(settings,book)
+expect(Content.full_download_chapter_exists(same_workspace,web_chapter,3,7,true),
+    'same-account login could not restore web image checkpoint')
+local web_receipt=workspace.web_asset_receipt_dir..'/images-'..web_digest..'.txt'
+local saved_web_receipt=read_all(web_receipt)
+write(web_receipt,saved_web_receipt..'bad\n')
+expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'damaged web image receipt was accepted')
+expect(WebImages.stage(workspace,web_assets)==web_digest and WebImages.verify(workspace,web_digest),
+    'verified web images could not restore their receipt')
+Content.save_full_download_chapter(workspace,web_chapter,3,'<p>legacy</p>',7)
+expect(Content.full_download_chapter_exists(workspace,web_chapter,3,7)
+    and not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
+    'legacy web checkpoint did not respect the image requirement')
+local empty_web=WebImages.stage(workspace,{})
+expect(WebImages.verify(workspace,empty_web),'empty web image receipt was rejected')
+
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),
     "successful cleanup did not remove the resumable workspace")

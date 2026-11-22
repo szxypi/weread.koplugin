@@ -266,6 +266,24 @@ failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book
 expect(not failed and read_file(failure_workspace.asset_dir..'/'..zip_name)=='existing',
     'resource extraction overwrote an existing image')
 
+local remote_downloads=0
+fake_client.download_to_file=function(_self,_url,path)
+    remote_downloads=remote_downloads+1
+    local handle=assert(io.open(path,'wb'));assert(handle:write('\137PNG\r\n\26\nremote'))
+    assert(handle:close());return path
+end
+local remote_names={}
+local html='<p><img src="https://example.test/shared.png"/></p>'
+local _,first_remote=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+local _,shared_remote=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+expect(remote_downloads==1 and #first_remote==1 and #shared_remote==1
+    and first_remote[1].path==shared_remote[1].path,
+    'shared remote image was not recorded for both chapters')
+assert(os.remove(first_remote[1].path))
+local _,replacement=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+expect(remote_downloads==2 and #replacement==1 and replacement[1].path~=first_remote[1].path,
+    'missing shared image was reused instead of downloaded again')
+
 local settings = {
     cache_dir = root,
     get = function(_self, _key, default) return default end,

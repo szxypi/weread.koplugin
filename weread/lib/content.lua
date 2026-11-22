@@ -289,6 +289,7 @@ function Content.open_full_download_workspace(settings, book)
     local rendered_text_dir = workspace .. "/rendered-text"
     local style_dir = workspace .. "/styles"
     local asset_receipt_dir = workspace .. "/native-asset-receipts"
+    local web_asset_receipt_dir = workspace .. "/web-asset-receipts"
     make_path(incoming_dir)
     make_path(asset_dir)
     make_path(text_dir)
@@ -296,6 +297,7 @@ function Content.open_full_download_workspace(settings, book)
     make_path(rendered_text_dir)
     make_path(style_dir)
     make_path(asset_receipt_dir)
+    make_path(web_asset_receipt_dir)
     -- A killed worker can leave a native image's temporary file. The full
     -- workspace is book-locked before opening; remove only our well-formed
     -- regular partials so they cannot be swept into the streamed EPUB.
@@ -328,6 +330,7 @@ function Content.open_full_download_workspace(settings, book)
         rendered_text_dir = rendered_text_dir,
         style_dir = style_dir,
         asset_receipt_dir = asset_receipt_dir,
+        web_asset_receipt_dir = web_asset_receipt_dir,
         native_owner = native_owner,
         book_id = tostring(book_id),
         resumable = true,
@@ -442,10 +445,11 @@ function Content.full_download_rendered_chapter_exists(workspace, chapter, chapt
     local xhtml = file:read("*a") or ""
     local closed = file:close()
     local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
-    local style,assets,owner=checkpoint[7],checkpoint[8],checkpoint[9]
+    local style,assets,owner,web_images,web_owner=checkpoint[7],checkpoint[8],checkpoint[9],checkpoint[10],checkpoint[11]
     return checkpoint[1]~=nil and closed and xhtml:find(workspace_chapter_marker(chapter), 1, true) ~= nil
         and xhtml:find(full_style_link(style),1,true)~=nil
         and (not style or owner==workspace.native_owner and full_style_valid(workspace,style) and full_assets_valid(workspace,assets))
+        and (not web_images or web_owner==workspace.native_owner and require('weread.lib.web_image_receipt').verify(workspace,web_images))
 end
 
 read_full_download_checkpoint = function(path)
@@ -459,7 +463,8 @@ read_full_download_checkpoint = function(path)
     local digest = data:match("\nsha256=([0-9a-f]+)\n")
     if not uid or not length or not digest then return nil end
     local receipt, receipt_count, style, style_count, assets, assets_count, owner, owner_count
-    receipt_count,style_count,assets_count,owner_count = 0,0,0,0
+    local web_images,web_count,web_owner,web_owner_count
+    receipt_count,style_count,assets_count,owner_count,web_count,web_owner_count = 0,0,0,0,0,0
     for line in data:gmatch("([^\n]*)\n") do
         local value = line:match("^position_receipt=(.*)$")
         if value then receipt, receipt_count = value, receipt_count + 1 end
@@ -469,6 +474,10 @@ read_full_download_checkpoint = function(path)
         if asset_value then assets,assets_count=asset_value,assets_count+1 end
         local owner_value=line:match('^native_owner_sha256=(.*)$')
         if owner_value then owner,owner_count=owner_value,owner_count+1 end
+        local web_value=line:match('^web_images_digest=(.*)$')
+        if web_value then web_images,web_count=web_value,web_count+1 end
+        local web_owner_value=line:match('^web_owner_sha256=(.*)$')
+        if web_owner_value then web_owner,web_owner_count=web_owner_value,web_owner_count+1 end
     end
     if receipt_count > 1 or (data:find("position_receipt", 1, true)
         and (receipt_count ~= 1 or #receipt ~= 64 or not receipt:match("^[0-9a-f]+$"))) then return nil end
@@ -480,10 +489,15 @@ read_full_download_checkpoint = function(path)
     if owner_count>1 or (data:find('native_owner_sha256',1,true)
         and (owner_count~=1 or #owner~=64 or not owner:match('^[0-9a-f]+$')))
         or (style~=nil)~=(owner~=nil) then return nil end
-    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"), receipt, style, assets, owner
+    if web_count>1 or (data:find('web_images_digest',1,true)
+        and (web_count~=1 or #web_images~=64 or not web_images:match('^[0-9a-f]+$')))
+        or web_owner_count>1 or (data:find('web_owner_sha256',1,true)
+        and (web_owner_count~=1 or #web_owner~=64 or not web_owner:match('^[0-9a-f]+$')))
+        or (web_images~=nil)~=(web_owner~=nil) or web_images and style then return nil end
+    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"), receipt, style, assets, owner, web_images, web_owner
 end
 
-function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version)
+function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
     if not file then return false end
@@ -492,7 +506,7 @@ function Content.full_download_chapter_exists(workspace, chapter, chapter_index,
     if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
         return false
     end
-    local uid, length, digest, source_version, source_book, receipt, style, assets, owner = read_full_download_checkpoint(
+    local uid, length, digest, source_version, source_book, receipt, style, assets, owner, web_images, web_owner = read_full_download_checkpoint(
         Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
     return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
         and length == #xhtml
@@ -503,6 +517,8 @@ function Content.full_download_chapter_exists(workspace, chapter, chapter_index,
             workspace.book_id, chapter.chapterUid or chapter.chapterId) ~= nil)
         and xhtml:find(full_style_link(style),1,true)~=nil
         and (not style or owner==workspace.native_owner and full_style_valid(workspace,style) and full_assets_valid(workspace,assets))
+        and (not require_web_images or style or web_images)
+        and (not web_images or web_owner==workspace.native_owner and require('weread.lib.web_image_receipt').verify(workspace,web_images))
 end
 
 -- Repair is permitted only for resources named by this chapter's intact,
@@ -668,7 +684,7 @@ local function full_download_chapter_xhtml(chapter, chapter_index, xhtml, style)
 </html>]]
 end
 
-function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml, source_version, position_receipt, style, assets)
+function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml, source_version, position_receipt, style, assets, web_images)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local checkpoint_path = Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
     if not path or not checkpoint_path then return nil, "missing full-book workspace" end
@@ -676,6 +692,8 @@ function Content.save_full_download_chapter(workspace, chapter, chapter_index, x
         or not position_receipt:match("^[0-9a-f]+$")) then position_error(false) end
     if (style~=nil)~=(assets~=nil) or style and (not workspace.native_owner or not position_receipt or not full_style_valid(workspace,style)
         or not full_assets_valid(workspace,assets)) then error('invalid chapter resources',0) end
+    if web_images and (style or not workspace.native_owner
+        or not require('weread.lib.web_image_receipt').verify(workspace,web_images)) then error('invalid web chapter images',0) end
     local chapter_xhtml = full_download_chapter_xhtml(chapter, chapter_index, xhtml, style)
     local ok, err = atomic_write(path, chapter_xhtml)
     if not ok then error(err or "could not checkpoint chapter") end
@@ -689,6 +707,7 @@ function Content.save_full_download_chapter(workspace, chapter, chapter_index, x
         .. (style and 'style_sha256='..style..'\n' or '')
         .. (assets and 'assets_sha256='..assets..'\n' or '')
         .. (style and 'native_owner_sha256='..workspace.native_owner..'\n' or '')
+        .. (web_images and 'web_images_digest='..web_images..'\nweb_owner_sha256='..workspace.native_owner..'\n' or '')
     ok, err = atomic_write(checkpoint_path, checkpoint)
     if not ok then error(err or "could not checkpoint chapter metadata") end
     return path
@@ -733,10 +752,10 @@ function Content.load_full_download_css(workspace)
     return css
 end
 
-function Content.full_download_completed_chapters(workspace, chapters, expected_version)
+function Content.full_download_completed_chapters(workspace, chapters, expected_version, require_web_images)
     local completed = {}
     for chapter_index, chapter in ipairs(chapters or {}) do
-        if Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version) then
+        if Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images) then
             completed[chapter_index] = true
         end
     end
@@ -1544,6 +1563,14 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
                     entries[#entries+1]={name='OEBPS/'..href,path=full_style_path(workspace,style)}
                 end
             end
+            if checkpoint[10] then
+                local valid,names=require('weread.lib.web_image_receipt').verify(workspace,checkpoint[10])
+                if not valid then position_error(false) end
+                for _,name in ipairs(names) do
+                    local asset=declared_assets['images/'..name]
+                    if not asset or asset.path~=workspace.asset_dir..'/'..name then position_error(false) end
+                end
+            end
             if checkpoint[6] then reference = { workspace = workspace, receipt = checkpoint[6] } end
             if checkpoint[5] ~= tostring(book_id) then version = 0 end
             source_hashes[#source_hashes + 1] = uid .. ":" .. tostring(digest or "unknown")
@@ -1992,7 +2019,17 @@ function Content.download_remote_images_to_files(client, xhtml, used_names, work
         index = index + 1
         if progress then progress(index, img_total) end
         local cached_href = remote_image_hrefs[url]
-        if cached_href then return "src=" .. quote .. "../" .. cached_href .. quote end
+        if cached_href then
+            local name=cached_href:match('^images/([^/]+)$')
+            local path=name and workspace.asset_dir..'/'..name
+            local mt
+            if path then local _;_,mt=media_type_for_file(path) end
+            if mt and mt:match('^image/') then
+                assets[#assets+1]={href=cached_href,media_type=mt,path=path,store=true}
+                return "src=" .. quote .. "../" .. cached_href .. quote
+            end
+            remote_image_hrefs[url]=nil
+        end
         local incoming = string.format("%s/remote-%06d.bin", workspace.incoming_dir, index)
         local ok = pcall(function()
             client:download_to_file(url, incoming, {

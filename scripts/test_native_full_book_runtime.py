@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def run(runtime):
+def run(runtime, web_corrupt_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w') as archive_file:
@@ -89,11 +89,15 @@ def run(runtime):
     server.tar_data=buffer.getvalue()
     thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
     try:
-        for width, height, dpi, resume, expired, corrupt, switch, web_asset in ((600, 800, 167, False, False, False, False, True),
-                                                                      (1264, 1680, 300, True, False, False, False, True),
-                                                                      (1264, 1680, 300, True, False, True, False, False),
-                                                                      (600, 800, 167, False, True, False, False, False),
-                                                                      (600, 800, 167, False, False, False, True, False)):
+        cases=((600, 800, 167, False, False, False, False, True, False),
+                                                                      (1264, 1680, 300, True, False, False, False, True, False),
+                                                                      (1264, 1680, 300, False, False, False, False, True, True),
+                                                                      (1264, 1680, 300, True, False, True, False, False, False),
+                                                                      (600, 800, 167, False, True, False, False, False, False),
+                                                                      (600, 800, 167, False, False, False, True, False, False))
+        for width, height, dpi, resume, expired, corrupt, switch, web_asset, web_corrupt in cases:
+            if web_corrupt_only and not web_corrupt:
+                continue
             with tempfile.TemporaryDirectory(prefix='weread-native-full-', dir='/dev/shm') as root:
                 xdg = Path(root) / 'xdg';xdg.mkdir(mode=0o700)
                 env = dict(os.environ, KO_HOME=root, XDG_RUNTIME_DIR=str(xdg),
@@ -104,7 +108,8 @@ def run(runtime):
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                refreshToken='synthetic-refresh', deviceId='eink334691225' + '0' * 19),
                                mock_endpoint='http://127.0.0.1:' + str(server.server_port),
-                               resume=resume, expired=expired, corrupt=corrupt, switch=switch, web_asset=web_asset)
+                               resume=resume, expired=expired, corrupt=corrupt, switch=switch,
+                               web_asset=web_asset, web_corrupt=web_corrupt)
                 server.resume, server.expired, server.resume_marker, server.chapters = resume, expired, Path(root) / 'resume', []
                 server.valid, server.leaked, server.image_requests, server.tar_requests = True, False, 0, 0
                 child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_full_book_probe.lua'), str(REPO)],
@@ -118,16 +123,19 @@ def run(runtime):
                             dict(ok=True,switched=True,chapters=3) if switch else
                             dict(ok=True,resumed=resume,chapters=3,styles=2,images=1))
                 assert json.loads(line[len(marker):]) == expected
-                expected_chapters=(['37','38'] if expired else ['37','38','37','38','39'] if corrupt
+                expected_chapters=(['37','38'] if expired else ['37','38','39','39'] if web_corrupt else ['37','38','37','38','39'] if corrupt
                                    else ['37','38','38','39'] if resume else ['37','38','39'])
                 assert server.chapters == expected_chapters, server.chapters
                 assert server.image_requests==(1 if expired else 3 if corrupt else 2) and server.valid and not server.leaked
-                assert server.tar_requests == (1 if web_asset else 0)
-        print('PASS: native full book, mixed sources, shared images, rate-limit resume and offline rendering')
+                assert server.tar_requests == (2 if web_corrupt else 1 if web_asset else 0)
+        print('PASS: corrupt Web image recovery and offline rendering' if web_corrupt_only else
+              'PASS: native full book, mixed sources, shared images, rate-limit resume and offline rendering')
     finally:
         server.shutdown();server.server_close();thread.join()
 
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--web-corrupt-only',action='store_true')
+    args=parser.parse_args()
+    run(args.koreader.resolve(),args.web_corrupt_only)
