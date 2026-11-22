@@ -25,7 +25,7 @@ package.preload['weread.lib.native_authorization']=function() return {new=functi
         if mode=='counts' and reads==2 then p.readingTime=11 end
         return p
     end,
-    read_shelf=function() shelves=shelves+1;return {hash=mode=='shelf' and shelves==2 and 'changed' or 'same'} end,
+    read_shelf=function() shelves=shelves+1;return {hash=string.rep(mode=='shelf' and shelves==2 and 'd' or 'c',64)} end,
     cancel=function() end,
 } end} end
 package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,ns,ws,active,_,options)
@@ -49,7 +49,10 @@ expect(value and value.desired.chapter_offset==30 and value.desired.raw_percent=
     and value.basis=='filtered_xhtml_utf16' and value.dispatch_authorized==false and reads==2 and checks==2 and shelves==2,
     'verified preview was not bound to both sources and stable cloud state')
 local bound={};for key,item in pairs(value) do if key~='position' and key~='dispatch_authorized' then bound[key]=item end end
-expect(not require('weread.lib.native_position_contract').valid(bound),'read-only XHTML preview was accepted as a dispatch grant')
+bound.book_id=entry.book_id
+local Contract=require('weread.lib.native_position_contract')
+expect(not Contract.valid(bound),'read-only XHTML preview was accepted as a dispatch grant')
+bound.basis='raw_txt_utf16';expect(Contract.valid(bound),'dispatch test fixture was invalid independently of its basis')
 value=prepare('initial');expect(value and value.before.kind=='no_chapter' and value.desired.raw_percent==0,
     'explicit empty cloud position with zero counters was rejected')
 for _,case in ipairs({{'missing_summary','baseline_unavailable'},{'changed','cloud_changed'},{'counts','cloud_changed'},
