@@ -77,11 +77,16 @@ if phase=='live' then
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup
     assert(entry(picker,'合成书三') and not pcall(entry,picker,'合成书一'),'author search did not filter')
-    picker:onMenuSelect(entry(picker,'合成书三'))
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
+    assert(entry(picker,'合成书三').mandatory=='✓','bulk select missed matching book')
+    picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
+    assert(entry(picker,'合成书三').mandatory=='','bulk deselect missed matching book')
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
     search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'writer'))
     search:setInputText('无匹配');button(search,text('Search')).callback()
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup;assert(entry(picker,text('No matching shelf books.')))
+    assert(not pcall(entry,picker,text('Select matching shelf books')),'empty filter offered bulk selection')
     search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'无匹配'))
     search:setInputText('合成书一');button(search,text('Cancel')).callback()
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
@@ -89,6 +94,13 @@ if phase=='live' then
     picker=select_row(view,picker,text('Show all shelf books'))
     assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书三').mandatory=='✓',
         'filtering lost a selection')
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
+    assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书二').mandatory=='✓'
+        and entry(picker,'合成书三').mandatory=='✓','bulk select did not cover the shelf')
+    picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
+    assert(entry(picker,'合成书一').mandatory=='' and entry(picker,'合成书二').mandatory==''
+        and entry(picker,'合成书三').mandatory=='','bulk deselect did not cover the shelf')
+    picker:onMenuSelect(entry(picker,'合成书一'));picker:onMenuSelect(entry(picker,'合成书三'))
     search=select_row(view,picker,text('Search shelf'));search:setInputText('未提交')
     assert(search:onCloseDialog(),'back action did not cancel search')
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
@@ -141,6 +153,8 @@ if phase=='live' then
     search=select_row(view,picker,text('Search shelf'));search:setInputText('合成书二')
     button(search,text('Search')).callback();pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup;assert(not pcall(entry,picker,'合成书一'))
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
+    picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     local preserved=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
     assert(#preserved.groups[1].books==2 and preserved.groups[1].books[1]=='101' and preserved.groups[1].books[2]=='103',
@@ -173,6 +187,15 @@ if phase=='live' then
     assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'old account search wrote to new account')
     UI:close(search);UI:handleInput()
     assert(not view._shelf_popup,'dismissing stale search reopened a picker')
+    auth('900000');host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
+    view,manager=manage();actions=choose_group(view,manager,'并发新名称');picker=group_action(view,actions,1)
+    local stale_bulk=entry(picker,text('Select matching shelf books'))
+    local stale_book=entry(picker,'合成书二');assert(stale_book.mandatory=='')
+    auth('900001');host:applyShelfSnapshot(shelf,cloud)
+    stale_bulk.callback()
+    assert(stale_book.mandatory=='' and not host.library_db:getProfileState('shelf_local_groups_v1'),
+        'stale bulk selection crossed accounts')
+    require('weread.ui.shelf_popup').close(view)
     -- Exercise paged management and book picking with a separate account.
     auth('900002')
     local many={};for i=1,40 do many[#many+1]={bookId=tostring(1000+i),title='合成第'..i..'本'} end
@@ -184,6 +207,10 @@ if phase=='live' then
     actions=choose_group(view,manager,'测试组15');picker=group_action(view,actions,1)
     assert(picker:getSize().h<=Device.screen:getHeight(),'book picker exceeds screen')
     assert(picker.items_per_page<#picker.item_table)
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
+    assert(entry(picker,'合成第35本').mandatory=='✓','bulk select missed later pages')
+    picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
+    assert(entry(picker,'合成第35本').mandatory=='','bulk deselect missed later pages')
     local target=entry(picker,'合成第35本')
     local target_index;for i,row in ipairs(picker.item_table) do if row==target then target_index=i;break end end
     local target_page=math.floor((assert(target_index)-1)/picker.items_per_page)+1
@@ -234,6 +261,24 @@ if phase=='live' then
     picker:onMenuSelect(entry(picker,text('Save local groups for this book')))
     assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'stale book picker wrote to another account')
     require('weread.ui.shelf_popup').close(view)
+    -- Selecting visible matches must not overflow the group limit or drop
+    -- members which are absent from the current shelf snapshot.
+    auth('900005')
+    local full=assert(Model.change(Model.empty(),{kind='create',name='已满测试组'}))
+    local missing={};for i=1,5000 do missing[i]='synthetic-missing-'..i end
+    full=assert(Model.change(full,{kind='books',id=1,books=missing}))
+    assert(host.library_db:compareProfileState('shelf_local_groups_v1',nil,full))
+    host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
+    view,manager=manage();actions=choose_group(view,manager,'已满测试组');picker=group_action(view,actions,1)
+    picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
+    local warning=UI:getTopmostVisibleWidget();assert(warning~=picker,'over-limit selection was not rejected')
+    assert(entry(picker,'合成书一').mandatory=='' and entry(picker,'合成书二').mandatory=='',
+        'rejected bulk selection changed visible selection')
+    UI:close(warning)
+    picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
+    local capped=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#capped.groups[1].books==5000 and capped.groups[1].books[1]==missing[1]
+        and capped.groups[1].books[5000]==missing[5000],'group limit test changed absent members')
     auth('900000');host:applyShelfSnapshot(shelf,cloud)
     settings:flush()
 else

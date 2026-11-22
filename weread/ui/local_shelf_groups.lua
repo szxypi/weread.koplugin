@@ -70,17 +70,20 @@ function M.open(host,owner,is_current,on_change)
         end
         local selected=state.selected
         local rows,menu={},nil
-        rows[#rows+1]={text=_('Save local group books'),callback=function()
-            if not alive() or not Popup.current(owner,menu) then return end
+        local function ordered_books(selection)
             local ordered,seen={},{}
             for _,id in ipairs(group.books) do
-                if selected[id] and not seen[id] then ordered[#ordered+1]=id;seen[id]=true end
+                if selection[id] and not seen[id] then ordered[#ordered+1]=id;seen[id]=true end
             end
             for _,book in ipairs(host.shelf_regular or {}) do
                 local id=Identity.persisted_id(book)
-                if id and selected[id] and not seen[id] then ordered[#ordered+1]=id;seen[id]=true end
+                if id and selection[id] and not seen[id] then ordered[#ordered+1]=id;seen[id]=true end
             end
-            save{kind='books',id=group.id,books=ordered}
+            return ordered
+        end
+        rows[#rows+1]={text=_('Save local group books'),callback=function()
+            if not alive() or not Popup.current(owner,menu) then return end
+            save{kind='books',id=group.id,books=ordered_books(selected)}
         end}
         rows[#rows+1]={text=state.query~='' and T(_('Search: %1'),state.query) or _('Search shelf'),callback=function()
             transition(menu,function()
@@ -112,21 +115,37 @@ function M.open(host,owner,is_current,on_change)
             end}
         end
         local needle=ShelfSearch.prepare(state.query)
-        local matches=0
+        local matches={}
         for _,book in ipairs(host.shelf_regular or {}) do
             local id=Identity.persisted_id(book)
             if id and ShelfSearch.matches(book,needle) then
-                matches=matches+1
                 local row={text=type(book.title)=='string' and book.title~='' and book.title or _('Untitled book'),
                     mandatory=selected[id] and '✓' or ''}
                 row.callback=function()
                     if not alive() or not Popup.current(owner,menu) then return end
                     selected[id]=not selected[id] or nil;row.mandatory=selected[id] and '✓' or '';menu:updateItems()
                 end
-                rows[#rows+1]=row
+                matches[#matches+1]={id=id,row=row}
             end
         end
-        if matches==0 then rows[#rows+1]={text=_('No matching shelf books.')} end
+        if #matches==0 then rows[#rows+1]={text=_('No matching shelf books.')}
+        else
+            local function set_matches(checked)
+                if not alive() or not Popup.current(owner,menu) then return end
+                local proposed={};for id,value in pairs(selected) do proposed[id]=value end
+                for _,item in ipairs(matches) do proposed[item.id]=checked or nil end
+                if not Model.change(base,{kind='books',id=group.id,books=ordered_books(proposed)}) then
+                    host:showInfo(_('Could not update local group. Check the name and limits.'));return
+                end
+                for _,item in ipairs(matches) do
+                    selected[item.id]=checked or nil;item.row.mandatory=checked and '✓' or ''
+                end
+                menu:updateItems()
+            end
+            rows[#rows+1]={text=_('Select matching shelf books'),callback=function() set_matches(true) end}
+            rows[#rows+1]={text=_('Deselect matching shelf books'),callback=function() set_matches(false) end}
+            for _,item in ipairs(matches) do rows[#rows+1]=item.row end
+        end
         menu=require('ui/widget/menu'):new{title=T(_('Books in local group: %1'),group.name),item_table=rows,
             subtitle=_('Books missing from the current shelf stay in this local group.'),items_per_page=12}
         Popup.show(owner,menu)
