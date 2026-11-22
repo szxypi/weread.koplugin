@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only real-source rehearsal of the private ordinary reconnect bridge.
+"""Prepare or execute one guarded real ordinary reconnect experiment.
 
-No write-capable option exists. Reader/source/cookies stay in memory or tmpfs.
-The proposed body is checked and the child is required to deny HTTP dispatch.
+Default and --saved-session remain read-only. --prepare reserves one private
+scope without sending; --apply consumes it without retry. Reader/source/cookies
+stay in memory or tmpfs. Ambiguous outcomes remain pending.
 """
 import argparse
 from copy import deepcopy
@@ -22,6 +23,7 @@ from shelf_flag_change_contract import state_hash
 from readtime_upload_model import integer
 from secure_native_session import NativeSessionStore
 from secure_ordinary_reconnect_trial import PROTOCOL, validate_plan
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
 from secure_weread_session import COOKIE_NAMES, SessionStore
 from txt_full_summary import digest
 from verify_cb_fixture_reconnect_trial import run_ui, source_summary
@@ -37,7 +39,7 @@ from verify_web_source_progress import BASE as WEB
 
 
 class Reads(Native):
-    max_reads=24
+    max_reads=128
 
 
 def shelf_difference_paths(first,second):
@@ -96,14 +98,22 @@ def native_snapshot(native, grant, book, baseline):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true')
+    mode=p.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--apply',action='store_true')
     p.add_argument('--width',type=int,default=1264);p.add_argument('--height',type=int,default=1680);p.add_argument('--dpi',type=int,default=300);a=p.parse_args(argv)
     if not all(1<=v<=4096 for v in (a.width,a.height,a.dpi)):p.error('bounded display required')
+    if (a.prepare or a.apply) and not a.saved_session:p.error('prepared trial requires saved session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False,guarded_write_mode=False)
-    web=saved=grant=payload=None;private=set()
+    web=saved=grant=payload=restore_web=journal=None;private=set();live_report={}
     try:
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));report['phase']='environment'
+            if a.prepare or a.apply:
+                from verify_native_thought_trial import other_pending
+                journal=OrdinaryReconnectStore();state,_receipt=journal.read()
+                if (a.prepare and state is not None or a.apply and (not state or state['phase']!='prepared')
+                        or other_pending(exclude_ordinary_reconnect_trial=a.apply)):
+                    raise ValueError('ordinary_rpc/intent')
             command=manual_command();rpc_command=list(command)
             target='/source/scripts/run_cb_fixture_manual_ui.py'
             if rpc_command.count(target)!=1:raise ValueError('ordinary_rpc/command')
@@ -193,10 +203,34 @@ def main(argv=None):
             def current():
                 cookies={cookie.name:cookie.value for cookie in web.cookies
                          if cookie.name in COOKIE_NAMES and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
-                return store.load()==saved and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
+                return (store.load()==saved and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
+                        and not ((a.prepare or a.apply) and other_pending(exclude_ordinary_reconnect_trial=a.apply)))
             independent_check(web,native,grant,bound['plan'],bound['plan']['baseline'],current)
+            if a.prepare:
+                if journal.read()[0] is not None or not current():raise ValueError('ordinary_rpc/intent')
+                journal.reserve(bound['plan'])
+                state,_=journal.read()
+                if not state or state['phase']!='prepared' or state['plan']!=bound['plan']:raise ValueError('ordinary_rpc/intent')
+                report['trial_intent_prepared']=True
+            elif a.apply:
+                from ordinary_reconnect_live import execute as execute_trial
+                from ordinary_reconnect_restore import RestoreProbe
+                state,_=journal.read()
+                if not state or state['phase']!='prepared' or state['plan']!=bound['plan'] or not current():
+                    raise ValueError('ordinary_rpc/intent')
+                if manual_command()!=command:raise ValueError('ordinary_rpc/command')
+                restore_web=RestoreProbe();restore_web.vid=web.vid;restore_web.book_id=web.book_id
+                for key,value in saved['cookies'].items():restore_web.set_cookie(key,value)
+                restore_web.verify_account()
+                if not current():raise ValueError('ordinary_rpc/session')
+                live_command=rpc_command[:-1]
+                if rpc_command[-1]!='--dry':raise ValueError('ordinary_rpc/command')
+                report['phase']='live';report['account_data_posts']=None
+                execute_trial(journal,bound['plan'],payload,live_command,web,native,grant,restore_web,current,live_report)
+                if live_report.get('result')!='ORDINARY_RECONNECT_TRIAL_VERIFIED':raise ValueError('ordinary_rpc/live')
+                report['account_data_posts']=3;report['real_reader_roundtrip_verified']=True
             web.verify_account();save_refreshed_web_session(store,saved,web)
-            report.update(result='ORDINARY_RPC_REAL_SOURCE_DRY_VERIFIED',phase='complete',screen_selection=web.report['selection_screen'],
+            report.update(result='ORDINARY_RECONNECT_TRIAL_VERIFIED' if a.apply else 'ORDINARY_RECONNECT_TRIAL_PREPARED' if a.prepare else 'ORDINARY_RPC_REAL_SOURCE_DRY_VERIFIED',phase='complete',screen_selection=web.report['selection_screen'],
                           signed_body_bound=True,dynamic_counter_checked=scope['pclts'] is None,independent_dual_readback=True,independent_host_check=True,
                           original_summary_preserved=True,source_catalog_and_stable_shelf_fields_unchanged=True,profile_removed=True)
     except Exception as error:
@@ -207,6 +241,13 @@ def main(argv=None):
             report['diagnostic']={'type':type(error).__name__,
                                   'frames':[{'function':item.name,'line':item.lineno} for item in frames[-3:]]}
     finally:
+        if live_report:
+            report['live']={key:live_report[key] for key in ('result','dry_verified','claimed_posts','acknowledged_posts','independently_verified',
+                'claim_interrupted','restore_claimed','restore_claim_interrupted','restore_acknowledged','restoration_verified') if key in live_report}
+            if a.apply and report['result']!='ORDINARY_RECONNECT_TRIAL_VERIFIED' and not (live_report.get('claimed_posts')
+                    or live_report.get('claim_interrupted') or live_report.get('restore_claimed') or live_report.get('restore_claim_interrupted')):
+                report['account_data_posts']=0
+        if restore_web:restore_web.close()
         if web:
             if web.authenticated:
                 try:web.verify_account();save_refreshed_web_session(store,store.load(),web)

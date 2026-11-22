@@ -15,10 +15,21 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(json.loads(out.getvalue())['result'], 'OFFLINE_ONLY')
         session.assert_not_called(); native.assert_not_called(); command.assert_not_called()
 
-    def test_no_write_mode_and_invalid_dimensions(self):
-        for options in (['--apply'], ['--saved-session', '--apply'], ['--width', '0']):
+    def test_write_modes_require_saved_session_and_invalid_dimensions_fail(self):
+        for options in (['--apply'], ['--prepare'], ['--saved-session','--prepare','--apply'], ['--width', '0']):
             with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 task.main(options)
+
+    def test_missing_or_consumed_intent_stops_before_credentials_and_runner(self):
+        for options,state in ((['--saved-session','--apply'],None),(['--saved-session','--prepare'],{'phase':'retired'})):
+            with self.subTest(options=options), patch.object(task,'OrdinaryReconnectStore') as journal, \
+                 patch.object(task,'SessionStore') as session, patch.object(task,'manual_command') as runner, \
+                 contextlib.redirect_stdout(io.StringIO()) as out:
+                journal.return_value.read.return_value=(state,None)
+                self.assertEqual(task.main(options),1)
+            session.assert_not_called();runner.assert_not_called()
+            result=json.loads(out.getvalue())
+            self.assertEqual(result['result'],'UNVERIFIED');self.assertEqual(result['account_data_posts'],0)
 
     def test_difference_paths_hide_user_data(self):
         first={'books':[{'bookId':'private-id','private-title':'old','updateTime':1}],'synckey':1}

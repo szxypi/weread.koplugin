@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the private RPC bridge against KOReader and a loopback fixture only."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,12 +11,15 @@ import sys
 import threading
 from urllib.parse import quote
 from urllib.request import ProxyHandler, Request, build_opener
+from unittest.mock import patch
 
 from fetch_weread_epub import weread_e
 from mock_weread import BOOK_ID, CHAPTERS, MockServer, chapter_html
 from ordinary_reconnect_body_guard import validate_body
 from ordinary_reconnect_broker import execute, preview
 from ordinary_reconnect_coordinator import Coordinator
+from ordinary_reconnect_live import execute as execute_trial
+import ordinary_reconnect_observe
 from ordinary_reconnect_restore import RestoreProbe, restore
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, PROTOCOL, HASHES
 from test_secure_native_session import Backend
@@ -31,12 +35,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--koreader',required=True,type=Path);p.add_argument('--candidate',required=True,type=Path)
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--noack',action='store_true');a=p.parse_args()
+    failure=p.add_mutually_exclusive_group();failure.add_argument('--noack',action='store_true');failure.add_argument('--restore-noack',action='store_true');a=p.parse_args()
     server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True
     source=chapter_html(1);model=FilteredSource(source)
     first=model.locate('这是第1章的第16段。我们沿着小路慢慢前行')[0]
     server.progress[BOOK_ID]=dict(chapterUid=1,chapterIdx=1,chapterOffset=first,progress=25,summary='old summary')
     if a.noack:server.control['progress_confirmation']='noack'
+    if a.restore_noack:
+        server.roundtrip_seed=True;server.roundtrip_posts=1;server.control['progress_roundtrip_mode']='restore-noack'
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         env=dict(os.environ,WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port),LD_LIBRARY_PATH=str(a.koreader/'libs'))
@@ -55,7 +61,7 @@ def main():
         command=[sys.executable,str(Path(__file__).with_name('run_ordinary_reconnect_trial.py')),'--koreader',str(a.koreader),
                  '--candidate',str(a.candidate),'--width',str(a.width),'--height',str(a.height),'--dpi',str(a.dpi),
                  '--mock-port',str(server.server_port)]
-        captured={};scope={}
+        captured={};scope={};grant={'synthetic':'grant'};catalog={'synthetic':'catalog'};shelf={'books':[{'bookId':BOOK_ID}]}
         initial=dict(book_id=BOOK_ID,chapter_uid='1',chapter_idx=1,chapter_offset=first,raw_percent=25,summary='old summary')
         def check_context(html):
             context=reader_context(dict(book_id=BOOK_ID),html)
@@ -68,6 +74,8 @@ def main():
             if not isinstance(value,dict) or type(value.get('pr')) is not int or not 0<=value['pr']<=100:return False
             selected={key:'a'*64 for key in HASHES}
             selected['owner_sha256']=digest('900000')
+            selected['grant_sha256']=digest(grant);selected['source_sha256']=hashlib.sha256(source.encode()).hexdigest()
+            selected['catalog_sha256']=digest(catalog);selected['web_shelf_sha256']=digest(shelf);selected['native_shelf_sha256']=digest(shelf)
             selected.update(protocol=PROTOCOL,baseline=initial,target=dict(initial,chapter_offset=target,raw_percent=value['pr'],summary=summary),
                             counts=dict(readingTime=0,recordReadingTime=0,ttsTime=0),version=7)
             context=scope['context']
@@ -78,43 +86,53 @@ def main():
         if dry.get('result')!='READER_POSITION_DRY_VERIFIED' or server.request_totals.get(('/web/book/read',''),0)!=0:
             raise ValueError('mock/dry')
         store=OrdinaryReconnectStore(Backend());store.reserve(captured['plan'])
-        def same(expected):
-            item=server.get_progress(BOOK_ID)['book']
-            return item['chapterOffset']==expected['chapter_offset'] and item['summary']==expected['summary'] and item['progress']==expected['raw_percent']
-        def before(stage,selected):return same(selected['baseline' if stage=='enter' else 'target'])
-        def after(stage,selected):return same(selected['baseline' if stage=='restore' else 'target'])
-        gate=Coordinator(store,captured['plan'],captured['context'],captured['pclts'],before,after,armed=True)
-        payload.update(armed=True,ordinary_trial=dict(rpc_token=secrets.token_hex(16)));report={}
-        def bind_context(html):
-            check_context(html)
-            return dict(context=scope['context'],pclts=scope['pclts'])
-        try:execute(command,payload,gate,report,check_context=bind_context)
-        except Exception:
-            if not a.noack:raise
+        class LocalOpener:
+            def __init__(self):self.opener=build_opener(ProxyHandler({}))
+            def open(self,request,timeout):
+                url='http://127.0.0.1:'+str(server.server_port)+'/__proxy?url='+quote(request.full_url,safe='')
+                mapped=Request(url,data=request.data,headers=dict(request.header_items()),method=request.get_method())
+                return self.opener.open(mapped,timeout=timeout)
+        class LocalWeb(RestoreProbe):
+            def verify_account(self):self.authenticated=True
+            def inspect(self,identity):
+                if identity!=BOOK_ID:raise ValueError('mock/book')
+                self.book_id=identity;self.raw_progress=server.get_progress(identity);self.catalog=catalog
+                self.shards={'e_0':'a','e_1':'b','e_3':'c'};self.report['read_snapshot_consistent']=True
+            def request(self,stage,url,body=None,**options):
+                if stage!='shelf' or body is not None:raise ValueError('mock/read_scope')
+                return shelf
+        class LocalNative:
+            def request(self,stage,url,body=None,credentials=None):
+                if body is not None or credentials!=grant:raise ValueError('mock/read_scope')
+                if stage=='ordinary_rpc_progress':
+                    raw=server.get_progress(BOOK_ID);raw['book'].update(readingTime=0,recordReadingTime=0,ttsTime=0);return raw
+                if stage=='ordinary_rpc_info':return dict(bookId=BOOK_ID,version=7)
+                if stage=='ordinary_rpc_shelf':return shelf
+                raise ValueError('mock/read_scope')
+        web=LocalWeb();restore_web=RestoreProbe(opener=LocalOpener())
+        for client in (web,restore_web):
+            client.vid='900000';client.book_id=BOOK_ID;client.authenticated=True
+            for key,value in payload['cookies'].items():client.set_cookie(key,value)
+        payload.pop('ordinary_trial');report={}
+        try:
+            with patch.object(ordinary_reconnect_observe,'decode_content_shards',return_value=source):
+                try:execute_trial(store,captured['plan'],payload,command,web,LocalNative(),grant,restore_web,lambda:True,report)
+                except Exception:
+                    if not (a.noack or a.restore_noack):raise
+        finally:web.close();restore_web.close()
         if a.noack:
             if (report.get('result')!='UNVERIFIED' or report['claimed_posts']!=2 or report['acknowledged_posts']!=1
-                    or store.read()[0]['phase']!='position_pending' or gate.phase!='stopped'):raise ValueError('mock/noack')
-        elif report.get('result')!='READER_POSITION_VERIFIED_RESTORE_PENDING' or store.read()[0]['phase']!='position_verified':
-            raise ValueError('mock/reader')
-        if server.request_totals.get(('/web/book/read',''),0)!=2:raise ValueError('mock/post_count')
-        restored=False
-        if not a.noack:
-            class LocalOpener:
-                def __init__(self):self.opener=build_opener(ProxyHandler({}))
-                def open(self,request,timeout):
-                    url='http://127.0.0.1:'+str(server.server_port)+'/__proxy?url='+quote(request.full_url,safe='')
-                    mapped=Request(url,data=request.data,headers=dict(request.header_items()),method=request.get_method())
-                    return self.opener.open(mapped,timeout=timeout)
-            web=RestoreProbe(opener=LocalOpener());web.vid='900000';web.book_id=BOOK_ID;web.authenticated=True
-            for key,value in payload['cookies'].items():web.set_cookie(key,value)
-            restored_report={}
-            try:restore(web,gate,lambda:True,restored_report)
-            finally:web.close()
-            if (restored_report.get('result')!='ORDINARY_RESTORATION_VERIFIED' or store.read()[0]['phase']!='retired'
-                    or not same(initial) or server.request_totals.get(('/web/book/read',''),0)!=3):
-                raise ValueError('mock/restore')
-            restored=True
-        print(json.dumps(dict(result='PASS',mock_only=True,noack=a.noack,dry_body_bound=True,dry_posts=0,
+                    or store.read()[0]['phase']!='position_pending' or server.request_totals.get(('/web/book/read',''),0)!=2):
+                raise ValueError('mock/noack')
+        elif a.restore_noack:
+            if (report.get('result')!='UNVERIFIED' or report['claimed_posts']!=2 or report['acknowledged_posts']!=2
+                    or report.get('restore_claimed') is not True or report.get('restore_acknowledged') is not False
+                    or store.read()[0]['phase']!='restore_pending' or server.request_totals.get(('/web/book/read',''),0)!=3):
+                raise ValueError('mock/restore_noack')
+        elif (report.get('result')!='ORDINARY_RECONNECT_TRIAL_VERIFIED' or store.read()[0]['phase']!='retired'
+                or server.request_totals.get(('/web/book/read',''),0)!=3):raise ValueError('mock/restore')
+        restored=not (a.noack or a.restore_noack)
+        print(json.dumps(dict(result='PASS',mock_only=True,noack=a.noack,restore_noack=a.restore_noack,dry_body_bound=True,dry_posts=0,
                               claimed_posts=report['claimed_posts'],acknowledged_posts=report['acknowledged_posts'],
                               verified=report['independently_verified'],coordinator=True,actual_reader=True,
                               restore_verified=restored,real_account_posts=0)))
