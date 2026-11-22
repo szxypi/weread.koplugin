@@ -38,9 +38,27 @@ function Selection:new(chapters, ranges, toc, current_index, state_of)
     else
         for _, chapter in ipairs(chapters) do add(chapter.title, chapter.level, chapter) end
     end
-    local current = chapters[current_index or 1]
+    local current = type(current_index)=='number' and current_index%1==0 and chapters[current_index] or nil
     model.current = current and model.by_uid[Chapters.uid(current)]
+    if type(current_index)=='number' and current_index%1==0 and current_index>=1
+        and current_index<=#chapters and model.current then
+        model.current_index=current_index
+    end
     return model
+end
+
+-- Add a bounded window in catalog order; leave unrelated manual selections
+-- intact and never select an unlinked local TOC entry.
+function Selection:addCurrentWindow()
+    if not self.current_index or not self.current or not self.current.selectable then return 0 end
+    local added=0
+    for index=self.current_index,math.min(#self.chapters,self.current_index+9) do
+        local node=self.by_uid[Chapters.uid(self.chapters[index])]
+        if node and node.selectable and not node.selected then
+            self:toggle(node);added=added+1
+        end
+    end
+    return added
 end
 
 function Selection:visible()

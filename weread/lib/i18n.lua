@@ -848,6 +848,8 @@ local zh = {
     ["Choose For you or search to discover books."] = "点击“为你推荐”或搜索，发现新书。",
 
     ["Get thoughts (%1 chapters)"] = "获取想法（%1章）",
+    ["Add current and next 9 chapters"] = "添加本章起最多10章",
+    ["Clear chapter selection"] = "清空所选章节",
     ["Continue matching · %1/%2 chapters, %3 underlines"] = "继续匹配 · %1/%2 章，%3 条划线",
     ["Underlines and thoughts management"] = "划线和想法管理",
     ["Continue matching"] = "继续匹配",

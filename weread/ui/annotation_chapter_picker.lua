@@ -63,9 +63,21 @@ function Picker:actionBar()
         bordersize = border, text_font_size = self.choices and 16 or 22,
         text_font_bold = not self.choices,
     })
-    return FrameContainer:new{
+    local action=FrameContainer:new{
         padding = padding, margin = 0, bordersize = 0, self.action_button,
     }
+    if self.choices then return action end
+    local half=math.floor((self.width-2*padding)/2)
+    self.quick_add=self:button(_("Add current and next 9 chapters"),half,function()
+        self.model:addCurrentWindow();self:rebuild('quick',1)
+    end,{enabled=self.model.current_index~=nil and self.model.current~=nil,
+        height=Screen:scaleBySize(44),text_font_size=16})
+    self.quick_clear=self:button(_("Clear chapter selection"),self.width-2*padding-half,function()
+        self.model:clear()
+        if self.model.current_index then self:rebuild('quick',1) else self:rebuild() end
+    end,{enabled=self.model.count>0,height=Screen:scaleBySize(44),text_font_size=16})
+    return VerticalGroup:new{align='center',
+        HorizontalGroup:new{self.quick_add,self.quick_clear},action}
 end
 
 function Picker:init()
@@ -80,20 +92,21 @@ function Picker:init()
         with_bottom_line = true, show_parent = self,
         close_callback = function() self:onClose() end,
     }
+    local hint_width=self.width-2*Screen:scaleBySize(10)
     local hint = self.choices and VerticalGroup:new{ align = "left",
         TextWidget:new{ text = _("Choose a match for local chapter"), face = Font:getFace("cfont", 14),
-            fgcolor = BB.COLOR_DARK_GRAY, max_width = self.width - Screen:scaleBySize(20) },
+            fgcolor = BB.COLOR_DARK_GRAY, max_width = hint_width },
         VerticalSpan:new{ width = Screen:scaleBySize(5) },
         TextWidget:new{ text = self.local_title, face = Font:getFace("cfont", 20), bold = true,
-            max_width = self.width - Screen:scaleBySize(20) },
+            max_width = hint_width },
     } or TextWidget:new{ text = _("Select chapters. Fetching again replaces their saved thoughts."),
         face = Font:getFace("cfont", 14), fgcolor = BB.COLOR_DARK_GRAY,
-        max_width = self.width - Screen:scaleBySize(20) }
+        max_width = hint_width }
     self.hint = FrameContainer:new{
         padding = Screen:scaleBySize(10), margin = 0, bordersize = 0,
         background = self.choices and BB.COLOR_GRAY_E or BB.COLOR_WHITE,
         LeftContainer:new{ dimen = Geom:new{
-            w = self.width - Screen:scaleBySize(20), h = hint:getSize().h }, hint },
+            w = hint_width, h = hint:getSize().h }, hint },
     }
     self.actions = self:actionBar()
     local available = self.height - self.title_bar:getHeight() - self.hint:getSize().h
@@ -223,6 +236,10 @@ function Picker:rebuild(focus_node, focus_column)
         { enabled = false, height = self.page_bar_height, text_font_size = 18 })
     local next_page = self:button(_("Next"), self.width - third * 2, function() self:onNextPage() end,
         { enabled = self.page < self.pages, height = self.page_bar_height, text_font_size = 22, text_font_bold = true })
+    if not self.choices then
+        focus_rows[#focus_rows + 1] = { self.quick_add,self.quick_clear }
+        if focus_node=='quick' then focus_y=#focus_rows end
+    end
     focus_rows[#focus_rows + 1] = { self.action_button }
     focus_rows[#focus_rows + 1] = { previous, counter, next_page }
     self.layout = focus_rows

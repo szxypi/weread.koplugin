@@ -134,8 +134,17 @@ for _, size in ipairs({ { 600, 800 }, { 1072, 1448 }, { 800, 600 } }) do
     assert(view.page == math.ceil(20 / view.per_page), "current chapter opened on the wrong page")
     local bounds = view[1]:getSize()
     assert(bounds.w == width and bounds.h == height, "picker layout overflows or fails to fill the screen")
-    assert(live_buttons <= 4 * view.per_page + 5, "hidden catalog rows allocated widgets")
+    assert(live_buttons <= 4 * view.per_page + 7, "hidden catalog rows allocated widgets")
     local initial = live_buttons
+    assert(view.quick_add.enabled and not view.quick_clear.enabled, 'window controls had incorrect initial state')
+    view.quick_add.callback()
+    assert(model.count==10 and model.by_uid['20'].selected and model.by_uid['29'].selected
+        and not model.by_uid['30'].selected and view.quick_clear.enabled,
+        'quick selection did not add the current window')
+    assert(view.selected.y==#view.layout-2 and view.selected.x==1, 'quick selection lost keyboard focus')
+    view.quick_add.callback();assert(model.count==10,'quick selection was not idempotent')
+    view.quick_clear.callback();assert(model.count==0 and not view.quick_clear.enabled,'clear selection failed')
+    assert(live_buttons==initial,'quick selection retained old widgets')
     for _ = 1, 30 do
         view.layout[1][2].callback() -- toggle a chapter
         view:onNextPage(); view:onPrevPage()
@@ -144,7 +153,8 @@ for _, size in ipairs({ { 600, 800 }, { 1072, 1448 }, { 800, 600 } }) do
     assert(model.count == 0, "repeated toggling lost selection state")
     while view.page > 1 do view:onPrevPage() end
     view.layout[1][1].callback() -- parent selects only its own chapter
-    view.layout[2][1].callback()
+    if view.per_page==1 then view:onNextPage();view.layout[1][1].callback()
+    else view.layout[2][1].callback() end
     assert(model.count == 2 and #model:visible() == 2000)
     assert(view.action_button:getSize().h == scale(64), "fetch target is too small")
     assert(view.body[2] == view.actions and view.layout[#view.layout - 1][1] == view.action_button,
@@ -154,6 +164,16 @@ for _, size in ipairs({ { 600, 800 }, { 1072, 1448 }, { 800, 600 } }) do
     assert(chosen and #chosen == 2 and chosen[1] == chapters[1] and chosen[2] == chapters[2])
     assert(live_buttons == 0, "closing picker retained native widget resources")
 end
+local unknown_model=Selection:new({{chapterUid='1',title='One'}},{},nil,nil)
+local unknown_view=Picker.show{model=unknown_model,on_select=function() end}
+assert(not unknown_view.quick_add.enabled and not unknown_view.quick_clear.enabled,
+    'quick selection was available without a verified current chapter')
+unknown_view.layout[1][1].callback()
+assert(unknown_view.quick_clear.enabled)
+unknown_view.quick_clear.callback()
+assert(unknown_model.count==0 and unknown_view.selected.y==1,
+    'clearing without a current chapter left focus on a disabled shortcut')
+unknown_view:onClose();assert(live_buttons==0)
 -- Linked rows distinguish network fetches from local matching, while completed
 -- rows use the emphasized matched badge.
 width, height = 600, 800
