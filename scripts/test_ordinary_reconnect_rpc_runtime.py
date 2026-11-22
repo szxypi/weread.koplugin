@@ -36,6 +36,7 @@ from verify_reader_progress import project as reader_progress
 from verify_source_coordinates import FilteredSource
 from txt_full_summary import digest
 from shelf_flag_change_contract import state_hash
+from verify_web_source_progress import BASE as WEB, WebSourceProbe
 
 
 def main():
@@ -46,8 +47,9 @@ def main():
     failure.add_argument('--partial-recovery',action='store_true');failure.add_argument('--partial-recovery-noack',action='store_true')
     failure.add_argument('--retry-recovery',action='store_true');failure.add_argument('--retry-recovery-noack',action='store_true')
     failure.add_argument('--retry-restore-noack',action='store_true');failure.add_argument('--retry-success',action='store_true')
-    failure.add_argument('--retry-enter-noack',action='store_true');a=p.parse_args()
-    retry_recovery_mode=a.retry_recovery or a.retry_recovery_noack or a.retry_enter_noack
+    failure.add_argument('--retry-enter-noack',action='store_true')
+    failure.add_argument('--retry-enter-read-failure',action='store_true');a=p.parse_args()
+    retry_recovery_mode=a.retry_recovery or a.retry_recovery_noack or a.retry_enter_noack or a.retry_enter_read_failure
     retry_mode=retry_recovery_mode or a.retry_restore_noack or a.retry_success
     server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True;server.enter_preserves_percent=True
     if a.retry_enter_noack:server.enter_noack=True
@@ -123,6 +125,12 @@ def main():
             def verify_account(self):self.authenticated=True
             def inspect(self,identity):
                 if identity!=BOOK_ID:raise ValueError('mock/book')
+                if (a.retry_enter_read_failure and not getattr(self,'rejected_once',False)
+                        and server.request_totals.get(('/web/book/read',''),0)==1):
+                    self.rejected_once=True
+                    with server.lock:server.control.update(match='/web/book/getProgress',status=503,times=1,skip=0)
+                    WebSourceProbe.request(self,'progress_before',WEB+'/web/book/getProgress?bookId='+BOOK_ID)
+                    raise ValueError('mock/read_failure_not_delivered')
                 self.book_id=identity;self.raw_progress=server.get_progress(identity);self.catalog=catalog
                 self.shards={'e_0':'a','e_1':'b','e_3':'c'};self.report['read_snapshot_consistent']=True
                 self.reader={'psvts':'mock-session','token':DEFAULT_TOKEN,'pclts':0}
@@ -137,7 +145,7 @@ def main():
                 if stage=='ordinary_rpc_info':return dict(bookId=BOOK_ID,version=7)
                 if stage=='ordinary_rpc_shelf':return shelf_snapshot()
                 raise ValueError('mock/read_scope')
-        web=LocalWeb();restore_web=RestoreProbe(opener=LocalOpener())
+        web=LocalWeb(opener=LocalOpener());restore_web=RestoreProbe(opener=LocalOpener())
         for client in (web,restore_web):
             client.vid='900000';client.book_id=BOOK_ID;client.authenticated=True
             for key,value in payload['cookies'].items():client.set_cookie(key,value)
@@ -175,19 +183,24 @@ def main():
                     raise ValueError('mock/restore_readback')
                 partial_recovered=True
             elif a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode:
-                expected_posts=1 if a.retry_enter_noack or not retry_recovery_mode else 2
-                expected_phase='enter_pending' if a.retry_enter_noack else 'position_pending' if retry_recovery_mode else 'enter_acknowledged'
+                expected_posts=1 if a.retry_enter_noack or a.retry_enter_read_failure or not retry_recovery_mode else 2
+                expected_phase='enter_pending' if a.retry_enter_noack else 'enter_acknowledged' if a.retry_enter_read_failure or not retry_recovery_mode else 'position_pending'
                 if (captured['plan']['target']['raw_percent']==initial['raw_percent'] or report.get('result')!='UNVERIFIED'
                         or report['claimed_posts']!=expected_posts or report['acknowledged_posts']!=(0 if a.retry_enter_noack else 1)
                         or store.read()[0]['phase']!=expected_phase or server.request_totals.get(('/web/book/read',''),0)!=expected_posts):
                     raise ValueError('mock/partial_enter')
+                if a.retry_enter_read_failure and (not getattr(web,'rejected_once',False)
+                        or web.report['stages'][-1]!=dict(stage='progress_before',status=503)
+                        or not any(event['path']=='/web/book/getProgress' and event['status']==503 for event in server.events)
+                        or report.get('independently_verified')!=0 or report.get('restore_claimed') is not False):
+                    raise ValueError('mock/read_failure')
                 import ordinary_partial_recovery as partial
                 original_state,original_receipt=store.read();recovery=(RetryPartialRecoveryStore if retry_recovery_mode else PartialRecoveryStore)(Backend())
                 with patch.object(partial,'decode_content_shards',return_value=source):
-                    expected=captured['plan']['target'] if retry_recovery_mode and not a.retry_enter_noack else observed_point(captured['plan'])
+                    expected=captured['plan']['target'] if retry_recovery_mode and not (a.retry_enter_noack or a.retry_enter_read_failure) else observed_point(captured['plan'])
                     observed=checked_pair(web,LocalNative(),grant,captured['plan'],expected,lambda:True)
                     bound=recovery_binding(original_receipt,observed,digest(grant),'0'*64,
-                        observed_state=('entered' if a.retry_enter_noack else 'target') if retry_recovery_mode else None,
+                        observed_state=('entered' if a.retry_enter_noack or a.retry_enter_read_failure else 'target') if retry_recovery_mode else None,
                         original_phase=expected_phase if retry_recovery_mode else None)
                     recovery_receipt=recovery.reserve(bound)
                     server.control['progress_confirmation']='noack' if a.partial_recovery_noack or a.retry_recovery_noack else 'plain'
@@ -204,10 +217,14 @@ def main():
                             or store.read()[0]['phase']!=expected_phase):raise ValueError('mock/partial_noack')
                 elif (partial_report.get('result')!='ORDINARY_PARTIAL_RECOVERY_VERIFIED'
                         or recovery.read()[0]['phase']!='retired'
-                        or store.read()[0]['phase']!=('partial_restored_after_position' if retry_recovery_mode and not a.retry_enter_noack else 'partial_restored')):
+                        or store.read()[0]['phase']!=('partial_restored_after_position' if retry_recovery_mode and not (a.retry_enter_noack or a.retry_enter_read_failure) else 'partial_restored')):
                     raise ValueError('mock/partial_recovery')
                 if server.request_totals.get(('/web/book/read',''),0)!=expected_posts+1:raise ValueError('mock/partial_count')
                 partial_recovered=not (a.partial_recovery_noack or a.retry_recovery_noack)
+                if partial_recovered:
+                    final=server.get_progress(BOOK_ID)
+                    if not same_position(reader_progress(final,BOOK_ID),initial) or final['book'].get('summary')!=initial['summary']:
+                        raise ValueError('mock/partial_readback')
         finally:web.close();restore_web.close()
         if a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode or a.retry_restore_noack:
             pass
@@ -227,7 +244,7 @@ def main():
                               claimed_posts=report['claimed_posts'],acknowledged_posts=report['acknowledged_posts'],
                               verified=report['independently_verified'],coordinator=True,actual_reader=True,
                               retry_scope=retry_mode,partial_recovery=a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode,retry_recovery=retry_recovery_mode,
-                              recovery_noack=a.partial_recovery_noack or a.retry_recovery_noack,
+                              recovery_noack=a.partial_recovery_noack or a.retry_recovery_noack,read_failure_after_enter=a.retry_enter_read_failure,
                               enter_noack=a.retry_enter_noack,restore_readback_resolved=a.retry_restore_noack,restore_verified=restored,real_account_posts=0)))
     finally:server.shutdown();server.server_close();thread.join()
 
