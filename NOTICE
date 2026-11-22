@@ -30,6 +30,12 @@ MiuRead UI migration:
 Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader
 
+The in-memory E-Ink chapter package research helper in
+scripts/native_chapter_package.py adapts the password and ZIP layout from
+MiuRead's eink_crypto.lua and eink_archive.lua at commit
+c1893562aa25a870b8dd076d7be062a3348f823e. Copyright (C) 2026 MiuRead
+contributors; AGPL-3.0-only. It is a validation helper, not a download backend.
+
 The experimental book-excerpt card renderer and its bundled template assets
 under weread/lib/excerpt_card are adapted from MiuRead's book_excerpt_card
 at commit c1893562aa25a870b8dd076d7be062a3348f823e. Copyright (C) 2026
