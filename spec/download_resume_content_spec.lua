@@ -106,6 +106,43 @@ expect(restored:find("second", 1, true) ~= nil,
     "checkpointed chapter body could not be restored")
 expect(Content.load_full_download_css(workspace) == "body{color:black}",
     "checkpointed stylesheet could not be restored")
+local function replace_style_file(name, data)
+    local file = assert(io.open(workspace.path .. "/" .. name, "wb"))
+    assert(file:write(data)); assert(file:close())
+end
+replace_style_file("style.css", "body{color:white}")
+expect(Content.load_full_download_css(workspace) == nil,
+    "modified stylesheet was accepted on resume")
+Content.save_full_download_css(workspace, "body{color:black}")
+replace_style_file("style.sha256", string.rep("0", 64) .. "\n")
+expect(Content.load_full_download_css(workspace) == nil,
+    "incorrect stylesheet digest was accepted")
+replace_style_file("style.sha256", string.rep("0", 64) .. "\nextra")
+expect(Content.load_full_download_css(workspace) == nil,
+    "malformed stylesheet digest was accepted")
+assert(os.remove(workspace.path .. "/style.sha256"))
+expect(Content.load_full_download_css(workspace) == nil,
+    "legacy stylesheet without integrity data was accepted")
+Content.save_full_download_css(workspace, "")
+expect(Content.load_full_download_css(workspace) == "", "empty stylesheet was not restored")
+Content.save_full_download_css(workspace, "body{color:black}")
+local real_open = io.open
+-- luacheck: push ignore 122
+io.open = function(path, mode)
+    local file, err = real_open(path, mode)
+    if not file or path:sub(-17) ~= "style.sha256.part" or mode ~= "wb" then return file, err end
+    return {write = function(_self, data) return file:write(data) end,
+        close = function() file:close(); return nil, "No space left on device" end}
+end
+local style_ok = pcall(Content.save_full_download_css, workspace, "body{color:gray}")
+io.open = real_open
+-- luacheck: pop
+expect(not style_ok and Content.load_full_download_css(workspace) == nil,
+    "interrupted stylesheet digest publication was accepted")
+expect(Content.full_download_chapter_exists(workspace, chapters[1], 1)
+    and Content.full_download_chapter_exists(workspace, chapters[2], 2),
+    "stylesheet publication failure damaged the chapter checkpoints")
+Content.save_full_download_css(workspace, "body{color:black}")
 
 local FileIdentity = require("weread.lib.book_file_identity")
 book.bookVersion = 7

@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def run(runtime, web_corrupt_only=False, live_web_only=False):
+def run(runtime, web_corrupt_only=False, live_web_only=False, css_corrupt_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w') as archive_file:
@@ -102,12 +102,14 @@ def run(runtime, web_corrupt_only=False, live_web_only=False):
     server.tar_data=buffer.getvalue()
     thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
     try:
-        cases=((600, 800, 167, False, False, False, False, True, False),
-                                                                      (1264, 1680, 300, True, False, False, False, True, False),
-                                                                      (1264, 1680, 300, False, False, False, False, True, True),
-                                                                      (1264, 1680, 300, True, False, True, False, False, False),
-                                                                      (600, 800, 167, False, True, False, False, False, False),
-                                                                      (600, 800, 167, False, False, False, True, False, False))
+        cases=((600, 800, 167, False, False, False, False, True, False, False),
+               (1264, 1680, 300, True, False, False, False, True, False, False),
+               (1264, 1680, 300, False, False, False, False, True, True, False),
+               (1264, 1680, 300, True, False, True, False, False, False, False),
+               (600, 800, 167, False, True, False, False, False, False, False),
+               (600, 800, 167, False, False, False, True, False, False, False),
+               (600, 800, 167, False, False, False, False, True, False, True),
+               (1264, 1680, 300, False, False, False, False, True, False, True))
         if live_web_only:
             with tempfile.TemporaryDirectory(prefix='weread-native-live-mock-',dir='/dev/shm') as root:
                 xdg=Path(root)/'xdg';xdg.mkdir(mode=0o700)
@@ -142,8 +144,10 @@ def run(runtime, web_corrupt_only=False, live_web_only=False):
                 assert json.loads(result[len(offline):])==dict(ok=True,chapters=2,images=2,network_blocked=True)
             print('PASS: actual Web and E-Ink download against synthetic service')
             return
-        for width, height, dpi, resume, expired, corrupt, switch, web_asset, web_corrupt in cases:
+        for width, height, dpi, resume, expired, corrupt, switch, web_asset, web_corrupt, css_corrupt in cases:
             if web_corrupt_only and not web_corrupt:
+                continue
+            if css_corrupt_only and not css_corrupt:
                 continue
             with tempfile.TemporaryDirectory(prefix='weread-native-full-', dir='/dev/shm') as root:
                 xdg = Path(root) / 'xdg';xdg.mkdir(mode=0o700)
@@ -156,7 +160,7 @@ def run(runtime, web_corrupt_only=False, live_web_only=False):
                                refreshToken='synthetic-refresh', deviceId='eink334691225' + '0' * 19),
                                mock_endpoint='http://127.0.0.1:' + str(server.server_port),
                                resume=resume, expired=expired, corrupt=corrupt, switch=switch,
-                               web_asset=web_asset, web_corrupt=web_corrupt)
+                               web_asset=web_asset, web_corrupt=web_corrupt, css_corrupt=css_corrupt)
                 server.resume, server.expired, server.resume_marker, server.chapters = resume, expired, Path(root) / 'resume', []
                 server.valid, server.leaked, server.image_requests, server.tar_requests = True, False, 0, 0
                 child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_full_book_probe.lua'), str(REPO)],
@@ -170,12 +174,13 @@ def run(runtime, web_corrupt_only=False, live_web_only=False):
                             dict(ok=True,switched=True,chapters=3) if switch else
                             dict(ok=True,resumed=resume,chapters=3,styles=2,images=1))
                 assert json.loads(line[len(marker):]) == expected
-                expected_chapters=(['37','38'] if expired else ['37','38','39','39'] if web_corrupt else ['37','38','37','38','39'] if corrupt
+                expected_chapters=(['37','38'] if expired else ['37','38','39','39'] if web_corrupt else ['37','38','39','37'] if css_corrupt else ['37','38','37','38','39'] if corrupt
                                    else ['37','38','38','39'] if resume else ['37','38','39'])
                 assert server.chapters == expected_chapters, server.chapters
-                assert server.image_requests==(1 if expired else 3 if corrupt else 2) and server.valid and not server.leaked
+                assert server.image_requests==(1 if expired else 3 if corrupt or css_corrupt else 2) and server.valid and not server.leaked
                 assert server.tar_requests == (2 if web_corrupt else 1 if web_asset else 0)
-        print('PASS: corrupt Web image recovery and offline rendering' if web_corrupt_only else
+        print('PASS: corrupt shared stylesheet recovery and offline rendering' if css_corrupt_only else
+              'PASS: corrupt Web image recovery and offline rendering' if web_corrupt_only else
               'PASS: native full book, mixed sources, shared images, rate-limit resume and offline rendering')
     finally:
         server.shutdown();server.server_close();thread.join()
@@ -185,5 +190,6 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--web-corrupt-only',action='store_true')
     parser.add_argument('--live-web-only',action='store_true')
+    parser.add_argument('--css-corrupt-only',action='store_true')
     args=parser.parse_args()
-    run(args.koreader.resolve(),args.web_corrupt_only,args.live_web_only)
+    run(args.koreader.resolve(),args.web_corrupt_only,args.live_web_only,args.css_corrupt_only)

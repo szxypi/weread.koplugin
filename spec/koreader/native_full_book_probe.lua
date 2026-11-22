@@ -84,7 +84,7 @@ if not live_web then
         return xhtml,{}
     end
 end
-if input.web_corrupt then
+if input.web_corrupt or input.css_corrupt then
     local save=Content.save_full_download_chapter
     Content.save_full_download_chapter=function(workspace,chapter,...)
         local result=save(workspace,chapter,...)
@@ -159,6 +159,17 @@ if input.web_corrupt then
     local marker=assert(io.open(home..'/resume','wb'));assert(marker:write('1'));assert(marker:close())
     start();wait_done()
 end
+if input.css_corrupt then
+    assert(completed==false and result=='incomplete_full_book')
+    local workspace=Content.open_full_download_workspace(settings,book)
+    for i,chapter in ipairs(chapters) do assert(Content.full_download_chapter_exists(workspace,chapter,i,1,true)) end
+    local prior=assert(io.open(old_path,'rb'));assert(prior:read('*a')=='previous full book');assert(prior:close())
+    local css=assert(io.open(workspace.path..'/style.css','wb'))
+    assert(css:write('corrupted stylesheet'));assert(css:close())
+    assert(Content.load_full_download_css(workspace)==nil)
+    local marker=assert(io.open(home..'/resume','wb'));assert(marker:write('1'));assert(marker:close())
+    start();wait_done()
+end
 if input.switch then
     assert(completed==false and result=='account_changed')
     local prior=assert(io.open(old_path,'rb'));assert(prior:read('*a')=='previous full book');assert(prior:close())
@@ -213,6 +224,10 @@ require('socket.http').request=function() error('offline network request forbidd
 local doc=assert(require('document/documentregistry'):openDocument(result))
 assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()
 local opf=assert(doc:getDocumentFileContent('OEBPS/content.opf'))
+if input.css_corrupt then
+    local css=assert(doc:getDocumentFileContent('OEBPS/style.css'))
+    assert(css:find('p{color:green}',1,true) and not css:find('corrupted stylesheet',1,true))
+end
 if orphan_name then
     assert(not opf:find(orphan_name,1,true), 'orphan native image was listed')
     local orphan=doc:getDocumentFileContent('OEBPS/images/'..orphan_name)

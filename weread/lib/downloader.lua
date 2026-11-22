@@ -137,6 +137,15 @@ function Downloader:_restoreFullDownloadCheckpoint(dl, initial)
             self.settings:get('cache',{}).download_book_images==true)
     end)
     if dl.cancelled then return 0 end
+    -- A missing, legacy or damaged shared stylesheet needs a fresh Web
+    -- source. Re-fetch one chapter while keeping all other valid checkpoints.
+    if initial and dl.state.css == nil and #dl.chapters > 0 then
+        local all_completed = true
+        for index = 1, #dl.chapters do
+            if not completed[index] then all_completed = false; break end
+        end
+        if all_completed then completed[1] = nil end
+    end
     local selected = {}
     local completed_count = 0
     for chapter_index, chapter in ipairs(dl.chapters) do

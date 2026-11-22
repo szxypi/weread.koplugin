@@ -738,17 +738,30 @@ end
 
 function Content.save_full_download_css(workspace, css)
     if not workspace or not workspace.path then return nil end
-    local ok, err = atomic_write(workspace.path .. "/style.css", css or "")
+    css = css or ""
+    if type(css) ~= "string" or #css > MAX_FULL_STYLE_BYTES then error("invalid book stylesheet") end
+    local ok, err = atomic_write(workspace.path .. "/style.css", css)
     if not ok then error(err or "could not checkpoint stylesheet") end
+    ok, err = atomic_write(workspace.path .. "/style.sha256", Crypto.sha256_hex(css) .. "\n")
+    if not ok then error(err or "could not checkpoint stylesheet digest") end
     return true
 end
 
 function Content.load_full_download_css(workspace)
-    local file = workspace and workspace.path
-        and io.open(workspace.path .. "/style.css", "rb")
+    local path = workspace and workspace.path
+    local receipt = path and io.open(path .. "/style.sha256", "rb")
+    if not receipt then return nil end
+    local digest, receipt_err = receipt:read(66)
+    local receipt_closed = receipt:close()
+    if receipt_err or not receipt_closed or not digest or #digest ~= 65
+        or not digest:match("^[0-9a-f]+\n$") then return nil end
+    local file = io.open(path .. "/style.css", "rb")
     if not file then return nil end
-    local css = file:read("*a")
-    file:close()
+    local css, read_err = file:read(MAX_FULL_STYLE_BYTES + 1)
+    local closed = file:close()
+    css = css or ""
+    if read_err or not closed or #css > MAX_FULL_STYLE_BYTES
+        or Crypto.sha256_hex(css) ~= digest:sub(1, 64) then return nil end
     return css
 end
 

@@ -19,6 +19,7 @@ local cleanup_count = 0
 local fail_next_save = false
 local rendered_chapters_complete = true
 local save_book_calls = 0
+local resume_css = nil
 
 package.preload["ui/widget/confirmbox"] = function()
     return { new = function(_self, options) return options end }
@@ -102,7 +103,7 @@ package.preload["weread.lib.content"] = function()
     return {
         ensure_reader_state = function() end,
         open_full_download_workspace = function() return workspace end,
-        load_full_download_css = function() return "body{}" end,
+        load_full_download_css = function() return resume_css end,
         full_download_workspace_used_asset_names = function() return {} end,
         full_download_completed_chapters = function()
             checkpoint_checks = checkpoint_checks + 1
@@ -112,8 +113,9 @@ package.preload["weread.lib.content"] = function()
             end
             return completed
         end,
-        fetch_single_chapter_source = function(_client, _settings, _book, chapter)
+        fetch_single_chapter_source = function(_client, _settings, _book, chapter, state)
             fetched[#fetched + 1] = chapter.chapterUid
+            if state and not state.css then state.css = "body{}" end
             return "<p>chapter " .. tostring(chapter.chapterUid) .. "</p>"
         end,
         finalize_single_chapter_content = function(_client, _settings, _book, _chapter, xhtml)
@@ -182,7 +184,7 @@ while #scheduled > 0 do
 end
 
 expect(#fetched == 1 and fetched[1] == 2,
-    "resume should fetch only the unfinished chapter")
+    "resume with an unverified stylesheet should fetch only the unfinished chapter")
 expect(#checkpointed >= 1 and checkpointed[1].uid == 2
     and checkpointed[1].index == 2,
     "newly downloaded chapter was not checkpointed at its catalog index")
@@ -192,6 +194,19 @@ expect(type(streamed_bodies) == "table"
     "final EPUB did not stream rendered chapter files")
 expect(checkpoint_checks >= 2,
     "full-book checkpoints were not verified again before packaging")
+
+resume_css = nil
+fetched = {}
+expect(downloader:start({ book_id = "book", title = "Book" }, chapters, "full", {
+    silent_completion = true,
+}), "download with an unverified stylesheet did not start")
+while #scheduled > 0 do
+    local callback = table.remove(scheduled, 1)
+    callback()
+end
+expect(#fetched == 1 and fetched[1] == 1,
+    "fully checkpointed book did not refresh exactly one chapter for its stylesheet")
+resume_css = "body{}"
 
 local cleanup_before_failure = cleanup_count
 fail_next_save = true
