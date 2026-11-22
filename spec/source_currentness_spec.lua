@@ -50,7 +50,7 @@ local function fixture()
     local client={settings=settings,json_encode=function() return 'encoded-read-body' end,
         json_decode=function(_self,value) assert(value=='{reader}');return initial end,
         decode_http_json=function(_self,value)
-            if value=='account' then return {vid=state.foreign and '900099' or '900000'} end
+            if value=='account' then return {vid=state.foreign and '900099' or '900000',errcode=state.account_error} end
             assert(value=='catalog');return catalog
         end}
     function client:request(options)
@@ -62,13 +62,38 @@ local function fixture()
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
         if state.transport then error('source_currentness/web_expired') end
-        return 1,state.fail_at and (count==state.fail_at and 401 or 200) or state.code,{}
+        return 1,state.fail_at and (count==state.fail_at and 401 or 200) or state.code,
+            state.response_headers and state.response_headers[count] or {}
     end
     return client,state
 end
 local client,state=fixture()
 local result=Check.fetch(client,expected)
 expect(Check.packet(result,expected) and #state.requests==8,'fixed eight reads did not bind selected source')
+local normal_state=state
+local rotated='synthetic-rotated-cookie'
+local function set_cookie(value) return 'wr_skey'..'='..value..'; Path=/; Secure' end
+client,state=fixture()
+local selected=Check.capture(client.settings)
+state.response_headers={[1]={['set-cookie']=set_cookie(rotated)}}
+expect(Check.packet(Check.fetch(client,expected,selected),expected),'account cookie rotation rejected')
+expect(state.requests[2].headers.Cookie:find(rotated,1,true)~=nil,'rotated account cookie not used for catalog')
+expect(state.requests[8].headers['X-Skey']==rotated,'final account check did not use rotated cookie')
+expect(selected.web.cookies.wr_skey=='synthetic-current-cookie' and Check.matches(client.settings,selected),
+    'ephemeral rotation changed the selected or persisted session')
+for _,cookie in ipairs({set_cookie('short'),set_cookie(''),set_cookie(rotated)..', '..set_cookie(rotated),
+    'wr_vid'..'=900099; Path=/',set_cookie(rotated)..'; wr_vid'..'=900099'}) do
+    client,state=fixture();state.response_headers={[1]={['Set-Cookie']=cookie}}
+    expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'ambiguous or foreign account cookie accepted')
+end
+client,state=fixture();state.foreign=true;state.response_headers={[1]={['set-cookie']=set_cookie(rotated)}}
+expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'foreign owner rotated cookies')
+client,state=fixture();state.account_error=-2012;state.response_headers={[1]={['set-cookie']=set_cookie(rotated)}}
+expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'failed account response rotated cookies')
+client,state=fixture();state.changed_at=1;state.response_headers={[1]={['set-cookie']=set_cookie(rotated)}}
+expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'stale account response rotated cookies')
+client,state=fixture();state.response_headers={[1]={['set-cookie']={set_cookie(rotated),'wr_vid'..'=900000; Path=/'}}}
+expect(Check.packet(Check.fetch(client,expected),expected),'same-owner cookie header array rejected')
 local checked=0;local check_client,check_state=fixture()
 Check.fetch(check_client,expected,nil,nil,{verify_catalog=function(value)
     checked=checked+1;expect(value[1].book.bookVersion==3,'catalog observer received another response')
@@ -77,7 +102,7 @@ expect(checked==2 and #check_state.requests==8,'catalog observer skipped a bound
 check_client,check_state=fixture()
 expect(not pcall(Check.fetch,check_client,expected,nil,nil,{verify_catalog=function() error('synthetic version mismatch') end})
     and #check_state.requests==2,'version rejection fetched source bytes')
-for index,options in ipairs(state.requests) do
+for index,options in ipairs(normal_state.requests) do
     expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false
         and not options.headers.Authorization and options.headers.Cookie:find('synthetic-current-cookie',1,true),'read lost frozen access scope')
     expect(options.method==(({[1]=true,[3]=true,[8]=true})[index] and 'GET' or 'POST'),'unexpected write route/method')

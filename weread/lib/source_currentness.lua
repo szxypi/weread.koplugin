@@ -160,6 +160,39 @@ function M.matches_cb_initial_access(settings,selected,native_selected)
     return cookies~=nil and M.matches(settings,selected)
         and initial_native_current(settings,native_selected,cookies.wr_vid) or false
 end
+-- The authenticated account response can rotate the Web access cookie. Use
+-- that value only inside this read: never mutate the selected session, and
+-- reject ambiguous or foreign identity cookies instead of guessing.
+local function account_cookie(headers,cookies)
+    if type(headers)~='table' then return end
+    local raw
+    for key,value in pairs(headers) do
+        if type(key)=='string' and key:lower()=='set-cookie' then
+            if raw~=nil then fail('account_cookie') end
+            raw=value
+        end
+    end
+    if raw==nil then return end
+    if type(raw)=='string' then raw={raw} end
+    if type(raw)~='table' or #raw>32 then fail('account_cookie') end
+    local access,access_count,vid_count=nil,0,0
+    for key,line in pairs(raw) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#raw
+            or type(line)~='string' or #line>16384 then fail('account_cookie') end
+        for name,value in line:gmatch('([%w_]+)=([^;,\r\n]*)') do
+            if name=='wr_vid' then
+                vid_count=vid_count+1
+                if vid_count>1 or value~=cookies.wr_vid then fail('account_cookie') end
+            elseif name=='wr_skey' then
+                access_count=access_count+1
+                if access_count>1 or #value<8 or #value>4096 or value:find('[%z%c%s;"\\]')
+                    or value:find('[\128-\255]') then fail('account_cookie') end
+                access=value
+            end
+        end
+    end
+    if access then cookies.wr_skey=access end
+end
 local function fetch(client,expected_value,selected,format,options,cb)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
@@ -171,8 +204,9 @@ local function fetch(client,expected_value,selected,format,options,cb)
         and options.cb_initial==nil and options.cb_remote==nil
     if not expected or cb and format~='web_xhtml' and not (txt_readonly or txt_guarded) then fail('expected') end
     selected=selected or M.capture(client.settings)
-    local cookies=selected and selected.web and selected.web.cookies
-    if not cookies or not Access.book_id(cookies.wr_vid) then fail('web_required') end
+    local captured=selected and selected.web and selected.web.cookies
+    if not captured or not Access.book_id(captured.wr_vid) then fail('web_required') end
+    local cookies={};for key,value in pairs(captured) do cookies[key]=value end
     local function current() if not M.matches(client.settings,selected) then fail('session_changed') end end
     local referer=Protocol.reader_url(expected.book_id,expected.chapter_uid)
     local function request(url,body,maximum,as_json,account)
@@ -194,12 +228,14 @@ local function fetch(client,expected_value,selected,format,options,cb)
         if not as_json then return raw end
         local decoded,value=pcall(client.decode_http_json,client,raw,{sensitive=true,api_name='source_currentness',code=code,headers=response_headers})
         if not decoded or type(value)~='table' then fail('response') end
-        return value
+        return value,response_headers
     end
     local function account()
-        local data=request('https://weread.qq.com/api/userInfo?userVid='..Protocol.urlencode(cookies.wr_vid),nil,65536,true,true)
+        local data,headers=request('https://weread.qq.com/api/userInfo?userVid='..Protocol.urlencode(cookies.wr_vid),nil,65536,true,true)
         local id=Access.book_id(data.vid or data.userVid)
         if id~=cookies.wr_vid or data.vid and data.userVid and Access.book_id(data.vid)~=Access.book_id(data.userVid) then fail('owner') end
+        if not pcall(success,data) then fail('owner') end
+        account_cookie(headers,cookies)
     end
     account()
     local cb_remote=options and options.cb_remote

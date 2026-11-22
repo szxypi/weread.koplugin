@@ -42,6 +42,7 @@ class Handler(BaseHTTPRequestHandler):
             data=archive([('text/37.html',BODY),('style/book.css','p{color:black}')]);headers['encryptkey']='vwSvXMONEDngLYTAXw3olg=='
         elif target.hostname=='weread.qq.com' and target.path=='/api/userInfo' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'userVid':['12345678']}
+            headers['Set-Cookie']='wr_skey'+'=synthetic-refreshed-cookie; Path=/; Secure'
             data=json.dumps(dict(vid='12345678')).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))

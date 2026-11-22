@@ -39,6 +39,9 @@ host.client.request=function(self,options)
         or url=='https://weread.qq.com/web/book/chapterInfos'
         or url:find('https://weread.qq.com/web/reader/',1,true)==1
         or url:find('https://weread.qq.com/web/book/chapter/e_',1,true)==1)
+    if url:find('https://weread.qq.com/web/',1,true)==1 then
+        assert(options.headers.Cookie:find('synthetic-refreshed-cookie',1,true),'account cookie rotation was not used')
+    end
     return requests(self,options)
 end
 local native_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=65536,timeout=180}
