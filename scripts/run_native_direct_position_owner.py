@@ -21,6 +21,14 @@ def frame(output,marker):
     return json.loads(lines[0][len(marker):])
 
 
+def synthetic_endpoint_allowed(payload,endpoint):
+    if endpoint is None:return True
+    return (isinstance(endpoint,str) and re.fullmatch(r'http://127\.0\.0\.1:[1-9][0-9]{0,4}',endpoint) is not None
+        and int(endpoint.rsplit(':',1)[1])<=65535 and payload.get('credentials')==dict(vid='12345678',
+            accessToken='synthetic-access',refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19)
+        and payload.get('web_cookies')=={'wr_vid':'12345678','wr_skey':'synthetic-web-access'})
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
@@ -35,6 +43,11 @@ def main(argv=None):
         raw=sys.stdin.buffer.read(65537)
         if len(raw)>65536:raise ValueError('input_limit')
         payload=json.loads(raw)
+        if payload.get('selection') is True and any(payload.get(key) is True for key in ('cloud','upload_preview','upload_dry_run','cloud_denied','cloud_cross')):
+            raise ValueError('selection_mode')
+        if payload.get('annotation_preview') is True and payload.get('selection') is not True:raise ValueError('preview_mode')
+        endpoint=payload.get('mock_endpoint')
+        if not synthetic_endpoint_allowed(payload,endpoint):raise ValueError('synthetic_endpoint')
         with tempfile.TemporaryDirectory(prefix='weread-native-position-owner-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';xdg=root/'xdg'
             (profile/'plugins').mkdir(parents=True);xdg.mkdir(mode=0o700)
@@ -65,7 +78,10 @@ def main(argv=None):
                 upload_preview=payload.get('upload_preview') is True,
                 upload_dry_run=payload.get('upload_dry_run') is True,
                 cloud_denied=payload.get('cloud_denied') is True,cloud_cross=payload.get('cloud_cross') is True,
-                target_uid=payload.get('target_uid'),start_page=payload.get('start_page',1))
+                target_uid=payload.get('target_uid'),start_page=payload.get('start_page',1),
+                selection=payload.get('selection') is True,selection_text=payload.get('search_token'),
+                annotation_preview=payload.get('annotation_preview') is True)
+            if endpoint is not None:private['mock_endpoint']=endpoint
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                 str(plugin),str(REPO/'spec/koreader/native_direct_owner_position_probe.lua')],
                 env,json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=180)
@@ -75,9 +91,15 @@ def main(argv=None):
                 if match:report['position_line']=int(match.group(1))
             position=frame(out,b'WEREAD_DIRECT_OWNER_POSITION=')
             if position.get('ok') is False and position.get('reason') in {'invalid','unavailable','source_changed',
-                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited','cloud_changed','baseline_unavailable','summary_unavailable'}:
+                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited','cloud_changed','baseline_unavailable','summary_unavailable',
+                    'selection_reference/selection','selection_reference/start_unmatched','selection_reference/end_unmatched',
+                    'selection_reference/quote_boundary','selection_reference/quote_ambiguous','selection_reference/source_changed',
+                    'selection_reference/source','selection_reference/catalog','selection_reference/reference','selection_reference/unavailable'}:
                 report['reason']=position['reason']
-            fields={'ok','text','point_offset','offset'}
+            fields={'ok','range','quote','selection'} if private['selection'] else {'ok','text','point_offset','offset'}
+            if private['annotation_preview']:
+                fields|={'mark_preview','thought_preview'}
+                if position.get('mark_preview') is not True or position.get('thought_preview') is not True:raise ValueError('annotation_preview')
             if private['upload_dry_run']:
                 fields.add('upload_dry_run')
                 if position.get('upload_dry_run') is not True:raise ValueError('upload_dry_run')
@@ -94,9 +116,13 @@ def main(argv=None):
                         or type(position.get('opened')) is not bool
                         or position['opened']!=(position['relation']=='different' or private['cloud_cross'] and position['relation']=='other_chapter')):
                     raise ValueError('cloud')
-            if (code or repaint or set(position)!=fields or position['ok'] is not True
-                    or not isinstance(position['text'],str) or not 1<=len(position['text'].encode())<=8192
-                    or type(position['point_offset']) is not int or type(position['offset']) is not int):
+            invalid_selection=private['selection'] and (not isinstance(position.get('selection'),str)
+                or not 1<=len(position['selection'].encode())<=4096 or not isinstance(position.get('range'),str)
+                or not isinstance(position.get('quote'),str) or len(position['quote'].encode())>4096)
+            invalid_position=not private['selection'] and (not isinstance(position.get('text'),str)
+                or not 1<=len(position['text'].encode())<=8192 or type(position.get('point_offset')) is not int
+                or type(position.get('offset')) is not int)
+            if code or repaint or set(position)!=fields or position['ok'] is not True or invalid_selection or invalid_position:
                 raise ValueError('position')
             phase='credential_audit'
             native=payload['credentials'];secrets=[native[key] for key in ('accessToken','refreshToken','deviceId')]

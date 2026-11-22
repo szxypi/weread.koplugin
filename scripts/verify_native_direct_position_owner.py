@@ -52,6 +52,16 @@ def independent_offset(raw,position):
     return False
 
 
+def independent_selection(raw,selection):
+    try:
+        from annotation_source_quotes import SourceQuotes
+        return (isinstance(selection,dict) and set(selection)=={'ok','selection','range','quote'}
+            and selection['ok'] is True and isinstance(selection['selection'],str)
+            and 1<=len(selection['selection'].encode())<=4096 and isinstance(selection['quote'],str)
+            and SourceQuotes(raw.decode('utf-8'),body_only=True).quote(selection['range'])==selection['quote']==selection['selection'])
+    except (ValueError,UnicodeError,TypeError,KeyError):return False
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
@@ -63,6 +73,8 @@ def main(argv=None):
     parser.add_argument('--current-cloud-chapter',action='store_true',help='Select the explicit readable cloud chapter')
     parser.add_argument('--cloud-denied',action='store_true',help='Exercise a confirmed unavailable cloud chapter')
     parser.add_argument('--cloud-cross',action='store_true',help='Exercise a confirmed readable cloud chapter across files')
+    parser.add_argument('--selection',action='store_true',help='Check a native selection without writing account data')
+    parser.add_argument('--annotation-preview',action='store_true',help='Also prepare highlight and private thought without dispatch')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
@@ -71,6 +83,8 @@ def main(argv=None):
     if args.current_cloud_chapter and not args.cloud:parser.error('current cloud chapter requires --cloud')
     if args.cloud_denied and (not args.cloud or args.current_cloud_chapter):parser.error('cloud denied requires a different chapter')
     if args.cloud_cross and (not args.cloud or args.current_cloud_chapter or args.cloud_denied):parser.error('cloud cross requires a readable different chapter')
+    if args.selection and args.cloud:parser.error('selection is a separate read-only probe')
+    if args.annotation_preview and not args.selection:parser.error('annotation preview requires selection')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
     saved=credentials=web=native_api=target_native=None;phase='start'
     try:
@@ -127,7 +141,8 @@ def main(argv=None):
                 search_token=search_token(native['source']),web_cookies=saved['cookies'],cloud=args.cloud,
                 upload_preview=args.upload_preview,upload_dry_run=args.upload_dry_run,
                 cloud_denied=args.cloud_denied,cloud_cross=args.cloud_cross,
-                target_uid=str(baseline_point['chapter_uid']) if args.cloud_cross else None,start_page=args.start_page)
+                target_uid=str(baseline_point['chapter_uid']) if args.cloud_cross else None,start_page=args.start_page,
+                selection=args.selection,annotation_preview=args.annotation_preview)
             data=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(data)>65536:raise ValueError('input_limit')
             phase='reader_position';report['credentials_written_to_files']=None
@@ -141,7 +156,10 @@ def main(argv=None):
                 for key in ('probe_exit','probe_line','position_exit','position_line'):
                     if type(result.get(key)) is int:report[key]=result[key]
                 if result.get('reason') in {'auth_expired','rate_limited','service_rejected','unavailable','not_entitled',
-                        'invalid','source_changed','anchor_unavailable','source_unsupported','file_changed','session_changed','web_expired','cloud_changed','baseline_unavailable','summary_unavailable'}:
+                        'invalid','source_changed','anchor_unavailable','source_unsupported','file_changed','session_changed','web_expired','cloud_changed','baseline_unavailable','summary_unavailable',
+                        'selection_reference/selection','selection_reference/start_unmatched','selection_reference/end_unmatched',
+                        'selection_reference/quote_boundary','selection_reference/quote_ambiguous','selection_reference/source_changed',
+                        'selection_reference/source','selection_reference/catalog','selection_reference/reference','selection_reference/unavailable'}:
                     report['reason']=result['reason']
                 raise ValueError('child')
             if (set(result)!={'result','position','credential_file_audit','installed_bytes_match','profile_removed'}
@@ -149,8 +167,13 @@ def main(argv=None):
                 raise ValueError('result')
             phase='independent_offset'
             output=result['position']
-            current={key:output[key] for key in ('ok','text','point_offset','offset')}
-            if not independent_offset(native['source'],current):raise ValueError('offset')
+            if args.selection:
+                checked={key:output[key] for key in ('ok','selection','range','quote')}
+                if not independent_selection(native['source'],checked):raise ValueError('selection')
+                if args.annotation_preview and (output.get('mark_preview') is not True or output.get('thought_preview') is not True):raise ValueError('preview')
+            else:
+                current={key:output[key] for key in ('ok','text','point_offset','offset')}
+                if not independent_offset(native['source'],current):raise ValueError('offset')
             if args.cloud and not (args.upload_preview or args.upload_dry_run):
                 relation=output.get('relation');opened=output.get('opened')
                 target_source=target_native['source'] if args.cloud_cross else native['source']
@@ -164,10 +187,12 @@ def main(argv=None):
                         or any(baseline_counts[key]!=last_node.get(key) for key in count_keys):raise ValueError('cloud_changed')
             phase='final_shelf'
             if state_hash(probe.request('shelf',NATIVE_BASE+'/shelf/sync',credentials=credentials))!=baseline:raise ValueError('shelf_changed')
-            report.update(result='NATIVE_DIRECT_POSITION_READONLY_VERIFIED',native_web_source_matches=True,
-                actual_reader_position=True,independent_offset_matches=True,temporary_profile_removed=True,
+            report.update(result='NATIVE_DIRECT_SELECTION_READONLY_VERIFIED' if args.selection else 'NATIVE_DIRECT_POSITION_READONLY_VERIFIED',native_web_source_matches=True,
+                actual_reader_position=not args.selection,independent_offset_matches=not args.selection,temporary_profile_removed=True,
                 credential_file_audit=True,credentials_written_to_files=False,installed_bytes_match=True,
                 shelf_unchanged=True,cloud_upload=False)
+            if args.selection:report.update(actual_reader_selection=True,independent_quote_matches=True)
+            if args.annotation_preview:report.update(highlight_preview=True,private_thought_preview=True)
             if args.cloud and not (args.upload_preview or args.upload_dry_run):report.update(cloud_comparison=relation,cloud_position_opened=opened,cloud_unchanged=True)
             if args.upload_preview:report.update(upload_preview=True,cloud_unchanged=True)
             if args.upload_dry_run:report.update(upload_dry_run=True,cloud_unchanged=True,progress_post_blocked=True)

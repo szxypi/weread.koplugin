@@ -7,7 +7,7 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local scope={vid=input.credentials.vid,epoch=1}
-local settings={data_dir=home,cache_dir=home,get=function(_,key,default)
+local settings={data_dir=home,cache_dir=home,mock_endpoint=type(input.mock_endpoint)=='string' and input.mock_endpoint or nil,get=function(_,key,default)
     if key=='cookies' then return input.web_cookies end
     if key=='account' then return {user_vid=scope.vid} end
     return default
@@ -29,6 +29,9 @@ client.request=function(self,options)
         assert(body.bookId==input.book_id and body.chapterUid==tonumber(input.uid) and body.readingTime==0
             and type(body.summary)=='string' and #body.summary>0)
         error('owner_dry_run/blocked',0) -- Never forward a progress write to the network.
+    elseif input.annotation_preview and (url==native..'/book/bookmarklist?bookId='..input.book_id..'&synckey=0'
+        or url==native..'/review/list?bookId='..input.book_id..'&listType=11&listMode=0&mine=1&synckey=0&count=20') then
+        assert(options.method=='GET')
     elseif input.cloud and url==native..'/book/getProgress?bookId='..input.book_id then assert(options.method=='GET')
     elseif url==native..'/book/chapterInfos' then
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -71,13 +74,63 @@ if input.start_page and input.start_page>1 then
 end
 local entry=assert(require('weread.lib.native_direct_cache').identify(settings,scope.vid,input.path,function() return true end))
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.file_id)
-local library=input.upload_dry_run and require('weread.lib.library_db'):new(settings) or {accountKey=function() return 'owner' end}
+local library=(input.upload_dry_run or input.selection) and require('weread.lib.library_db'):new(settings) or {accountKey=function() return 'owner' end}
 local host={ui=reader,settings=settings,client=client,library_db=library,
     _reader_session_gen=1,isNetworkConnected=function() return true end,
     showBusy=function(self,label,cancel)
         self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message)
     end,closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
-    showInfo=function(self,message) self.checked_message=message end}
+    showInfo=function(self,message) self.checked_message=message end,
+    detectWeReadBook=function() return nil end,
+    showList=require('weread.ui.common').showList}
+if input.selection then
+    assert(type(input.selection_text)=='string' and #input.selection_text>0 and #input.selection_text<=4096)
+    local matches=assert(reader.document:findAllText(input.selection_text,false,0,10,false,0))
+    assert(#matches>0 and matches[1].start and matches[1]['end'])
+    local first,last=matches[1].start,matches[1]['end']
+    reader.rolling:onGotoXPointer(first);UI:forceRePaint()
+    local chosen=assert(reader.document:getTextFromXPointers(first,last))
+    assert(chosen==input.selection_text)
+    local selection=require('weread.ui.selection_thought');assert(selection.attach(host))
+    reader.highlight.selected_text={text=chosen,pos0=first,pos1=last}
+    reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+    assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+    wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
+    local owner=assert(host._selection_thought_owner)
+    wait(function() return owner.reference~=nil or host.checked_message~=nil end)
+    if not owner.reference then
+        local allowed={invalid=true,unavailable=true,source_changed=true,file_changed=true,session_changed=true,
+            auth_expired=true,web_expired=true,rate_limited=true,
+            ['selection_reference/selection']=true,['selection_reference/start_unmatched']=true,['selection_reference/end_unmatched']=true,
+            ['selection_reference/quote_boundary']=true,['selection_reference/quote_ambiguous']=true,['selection_reference/source_changed']=true,
+            ['selection_reference/source']=true,['selection_reference/catalog']=true,['selection_reference/reference']=true,
+            ['selection_reference/unavailable']=true}
+        print('WEREAD_DIRECT_OWNER_POSITION='..json.encode{ok=false,reason=allowed[owner.error] and owner.error or 'unavailable'});return
+    end
+    local reference=owner.reference
+    assert(require('weread.lib.selection_reference').valid(reference,input.book_id) and reference.markText==chosen)
+    local report={ok=true,selection=chosen,quote=reference.markText,range=reference.range}
+    if input.annotation_preview then
+        local worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=client,max_bytes=65536,timeout=140}
+        local result
+        assert(worker:start(function()
+            local selected=assert(Access.capture(settings))
+            local base={book_id=input.book_id,operation='create',reference=reference,source_file=input.path}
+            local mark=require('weread.lib.mark_edit_task').preview(client,settings,selected,base)
+            base.content='Private preflight only'
+            local thought=require('weread.lib.thought_edit_task').preview(client,settings,selected,base)
+            assert(mark.body.bookId==input.book_id and mark.body.range==reference.range and mark.body.markText==chosen)
+            assert(thought.body.bookId==input.book_id and thought.body.range==reference.range
+                and thought.body.abstract==chosen and thought.body.isPrivate==1 and thought.body.content==base.content)
+            return {mark_preview=true,thought_preview=true}
+        end,function(value) result=value end))
+        wait(function() return result~=nil end)
+        assert(result.mark_preview==true and result.thought_preview==true)
+        report.mark_preview=true;report.thought_preview=true
+    end
+    print('WEREAD_DIRECT_OWNER_POSITION='..json.encode(report))
+    selection.cancel(host);return
+end
 local worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=client,max_bytes=65536,timeout=140}
 local anchor,point,reason,comparison,target_anchor,destination_host
 if input.cloud_cross then
