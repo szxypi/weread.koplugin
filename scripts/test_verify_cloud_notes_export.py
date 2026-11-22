@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 from copy import deepcopy
 import io
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -45,6 +46,31 @@ class VerifyCloudNotesExportTests(unittest.TestCase):
             with self.subTest(mode=mode),self.assertRaises(ValueError):
                 task.compare(task.FRAME+json.dumps(changed).encode(),marks,thoughts)
         with self.assertRaises(ValueError):task.compare(b'missing',marks,thoughts)
+
+    def test_native_ui_only_receives_offline_credentials_and_redacts_notes(self):
+        marks,thoughts,value=self.fixture()
+        stage={'result':'PASS','phase':'complete','failed_line':0,'requests':0,'forbidden':0}
+        ui=dict(result='PASS',profile_removed=True,stages=[stage,stage],offline_network_guard=True,
+                independent_reopen=True,temporary_files_removed=True)
+        child=SimpleNamespace(returncode=0,stdout=task.UI_FRAME+json.dumps(ui).encode()+task.FRAME+json.dumps(value).encode())
+        api=SimpleNamespace(request=lambda stage,*_args,**_kwargs: {'books':[{'bookId':'900001'}]} if stage.startswith('shelf') else {})
+        with patch.object(task,'SessionStore') as session,patch.object(task,'NativeSessionStore') as native,\
+                patch.object(task,'NativeProbe',return_value=api),patch.object(task,'project',return_value=marks),\
+                patch.object(task,'complete',return_value=thoughts),patch.object(task,'state_hash',return_value='unchanged'),\
+                patch.object(task.subprocess,'run',return_value=child) as execute,redirect_stdout(io.StringIO()) as output:
+            session.return_value.load.return_value={'vid':'900000'}
+            native.return_value.load.return_value={'vid':'900000','accessToken':'private-real-token'}
+            self.assertEqual(task.main(['--saved-session','--native-ui','--lua-command','runner']),0)
+        sent=json.loads(execute.call_args.kwargs['input'])
+        self.assertEqual(sent['credentials']['accessToken'],'offline-access')
+        self.assertNotIn('private-real-token',json.dumps(sent))
+        self.assertNotIn('Synthetic thought',output.getvalue())
+        report=json.loads(output.getvalue())
+        self.assertTrue(report['native_ui']['independent_reopen'])
+        self.assertTrue(report['private_notes_only_on_tmpfs'])
+
+    def test_native_ui_cannot_run_without_a_session(self):
+        with self.assertRaises(SystemExit):task.main(['--native-ui'])
 
 
 if __name__=='__main__':unittest.main()

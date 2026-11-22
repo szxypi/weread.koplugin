@@ -16,6 +16,7 @@ from shelf_flag_change_contract import state_hash
 from verify_eink_login import BASE, NativeProbe
 
 FRAME=b'\nWEREAD_CLOUD_NOTES_EXPORT='
+UI_FRAME=b'\nWEREAD_CLOUD_NOTES_UI='
 
 
 def expected_rows(marks, thoughts):
@@ -75,9 +76,11 @@ def compare(raw, marks, thoughts):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--native-ui',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
+    if args.native_ui and not args.saved_session:parser.error('native UI requires saved session and private command')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,private_notes_saved=False)
     saved=grant=None
     try:
@@ -98,15 +101,39 @@ def main(argv=None):
                 try:thoughts=complete(raw_thoughts,key,saved['vid'],now)
                 except ValueError:continue
                 if thoughts['reviews']:
-                    selected=(key,marks,thoughts);break
-                if fallback is None:fallback=(key,marks,thoughts)
+                    selected=(key,marks,thoughts,raw_marks);break
+                if fallback is None:fallback=(key,marks,thoughts,raw_marks)
             selected=selected or fallback
             if not selected:raise ValueError('cloud_export/no_sample')
-            key,marks,thoughts=selected
-            payload=dict(book_id=key,book=dict(title='Synthetic export',author=''),now=now,marks=marks,thoughts=thoughts)
+            key,marks,thoughts,raw_marks=selected
+            if args.native_ui:
+                payload=dict(owner_export=True,source=raw_marks,book_id=key,owner=saved['vid'],now=now,other_thoughts=thoughts,
+                             credentials=dict(vid=saved['vid'],accessToken='offline-access',refreshToken='offline-refresh',deviceId='1'*32))
+            else:
+                payload=dict(book_id=key,book=dict(title='Synthetic export',author=''),now=now,marks=marks,thoughts=thoughts)
             child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode(),
-                                 stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60)
+                                 stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=180 if args.native_ui else 60)
+            if args.native_ui and child.stdout.count(UI_FRAME)==1 and len(child.stdout)<=24*1024*1024:
+                try:
+                    partial=json.loads(child.stdout.split(UI_FRAME,1)[1].split(FRAME,1)[0])
+                    stages=partial.get('stages',[]) if isinstance(partial,dict) else []
+                    report['ui_diagnostics']=[{key:row[key] for key in ('failed_line','requests','forbidden')
+                        if type(row.get(key)) is int and 0<=row[key]<=100000} for row in stages[:2] if isinstance(row,dict)]
+                except (ValueError,TypeError):pass
             if child.returncode:raise ValueError('cloud_export/runtime')
+            if args.native_ui:
+                if child.stdout.count(UI_FRAME)!=1 or child.stdout.count(FRAME)!=1:raise ValueError('cloud_export/ui_frame')
+                ui=json.loads(child.stdout.split(UI_FRAME,1)[1].split(FRAME,1)[0])
+                if (set(ui)!={'result','profile_removed','stages','offline_network_guard','independent_reopen','temporary_files_removed'}
+                        or ui['result']!='PASS' or any(ui[key] is not True for key in ('profile_removed','offline_network_guard',
+                            'independent_reopen','temporary_files_removed')) or not isinstance(ui['stages'],list) or len(ui['stages'])!=2):
+                    raise ValueError('cloud_export/ui')
+                for stage in ui['stages']:
+                    if (stage!={'result':'PASS','phase':'complete','failed_line':0,'requests':0,'forbidden':0}
+                            or any(type(stage[key]) is not int for key in ('failed_line','requests','forbidden'))):
+                        raise ValueError('cloud_export/ui_stage')
+                report['native_ui']=ui
+                report['private_notes_only_on_tmpfs']=True
             left,right=compare(child.stdout,marks,thoughts)
             again=project(api.request('marks_after',BASE+'/book/bookmarklist?'+urlencode(dict(bookId=key,synckey=0)),credentials=grant),key,saved['vid'],now)
             later=complete(api.request('thoughts_after',BASE+'/review/list?'+urlencode(dict(bookId=key,listType=11,listMode=0,mine=1,synckey=0,count=20)),credentials=grant),key,saved['vid'],now)

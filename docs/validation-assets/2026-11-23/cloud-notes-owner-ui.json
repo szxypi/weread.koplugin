@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "candidate_commit": "5fa6de11",
+  "screen_sizes": [[600, 800], [1264, 1680]],
+  "marks": 52,
+  "thoughts": 3,
+  "formats": ["markdown", "json"],
+  "independently_compared_json_fields": true,
+  "independently_compared_markdown_quotes": true,
+  "processes_per_size": 2,
+  "offline_network_guard": true,
+  "second_process_reused_file_cache": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "cloud_snapshots_unchanged": true,
+  "private_notes_only_on_tmpfs": true,
+  "temporary_profiles_removed": true,
+  "physical_kindle_tested": false
+}

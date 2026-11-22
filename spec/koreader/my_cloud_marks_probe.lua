@@ -6,7 +6,7 @@ local mode=arg[1]
 local report={result='UNVERIFIED',mode=mode,phase='init',anonymous_credentials=false,transport_guard=false,worker_heartbeat=false,
     native_filemanager=false,file_sqlite=false,account_isolation=false,cache_session_free=false,all_quotes=false,
     workers_reaped=false,credential_audit=false,search_checked=false,sort_checked=false,screenshots=0,pages=0,quotes=0,requests=0,forbidden=0,failed_line=0,fault_cases=0}
-local plugin,memory,counters,output;local descriptors={}
+local plugin,memory,counters,output,export_result;local descriptors={}
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/weread%-marks%-[%w_]+/profile$'))
     assert(mode=='live' or mode=='reopen')
@@ -17,6 +17,9 @@ local ok,reason=pcall(function()
     if synthetic then assert(grant.vid=='900000' and grant.accessToken=='synthetic-mark-access'
         and grant.refreshToken=='synthetic-mark-refresh' and grant.deviceId==string.rep('1',32)) end
     local thoughts=input.variant=='thoughts';assert(thoughts==(os.getenv('WEREAD_PERSONAL_THOUGHTS')=='1'))
+    local owner_export=input.owner_export==true
+    if owner_export then assert(not synthetic and not thoughts and mode=='reopen'
+        and os.getenv('WEREAD_OWNER_EXPORT')=='1' and type(input.other_thoughts)=='table') end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
     local Data=require(thoughts and 'weread.lib.my_cloud_thoughts' or 'weread.lib.my_cloud_marks');assert(Data.display_id(input.book_id))
     local imported=not Data.id(input.book_id)
@@ -133,6 +136,20 @@ local ok,reason=pcall(function()
     assert(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);plugin=assert(FM.instance.weread)
     assert(plugin.ui==FM.instance and not plugin.ui.document);report.native_filemanager=true
+    if owner_export then
+        local Store=require('weread.lib.my_cloud_marks_store')
+        if os.getenv('WEREAD_OWNER_EXPORT_SEED')=='1' then
+            assert(Store:new(plugin.library_db,plugin.client):write(expected))
+            assert(Store:new(plugin.library_db,plugin.client,'thoughts'):write(input.other_thoughts))
+        else assert(os.getenv('WEREAD_OWNER_EXPORT_SEED')=='0') end
+        local get_book=plugin.settings.get_book
+        function plugin.settings:get_book(id)
+            if id==input.book_id then return {title='Synthetic export',author=''} end
+            return get_book(self,id)
+        end
+        assert(dofile(assert(os.getenv('WEREAD_OWNER_EXPORT_GUARD')))())
+        report.export_ui_checked=false
+    end
     plugin.isNetworkOnline=function() return mode=='live' end;plugin.isNetworkConnected=plugin.isNetworkOnline
     plugin.fetchVisibleShelfCovers=function() end
     local UI,socket=require('ui/uimanager'),require('socket')
@@ -467,6 +484,23 @@ local ok,reason=pcall(function()
             menu:onMenuSelect(item('Search saved notes'));dialog=assert(menu._shelf_popup);dialog.buttons[1][1].callback();tick()
             assert(not owner.search and not owner.needle and counters[0]==before_requests);report.search_checked=true
         end
+        if owner_export then
+            local before=counters[0];local values={}
+            for _,format in ipairs({'markdown','json'}) do
+                menu:onMenuSelect(action('Export saved cloud notes'));local picker=assert(menu._shelf_popup)
+                if format=='markdown' then picker.other_buttons[1][1].callback() else picker.ok_callback() end
+                local job=assert(owner.export_job);local path=job.output.path
+                assert(owner.export_worker.job and owner.export_worker.job.pid~=parent)
+                wait(function() return not owner.export_job end)
+                local file=assert(io.open(path,'rb'));local bytes=assert(file:read('*a'));assert(file:close())
+                assert(os.remove(path));values[format]=bytes
+                local info=UI:getTopmostVisibleWidget();if info and info~=menu then UI:close(info) end
+            end
+            assert(counters[0]==before and counters[1]==0)
+            export_result={result='PASS',count=#expected.updated+#input.other_thoughts.reviews,
+                json=plugin.client:json_decode(values.json),markdown=values.markdown}
+            report.export_ui_checked=true
+        end
     end
     local Cache=require('weread.lib.my_cloud_marks_store');assert(same(Cache:new(plugin.library_db,plugin.client,input.variant):read(input.book_id),expected))
     local db=assert(plugin.library_db:open());local _,name,path=db:rowexec('PRAGMA database_list')
@@ -521,7 +555,7 @@ local ok,reason=pcall(function()
     end
     audit(home);report.credential_audit=true
     assert((synthetic or counters[0]==(mode=='live' and request_budget or 0)) and counters[1]==0)
-    report.phase,report.result='complete','PASS';output={model=expected,native=owner.value,requests=tonumber(counters[0]),ui=report}
+    report.phase,report.result='complete','PASS';output={model=expected,native=owner.value,requests=tonumber(counters[0]),ui=report,owner_export=export_result}
 end)
 if plugin then pcall(plugin.closeWeReadUI,plugin) end
 if counters then report.requests,report.forbidden=tonumber(counters[0]),tonumber(counters[1]);ffi.C.munmap(memory,4096) end
