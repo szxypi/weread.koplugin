@@ -9,7 +9,7 @@ from unittest.mock import patch
 from native_direct_ui_trial_broker import PROTOCOL,bind_metadata,execute
 from native_txt_read_model import body
 from readtime_upload_model import guest_token
-from secure_native_direct_ui_trial import NativeDirectUITrialStore
+from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore
 from test_secure_native_session import Backend
 from txt_full_summary import digest
 from verify_source_coordinates import FilteredSource
@@ -108,10 +108,26 @@ class BrokerTests(unittest.TestCase):
                     factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
                     factories[name]=factory
             self.assertFalse(shared.other_pending())
-            for name in ('DirectTrialStore','NativeDirectUITrialStore'):
+            for name in ('DirectTrialStore','NativeDirectUITrialStore','NativeDirectIntervalTrialStore'):
                 factories[name].return_value.pending.return_value=True
                 self.assertTrue(shared.other_pending())
                 factories[name].return_value.pending.return_value=False
+
+    def test_interval_intent_uses_a_separate_store_and_recovery_exclusion(self):
+        self.assertNotEqual(NativeDirectIntervalTrialStore.service,NativeDirectUITrialStore.service)
+        import verify_native_thought_trial as shared
+        with ExitStack() as stack:
+            factories={}
+            for name in dir(shared):
+                if name.endswith('Store'):
+                    factory=stack.enter_context(patch.object(shared,name))
+                    factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
+                    factories[name]=factory
+            factories['NativeDirectIntervalTrialStore'].return_value.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_native_direct_ui=True))
+            self.assertFalse(shared.other_pending(exclude_native_direct_interval=True))
+            factories['NativeDirectUITrialStore'].return_value.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_native_direct_interval=True))
 
 
 if __name__=='__main__':unittest.main()

@@ -8,3 +8,8 @@ class NativeDirectUITrialStore(NativeTxtRoundtripStore):
     protocol=PROTOCOL
 
     def validate_plan(self,plan):validate_plan(plan)
+
+
+class NativeDirectIntervalTrialStore(NativeDirectUITrialStore):
+    """Independent one-shot recovery intent for the timed reader trial."""
+    service='org.codex.weread.goal-native-direct-interval-position-v1'

@@ -20,6 +20,7 @@ local scope={vid=input.credentials.vid,epoch=1}
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,get=function(_,key,default)
     if key=='cookies' then return input.web_cookies end
     if key=='account' then return {user_vid=scope.vid} end
+    if key=='sync' and trial.timed then return {upload_interval_minutes=1} end
     return default
 end,get_book=function() return nil end,get_auth_scope=function() return scope end,
     auth_scope_matches=function(_,value) return value==scope end}
@@ -133,11 +134,16 @@ local library=require('weread.lib.library_db'):new(settings)
 local host={ui=reader,settings=settings,client=client,library_db=library,_reader_session_gen=1,isNetworkConnected=function() return true end,
     showBusy=function(self,label,cancel) self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message) end,
     closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
-    showInfo=function(self,message) self.checked_message=message end}
+    showInfo=function(self,message) self.checked_message=message end,
+    showTransientInfo=function(self,message) self.transient_message=message end}
 local worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=client,max_bytes=65536,timeout=140}
+local preview
 host._native_direct_position_worker={cancel=function() worker:cancel() end,start=function(_,task,callback)
     local ctx=assert(host._native_direct_position);anchor={text=ctx.input.text,point_offset=ctx.input.point_offset}
-    return worker:start(task,callback)
+    return worker:start(task,function(value)
+        if trial.timed and value.preview and not ctx.automatic then preview=value.preview end
+        callback(value)
+    end)
 end}
 local Service=require('weread.lib.native_position_service');local start=Service.start
 Service.start=function(self,value,guard,callback)
@@ -152,16 +158,38 @@ end
 assert(require('weread.ui.native_direct_position').start(host,entry,{upload=true}))
 wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
 assert(host._native_direct_position and host._native_direct_position.confirm,'direct_ui_trial/confirmation')
-host._native_direct_position.confirm.ok_callback()
-wait(function() return host.checked_message~=nil end)
+if trial.timed then
+    local ctx=host._native_direct_position;local p=assert(preview)
+    local initial={book_id=entry.book_id,before=p.before,desired=p.desired,counts=p.counts,version=p.version,
+        shelf_sha256=p.shelf_sha256,source_sha256=p.source_sha256,file_id=p.file_id,basis=p.basis}
+    -- The real manual confirmation path is covered separately. Seed only the
+    -- independently checked cloud baseline here so this trial needs two writes.
+    ctx.confirm.cancel_callback()
+    local Interval=require('weread.lib.native_direct_interval')
+    assert(Interval.arm_session(host,entry,ctx,initial,'before'))
+    local timer=assert(host._native_direct_interval)
+    assert(reader.rolling and doc:getPageCount()>input.start_page)
+    reader.rolling:onGotoPage(input.start_page+1);UI:forceRePaint();timer:changed()
+    assert(timer.task and timer.due)
+    if not trial.natural then
+        local due=timer.due;timer.now=function() return due end
+        local fire=timer.task;UI:unschedule(fire);fire()
+    end
+    wait(function() return not timer.task and not timer.attempt end)
+    if trial.armed then assert(host._native_direct_interval==timer and not timer.dirty)
+    else assert(not host._native_direct_interval and host.transient_message) end
+else
+    host._native_direct_position.confirm.ok_callback()
+    wait(function() return host.checked_message~=nil end)
+end
 local tr=require('weread.lib.plugin_util').tr
 if not trial.armed then
-    assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.'))
+    if not trial.timed then assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.')) end
     local pending=assert(service:pending());assert(pending.phase=='pending')
     print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=0,posts=0,blocked=true})
     return
 end
-assert(host.checked_message==tr('Cloud reading position synced and checked.'),'direct_ui_trial/not_confirmed')
+if not trial.timed then assert(host.checked_message==tr('Cloud reading position synced and checked.'),'direct_ui_trial/not_confirmed') end
 assert(not service:pending(),'direct_ui_trial/not_retired')
 rpc('verified',1);sequence=2
 local Context=require('weread.lib.source_context');local Identity=require('weread.lib.book_file_identity')

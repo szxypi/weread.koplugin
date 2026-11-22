@@ -241,6 +241,7 @@ class RecoveryTests(unittest.TestCase):
             contexts.enter_context(patch.object(shared,'NativeInitialReaderStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'DirectTrialStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'NativeDirectUITrialStore')).return_value.pending.return_value=False
+            contexts.enter_context(patch.object(shared,'NativeDirectIntervalTrialStore')).return_value.pending.return_value=False
             native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
             txt_zero.return_value.pending.return_value=False
             txt_full.return_value.pending.return_value=False

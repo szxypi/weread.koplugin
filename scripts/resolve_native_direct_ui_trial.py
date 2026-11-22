@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 from native_txt_read_model import body
 from readtime_upload_model import confirmed,guest_token,local_zone
-from secure_native_direct_ui_trial import NativeDirectUITrialStore
+from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from shelf_flag_change_contract import state_hash
@@ -29,12 +29,13 @@ from verify_web_source_progress import BASE as WEB,WebSourceProbe
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--restore',action='store_true');parser.add_argument('--abort-prepared',action='store_true')
+    parser.add_argument('--timed',action='store_true')
     args=parser.parse_args(argv)
     if args.restore and args.abort_prepared or (args.restore or args.abort_prepared) and not args.saved_session:
         parser.error('invalid recovery mode')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,no_automatic_replay=True)
     if not args.saved_session:print(json.dumps(report));return 0
-    saved=credentials=web=None;store=NativeDirectUITrialStore();attempted=0;phase='intent'
+    saved=credentials=web=None;store=(NativeDirectIntervalTrialStore if args.timed else NativeDirectUITrialStore)();attempted=0;phase='intent'
     try:
         resource.setrlimit(resource.RLIMIT_CORE,(0,0));record,receipt=store.read()
         if not record:raise ValueError('direct_ui_recovery/no_intent')
@@ -44,7 +45,7 @@ def main(argv=None):
             store.advance(receipt,'prepared','aborted');report.update(result='PREPARED_ABORTED',intent_phase='aborted')
             return 0
         from verify_native_thought_trial import other_pending
-        if other_pending(exclude_native_direct_ui=True):raise ValueError('direct_ui_recovery/other_pending')
+        if other_pending(exclude_native_direct_ui=not args.timed,exclude_native_direct_interval=args.timed):raise ValueError('direct_ui_recovery/other_pending')
         saved=SessionStore().load();credentials=NativeSessionStore().load(saved['vid'])
         if digest(saved['vid'])!=plan['owner_sha256'] or digest(credentials)!=plan['grant_sha256']:
             raise ValueError('direct_ui_recovery/grant')

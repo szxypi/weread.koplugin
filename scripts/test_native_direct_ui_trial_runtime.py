@@ -15,14 +15,14 @@ from urllib.request import urlopen
 from native_chapter_remote_reference import search_token
 from native_direct_ui_trial_broker import PROTOCOL,execute
 from readtime_upload_model import guest_token
-from secure_native_direct_ui_trial import NativeDirectUITrialStore
+from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore
 from shelf_flag_change_contract import state_hash
 from test_native_direct_position_runtime import BODY,CLOUD_OFFSET,Handler,REPO
 from test_secure_native_session import Backend
 from txt_full_summary import digest
 
 
-def run(runtime):
+def run(runtime,timed=False):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
@@ -44,9 +44,9 @@ def run(runtime):
                         counts=dict(readingTime=100,recordReadingTime=0,ttsTime=0),version=1,chapter_progress=None)
                     payload=dict(credentials=credentials,book_id='42',uid='37',book_version=1,source_sha256=plan['source_sha256'],
                         search_token=search_token(source),web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},start_page=2,
-                        mock_endpoint='http://127.0.0.1:'+str(server.server_port),trial=dict(plan=plan,armed=armed,
+                        mock_endpoint='http://127.0.0.1:'+str(server.server_port),trial=dict(plan=plan,armed=armed,timed=timed,natural=False,
                         guest=guest_token({'feature':{}})[0],time_zone='+08:00',rpc_token=secrets.token_hex(16)))
-                    store=NativeDirectUITrialStore(Backend());report={}
+                    store=(NativeDirectIntervalTrialStore if timed else NativeDirectUITrialStore)(Backend());report={}
                     command=['python3',str(REPO/'scripts/run_native_direct_ui_trial.py'),'--koreader',str(runtime),
                         '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
                     def observed(expected):
@@ -73,4 +73,5 @@ def run(runtime):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)
-    args=parser.parse_args();run(args.koreader.resolve())
+    parser.add_argument('--timed',action='store_true')
+    args=parser.parse_args();run(args.koreader.resolve(),args.timed)

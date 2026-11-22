@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from native_chapter_remote_reference import search_token
 from native_direct_ui_trial_broker import PROTOCOL,execute
 from readtime_upload_model import guest_token,local_zone
-from secure_native_direct_ui_trial import NativeDirectUITrialStore
+from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from shelf_flag_change_contract import state_hash
@@ -30,6 +30,7 @@ from verify_web_source_progress import BASE as WEB,WebSourceProbe
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true')
+    parser.add_argument('--timed',action='store_true',help='exercise the guarded interval controller')
     parser.add_argument('--book-offset',type=int,choices=range(51),default=15)
     parser.add_argument('--start-page',type=int,choices=range(1,21),default=2)
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
@@ -43,7 +44,7 @@ def main(argv=None):
         resource.setrlimit(resource.RLIMIT_CORE,(0,0))
         from verify_native_thought_trial import other_pending
         if other_pending():raise ValueError('direct_ui_trial/other_pending')
-        store=NativeDirectUITrialStore()
+        store=(NativeDirectIntervalTrialStore if args.timed else NativeDirectUITrialStore)()
         if store.read()[0] is not None:raise ValueError('direct_ui_trial/consumed')
         saved=SessionStore().load();credentials=NativeSessionStore().load(saved['vid'])
         phase='source';sample,_,_=ChapterProbe().inspect(credentials,args.book_offset)
@@ -68,7 +69,8 @@ def main(argv=None):
         check(web,native,credentials,identity,before,counts,shelf,web_shelf)
         payload=dict(credentials=credentials,book_id=identity,uid=before['chapter_uid'],book_version=plan['version'],
             source_sha256=plan['source_sha256'],search_token=search_token(raw),web_cookies=saved['cookies'],start_page=args.start_page,
-            trial=dict(plan=plan,armed=args.apply,guest=guest,time_zone=local_zone(),rpc_token=secrets.token_hex(16)))
+            trial=dict(plan=plan,armed=args.apply,timed=args.timed,natural=args.timed and args.apply,
+                guest=guest,time_zone=local_zone(),rpc_token=secrets.token_hex(16)))
         def current():
             if digest(NativeSessionStore().load(saved['vid']))!=plan['grant_sha256'] or SessionStore().load()['vid']!=saved['vid']:
                 raise ValueError('direct_ui_trial/grant')
@@ -87,6 +89,7 @@ def main(argv=None):
         phase='reader';execute(payload,args.lua_command,store,raw,report,current=current,before=before_write,after=after_write)
         phase='final';check(web,native,credentials,identity,before,counts,shelf,web_shelf);web.verify_account()
         report.update(cloud_and_shelf_restored=True,reading_counts_unchanged=True)
+        if args.timed:report.update(timed_controller=True,natural_timer=args.apply,baseline_seeded_from_read_only_preview=True)
     except (Exception,KeyboardInterrupt) as error:
         report.update(result='UNVERIFIED',phase=phase)
         if isinstance(error,ValueError) and str(error).startswith('direct_ui_trial/'):
