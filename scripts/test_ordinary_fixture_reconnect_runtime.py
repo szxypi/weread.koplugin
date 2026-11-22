@@ -37,6 +37,13 @@ def main():
         denied=json.loads(blocked.stdout)
         assert blocked.returncode and denied['result']=='UNVERIFIED' and not denied['profile_removed'], \
             'ordinary real-write request was not rejected before startup'
+        injected_env=dict(unsafe_env,WEREAD_ORDINARY_RECONNECT_RPC='1')
+        injected=dict(unsafe,ordinary_trial=dict(rpc_token='a'*32))
+        blocked=subprocess.run(command,input=json.dumps(injected).encode(),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+                               env=injected_env,timeout=30)
+        denied=json.loads(blocked.stdout)
+        assert blocked.returncode and denied['result']=='UNVERIFIED' and not denied['profile_removed'], \
+            'ordinary RPC environment bypassed the legacy runner'
         if args.wake:payload['wake_reconnect']=True
         if args.wake_retry:payload['wake_retry']=True
         def runner(value):

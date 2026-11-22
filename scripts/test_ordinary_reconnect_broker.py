@@ -79,5 +79,30 @@ class BrokerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.gate.claim('restore', body(self.plan, self.context, self.pc, 'restore'))
 
+    def test_disarmed_preview_checks_one_body_and_never_claims(self):
+        payload = dict(self.payload, armed=False)
+        fake = SimpleNamespace(stdin=object(), stdout=object(), wait=lambda timeout: 0)
+        items = iter([('STEP', dict(kind='dry_body', seq=1, body=self.first)),
+                      ('RESULT', copy.deepcopy(broker.DRY_EXPECTED))])
+        stream = SimpleNamespace(next=lambda: next(items)); report = {}; checked = []
+        with patch.object(broker.subprocess, 'Popen', return_value=fake), patch.object(broker, 'write_initial'), \
+             patch.object(broker, 'Frames', return_value=stream), patch.object(broker, 'reply'), patch.object(broker, 'stop'):
+            broker.preview(['fake-reader', '--dry'], payload, lambda body: checked.append(body) or True, report)
+        self.assertEqual(checked, [self.first])
+        self.assertEqual(report['result'], 'READER_POSITION_DRY_VERIFIED')
+        self.assertEqual(self.store.read()[0]['phase'], 'prepared')
+
+    def test_disarmed_preview_rejects_forged_sequence(self):
+        payload = dict(self.payload, armed=False)
+        for event in (dict(kind='dry_body', seq=True, body=self.first),
+                      dict(kind='claim', seq=1, body=self.first), dict(kind='dry_body', seq=1, body=self.first, extra=True)):
+            fake = SimpleNamespace(stdin=object(), stdout=object(), wait=lambda timeout: 0)
+            stream = SimpleNamespace(next=lambda: ('STEP', event))
+            with self.subTest(event=event), patch.object(broker.subprocess, 'Popen', return_value=fake), \
+                 patch.object(broker, 'write_initial'), patch.object(broker, 'Frames', return_value=stream), \
+                 patch.object(broker, 'reply') as sent, patch.object(broker, 'stop'), self.assertRaises(ValueError):
+                broker.preview(['fake-reader', '--dry'], payload, lambda _body: True, {})
+            sent.assert_not_called()
+
 
 if __name__ == '__main__': unittest.main()

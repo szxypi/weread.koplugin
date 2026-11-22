@@ -14,6 +14,40 @@ EXPECTED = dict(result='PASS', profile_removed=True, installed_bytes_match=True,
                 actual_source=True, upload_confirmed=True, fresh_process=True, pending_cleared=True,
                 journal_cleared=True, automatic_disabled=True, writes=2, denied=0,
                 credentials_not_persisted=True, offline_intent=True, reconnect_choice=True)
+DRY_EXPECTED = dict(result='DRY_RUN', profile_removed=True, installed_bytes_match=True, native_choice=True,
+                    write_blocked=True, writes=0, denied=1, credentials_not_persisted=True,
+                    offline_intent=True, reconnect_choice=True)
+
+
+def preview(command, payload, check_body, report):
+    """Bind a proposed body in memory; the child must independently deny it."""
+    trial = payload.get('ordinary_trial') if isinstance(payload, dict) else None
+    token = trial.get('rpc_token') if isinstance(trial, dict) else None
+    if (not isinstance(command, (tuple, list)) or not command or not all(isinstance(v, str) and v for v in command)
+            or not isinstance(token, str) or not re.fullmatch(r'[a-f0-9]{32}', token)
+            or set(trial) != {'rpc_token'} or payload.get('ordinary') is not True
+            or payload.get('armed') is not False or payload.get('reconnect') is not True or not callable(check_body)):
+        raise ValueError('ordinary_trial/broker_scope')
+    child = None; checked = False
+    report.update(result='UNVERIFIED', body_checked=False)
+    try:
+        child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+        write_initial(child.stdin, payload); frames = Frames(child.stdout, token, timeout=420)
+        while True:
+            kind, value = frames.next()
+            if kind == 'RESULT':
+                if value != DRY_EXPECTED or not checked: raise ValueError('ordinary_trial/reader_result')
+                break
+            if (checked or set(value) != {'kind', 'seq', 'body'} or value['kind'] != 'dry_body'
+                    or type(value['seq']) is not int or value['seq'] != 1):
+                raise ValueError('ordinary_trial/sequence')
+            if check_body(value['body']) is not True: raise ValueError('ordinary_trial/body')
+            checked = True; reply(child.stdin, dict(kind='dry_body', seq=1, ok=True))
+        if child.wait(timeout=15): raise ValueError('ordinary_trial/reader_result')
+        report.update(result='READER_POSITION_DRY_VERIFIED', body_checked=True)
+    finally:
+        if child is not None: stop(child)
 
 
 def execute(command, payload, coordinator, report):

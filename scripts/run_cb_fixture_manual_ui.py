@@ -67,6 +67,7 @@ def main():
             report['installed_bytes_match']=True
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
+            env.pop('WEREAD_ORDINARY_RECONNECT_RPC',None)
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/cb_fixture_manual_ui.lua'
             for reopened in ((False,) if dry else (False,True)):
                 child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,

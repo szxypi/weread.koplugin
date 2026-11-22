@@ -1,13 +1,25 @@
 -- Real ReaderUI manual sync against one scoped self-authored fixture.
 require('setupkoenv')
 local home=assert(os.getenv('KO_HOME'));local result={result='UNVERIFIED',phase='decode'}
+local rpc_mode=os.getenv('WEREAD_ORDINARY_RECONNECT_RPC')=='1'
+local rpc_token
 local ok,reason=pcall(function()
-    local raw=io.stdin:read(8*1024*1024+1);assert(#raw<=8*1024*1024)
+    local raw
+    if rpc_mode then
+        local length=assert(io.stdin:read('*l'));assert(length:match('^[1-9]%d*$') and #length<=8)
+        local size=tonumber(length);assert(size<=8*1024*1024);raw=assert(io.stdin:read(size));assert(#raw==size)
+    else raw=io.stdin:read(8*1024*1024+1);assert(#raw<=8*1024*1024) end
     local input=require('json').decode(raw)
     local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local ordinary=input.ordinary==true
     assert(input.ordinary==nil or ordinary)
-    assert(not ordinary or synthetic or input.armed==false,'ordinary fixture may not write to a real account')
+    assert(not ordinary or synthetic or input.armed==false or rpc_mode,'ordinary fixture may not write to a real account')
+    if rpc_mode then
+        assert(ordinary and type(input.armed)=='boolean' and input.reconnect==true and type(input.ordinary_trial)=='table')
+        rpc_token=input.ordinary_trial.rpc_token
+        assert(type(rpc_token)=='string' and #rpc_token==32 and rpc_token:match('^[a-f0-9]+$'))
+        local n=0;for key in pairs(input.ordinary_trial) do assert(key=='rpc_token');n=n+1 end;assert(n==1)
+    else assert(input.ordinary_trial==nil) end
     assert(type(input)=='table' and type(input.book)=='string'
         and (ordinary and input.book:match('^[1-9]%d*$') or not ordinary and input.book:sub(1,3)=='CB_')
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
@@ -84,12 +96,37 @@ local ok,reason=pcall(function()
     local counts=ffi.cast('int *',memory);counts[0],counts[1],counts[2]=0,0,0
     local guard=dofile(fixtures..'cb_fixture_manual_guard.lua').new(input,Protocol,Cookie)
     local request=Client.request
+    local function rpc(event,seq,extra)
+        local value=extra or {};value.kind,value.seq=event,seq
+        local encoded=require('json').encode(value);assert(#encoded<14000)
+        io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..rpc_token..'_STEP='..encoded..'\n');io.stdout:flush()
+        local line=assert(io.stdin:read('*l'));assert(#line<=16384)
+        local answer=require('json').decode(line)
+        assert(type(answer)=='table' and answer.kind==event and answer.seq==seq and answer.ok==true)
+        local n=0;for key in pairs(answer) do assert(key=='kind' or key=='seq' or key=='ok');n=n+1 end;assert(n==3)
+    end
     function Client:request(options)
         if reconnect and offline and not reopening then counts[2]=counts[2]+1;error('fixture_reconnect_offline_request',0) end
         local kind=not reopening and guard(options,counts[1],function(body) return self:json_decode(body) end)
-        if kind=='blocked' then counts[2]=counts[2]+1;counts[3]=counts[3]+1;error('ordinary_reconnect_disarmed',0) end
+        if kind=='blocked' then
+            if rpc_mode then rpc('dry_body',1,{body=self:json_decode(options.body)}) end
+            counts[2]=counts[2]+1;counts[3]=counts[3]+1;error('ordinary_reconnect_disarmed',0)
+        end
         if not kind then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
-        if kind=='write' then counts[1]=counts[1]+1
+        if kind=='write' then
+            if rpc_mode then
+                local seq=tonumber(counts[1])+1;assert(seq==1 or seq==2)
+                rpc('claim',seq,{body=self:json_decode(options.body)})
+                counts[1]=counts[1]+1;options.persist_response_cookies=false
+                local a,b,c,d=request(self,options)
+                local decoded,value=pcall(require('json').decode,a)
+                if decoded and type(value)=='table' and type(b)=='number' and b>=200 and b<300
+                    and (value.succ==true or value.succ==1 or value.succ=='1') then
+                    rpc('ack',seq,{status=b,response=value})
+                end
+                return a,b,c,d
+            end
+            counts[1]=counts[1]+1
         else
             if counts[0]>=((timed or closing or reading_time) and 110 or 60) then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
             counts[0]=counts[0]+1
@@ -315,5 +352,7 @@ local ok,reason=pcall(function()
     if time_noack then result.time_unconfirmed=true elseif reading_time then result.time_verified=true end
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_manual_ui%.lua:(%d+):')) or 0 end
-print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result))
+if rpc_mode and rpc_token then
+    print('\nWEREAD_NATIVE_THOUGHT_'..rpc_token..'_RESULT='..require('json').encode(result))
+else print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result)) end
 os.exit((result.result=='PASS' or result.result=='DRY_RUN' or result.result=='DISCOVERED') and 0 or 1)
