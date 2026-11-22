@@ -11,7 +11,8 @@ local settings=require('weread.lib.settings'):new();assert(settings.data_dir==ho
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
 settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
 if input.mode:find('^interval') then
-    local sync=settings:get('sync',{});sync.upload_interval_minutes=1;settings:set('sync',sync);settings:flush()
+    local sync=settings:get('sync',{});sync.upload_interval_minutes=1
+    sync.upload_on_close=input.mode:find('^interval_close')~=nil;settings:set('sync',sync);settings:flush()
 end
 local scope=assert(settings:get_auth_scope());assert(settings:auth_scope_matches(scope))
 assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
@@ -20,6 +21,7 @@ for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_
 assert(#loader.enabled_plugins==1)
 package.path=plugin..'/?.lua;'..package.path
 local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
+if input.mode:find('^interval_close') then UI:show(require('ui/widget/widget'):new{}) end
 local function wait(predicate)
     local deadline=socket.gettime()+90
     while not predicate() do
@@ -115,22 +117,62 @@ if input.mode:find('^upload') or input.mode:find('^interval') then
             assert(reader.rolling and reader.document:getPageCount()>3)
             reader.rolling:onGotoPage(2);UI:forceRePaint()
             wait(function() return timer.task~=nil end)
-            if input.mode=='interval_offline' then host.isNetworkConnected=function() return false end end
-            now=timer.due;local fire=timer.task;UI:unschedule(fire);fire()
-            if input.mode=='interval_move' then
+            if input.mode:find('^interval_close') then
+                local service=require('weread.lib.native_position_service');local original_start=service.start;local finished=false
+                local close=require('weread.lib.native_direct_close');local original_freeze=close.freeze;local frozen=false
+                close.freeze=function(...) local value=original_freeze(...);frozen=value~=nil;return value end
+                service.start=function(self,metadata,guard,callback)
+                    return original_start(self,metadata,guard,function(result,receipt)
+                        callback(result,receipt);finished=true
+                    end)
+                end
+                local document,closed=reader.document,false
+                for _,name in ipairs({'getCurrentPage','getCurrentPos','getXPointer','getPageXPointer','getNormalizedXPointer',
+                    'getDocumentFileContent','getNextVisibleChar','getPrevVisibleChar','getTextFromXPointers'}) do
+                    local original=document[name]
+                    if original then document[name]=function(self,...)
+                        assert(not closed,'closed document accessed during background sync: '..name)
+                        return original(self,...)
+                    end end
+                end
+                if input.mode=='interval_close_offline' then host.isNetworkConnected=function() return false end end
+                reader:onClose(false);closed=true
+                close.freeze=original_freeze
+                assert(frozen==(input.mode~='interval_close_offline'),'close did not capture the expected viewport')
+                if input.mode=='interval_close_reopen' then
+                    Reader:showReader(input.path);wait(function() return Reader.instance and Reader.instance~=reader end)
+                    for _i=1,30 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+                    assert(not finished and not host.transient_message,'reopening allowed the old close upload')
+                elseif input.mode=='interval_close_offline' then
+                    for _i=1,30 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+                    assert(not finished and not host.transient_message,'offline close started a sync')
+                elseif input.mode=='interval_close_conflict' then
+                    wait(function() return host.transient_message~=nil end);assert(not finished)
+                elseif input.mode=='interval_close_noack' then
+                    wait(function() return finished end);assert(host.transient_message,'unknown close result not reported')
+                else
+                    wait(function() return finished or host.transient_message end)
+                    assert(finished and not host.transient_message,'closed chapter sync failed')
+                end
+                service.start=original_start
+            else
+              if input.mode=='interval_offline' then host.isNetworkConnected=function() return false end end
+              now=timer.due;local fire=timer.task;UI:unschedule(fire);fire()
+              if input.mode=='interval_move' then
                 wait(function() return native_worker.job~=nil end)
                 reader.rolling:onGotoPage(3);UI:forceRePaint()
                 wait(function() return not host._native_direct_position and timer.task~=nil end)
                 assert(host._native_direct_interval==timer,'page change lost the verified baseline')
-            elseif input.mode=='interval' then
+              elseif input.mode=='interval' then
                 wait(function() return not timer.attempt end)
                 assert(host._native_direct_interval==timer and not timer.dirty and not host.transient_message,
                     'automatic upload did not confirm the new baseline')
-            else
+              else
                 wait(function() return not host._native_direct_interval end)
                 if input.mode~='interval_offline' then assert(host.transient_message,'paused timer did not report the result') end
                 reader.rolling:onGotoPage(3);UI:forceRePaint()
                 assert(not host._native_direct_interval,'paused timer restarted without a manual check')
+              end
             end
         end
         if input.mode=='upload_lost_ack' or input.mode=='upload_missing_after' then

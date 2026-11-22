@@ -48,7 +48,7 @@ class Handler(BaseHTTPRequestHandler):
                 and type(request.get('chapterOffset')) is int and bool(request.get('summary')) and request.get('readingTime')==0)
             server.cloud_offset=request['chapterOffset'];server.cloud_summary=request['summary']
             posts=sum(path=='/book/read' for _,_,path in server.calls)
-            data=json.dumps({} if server.mode=='upload_lost_ack' or server.mode=='interval_noack' and posts==2 else dict(succ=1)).encode()
+            data=json.dumps({} if server.mode=='upload_lost_ack' or server.mode in ('interval_noack','interval_close_noack') and posts==2 else dict(succ=1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'bookId':['42']}
             if server.mode=='cloud_move':time.sleep(0.8)
@@ -57,7 +57,7 @@ class Handler(BaseHTTPRequestHandler):
             if server.mode.startswith(('upload','interval')):
                 offset,summary=server.cloud_offset,server.cloud_summary
                 if server.mode=='upload_changed' and count>=3:offset+=1
-                if server.mode=='interval_conflict':
+                if server.mode in ('interval_conflict','interval_close_conflict'):
                     post_index=next((i for i,(_,_,path) in enumerate(server.calls) if path=='/book/read'),len(server.calls))
                     if sum(path=='/book/getProgress' for _,_,path in server.calls[post_index+1:])>=2:offset+=1
             if server.mode=='cloud_changed' and count==2:offset+=1
@@ -136,7 +136,8 @@ MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_chan
        'preview','preview_changed','preview_web_changed','preview_missing',
        'upload','upload_cancel','upload_changed','upload_lost_ack','upload_missing_before','upload_missing_after',
        'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable',
-       'interval','interval_conflict','interval_noack','interval_move','interval_offline')
+       'interval','interval_conflict','interval_noack','interval_move','interval_offline',
+       'interval_close','interval_close_conflict','interval_close_noack','interval_close_offline','interval_close_reopen')
 
 def run(runtime,modes=MODES):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -167,7 +168,7 @@ def run(runtime,modes=MODES):
                         if mode in ('match','preview','preview_missing','upload','upload_missing_before','interval'):compare_offset(result)
                         assert server.valid and not server.leaked
                         writes=[path for _,_,path in server.calls if path in ('/web/book/read','/book/read')]
-                        write_count=2 if mode in ('interval','interval_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else 0
+                        write_count=2 if mode in ('interval','interval_noack','interval_close','interval_close_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else 0
                         assert writes==['/book/read']*write_count, (mode,writes)
                         if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload','interval')):
                             assert sum(path=='/web/book/chapter/e_0' for _,_,path in server.calls)==(2 if mode in ('cloud','cloud_after') else 1)

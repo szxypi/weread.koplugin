@@ -136,6 +136,7 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval']
     if direct_interval then direct_interval.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
@@ -304,6 +305,13 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local direct_close=package.loaded['weread.lib.native_direct_close']
+    if self._native_direct_interval and not direct_close then direct_close=require('weread.lib.native_direct_close') end
+    local direct_close_token
+    if direct_close then
+        local captured,token=pcall(direct_close.freeze,self)
+        if captured then direct_close_token=token end
+    end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
@@ -383,9 +391,14 @@ function M:onCloseDocument()
     end
 
     self.read_report:on_close_document()
+    if direct_close_token then
+        local started=pcall(direct_close.start,self,direct_close_token)
+        if not started then pcall(direct_close.cancel,self) end
+    end
 end
 
 function M:onShowingReader()
+    local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     require('weread.ui.catalog_request').cancel(self)
     require('weread.ui.download_recovery').cancel(self)
     if self.cancelBookReading then self:cancelBookReading() end
@@ -570,6 +583,7 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
@@ -674,6 +688,7 @@ function M:onNetworkConnected()
 end
 
 function M:onNetworkDisconnected()
+    local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(self) end

@@ -480,6 +480,7 @@ function M:getSettingsMenuItems()
                      },
                     {
                         text = _("Upload progress on close"),
+                        help_text = _("After checking the cloud, upload changed progress when closing. For E-Ink chapters, sync once in the current reading session first."),
                         keep_menu_open = true,
                         check_callback_updates_menu = true,
                         checked_func = function()
@@ -492,6 +493,10 @@ function M:getSettingsMenuItems()
                                     not (sync.upload_on_close == true)
                                 self.settings:set("sync", sync)
                                 self.settings:flush()
+                                if not sync.upload_on_close then
+                                    local direct_close=package.loaded['weread.lib.native_direct_close']
+                                    if direct_close then direct_close.cancel(self) end
+                                end
                                 if touchmenu_instance then
                                     touchmenu_instance:updateItems()
                                 end
