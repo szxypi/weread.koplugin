@@ -71,23 +71,29 @@ def capture_shelves(web,native,grant,plan,current):
     return dict(web=deepcopy(first),native=deepcopy(second))
 
 
-def check(web, native, grant, plan, expected, current, *, shelf_baselines=None, shelf_core_only=False):
+def check(web, native, grant, plan, expected, current, *, shelf_baselines=None, shelf_core_only=False,
+          allow_preserved_percent=False, diagnostic=None):
     validate_plan(plan)
     if (type(shelf_core_only) is not bool or shelf_core_only and shelf_baselines is not None
+            or type(allow_preserved_percent) is not bool or allow_preserved_percent and expected!=plan['target']
+            or diagnostic is not None and not isinstance(diagnostic,dict)
             or not callable(current) or current() is not True or expected not in (plan['baseline'],entered_point(plan),plan['target'])
             or digest(web.vid)!=plan['owner_sha256'] or digest(grant)!=plan['grant_sha256']):
         raise ValueError('ordinary_trial/currentness')
     identity=plan['baseline']['book_id']
     web.verify_account();web.inspect(identity)
-    if (web.book_id!=identity or not web.report.get('read_snapshot_consistent')
-            or not same_position(project(web.raw_progress,identity),expected)
-            or find_node(web.raw_progress,identity).get('summary')!=expected['summary']
-            or digest(web.catalog)!=plan['catalog_sha256']):
-        raise ValueError('ordinary_trial/web_state')
+    point=project(web.raw_progress,identity);selected=expected;mode='target'
+    if allow_preserved_percent and not same_position(point,expected) and same_position(point,entered_point(plan)):
+        selected=entered_point(plan);mode='preserved'
+    if web.book_id!=identity:raise ValueError('ordinary_trial/web_identity')
+    if not web.report.get('read_snapshot_consistent'):raise ValueError('ordinary_trial/web_snapshot')
+    if not same_position(point,selected):raise ValueError('ordinary_trial/web_position')
+    if find_node(web.raw_progress,identity).get('summary')!=expected['summary']:raise ValueError('ordinary_trial/web_summary')
+    if digest(web.catalog)!=plan['catalog_sha256']:raise ValueError('ordinary_trial/web_catalog')
     source=decode_content_shards(*(web.shards[k] for k in ('e_0','e_1','e_3')))
     if hashlib.sha256(source.encode()).hexdigest()!=plan['source_sha256']:
         raise ValueError('ordinary_trial/source')
-    observed=native_snapshot(native,grant,identity,expected)
+    observed=native_snapshot(native,grant,identity,selected)
     if observed['counts']!=plan['counts']:raise ValueError('ordinary_trial/counts')
     info=native.request('ordinary_rpc_info',NATIVE+'/book/info?bookId='+identity,credentials=grant)
     versions=[info[k] for k in ('bookVersion','version') if k in info]
@@ -106,8 +112,9 @@ def check(web, native, grant, plan, expected, current, *, shelf_baselines=None, 
     elif (not isinstance(shelf_baselines,dict) or set(shelf_baselines)!={'web','native'}
             or digest(stable_shelf(shelf_baselines['web']))!=plan['web_shelf_sha256']
             or digest(stable_shelf(shelf_baselines['native']))!=plan['native_shelf_sha256']
-            or not scoped_shelf_equal(shelf_baselines['web'],web_shelf,identity,expected)
-            or not scoped_shelf_equal(shelf_baselines['native'],native_shelf,identity,expected)):
+            or not scoped_shelf_equal(shelf_baselines['web'],web_shelf,identity,selected)
+            or not scoped_shelf_equal(shelf_baselines['native'],native_shelf,identity,selected)):
         raise ValueError('ordinary_trial/shelf')
     if current() is not True:raise ValueError('ordinary_trial/currentness')
+    if diagnostic is not None and allow_preserved_percent:diagnostic['percent_mode']=mode
     return True

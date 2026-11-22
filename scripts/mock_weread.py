@@ -801,8 +801,9 @@ class MockServer(ThreadingHTTPServer):
             with self.lock:
                 previous_percent=self.progress.get(book_id,{}).get('progress',data['pr'])
                 self.progress[book_id] = dict(chapterUid=uid, chapterIdx=data["ci"],
-                                              chapterOffset=data["co"], progress=(previous_percent if getattr(self,'enter_preserves_percent',False)
-                                                                                 and 'rt' not in data else data['pr']), summary=data.get("sm", ""))
+                                              chapterOffset=data["co"], progress=(previous_percent if (getattr(self,'enter_preserves_percent',False)
+                                                                                 and 'rt' not in data or getattr(self,'position_preserves_percent',False)
+                                                                                 and 'rt' in data) else data['pr']), summary=data.get("sm", ""))
                 if self.roundtrip_seed is not None:
                     self.roundtrip_posts += 1
                     roundtrip_stage = self.roundtrip_posts

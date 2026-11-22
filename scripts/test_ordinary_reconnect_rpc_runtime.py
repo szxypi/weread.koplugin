@@ -48,11 +48,15 @@ def main():
     failure.add_argument('--retry-recovery',action='store_true');failure.add_argument('--retry-recovery-noack',action='store_true')
     failure.add_argument('--retry-restore-noack',action='store_true');failure.add_argument('--retry-success',action='store_true')
     failure.add_argument('--retry-enter-noack',action='store_true')
-    failure.add_argument('--retry-enter-read-failure',action='store_true');p.add_argument('--third-scope',action='store_true');a=p.parse_args()
+    failure.add_argument('--retry-enter-read-failure',action='store_true');p.add_argument('--third-scope',action='store_true')
+    p.add_argument('--preserve-position-percent',action='store_true');a=p.parse_args()
     retry_recovery_mode=a.retry_recovery or a.retry_recovery_noack or a.retry_enter_noack or a.retry_enter_read_failure
     retry_mode=retry_recovery_mode or a.retry_restore_noack or a.retry_success
     if a.third_scope and not retry_mode:p.error('third scope requires a retry scenario')
     server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True;server.enter_preserves_percent=True
+    if a.preserve_position_percent:
+        if not a.retry_success:p.error('preserved-percent scenario requires success')
+        server.position_preserves_percent=True
     if a.retry_enter_noack:server.enter_noack=True
     source=chapter_html(1);model=FilteredSource(source)
     first=model.locate('这是第1章的第16段。我们沿着小路慢慢前行')[0]
@@ -242,13 +246,16 @@ def main():
                 raise ValueError('mock/restore_noack')
         elif (report.get('result')!='ORDINARY_RECONNECT_TRIAL_VERIFIED' or store.read()[0]['phase']!='retired'
                 or server.request_totals.get(('/web/book/read',''),0)!=3):raise ValueError('mock/restore')
+        if a.preserve_position_percent and report.get('position_percent_modes')!=['preserved','preserved']:
+            raise ValueError('mock/percent')
         restored=partial_recovered if a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode or a.retry_restore_noack else not (a.noack or a.restore_noack)
         print(json.dumps(dict(result='PASS',mock_only=True,noack=a.noack,restore_noack=a.restore_noack,dry_body_bound=True,dry_posts=0,
                               claimed_posts=report['claimed_posts'],acknowledged_posts=report['acknowledged_posts'],
                               verified=report['independently_verified'],coordinator=True,actual_reader=True,
                               retry_scope=retry_mode,third_scope=a.third_scope,partial_recovery=a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode,retry_recovery=retry_recovery_mode,
                               recovery_noack=a.partial_recovery_noack or a.retry_recovery_noack,read_failure_after_enter=a.retry_enter_read_failure,
-                              enter_noack=a.retry_enter_noack,restore_readback_resolved=a.retry_restore_noack,restore_verified=restored,real_account_posts=0)))
+                              enter_noack=a.retry_enter_noack,restore_readback_resolved=a.retry_restore_noack,restore_verified=restored,
+                              position_percent_modes=report.get('position_percent_modes'),real_account_posts=0)))
     finally:server.shutdown();server.server_close();thread.join()
 
 if __name__=='__main__':main()

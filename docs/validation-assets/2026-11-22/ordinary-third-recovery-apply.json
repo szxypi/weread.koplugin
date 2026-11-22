@@ -1,0 +1,379 @@
+{
+  "result": "ORDINARY_PARTIAL_RECOVERY_VERIFIED",
+  "checked_at": "2026-11-22T10:50:38.758607+00:00",
+  "account_data_posts": 1,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "original_trial_verified": false,
+  "phase": "complete",
+  "independent_readbacks": 2,
+  "original_position_and_summary_restored": true,
+  "time_counts_unchanged": true,
+  "source_catalog_unchanged": true,
+  "shelf_core_unchanged": true,
+  "restore": {
+    "result": "ORDINARY_PARTIAL_RECOVERY_VERIFIED",
+    "restore_claimed": true,
+    "restore_claim_interrupted": false,
+    "restore_acknowledged": true,
+    "original_position_restored": true,
+    "web_shelf_stable_fields_unchanged": false,
+    "native_shelf_stable_fields_unchanged": false
+  },
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ],
+  "native_stages": [
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_progress",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_info",
+      "status": 200
+    },
+    {
+      "stage": "ordinary_rpc_shelf",
+      "status": 200
+    }
+  ]
+}

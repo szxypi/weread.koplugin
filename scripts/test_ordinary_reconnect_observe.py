@@ -79,8 +79,30 @@ class ObserveTests(unittest.TestCase):
         entered=subject.entered_point(self.plan)
         self.web.point=copy.deepcopy(entered);self.native.point=copy.deepcopy(entered)
         self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,entered,lambda:True))
-        with self.assertRaisesRegex(ValueError,'ordinary_trial/web_state'):
+        with self.assertRaisesRegex(ValueError,'ordinary_trial/web_position'):
             subject.check(self.web,self.native,self.grant,self.plan,self.plan['target'],lambda:True)
+
+    def test_position_can_preserve_only_original_percent_when_both_services_agree(self):
+        entered=subject.entered_point(self.plan);target=self.plan['target']
+        self.assertNotEqual(entered['raw_percent'],target['raw_percent'])
+        self.web.point=copy.deepcopy(entered);self.native.point=copy.deepcopy(entered);diagnostic={}
+        self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,target,lambda:True,
+                                      allow_preserved_percent=True,diagnostic=diagnostic))
+        self.assertEqual(diagnostic,{'percent_mode':'preserved'})
+        self.native.point=copy.deepcopy(target)
+        with self.assertRaises(ValueError):subject.check(self.web,self.native,self.grant,self.plan,target,lambda:True,allow_preserved_percent=True)
+        self.native.point=copy.deepcopy(entered);self.web.point['summary']='unrelated'
+        with self.assertRaisesRegex(ValueError,'ordinary_trial/web_summary'):
+            subject.check(self.web,self.native,self.grant,self.plan,target,lambda:True,allow_preserved_percent=True)
+        self.web.point=copy.deepcopy(entered)
+        self.web.point['raw_percent']=min(100,max(0,entered['raw_percent']+1))
+        if self.web.point['raw_percent']==target['raw_percent']:self.web.point['raw_percent']=(target['raw_percent']+1)%101
+        self.native.point=copy.deepcopy(self.web.point)
+        with self.assertRaises(ValueError):subject.check(self.web,self.native,self.grant,self.plan,target,lambda:True,allow_preserved_percent=True)
+        with self.assertRaises(ValueError):subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,allow_preserved_percent=True)
+        self.web.point=copy.deepcopy(target);self.native.point=copy.deepcopy(target);diagnostic={}
+        self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,target,lambda:True,allow_preserved_percent=True,diagnostic=diagnostic))
+        self.assertEqual(diagnostic,{'percent_mode':'target'})
 
     def test_only_target_recent_time_and_target_position_may_change(self):
         first={'books':[{'bookId':'900001','readUpdateTime':10,'title':'target'},

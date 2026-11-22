@@ -28,8 +28,10 @@ class LiveCoordinatorTests(unittest.TestCase):
         self.events=[];self.report={}
     def run_case(self,*,noack=False,observer=None):
         def bind(_html,_plan):return dict(context=self.context,pclts=self.pc)
-        def check(*args,**_kwargs):
+        def check(*args,**options):
             self.events.append(('check',args[4]['chapter_offset'],args[4]['raw_percent']))
+            if options.get('allow_preserved_percent') and options.get('diagnostic') is not None:
+                options['diagnostic']['percent_mode']='target'
             return observer(*args) if observer else True
         def preview(_cmd,payload,check_body,report,*,check_context):
             self.assertIs(payload['armed'],False);self.assertTrue(check_context('synthetic context'))

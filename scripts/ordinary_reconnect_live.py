@@ -73,8 +73,9 @@ def execute(store, plan, payload, command, web, native, grant, restore_probe, cu
         return (current() is True and web.authenticated and web.vid==payload['owner'] and web.book_id==plan['baseline']['book_id']
                 and restore_probe.authenticated and restore_probe.vid==web.vid and restore_probe.book_id==web.book_id
                 and active_cookies(web)==payload['cookies'] and active_cookies(restore_probe)==payload['cookies'])
-    def stable(expected):
-        if observe(web,native,grant,plan,expected,scoped_current,shelf_baselines=shelf_baselines) is not True:raise ValueError('ordinary_trial/readback')
+    def stable(expected,allow_preserved_percent=False):
+        if observe(web,native,grant,plan,expected,scoped_current,shelf_baselines=shelf_baselines,
+                   allow_preserved_percent=allow_preserved_percent) is not True:raise ValueError('ordinary_trial/readback')
         return True
     def read_context(html):
         binding=context_binding(html,plan);scope.update(binding)
@@ -92,16 +93,22 @@ def execute(store, plan, payload, command, web, native, grant, restore_probe, cu
         stable(plan['baseline']);report['dry_verified']=True
         def before(stage,selected):
             expected=selected['baseline'] if stage=='enter' else entered_point(selected) if stage=='position' else selected['target']
-            return observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines)
+            return observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines,
+                           allow_preserved_percent=stage=='restore')
         def after(stage,selected):
             expected=selected['baseline'] if stage=='restore' else entered_point(selected) if stage=='enter' else selected['target']
-            return (observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines)
-                    and observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines))
+            observations=[{},{}]
+            verified=(observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines,
+                              allow_preserved_percent=stage=='position',diagnostic=observations[0])
+                      and observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines,
+                                  allow_preserved_percent=stage=='position',diagnostic=observations[1]))
+            if verified and stage=='position':report['position_percent_modes']=[row['percent_mode'] for row in observations]
+            return verified
         gate=Coordinator(store,plan,scope['context'],scope['pclts'],before,after,armed=True)
         live=deepcopy(payload);live.update(armed=True,ordinary_trial=dict(rpc_token=secrets.token_hex(16)))
         reader_execute(command,live,gate,reader_report,check_context=read_context)
         if reader_report.get('result')!='READER_POSITION_VERIFIED_RESTORE_PENDING':raise ValueError('ordinary_trial/reader')
-        stable(plan['target'])
+        stable(plan['target'],True)
         restore(restore_probe,gate,scoped_current,restore_report)
         if restore_report.get('result')!='ORDINARY_RESTORATION_VERIFIED':raise ValueError('ordinary_trial/restore')
         state,_=store.read()

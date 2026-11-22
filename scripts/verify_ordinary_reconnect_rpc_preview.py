@@ -246,7 +246,7 @@ def main(argv=None):
                           original_summary_preserved=True,source_catalog_and_stable_shelf_fields_unchanged=True,profile_removed=True)
     except Exception as error:
         report['result']='UNVERIFIED'
-        if isinstance(error,ValueError) and re.fullmatch('ordinary_rpc/[a-z_]+',str(error)):report['reason']=str(error)
+        if isinstance(error,ValueError) and re.fullmatch(r'ordinary_(?:rpc|trial)/[a-z_]+',str(error)):report['reason']=str(error)
         else:
             frames=traceback.extract_tb(error.__traceback__)
             report['diagnostic']={'type':type(error).__name__,
@@ -254,7 +254,7 @@ def main(argv=None):
     finally:
         if live_report:
             report['live']={key:live_report[key] for key in ('result','dry_verified','claimed_posts','acknowledged_posts','independently_verified',
-                'claim_interrupted','restore_claimed','restore_claim_interrupted','restore_acknowledged','restoration_verified') if key in live_report}
+                'claim_interrupted','restore_claimed','restore_claim_interrupted','restore_acknowledged','restoration_verified','position_percent_modes') if key in live_report}
             if a.apply and report['result']!='ORDINARY_RECONNECT_TRIAL_VERIFIED' and not (live_report.get('claimed_posts')
                     or live_report.get('claim_interrupted') or live_report.get('restore_claimed') or live_report.get('restore_claim_interrupted')):
                 report['account_data_posts']=0
