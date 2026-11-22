@@ -142,7 +142,7 @@ function M.start(host,book,view,options)
             end}
         end
         local menu=host:showList(_('E-Ink chapters'),items,_('No chapters.'),
-            {subtitle=_('Reading position can be synced manually. Notes do not sync yet.')})
+            {subtitle=_('Online: sync position or save selected highlights and private thoughts.')})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget
@@ -176,7 +176,7 @@ function M.start(host,book,view,options)
         end
         if #items==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
         local menu=host:showList(_('Saved E-Ink chapters'),items,nil,
-            {subtitle=_('Reading position can be synced manually. Notes do not sync yet.')})
+            {subtitle=_('Online: sync position or save selected highlights and private thoughts.')})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget

@@ -76,7 +76,7 @@ assert(not host.failed)
 local ctx=assert(host._native_direct_reading);local menu=assert(ctx.menu);local index
 for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
 assert(index and menu.item_table[index].select_enabled)
-assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position can be synced manually. Notes do not sync yet.'))
+assert(menu.subtitle==require('weread.lib.plugin_util').tr('Online: sync position or save selected highlights and private thoughts.'))
 menu:onMenuSelect(menu.item_table[index])
 wait(function() return host.failed or host.opened end)
 if host.failed then

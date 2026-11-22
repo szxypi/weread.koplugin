@@ -55,7 +55,7 @@ assert(action and action.enabled~=false);action.callback()
 wait(function() return host._native_direct_reading and host._native_direct_reading.menu end)
 local menu=host._native_direct_reading.menu
 assert(#menu.item_table==1 and menu.item_table[1].select_enabled)
-assert(menu.subtitle==require('weread.lib.plugin_util').tr('Reading position can be synced manually. Notes do not sync yet.'))
+assert(menu.subtitle==require('weread.lib.plugin_util').tr('Online: sync position or save selected highlights and private thoughts.'))
 menu:onMenuSelect(menu.item_table[1])
 wait(function() return host.opened~=nil end)
 assert(not host._native_direct_reading and not host.busy_message)
