@@ -19,6 +19,7 @@ local book_id=owner and assert(input.book_id) or '42'
 local book={book_id=book_id,bookVersion=owner and input.book_version or 1,title='Full test book',author='Fixture'}
 local chapters=owner and assert(input.chapters) or {{chapterUid='37',chapterIdx=1,title='First'},
     {chapterUid='38',chapterIdx=2,title='Second'},{chapterUid='39',chapterIdx=3,title='Third'}}
+if input.web_asset then chapters[3].tar='https://weread.qq.com/synthetic/resources.tar' end
 local values={cache={download_book_images=true,native_full_book_resources=true},books={[book_id]=book}}
 local settings={mock_endpoint=not owner and input.mock_endpoint or nil,cache_dir=home..'/books',data_dir=home,
     get=function(_,key,default) return values[key] or default end,
@@ -54,13 +55,21 @@ local function body(uid)
     return '<html><body>'..image..'<p>Full chapter '..uid..' native marker readable text.</p></body></html>'
 end
 Content.ensure_reader_state=function() end
+local real_finalize=Content.finalize_single_chapter_content
+local function web_body(uid)
+    local raw=body(uid)
+    if input.web_asset and uid=='39' then raw=raw:gsub('</body>','<img src="fixture.png"/></body>',1) end
+    return raw..(not owner and uid=='39' and '<!-- different -->' or '')
+end
 Content.fetch_single_chapter_source=function(_,_,b,chapter,state)
     state.css=state.css or 'p{color:green}'
-    local raw=body(tostring(chapter.chapterUid))..(not owner and chapter.chapterUid=='39' and '<!-- different -->' or '')
+    local raw=web_body(tostring(chapter.chapterUid))
     return raw,assert(Position.capture(b,chapter,raw,'web_xhtml'))
 end
-Content.finalize_single_chapter_content=function(_,_,_,chapter,xhtml)
-    assert(not owner and chapter.chapterUid=='39');return xhtml,{}
+Content.finalize_single_chapter_content=function(client,settings_value,book_value,chapter,xhtml,state)
+    assert(not owner and chapter.chapterUid=='39')
+    if input.web_asset then return real_finalize(client,settings_value,book_value,chapter,xhtml,state) end
+    return xhtml,{}
 end
 if input.switch then
     local save=Content.save_book_epub
@@ -192,7 +201,7 @@ local hashes={}
 for i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
     local proof=assert(Position.read_document(doc,'42',uid))
-    assert(proof.raw==body(uid)..(uid=='39' and '<!-- different -->' or ''))
+    assert(proof.raw==web_body(uid))
     local rendered=assert(doc:getDocumentFileContent(proof.render_path))
     local hits=assert(doc:findAllText('Full chapter '..uid..' native marker',false,0,8,false,0));assert(hits[1])
     local map=assert(require('weread.lib.source_coordinates').build(proof.raw))
@@ -209,10 +218,18 @@ for i,chapter in ipairs(chapters) do
         local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,100,100))
         assert(bitmap:getWidth()>0);bitmap:free()
         assert(style:find('images/'..image,1,true),'CSS image path must be relative to EPUB root')
-    else assert(rendered:find('href="../style.css"',1,true)) end
+    else
+        assert(rendered:find('href="../style.css"',1,true))
+        if input.web_asset then
+            local bytes=assert(doc:getDocumentFileContent('OEBPS/images/fixture.png'))
+            local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,100,100))
+            assert(bitmap:getWidth()>0);bitmap:free()
+            assert(rendered:find('../images/fixture.png',1,true))
+        end
+    end
 end
 assert(hashes[1]~=hashes[2] and opf:find('eink-style-'..hashes[1],1,true)
     and opf:find('eink-style-'..hashes[2],1,true))
-local _,image_count=opf:gsub('media%-type="image/png"','');assert(image_count==1)
+local _,image_count=opf:gsub('media%-type="image/png"','');assert(image_count==(input.web_asset and 2 or 1))
 doc:close();manager:close(widget)
 print('WEREAD_FULL_RESULT='..json.encode{ok=true,resumed=input.resume==true,chapters=3,styles=2,images=1})

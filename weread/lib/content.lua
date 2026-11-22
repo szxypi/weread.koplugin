@@ -1775,15 +1775,46 @@ end
 local MAX_TAR_ENTRY_BYTES = 512 * 1024 * 1024
 local FILE_COPY_CHUNK_BYTES = 64 * 1024
 
+-- Write extracted images outside the directory streamed into the EPUB. A
+-- failed close or interrupted worker must not leave a truncated final image.
+local function resource_image_temp(incoming_dir)
+    local path=incoming_dir..'/resource-image.part'
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if not ok or not lfs then error('resource file inspection unavailable',0) end
+    local mode=lfs.symlinkattributes and lfs.symlinkattributes(path,'mode') or lfs.attributes(path,'mode')
+    local removed=os.remove(path)
+    if mode and not removed then error('could not clear temporary resource image',0) end
+    return assert(io.open(path,'wb')),path
+end
+
+local function publish_resource_image(temp, path, created)
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if not ok or not lfs then error('resource file inspection unavailable',0) end
+    if lfs.symlinkattributes and lfs.symlinkattributes(path,'mode') or lfs.attributes(path,'mode') then
+        error('resource image already exists',0)
+    end
+    local renamed,err=os.rename(temp,path)
+    if not renamed then error(err or 'could not publish resource image',0) end
+    created[#created+1]=path
+end
+
+local function discard_resource_images(created,temp)
+    if temp then pcall(os.remove,temp) end
+    for _,path in ipairs(created) do pcall(os.remove,path) end
+end
+
 -- WeRead's catalog field is named `tar`, but cloud-converted documents may
 -- point it at a ZIP archive instead. KOReader already ships libarchive, so use
 -- its format auto-detection for those resources while keeping the small TAR
 -- reader below for the common streaming path.
-local function extract_zip_images(archive_path, asset_dir, used_names)
+local function extract_zip_images(archive_path, asset_dir, used_names, incoming_dir)
     local Archiver = require("ffi/archiver")
     local archive = Archiver.Reader:new()
     local assets = {}
     local src_map = {}
+    local created,allocated,output,temp={},{},nil,nil
     local ok, err = xpcall(function()
         if not archive:open(archive_path) then
             error(archive.err or "could not open chapter resource archive")
@@ -1801,12 +1832,15 @@ local function extract_zip_images(archive_path, asset_dir, used_names)
                 if media_type:match("^image/") then
                     local stem = basename(entry.path)
                     local filename = unique_asset_name(used_names, stem, ext)
+                    allocated[#allocated+1]=filename
                     local href = "images/" .. filename
                     local asset = { href = href, media_type = media_type }
                     if asset_dir then
-                        local output = assert(io.open(asset_dir .. "/" .. filename, "wb"))
+                        output,temp=resource_image_temp(incoming_dir)
                         assert(output:write(data))
-                        output:close()
+                        local closed,close_err=output:close();output=nil
+                        if not closed then error(close_err or 'could not finish resource image',0) end
+                        publish_resource_image(temp,asset_dir..'/'..filename,created);temp=nil
                         asset.path = asset_dir .. "/" .. filename
                         asset.size = #data
                         asset.store = true
@@ -1821,17 +1855,23 @@ local function extract_zip_images(archive_path, asset_dir, used_names)
             end
         end
     end, debug.traceback)
+    if output then pcall(output.close,output) end
     archive:close()
-    if not ok then error(err, 0) end
+    if not ok then
+        discard_resource_images(created,temp)
+        for _,name in ipairs(allocated) do used_names[name]=nil end
+        error(err, 0)
+    end
     return assets, src_map
 end
 
-local function extract_tar_images(tar_path, asset_dir, used_names)
+local function extract_tar_images(tar_path, asset_dir, used_names, incoming_dir)
     local input, open_err = io.open(tar_path, "rb")
     if not input then error(open_err or "could not open chapter resource archive") end
     local assets = {}
     local src_map = {}
-    local output
+    local output,temp
+    local created,allocated={},{}
     local ok, err = xpcall(function()
         while true do
             local header = input:read(512)
@@ -1857,8 +1897,9 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
             if is_file and media_type:match("^image/") then
                 local stem = basename(name)
                 filename = unique_asset_name(used_names, stem, ext)
+                allocated[#allocated+1]=filename
                 output_path = asset_dir .. "/" .. filename
-                output = assert(io.open(output_path, "wb"))
+                output,temp=resource_image_temp(incoming_dir)
                 assert(output:write(first))
             end
             while remaining > 0 do
@@ -1868,8 +1909,9 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
                 if output then assert(output:write(chunk)) end
             end
             if output then
-                output:close()
-                output = nil
+                local closed,close_err=output:close();output=nil
+                if not closed then error(close_err or 'could not finish resource image',0) end
+                publish_resource_image(temp,output_path,created);temp=nil
                 local href = "images/" .. filename
                 table.insert(assets, {
                     href = href,
@@ -1890,9 +1932,13 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
             end
         end
     end, debug.traceback)
-    if output then output:close() end
+    if output then pcall(output.close,output) end
     input:close()
-    if not ok then error(err, 0) end
+    if not ok then
+        discard_resource_images(created,temp)
+        for _,name in ipairs(allocated) do used_names[name]=nil end
+        error(err, 0)
+    end
     return assets, src_map
 end
 
@@ -1919,7 +1965,7 @@ function Content.download_chapter_assets_to_files(client, book, chapter, used_na
     local extractor = signature:sub(1, 2) == "PK"
         and extract_zip_images or extract_tar_images
     local ok, assets, src_map = pcall(
-        extractor, tar_path, workspace.asset_dir, used_names)
+        extractor, tar_path, workspace.asset_dir, used_names, workspace.incoming_dir)
     pcall(os.remove, tar_path)
     if not ok then error(assets, 0) end
     return assets, src_map

@@ -2,11 +2,13 @@
 """Exercise mixed-source full-book download and resume in real KOReader."""
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import threading
 from urllib.parse import parse_qs, urlsplit
 
@@ -39,6 +41,9 @@ class Handler(BaseHTTPRequestHandler):
         if target.hostname == 'img.qq.com' and target.path == '/image.png' and self.command == 'GET':
             server.image_requests += 1
             data = PNG
+        elif target.hostname == 'weread.qq.com' and target.path == '/synthetic/resources.tar' and self.command == 'GET':
+            server.tar_requests += 1
+            data = server.tar_data
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/info' and self.command == 'GET':
             data = json.dumps(dict(bookId='42', format='epub', version=1)).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos' and self.command == 'POST':
@@ -77,13 +82,18 @@ class Handler(BaseHTTPRequestHandler):
 
 def run(runtime):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode='w') as archive_file:
+        entry = tarfile.TarInfo('fixture.png');entry.size=len(PNG)
+        archive_file.addfile(entry, io.BytesIO(PNG))
+    server.tar_data=buffer.getvalue()
     thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
     try:
-        for width, height, dpi, resume, expired, corrupt, switch in ((600, 800, 167, False, False, False, False),
-                                                                      (1264, 1680, 300, True, False, False, False),
-                                                                      (1264, 1680, 300, True, False, True, False),
-                                                                      (600, 800, 167, False, True, False, False),
-                                                                      (600, 800, 167, False, False, False, True)):
+        for width, height, dpi, resume, expired, corrupt, switch, web_asset in ((600, 800, 167, False, False, False, False, True),
+                                                                      (1264, 1680, 300, True, False, False, False, True),
+                                                                      (1264, 1680, 300, True, False, True, False, False),
+                                                                      (600, 800, 167, False, True, False, False, False),
+                                                                      (600, 800, 167, False, False, False, True, False)):
             with tempfile.TemporaryDirectory(prefix='weread-native-full-', dir='/dev/shm') as root:
                 xdg = Path(root) / 'xdg';xdg.mkdir(mode=0o700)
                 env = dict(os.environ, KO_HOME=root, XDG_RUNTIME_DIR=str(xdg),
@@ -94,9 +104,9 @@ def run(runtime):
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                refreshToken='synthetic-refresh', deviceId='eink334691225' + '0' * 19),
                                mock_endpoint='http://127.0.0.1:' + str(server.server_port),
-                               resume=resume, expired=expired, corrupt=corrupt, switch=switch)
+                               resume=resume, expired=expired, corrupt=corrupt, switch=switch, web_asset=web_asset)
                 server.resume, server.expired, server.resume_marker, server.chapters = resume, expired, Path(root) / 'resume', []
-                server.valid, server.leaked, server.image_requests = True, False, 0
+                server.valid, server.leaked, server.image_requests, server.tar_requests = True, False, 0, 0
                 child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_full_book_probe.lua'), str(REPO)],
                                        input=json.dumps(payload), text=True, env=env, cwd=runtime,
                                        capture_output=True, timeout=150, check=False)
@@ -112,6 +122,7 @@ def run(runtime):
                                    else ['37','38','38','39'] if resume else ['37','38','39'])
                 assert server.chapters == expected_chapters, server.chapters
                 assert server.image_requests==(1 if expired else 3 if corrupt else 2) and server.valid and not server.leaked
+                assert server.tar_requests == (1 if web_asset else 0)
         print('PASS: native full book, mixed sources, shared images, rate-limit resume and offline rendering')
     finally:
         server.shutdown();server.server_close();thread.join()

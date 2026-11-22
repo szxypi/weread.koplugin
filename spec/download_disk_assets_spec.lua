@@ -90,7 +90,7 @@ package.preload["lfs"] = function()
     return {
         attributes = function(path, attribute)
             local probe = io.popen("test -d " .. string.format("%q", path)
-                .. " && echo directory")
+                .. " && echo directory || (test -f " .. string.format("%q", path) .. " && echo file)")
             local mode = probe:read("*l")
             probe:close()
             if attribute == "mode" then return mode end
@@ -146,6 +146,7 @@ function fake_client:download_to_file(_url, path)
     file:close()
     return path
 end
+local tar_download=fake_client.download_to_file
 
 collectgarbage("collect")
 local before_kb = collectgarbage("count")
@@ -187,6 +188,83 @@ expect(zip_src_map["page-1.jpeg"] == "../" .. zip_assets[1].href,
     "ZIP image map was wrong")
 expect(io.open(workspace.incoming_dir .. "/chapter-1.tar", "rb") == nil,
     "source ZIP was not removed after extraction")
+
+local failure_workspace={path=workspace.path..'/failure',incoming_dir=workspace.path..'/failure/incoming',
+    asset_dir=workspace.path..'/failure/images'}
+assert(os.execute('mkdir -p '..string.format('%q',failure_workspace.incoming_dir)..' '
+    ..string.format('%q',failure_workspace.asset_dir)))
+local function read_file(path)
+    local handle=assert(io.open(path,'rb'));local data=handle:read('*a');assert(handle:close());return data
+end
+local function failed_close_at(n)
+    local real_open=io.open
+    local count=0
+    -- luacheck: push ignore 122
+    io.open=function(path,mode)
+        local handle,err=real_open(path,mode)
+        if handle and mode=='wb' and path==failure_workspace.incoming_dir..'/resource-image.part' then
+            count=count+1
+            if count==n then
+                return {write=function(_,...) return handle:write(...) end,close=function()
+                    handle:close();return nil,'injected close failure'
+                end}
+            end
+        end
+        return handle,err
+    end
+    return function() io.open=real_open end
+    -- luacheck: pop
+end
+local original=assert(io.open(failure_workspace.asset_dir..'/untouched.jpg','wb'))
+assert(original:write('original'));assert(original:close())
+fake_client.download_to_file=tar_download
+local restore=failed_close_at(2)
+local retry_names={}
+local failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=11,tar='https://example.test/tar'},retry_names,failure_workspace)
+restore()
+expect(not failed and not io.open(failure_workspace.asset_dir..'/image-001.jpg','rb')
+    and not io.open(failure_workspace.asset_dir..'/image-002.jpg','rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb')
+    and read_file(failure_workspace.asset_dir..'/untouched.jpg')=='original'
+    and not retry_names['image-001.jpg'] and not retry_names['image-002.jpg'],
+    'TAR close failure left published images or changed an existing file')
+local retry=Content.download_chapter_assets_to_files(fake_client,{book_id='book'},
+    {chapterUid=11,tar='https://example.test/tar'},retry_names,failure_workspace)
+expect(#retry==image_count and read_file(retry[2].path):sub(1,3)=='\255\216\255',
+    'TAR extraction could not retry after a close failure')
+fake_client.download_to_file=function(_self,_url,path)
+    local handle=assert(io.open(path,'wb'))
+    assert(handle:write(tar_header('partial-one.jpg',512),'\255\216\255',string.rep('x',509),
+        tar_header('partial-two.jpg',512),'\255\216\255short'))
+    assert(handle:close());return path
+end
+local partial_names={}
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=13,tar='https://example.test/tar'},partial_names,failure_workspace)
+expect(not failed and not io.open(failure_workspace.asset_dir..'/partial-one.jpg','rb')
+    and not io.open(failure_workspace.asset_dir..'/partial-two.jpg','rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb')
+    and not partial_names['partial-one.jpg'] and not partial_names['partial-two.jpg'],
+    'truncated TAR retained images or reserved their names')
+
+fake_client.download_to_file=function(_self,_url,path)
+    local handle=assert(io.open(path,'wb'));assert(handle:write('PK\003\004fake'));assert(handle:close());return path
+end
+local zip_name=assert(zip_assets[1].href:match('^images/(.+)$'))
+restore=failed_close_at(1)
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=12,tar='https://example.test/zip'},{},failure_workspace)
+restore()
+expect(not failed and not io.open(failure_workspace.asset_dir..'/'..zip_name,'rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb'),
+    'ZIP close failure left a partial image')
+local existing=assert(io.open(failure_workspace.asset_dir..'/'..zip_name,'wb'))
+assert(existing:write('existing'));assert(existing:close())
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=12,tar='https://example.test/zip'},{},failure_workspace)
+expect(not failed and read_file(failure_workspace.asset_dir..'/'..zip_name)=='existing',
+    'resource extraction overwrote an existing image')
 
 local settings = {
     cache_dir = root,
