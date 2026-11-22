@@ -232,6 +232,8 @@ function M:closeWeReadUI()
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.cancelBookReading then self:cancelBookReading() end
+    local native_direct=package.loaded['weread.ui.native_direct_reading']
+    if native_direct then native_direct.cancel(self) end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
@@ -1599,6 +1601,11 @@ function M:showBookMenu(book)
             self:readCachedCopy(latest,view)
         end)}
     end
+    if require('weread.lib.native_position_protocol').id(book_id) then
+        actions[#actions+1]={text=_('Read E-Ink chapter (local only)'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
+            if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
+        end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -1656,6 +1663,8 @@ function M:showBookMenu(book)
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
                 self:cancelBookReading()
+                local native_direct=package.loaded['weread.ui.native_direct_reading']
+                if native_direct then native_direct.cancel(self) end
                 require('weread.ui.catalog_request').cancel(self)
                 require('weread.ui.download_recovery').cancel(self)
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end

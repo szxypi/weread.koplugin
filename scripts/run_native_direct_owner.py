@@ -21,6 +21,7 @@ def line(output,marker):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
+    parser.add_argument('--ui',action='store_true',help='Exercise the native chapter selection menu')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1
@@ -39,7 +40,8 @@ def main(argv=None):
                 SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
                 WEREAD_DIRECT_OWNER_TMPFS='1')
-            code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_probe.lua'),str(plugin)],
+            probe='native_direct_owner_ui_probe.lua' if args.ui else 'native_direct_owner_probe.lua'
+            code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader'/probe),str(plugin)],
                                        env,raw,runtime,timeout=180)
             result=line(out,b'WEREAD_DIRECT_OWNER=')
             if not result.get('ok'):
