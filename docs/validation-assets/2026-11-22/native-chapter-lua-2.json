@@ -1,0 +1,22 @@
+{
+  "result": "NATIVE_AND_WEB_CHAPTER_COMPARED",
+  "checked_at": "2026-11-22T11:52:13.491802+00:00",
+  "account_data_writes": 0,
+  "authorization_requests": 0,
+  "native_download_requests": 1,
+  "credentials_or_content_saved": false,
+  "native_package_decoded": true,
+  "native_format": "html",
+  "archive_entries": 4,
+  "encrypted_entries": 4,
+  "chapter_parts": 1,
+  "has_manifest": true,
+  "parent_resources": 0,
+  "image_signatures_recognized": true,
+  "unusable_resources": 0,
+  "explicit_free_or_owned": true,
+  "same_book_chapter": true,
+  "byte_identical": true,
+  "visible_text_equal_ignoring_whitespace": true,
+  "koreader_lua_package_matches": true
+}

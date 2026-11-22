@@ -7,9 +7,12 @@ Credentials, downloaded packages, filenames and actual text stay in memory.
 No progress, shelf, authorization or other account writes are sent.
 """
 import argparse
+import base64
 from datetime import datetime, timezone
+import hashlib
 from html.parser import HTMLParser
 import json
+import subprocess
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request
@@ -52,11 +55,13 @@ def visible(source, html):
 
 
 class ChapterProbe(NativeProbe):
-    def __init__(self, opener=None):
+    def __init__(self, opener=None, capture_for_lua=False):
         super().__init__(opener)
         self.allowed = set()
         self.archive_url = None
         self.archive_attempted = False
+        self.capture_for_lua = capture_for_lua
+        self.lua_sample = None
 
     def guard(self, stage, url, body):
         parsed = urlsplit(url)
@@ -130,6 +135,9 @@ class ChapterProbe(NativeProbe):
             self.archive_url = BASE + '/book/chapterdownload?' + urlencode(fields)
             data, envelope = self.download(self.archive_url, credentials)
             decoded = read(data, password(envelope, credentials['vid']), uid)
+            if self.capture_for_lua:
+                self.lua_sample = dict(archive=base64.b64encode(data).decode(), envelope=envelope,
+                                       vid=credentials['vid'], chapter_uid=uid)
             return {'book_id': book_id, 'expected': model}, chosen, decoded
         raise ProbeError('chapter/no_eligible_sample')
 
@@ -138,9 +146,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-offset', type=int, default=0, choices=range(0, 51))
+    parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.book_offset and not args.saved_session:
         parser.error('book offset requires saved session')
+    if args.lua_command and not args.saved_session:
+        parser.error('Lua comparison requires saved session')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_writes=0, authorization_requests=0, native_download_requests=0,
                   credentials_or_content_saved=False)
@@ -149,12 +160,13 @@ def main():
         try:
             saved = SessionStore().load()
             credentials = NativeSessionStore().load(saved['vid'])
-            probe = ChapterProbe()
+            probe = ChapterProbe(capture_for_lua=bool(args.lua_command))
             sample, chapter, native = probe.inspect(credentials, args.book_offset)
             report.update(native_package_decoded=True, native_format='html' if native['html'] else 'text',
                           archive_entries=native['entry_count'], encrypted_entries=native['encrypted_entries'],
                           chapter_parts=native['body_parts'], has_manifest=native['has_manifest'],
-                          ignored_parent_resources=native['ignored_parent_resources'],
+                          parent_resources=native['parent_resources'],
+                          image_signatures_recognized=native['image_signatures_recognized'], unusable_resources=native['unusable_resources'],
                           explicit_free_or_owned=True, native_download_requests=1)
             web = TranslationWebProbe()
             web.vid = saved['vid']
@@ -171,6 +183,24 @@ def main():
             report['same_book_chapter'] = True
             report['byte_identical'] = native['source'] == web_source
             report['visible_text_equal_ignoring_whitespace'] = native_text == web_text
+            if args.lua_command:
+                payload = json.dumps({'samples': [probe.lua_sample]}, separators=(',', ':')).encode()
+                child = subprocess.run(args.lua_command, input=payload, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, timeout=120)
+                marker = b'\nWEREAD_NATIVE_ARCHIVE_RESULT='
+                if child.returncode or len(child.stdout) > 65536 or child.stdout.count(marker) != 1:
+                    raise ProbeError('chapter/lua_probe_failed')
+                actual = json.loads(child.stdout.split(marker, 1)[1])
+                digest = lambda value: hashlib.sha256(value).hexdigest()
+                assets = [dict(digest=digest(item['data']), mime=item['media_type'], safe_href=True,
+                               parent_source='../' in item['source']) for item in native['assets']]
+                expected = dict(ok=True, body_sha256=digest(native['source']), css_sha256=digest(native['css']),
+                                is_text=not native['html'], web_coordinate_authority=False, assets=assets,
+                                image_signatures_recognized=native['image_signatures_recognized'],
+                                unusable_resources=native['unusable_resources'])
+                if actual != {'samples': [expected]}:
+                    raise ProbeError('chapter/lua_comparison_mismatch')
+                report['koreader_lua_package_matches'] = True
             report['result'] = 'NATIVE_AND_WEB_CHAPTER_COMPARED'
         except (PackageError, ProbeError, StoreError, TranslationError) as exc:
             report.update(result='UNVERIFIED', reason=str(exc))

@@ -46,6 +46,13 @@ class NativeChapterPackageTests(unittest.TestCase):
                                ('first.html', 'first')])
             with self.assertRaises(PackageError):
                 read(invalid, b'not-used', '37')
+        duplicate = archive([('info.txt', '{"chapters":[],"chapters":[]}'), ('37.html', 'first')])
+        with self.assertRaises(PackageError):
+            read(duplicate, b'not-used', '37')
+        huge = archive([('info.txt', '{"chapters":[{"chapterUid":9007199254740992,"files":["37.html"]}]}'),
+                        ('37.html', 'first')])
+        with self.assertRaises(PackageError):
+            read(huge, b'not-used', '37')
 
     def test_reject_ambiguous_or_unsafe_archives(self):
         for rows in ([('../37.html', 'bad')], [('1.html', 'a'), ('2.html', 'b')],
@@ -57,11 +64,21 @@ class NativeChapterPackageTests(unittest.TestCase):
         with self.assertRaises(PackageError):
             password('not base64!', '12345678')
 
-    def test_shared_parent_image_is_ignored_without_extraction(self):
-        data = archive([('37.html', '<p>Text</p>'), ('../images/shared.png', b'not opened')])
+    def test_shared_parent_image_is_kept_in_memory_with_safe_name(self):
+        image = b'\x89PNG\r\n\x1a\nsynthetic'
+        data = archive([('37.html', '<p>Text</p>'), ('../images/shared.png', image)])
         result = read(data, b'unused', '37')
         self.assertEqual(result['source'], b'<p>Text</p>')
-        self.assertEqual(result['ignored_parent_resources'], 1)
+        self.assertEqual(result['parent_resources'], 1)
+        self.assertEqual(result['assets'][0]['data'], image)
+        self.assertEqual(result['assets'][0]['href'], 'images/native-1.png')
+        self.assertTrue(result['image_signatures_recognized'])
+        invalid = read(archive([('37.html', 'ok'), ('ignored.png', 'not an image')]), b'unused', '37')
+        self.assertFalse(invalid['image_signatures_recognized'])
+        self.assertEqual(invalid['unusable_resources'], 1)
+        unsupported = read(archive([('37.html', 'ok'), ('diagram.svg', '<svg/>')]), b'unused', '37')
+        self.assertFalse(unsupported['image_signatures_recognized'])
+        self.assertEqual(unsupported['unusable_resources'], 1)
         with self.assertRaises(PackageError):
             read(archive([('37.html', 'ok'), ('../outside.txt', 'bad')]), b'unused', '37')
 

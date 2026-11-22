@@ -9,6 +9,7 @@ import ctypes
 import ctypes.util
 import io
 import json
+import math
 import re
 import ssl
 import sys
@@ -17,10 +18,46 @@ import zipfile
 MAX_ARCHIVE = 32 * 1024 * 1024
 MAX_ENTRY = 8 * 1024 * 1024
 MAX_TOTAL = 64 * 1024 * 1024
+MAX_MANIFEST = 1024 * 1024
 
 
 class PackageError(ValueError):
     pass
+
+
+def decode_manifest(raw):
+    if len(raw) > MAX_MANIFEST:
+        raise PackageError('package/manifest_size')
+    stack, quoted, escaped = [], False, False
+    for byte in raw:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif byte == 92:
+                escaped = True
+            elif byte == 34:
+                quoted = False
+        elif byte == 34:
+            quoted = True
+        elif byte in (123, 91):
+            stack.append(byte)
+            if len(stack) > 32:
+                raise PackageError('package/manifest_depth')
+        elif byte in (125, 93):
+            if not stack or stack.pop() != (123 if byte == 125 else 91):
+                raise PackageError('package/manifest_invalid')
+    if quoted or stack:
+        raise PackageError('package/manifest_invalid')
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise PackageError('package/manifest_duplicate_key')
+            result[key] = value
+        return result
+
+    return json.loads(raw, object_pairs_hook=unique)
 
 
 def password(envelope, vid):
@@ -85,7 +122,7 @@ def read(data, secret, chapter_uid):
             rows = archive.infolist()
             if not 1 <= len(rows) <= 2048:
                 raise PackageError('package/entry_count')
-            names, total, ignored_resources = set(), 0, 0
+            names, total, parent_resources = set(), 0, 0
             eligible_rows = []
             for entry in rows:
                 name = entry.filename
@@ -108,12 +145,11 @@ def read(data, secret, chapter_uid):
                 if total > MAX_TOTAL:
                     raise PackageError('package/uncompressed_size')
                 if '..' in name.split('/'):
-                    # Some real packages include a shared image via ../. This
-                    # research reader ignores it entirely and never writes ZIP
-                    # paths to disk; parent-path text/manifest is still rejected.
-                    if not re.search(r'\.(?:png|jpe?g|gif|webp|svg)$', name, re.I):
+                    # Names are kept only as opaque lookup keys. No entry is
+                    # extracted to the filesystem; parent-path text is rejected.
+                    if not re.search(r'\.(?:png|jpe?g|gif|webp)$', name, re.I):
                         raise PackageError('package/parent_entry_name')
-                    ignored_resources += 1
+                    parent_resources += 1
                     continue
                 eligible_rows.append(entry)
             manifest = [row for row in eligible_rows if row.filename.rsplit('/', 1)[-1].lower() == 'info.txt']
@@ -126,12 +162,25 @@ def read(data, secret, chapter_uid):
             selected = None
             if manifest:
                 raw = archive.read(manifest[0], pwd=secret)
-                info = json.loads(raw)
+                info = decode_manifest(raw)
                 if not isinstance(info, dict):
                     raise PackageError('package/manifest_invalid')
+                if 'chapters' in info and not isinstance(info['chapters'], list):
+                    raise PackageError('package/manifest_invalid')
                 if isinstance(info.get('chapters'), list):
-                    chapters = [row for row in info['chapters'] if isinstance(row, dict)
-                                and str(row.get('chapterUid')) == chapter_uid]
+                    chapters = []
+                    for row in info['chapters']:
+                        if not isinstance(row, dict):
+                            raise PackageError('package/invalid_chapter')
+                        uid = row.get('chapterUid')
+                        if uid is not None and not ((type(uid) in (int, float) and math.isfinite(uid)
+                                                     and 0 <= uid <= 9007199254740991 and int(uid) == uid)
+                                or (isinstance(uid, str) and re.fullmatch(r'[0-9]{1,20}', uid))):
+                            raise PackageError('package/invalid_chapter')
+                        if type(uid) in (int, float):
+                            uid = str(int(uid))
+                        if uid is not None and uid == chapter_uid:
+                            chapters.append(row)
                     if len(chapters) != 1 or not isinstance(chapters[0].get('files'), list) or not chapters[0]['files']:
                         raise PackageError('package/chapter_missing')
                     filenames = chapters[0]['files']
@@ -156,8 +205,30 @@ def read(data, secret, chapter_uid):
                 raise PackageError('package/chapter_size')
             source = b'\n'.join(chunks)
             source.decode('utf-8')
+            styles = [archive.read(row, pwd=secret) for row in rows if re.search(r'\.css$', row.filename, re.I)]
+            assets = []
+            unusable_resources = sum(bool(re.search(r'\.(?:svg|avif|bmp)$', row.filename, re.I)) for row in rows)
+            for row in rows:
+                if not re.search(r'\.(?:png|jpe?g|gif|webp)$', row.filename, re.I):
+                    continue
+                image = archive.read(row, pwd=secret)
+                if image.startswith(b'\x89PNG\r\n\x1a\n'):
+                    ext, mime = '.png', 'image/png'
+                elif image.startswith(b'\xff\xd8\xff'):
+                    ext, mime = '.jpg', 'image/jpeg'
+                elif image.startswith((b'GIF87a', b'GIF89a')):
+                    ext, mime = '.gif', 'image/gif'
+                elif image.startswith(b'RIFF') and image[8:12] == b'WEBP':
+                    ext, mime = '.webp', 'image/webp'
+                else:
+                    unusable_resources += 1
+                    continue
+                assets.append({'data': image, 'media_type': mime, 'source': row.filename,
+                               'href': f'images/native-{len(assets) + 1}{ext}'})
             return {'source': source, 'html': formats[0], 'entry_count': len(rows),
                     'body_parts': len(selected), 'encrypted_entries': sum(bool(row.flag_bits & 1) for row in rows),
-                    'has_manifest': bool(manifest), 'ignored_parent_resources': ignored_resources}
+                    'has_manifest': bool(manifest), 'parent_resources': parent_resources,
+                    'css': b'\n'.join(styles), 'assets': assets,
+                    'image_signatures_recognized': unusable_resources == 0, 'unusable_resources': unusable_resources}
     except (zipfile.BadZipFile, RuntimeError, EOFError, UnicodeError, json.JSONDecodeError, OSError, NotImplementedError):
         raise PackageError('package/cannot_decode') from None
