@@ -20,7 +20,9 @@ from ordinary_reconnect_restore import RestoreProbe, restore
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, PROTOCOL, HASHES
 from test_secure_native_session import Backend
 from verify_cb_fixture_reconnect_trial import source_summary
-from verify_position_roundtrip import DEFAULT_TOKEN
+from verify_position_roundtrip import DEFAULT_TOKEN, same_position
+from verify_reader_context import project as reader_context
+from verify_reader_progress import project as reader_progress
 from verify_source_coordinates import FilteredSource
 from txt_full_summary import digest
 
@@ -53,19 +55,26 @@ def main():
         command=[sys.executable,str(Path(__file__).with_name('run_ordinary_reconnect_trial.py')),'--koreader',str(a.koreader),
                  '--candidate',str(a.candidate),'--width',str(a.width),'--height',str(a.height),'--dpi',str(a.dpi),
                  '--mock-port',str(server.server_port)]
-        captured={}
+        captured={};scope={}
         initial=dict(book_id=BOOK_ID,chapter_uid='1',chapter_idx=1,chapter_offset=first,raw_percent=25,summary='old summary')
+        def check_context(html):
+            context=reader_context(dict(book_id=BOOK_ID),html)
+            if not same_position(reader_progress(dict(book=context['progress']),BOOK_ID),initial):raise ValueError('mock/context')
+            fixed=context.get('pclts')
+            if fixed is None or type(fixed) is str and fixed in ('','0') or type(fixed) is int and fixed==0:fixed=None
+            scope.update(context=context,pclts=fixed)
+            return True
         def check_body(value):
             if not isinstance(value,dict) or type(value.get('pr')) is not int or not 0<=value['pr']<=100:return False
             selected={key:'a'*64 for key in HASHES}
             selected['owner_sha256']=digest('900000')
             selected.update(protocol=PROTOCOL,baseline=initial,target=dict(initial,chapter_offset=target,raw_percent=value['pr'],summary=summary),
                             counts=dict(readingTime=0,recordReadingTime=0,ttsTime=0),version=7)
-            context=dict(psvts=value.get('ps'),token=DEFAULT_TOKEN)
-            validate_body(selected,context,None,'enter',value)
-            captured.update(plan=selected,context=context)
+            context=scope['context']
+            validate_body(selected,context,scope['pclts'],'enter',value)
+            captured.update(plan=selected,context=context,pclts=scope['pclts'])
             return True
-        dry={};preview(command+['--dry'],payload,check_body,dry)
+        dry={};preview(command+['--dry'],payload,check_body,dry,check_context=check_context)
         if dry.get('result')!='READER_POSITION_DRY_VERIFIED' or server.request_totals.get(('/web/book/read',''),0)!=0:
             raise ValueError('mock/dry')
         store=OrdinaryReconnectStore(Backend());store.reserve(captured['plan'])
@@ -74,9 +83,12 @@ def main():
             return item['chapterOffset']==expected['chapter_offset'] and item['summary']==expected['summary'] and item['progress']==expected['raw_percent']
         def before(stage,selected):return same(selected['baseline' if stage=='enter' else 'target'])
         def after(stage,selected):return same(selected['baseline' if stage=='restore' else 'target'])
-        gate=Coordinator(store,captured['plan'],captured['context'],None,before,after,armed=True)
+        gate=Coordinator(store,captured['plan'],captured['context'],captured['pclts'],before,after,armed=True)
         payload.update(armed=True,ordinary_trial=dict(rpc_token=secrets.token_hex(16)));report={}
-        try:execute(command,payload,gate,report)
+        def bind_context(html):
+            check_context(html)
+            return dict(context=scope['context'],pclts=scope['pclts'])
+        try:execute(command,payload,gate,report,check_context=bind_context)
         except Exception:
             if not a.noack:raise
         if a.noack:

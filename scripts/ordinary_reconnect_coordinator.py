@@ -24,6 +24,18 @@ class Coordinator:
         self.index = 0
         self.phase = 'ready'
 
+    def bind_context(self, context, pclts):
+        counter=context.get('pclts') if isinstance(context,dict) else None
+        missing=counter is None or type(counter) is str and counter in ('','0') or type(counter) is int and counter==0
+        if (self.phase != 'ready' or self.index != 0 or not isinstance(context, dict)
+                or not isinstance(context.get('psvts'), str) or not context['psvts']
+                or not (pclts is None or isinstance(pclts, str) and bool(pclts)
+                        or type(pclts) is int and 0 < pclts <= 2**53-1)
+                or missing and pclts is not None or not missing and (type(counter) is not type(pclts) or counter!=pclts)):
+            self.phase = 'stopped'
+            raise ValueError('ordinary_trial/context')
+        self.context, self.pclts = deepcopy(context), pclts
+
     def claim(self, stage, body):
         try:
             return self._claim(stage, body)

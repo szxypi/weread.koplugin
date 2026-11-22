@@ -7,7 +7,7 @@ separate and may begin only after this function succeeds.
 import re
 import subprocess
 
-from native_trial_pipe import Frames, reply, stop, write_initial
+from native_trial_pipe import Frames, MAX_INPUT, reply, stop, write_initial
 
 
 EXPECTED = dict(result='PASS', profile_removed=True, installed_bytes_match=True, native_choice=True,
@@ -19,7 +19,7 @@ DRY_EXPECTED = dict(result='DRY_RUN', profile_removed=True, installed_bytes_matc
                     offline_intent=True, reconnect_choice=True)
 
 
-def preview(command, payload, check_body, report):
+def preview(command, payload, check_body, report, *, check_context=None):
     """Bind a proposed body in memory; the child must independently deny it."""
     trial = payload.get('ordinary_trial') if isinstance(payload, dict) else None
     token = trial.get('rpc_token') if isinstance(trial, dict) else None
@@ -28,17 +28,25 @@ def preview(command, payload, check_body, report):
             or set(trial) != {'rpc_token'} or payload.get('ordinary') is not True
             or payload.get('armed') is not False or payload.get('reconnect') is not True or not callable(check_body)):
         raise ValueError('ordinary_trial/broker_scope')
-    child = None; checked = False
-    report.update(result='UNVERIFIED', body_checked=False)
+    if check_context is not None and not callable(check_context):raise ValueError('ordinary_trial/broker_scope')
+    child = None; checked = False; contexts = 0
+    report.update(result='UNVERIFIED', body_checked=False, contexts_checked=0)
     try:
         child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, start_new_session=True)
-        write_initial(child.stdin, payload); frames = Frames(child.stdout, token, timeout=420)
+        write_initial(child.stdin, payload); frames = Frames(child.stdout, token, timeout=420, max_frame=MAX_INPUT)
         while True:
             kind, value = frames.next()
             if kind == 'RESULT':
-                if value != DRY_EXPECTED or not checked: raise ValueError('ordinary_trial/reader_result')
+                if value != DRY_EXPECTED or not checked or check_context is not None and contexts==0: raise ValueError('ordinary_trial/reader_result')
                 break
+            if value.get('kind') == 'reader_context':
+                if (checked or check_context is None or contexts>=8 or set(value)!={'kind','seq','html'}
+                        or type(value['seq']) is not int or value['seq']!=0 or not isinstance(value['html'],str)
+                        or len(value['html'].encode('utf-8'))>4*1024*1024 or check_context(value['html']) is not True):
+                    raise ValueError('ordinary_trial/context')
+                contexts+=1;report['contexts_checked']=contexts
+                reply(child.stdin,dict(kind='reader_context',seq=0,ok=True));continue
             if (checked or set(value) != {'kind', 'seq', 'body'} or value['kind'] != 'dry_body'
                     or type(value['seq']) is not int or value['seq'] != 1):
                 raise ValueError('ordinary_trial/sequence')
@@ -50,7 +58,7 @@ def preview(command, payload, check_body, report):
         if child is not None: stop(child)
 
 
-def execute(command, payload, coordinator, report):
+def execute(command, payload, coordinator, report, *, check_context=None):
     trial = payload.get('ordinary_trial') if isinstance(payload, dict) else None
     token = trial.get('rpc_token') if isinstance(trial, dict) else None
     if (not isinstance(command, (tuple, list)) or not command or not all(isinstance(v, str) and v for v in command)
@@ -59,22 +67,31 @@ def execute(command, payload, coordinator, report):
             or payload.get('armed') is not True or payload.get('reconnect') is not True
             or coordinator.armed is not True or coordinator.index != 0 or coordinator.phase != 'ready'):
         raise ValueError('ordinary_trial/broker_scope')
-    child = None
+    if check_context is not None and not callable(check_context):raise ValueError('ordinary_trial/broker_scope')
+    child = None; contexts = 0
     claimed = acknowledged = verified = 0
     report.update(result='UNVERIFIED', claimed_posts=0, acknowledged_posts=0, independently_verified=0,
-                  claim_interrupted=False)
+                  claim_interrupted=False, contexts_checked=0)
     try:
         child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, start_new_session=True)
         write_initial(child.stdin, payload)
-        frames = Frames(child.stdout, token, timeout=420)
+        frames = Frames(child.stdout, token, timeout=420, max_frame=MAX_INPUT)
         while True:
             kind, value = frames.next()
             if kind == 'RESULT':
-                if value != EXPECTED or claimed != 2 or acknowledged != 2 or verified != 2:
+                if value != EXPECTED or claimed != 2 or acknowledged != 2 or verified != 2 or check_context is not None and contexts==0:
                     raise ValueError('ordinary_trial/reader_result')
                 break
             event, seq = value.get('kind'), value.get('seq')
+            if event == 'reader_context':
+                if (claimed or check_context is None or contexts>=8 or set(value)!={'kind','seq','html'}
+                        or type(seq) is not int or seq!=0 or not isinstance(value['html'],str)
+                        or len(value['html'].encode('utf-8'))>4*1024*1024):raise ValueError('ordinary_trial/context')
+                binding=check_context(value['html'])
+                if not isinstance(binding,dict) or set(binding)!={'context','pclts'}:raise ValueError('ordinary_trial/context')
+                coordinator.bind_context(binding['context'],binding['pclts']);contexts+=1;report['contexts_checked']=contexts
+                reply(child.stdin,dict(kind='reader_context',seq=0,ok=True));continue
             if type(seq) is not int or seq not in (1, 2):
                 raise ValueError('ordinary_trial/sequence')
             stage = ('enter', 'position')[seq-1]

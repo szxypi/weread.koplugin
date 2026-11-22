@@ -20,5 +20,21 @@ class PreviewTests(unittest.TestCase):
             with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 task.main(options)
 
+    def test_difference_paths_hide_user_data(self):
+        first={'books':[{'bookId':'private-id','private-title':'old','updateTime':1}],'synckey':1}
+        later={'books':[{'bookId':'another-id','private-title':'new','updateTime':2}],'synckey':2}
+        paths=task.shelf_difference_paths(first,later)
+        self.assertIn('/synckey',paths);self.assertIn('/books/*/updateTime',paths)
+        self.assertNotIn('private',str(paths));self.assertNotIn('another',str(paths))
+
+    def test_shelf_comparison_ignores_only_nondecreasing_bounded_lecture_cursor(self):
+        before={'books':[{'bookId':'1','title':'same'}],'lectureSynckey':100}
+        self.assertTrue(task.same_shelf(before,{'books':[{'bookId':'1','title':'same'}],'lectureSynckey':101}))
+        for other in ({'books':[{'bookId':'1','title':'different'}],'lectureSynckey':101},
+                      {'books':[{'bookId':'1','title':'same'}],'lectureSynckey':99},
+                      {'books':[{'bookId':'1','title':'same'}],'lectureSynckey':True},
+                      {'books':[{'bookId':'1','title':'same'}]}):
+            with self.subTest(other=other):self.assertFalse(task.same_shelf(before,other))
+
 
 if __name__ == '__main__': unittest.main()

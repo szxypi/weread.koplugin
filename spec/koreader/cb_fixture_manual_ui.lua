@@ -98,12 +98,22 @@ local ok,reason=pcall(function()
     local request=Client.request
     local function rpc(event,seq,extra)
         local value=extra or {};value.kind,value.seq=event,seq
-        local encoded=require('json').encode(value);assert(#encoded<14000)
+        local encoded=require('json').encode(value)
+        assert(#encoded<(event=='reader_context' and 8*1024*1024-128 or 14000))
         io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..rpc_token..'_STEP='..encoded..'\n');io.stdout:flush()
         local line=assert(io.stdin:read('*l'));assert(#line<=16384)
         local answer=require('json').decode(line)
         assert(type(answer)=='table' and answer.kind==event and answer.seq==seq and answer.ok==true)
         local n=0;for key in pairs(answer) do assert(key=='kind' or key=='seq' or key=='ok');n=n+1 end;assert(n==3)
+    end
+    if rpc_mode and not reopening then
+        local ReaderContext=require('weread.lib.reader_context');local project=ReaderContext.project
+        function ReaderContext.project(book,html,decode)
+            local state=project(book,html,decode)
+            assert(type(html)=='string' and #html<=4*1024*1024 and state.book_id==input.book)
+            rpc('reader_context',0,{html=html})
+            return state
+        end
     end
     function Client:request(options)
         if reconnect and offline and not reopening then counts[2]=counts[2]+1;error('fixture_reconnect_offline_request',0) end

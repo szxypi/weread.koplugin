@@ -28,14 +28,14 @@ class BrokerTests(unittest.TestCase):
                       ('STEP', dict(kind='ack', seq=2, status=200, response={'succ': 1})),
                       ('RESULT', copy.deepcopy(broker.EXPECTED))]
 
-    def run_broker(self, steps):
+    def run_broker(self, steps, check_context=None):
         fake = SimpleNamespace(stdin=object(), stdout=object(), wait=lambda timeout: 0)
         stream = SimpleNamespace(next=lambda: next(steps))
         report = {}
         with patch.object(broker.subprocess, 'Popen', return_value=fake), patch.object(broker, 'write_initial'), \
              patch.object(broker, 'Frames', return_value=stream), patch.object(broker, 'reply') as send, \
              patch.object(broker, 'stop') as stop:
-            try: broker.execute(['fake-reader'], self.payload, self.gate, report)
+            try: broker.execute(['fake-reader'], self.payload, self.gate, report, check_context=check_context)
             finally:
                 self.sent = send.call_args_list
                 stop.assert_called_once_with(fake)
@@ -103,6 +103,38 @@ class BrokerTests(unittest.TestCase):
                  patch.object(broker, 'reply') as sent, patch.object(broker, 'stop'), self.assertRaises(ValueError):
                 broker.preview(['fake-reader', '--dry'], payload, lambda _body: True, {})
             sent.assert_not_called()
+
+    def test_context_must_be_checked_before_the_body(self):
+        payload = dict(self.payload, armed=False)
+        fake = SimpleNamespace(stdin=object(), stdout=object(), wait=lambda timeout: 0)
+        items = iter([('STEP', dict(kind='reader_context', seq=0, html='private synthetic reader')),
+                      ('STEP', dict(kind='dry_body', seq=1, body=self.first)),
+                      ('RESULT', copy.deepcopy(broker.DRY_EXPECTED))])
+        stream = SimpleNamespace(next=lambda: next(items)); report = {}; checked = []
+        with patch.object(broker.subprocess, 'Popen', return_value=fake), patch.object(broker, 'write_initial'), \
+             patch.object(broker, 'Frames', return_value=stream), patch.object(broker, 'reply'), patch.object(broker, 'stop'):
+            broker.preview(['fake-reader', '--dry'], payload, lambda _body: bool(checked), report,
+                           check_context=lambda html: checked.append(html) or True)
+        self.assertEqual(report['contexts_checked'], 1)
+        self.assertNotIn('private synthetic reader', str(report))
+
+    def test_unchecked_or_late_context_never_reaches_a_write(self):
+        event = ('STEP', dict(kind='reader_context', seq=0, html='private synthetic reader'))
+        with self.assertRaises(ValueError): self.run_broker(iter([event]))
+        self.assertEqual(self.store.read()[0]['phase'], 'prepared')
+        self.setUp()
+        binding=lambda _html: dict(context=dict(self.context,pclts=self.pc), pclts=self.pc)
+        with self.assertRaises(ValueError): self.run_broker(iter([event]+self.steps[:2]+[event]), check_context=binding)
+        self.assertEqual(self.store.read()[0]['phase'], 'enter_verified')
+        self.assertEqual(self.gate.phase, 'stopped')
+
+    def test_checked_reader_context_binds_the_live_coordinator(self):
+        event = ('STEP', dict(kind='reader_context', seq=0, html='private synthetic reader'))
+        report = self.run_broker(iter([event]+self.steps),
+                                 check_context=lambda _html: dict(context=dict(self.context,pclts=self.pc), pclts=self.pc))
+        self.assertEqual(report['contexts_checked'], 1)
+        self.assertEqual(report['result'], 'READER_POSITION_VERIFIED_RESTORE_PENDING')
+        self.assertNotIn('private synthetic reader', str(report))
 
 
 if __name__ == '__main__': unittest.main()

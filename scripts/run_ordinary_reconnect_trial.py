@@ -16,7 +16,7 @@ import sys
 import tempfile
 import zipfile
 
-from native_trial_pipe import Frames, read_initial, reply, write_initial
+from native_trial_pipe import Frames, MAX_INPUT, read_initial, reply, write_initial
 from process_loss_runtime import enable_subreaper
 from run_native_thought_trial import read_reply, stop_reader
 from run_persistent_ui_probe import extract_candidate
@@ -69,12 +69,14 @@ def main(argv=None):
                     env=env | {'WEREAD_FIXTURE_CB_REOPEN': '1' if reopened else '0'}, stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
                 try:
-                    write_initial(child.stdin, payload); frames = Frames(child.stdout, token, timeout=360)
+                    write_initial(child.stdin, payload); frames = Frames(child.stdout, token, timeout=360, max_frame=MAX_INPUT)
                     while True:
                         kind, value = frames.next()
                         if kind == 'RESULT': break
                         if reopened: raise ValueError('ordinary_trial/reopen_request')
-                        sys.stdout.buffer.write(b'\n'+frames.prefix+b'STEP='+json.dumps(value,separators=(',', ':')).encode()+b'\n')
+                        encoded=json.dumps(value,ensure_ascii=False,separators=(',', ':')).encode()
+                        if len(encoded)>=MAX_INPUT-128:raise ValueError('ordinary_trial/frame')
+                        sys.stdout.buffer.write(b'\n'+frames.prefix+b'STEP='+encoded+b'\n')
                         sys.stdout.buffer.flush(); reply(child.stdin, read_reply(sys.stdin.buffer))
                     expected = (dict(result='DRY_RUN', native_choice=True, write_blocked=True, writes=0, denied=1,
                                      offline_intent=True, reconnect_choice=True) if args.dry else
