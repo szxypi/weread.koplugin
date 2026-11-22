@@ -109,7 +109,7 @@ return function(plugin,count,flush,home,pump)
     local pin=cell._pinned_badge;assert(pin.overlap_offset[1]>=0 and pin:getSize().w<=cell.width and pin:getSize().h<=cell.height,'pin badge outside cover')
     UIManager:forceRePaint();Screen:shot(home..'/../evidence/shelf-state-cover.png')
     local snapshot=plugin.library_db:getShelfEntry(id)
-    snapshot.book.finishReading=1;snapshot.book._shelf_progress=99
+    snapshot.book.finishReading=1;snapshot.book._shelf_progress=99;snapshot.book._shelf_progress_local=true
     local combined=require('weread.ui.library_view').show({mode='books',books={snapshot.book},cover_mode=true,paged=true,
         page_size=plugin.shelf_view.page_size,cover_columns=plugin.shelf_view.cover_columns,cover_rows=plugin.shelf_view.cover_rows,
         navigation=plugin:discoveryNavigation('shelf')}, {})
@@ -117,6 +117,11 @@ return function(plugin,count,flush,home,pump)
     assert(all._pinned_badge and all._finished_badge and all._private_badge and all._progress_badge,'simultaneous cover badges missing')
     local left,right=all._pinned_badge,all._finished_badge
     assert(left.overlap_offset[1]+left:getSize().w<=right.overlap_offset[1],'pinned and finished cover stamps overlap')
+    local progress=all._progress_badge;local private=all._private_badge
+    assert(all._progress_badge_text==require('weread.lib.shelf_progress').label(99,true),'local progress source omitted')
+    assert(progress.overlap_offset[1]>=private.overlap_offset[1]+private:getSize().w
+        or progress.overlap_offset[2]+progress:getSize().h<=private.overlap_offset[2],
+        'local progress and private badges overlap')
     UIManager:close(combined)
     plugin.shelf_view.on_display_change('view_mode','list');flush()
     local text=plugin.shelf_view:itemStatus(plugin.shelf_view.books[1])

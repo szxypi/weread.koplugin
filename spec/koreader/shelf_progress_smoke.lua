@@ -59,6 +59,19 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     end
     assert(progress(seed).percent==37 and plugin.shelf_view.books[1]._shelf_progress==83
         and plugin.shelf_view.books[1]._shelf_progress_local,"cloud display replaced pending local progress")
+    local local_label=require('weread.lib.shelf_progress').label(83,true)
+    local function assert_local_badge(cell)
+        assert(cell._progress_badge_text==local_label,'local progress was shown as a cloud percentage')
+        local labels=assert(cell._progress_badge_labels)
+        if #labels==1 then assert(labels[1].text==local_label and not labels[1].max_width,'local progress was truncated')
+        else
+            assert(#labels==2 and labels[1].text==require('weread.lib.i18n').tr('Local') and labels[2].text=='83%',
+                'compact local badge lost its source or percentage')
+            assert(not labels[1].max_width and not labels[2].max_width,'compact local badge was truncated')
+        end
+        assert(cell._progress_badge:getSize().w<=cell.width,'local progress badge exceeds the cover')
+    end
+    assert_local_badge(plugin.shelf_view._item_rows[1])
     paint("web-shelf-progress-cover")
     before=count("/web/book/getProgress")
     plugin.shelf_view.on_page_changed(2)
@@ -67,7 +80,7 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     plugin.shelf_view.on_page_changed(1)
     plugin.isNetworkOnline=function() return false end
     plugin.shelf_view.on_display_change("view_mode","list")
-    assert(plugin.shelf_view:itemStatus(plugin.shelf_view.books[1]):find("83%%"),"offline Web list lost local override")
+    assert(plugin.shelf_view:itemStatus(plugin.shelf_view.books[1]):find(local_label,1,true),"offline list did not identify local progress")
     paint("web-shelf-progress-list")
     plugin.isNetworkOnline=function() return true end
     plugin:closeWeReadUI()
@@ -76,6 +89,7 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     wait_progress()
     assert(progress(seed).source=="web" and progress(seed).percent==37,"keyless home did not refresh")
     assert(plugin.shelf_view.books[1]._shelf_progress==83,"keyless home lost pending location")
+    assert_local_badge(plugin.shelf_view._item_rows[1])
     UIManager:forceRePaint();Screen:shot(evidence.."/web-home-progress.png")
     local selected={{bookId=seed},{bookId=books[2].bookId}}
     settings:set("api_key","synthetic-invalid-key");settings:flush()

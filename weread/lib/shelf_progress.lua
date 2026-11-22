@@ -12,6 +12,19 @@ local function percent(value)
     if n and n == n and n >= 0 and n <= 100 then return math.floor(n) end
 end
 
+-- A pending position belongs to this device; it must not look like a
+-- confirmed cloud percentage in the home or bookshelf views.
+function M.label(value, local_position)
+    value=percent(value)
+    if value==nil then return nil end
+    local text=tostring(value)..'%'
+    if local_position then
+        local template=require('weread.lib.i18n').tr('Local · %1')
+        return (template:gsub('%%1',function() return text end))
+    end
+    return text
+end
+
 function M.parse(data, id, now)
     if type(data) ~= "table" then return nil, "invalid" end
     if (data.errcode ~= nil and tonumber(data.errcode) ~= 0)

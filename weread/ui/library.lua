@@ -6,6 +6,7 @@ local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfSearch = require("weread.lib.shelf_search")
+local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local ShelfTime = require("weread.lib.shelf_time")
 local VolatileShelf = require("weread.lib.volatile_shelf")
@@ -1272,7 +1273,7 @@ function M:showShelfPage()
                 if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
                 elseif (order=='progress_asc' or order=='progress_desc') and type(book._shelf_progress)=='number' then
-                    right_text = tostring(book._shelf_progress)..'%'
+                    right_text = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local) or ''
                 else
                     right_text = ShelfTime.date(DiscoveryData.recent_time(book,saved_books,account)) or ""
                 end

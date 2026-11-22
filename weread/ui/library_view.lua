@@ -29,6 +29,7 @@ local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfGroups = require("weread.lib.shelf_groups")
+local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
 local HomeLayout = require("weread.lib.home_layout")
@@ -622,21 +623,48 @@ function CoverCell:init()
         self._private_badge = badge
         self._private_badge_size = badge_size
     end
-    if type(self.book._shelf_progress) == "number" then
+    local progress_text = ShelfProgress.label(self.book._shelf_progress, self.book._shelf_progress_local)
+    if progress_text then
+        local inset = math.max(border, Screen:scaleBySize(4))
+        local padding = math.max(1, Screen:scaleBySize(2))
+        local max_width=math.max(1,metrics.card_width-2*inset-2*padding-2*Size.border.thin)
+        local line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14)}
+        local content,labels=line,{line}
+        if line:getSize().w>max_width and self.book._shelf_progress_local then
+            if line.free then line:free() end
+            local size=12
+            while true do
+                local local_label=TextWidget:new{text=_('Local'),face=Font:getFace('cfont',size)}
+                local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false),face=Font:getFace('cfont',size)}
+                if size<=8 or local_label:getSize().w<=max_width and number_label:getSize().w<=max_width then
+                    labels={local_label,number_label};content=VerticalGroup:new{align='right',local_label,number_label};break
+                end
+                if local_label.free then local_label:free() end
+                if number_label.free then number_label:free() end
+                size=size-1
+            end
+        elseif line:getSize().w>max_width then
+            if line.free then line:free() end
+            line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14),max_width=max_width}
+            content,labels=line,{line}
+        end
         local badge = FrameContainer:new{
-            padding = math.max(1, Screen:scaleBySize(2)), margin = 0,
+            padding = padding, margin = 0,
             bordersize = Size.border.thin, radius = 0,
             background = Blitbuffer.COLOR_WHITE,
-            TextWidget:new{ text = tostring(self.book._shelf_progress) .. "%", face = Font:getFace("cfont", 14) },
+            content,
         }
         local size = badge:getSize()
-        local inset = math.max(border, Screen:scaleBySize(4))
+        local y=math.max(0,metrics.card_height-size.h-inset)
+        if self._private_badge_size and size.w+self._private_badge_size+2*inset>metrics.card_width then
+            y=math.max(0,metrics.card_height-self._private_badge_size-size.h-inset)
+        end
         badge.overlap_offset = {
             math.max(0, metrics.card_width - size.w - inset),
-            math.max(0, metrics.card_height - size.h - inset),
+            y,
         }
         cover_layers[#cover_layers + 1] = badge
-        self._progress_badge = badge
+        self._progress_badge,self._progress_badge_text,self._progress_badge_labels = badge,progress_text,labels
     end
     local cover = OverlapGroup:new(cover_layers)
     local title = self.book.title or self.book.bookId or self.book.book_id or _("Untitled")
@@ -1182,7 +1210,7 @@ function LibraryView:itemStatus(book)
     elseif is_finished(book) then
         status = _("Done")
     elseif type(book._shelf_progress) == "number" then
-        status = tostring(book._shelf_progress) .. "%"
+        status = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local) or ""
     else
         status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end

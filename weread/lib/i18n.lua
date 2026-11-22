@@ -1198,6 +1198,7 @@ local zh = {
     ["Select multiple groups"] = "多选分组",
     ["Manage local groups"] = "管理本机分组",
     ["Local · %1"] = "本机 · %1",
+    ["Local"] = "本机",
     ["Local groups on this device"] = "本机分组",
     ["Local groups for this book"] = "本书的本机分组",
     ["Pin on this device"] = "本机置顶",

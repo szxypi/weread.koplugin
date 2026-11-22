@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "account": "synthetic",
+  "screens": [
+    "600x800",
+    "1264x1680"
+  ],
+  "home_cover_and_shelf_list_local_label": true,
+  "cloud_snapshot_preserved": true,
+  "narrow_cover_label_complete": true,
+  "private_badge_coexistence": true,
+  "account_isolation": "unit tested",
+  "real_account_writes": 0,
+  "physical_kindle_verified": false,
+  "server_percentage_behavior": "unresolved"
+}

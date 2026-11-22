@@ -19,6 +19,12 @@ local saved = { recent_read_account = "account-a", pending_upload_position = { p
 local snapshot = { percent = 37, fetched_at = 1000 }
 local value, pending = Data.display(saved, snapshot, "account-a", "a")
 expect(value == 83 and pending and saved.progress == 83 and snapshot.percent == 37, "local pending display was overwritten")
+expect(Data.label(value,pending)=='Local · 83%' and Data.label(37,false)=='37%', 'local and cloud progress labels are ambiguous')
+expect(Data.label(0,true)=='Local · 0%' and not Data.label(-1,true), 'invalid local progress label')
+local old_settings=G_reader_settings
+G_reader_settings={readSetting=function() return 'zh_CN' end}
+expect(Data.label(83,true)=='本机 · 83%' and Data.label(37,false)=='37%', 'local progress label was not translated')
+G_reader_settings=old_settings
 expect(Data.display(saved, snapshot, "account-b", "a") == 37, "another account's local progress displayed")
 expect(Data.display(saved, snapshot, "account-a", "b") == 37, "another book's local position displayed")
 saved.pending_upload_account, saved.recent_read_account = "account-a", "account-b"
