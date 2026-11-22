@@ -35,6 +35,7 @@ local reader=Reader.instance;local host=reader.weread;local destination_host
 local function configure(active)
 active.settings.mock_endpoint=input.mock_endpoint
 active.isNetworkConnected=function() return true end
+active.isNetworkOnline=function() return true end
 local requests=active.client.request
 active.client.request=function(self,options)
     local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
@@ -44,6 +45,9 @@ active.client.request=function(self,options)
         or (input.mode:find('^upload') or input.mode:find('^interval')) and (url=='https://i.weread.qq.com/feature?synckey=0'
             or url=='https://i.weread.qq.com/book/read')
         or url=='https://i.weread.qq.com/book/chapterInfos'
+        or input.mode:find('^selection_direct_') and (url:find('https://i.weread.qq.com/book/bookmarklist?',1,true)==1
+            or url:find('https://i.weread.qq.com/review/list?',1,true)==1
+            or url=='https://i.weread.qq.com/book/addBookmark' or url=='https://i.weread.qq.com/review/add')
         or url:find('https://i.weread.qq.com/book/chapterdownload?',1,true)==1
         or url=='https://weread.qq.com/api/userInfo?userVid=12345678'
         or url=='https://weread.qq.com/web/book/chapterInfos'
@@ -95,6 +99,96 @@ local function open_menu()
         return top and type(top.getButtonById)=='function' and top:getButtonById(id)~=nil
     end)
     UI:forceRePaint();assert(UI:getTopmostVisibleWidget():getButtonById(id)):onTapSelectButton()
+end
+if input.mode:find('^selection_direct') then
+    require('weread.ui.selection_thought')
+    assert(host._selection_thought_hook,'native chapter selection action was not attached')
+    local matches=assert(reader.document:findAllText('Unique paragraph 0001',false,0,3,false,0))
+    assert(#matches==1 and matches[1].start and matches[1]['end'])
+    reader.highlight.selected_text={text='Unique paragraph 0001',pos0=matches[1].start,pos1=matches[1]['end']}
+    reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+    assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+    wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
+    local owner=assert(host._selection_thought_owner)
+    if input.mode=='selection_direct_move' then
+        wait(function() return owner.direct_entry and owner.worker and owner.worker.job end)
+        reader.rolling:onGotoPage(2);UI:forceRePaint()
+        wait(function() return not host._selection_thought_owner end)
+        assert(not owner.reference and not host.checked_message,'changed page accepted a selection')
+    else
+        wait(function() return owner.reference or host.checked_message end)
+        if input.mode=='selection_direct_mismatch' or input.mode=='selection_direct_auth_expired'
+            or input.mode=='selection_direct_web_expired' or input.mode=='selection_direct_limited' then
+            assert(not owner.reference and host.checked_message,'unavailable source exposed a selection')
+            local message=input.mode=='selection_direct_auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
+                or input.mode=='selection_direct_web_expired' and 'Log in again to verify the selected text.'
+                or input.mode=='selection_direct_limited' and 'WeRead is limiting requests. Please try again later.'
+            if message then assert(host.checked_message==require('weread.lib.plugin_util').tr(message),'wrong source error') end
+        else
+            assert(owner.reference and require('weread.lib.selection_reference').valid(owner.reference,'42'))
+            if input.mode:find('^selection_direct_mark') or input.mode:find('^selection_direct_thought') then
+                local thought=input.mode:find('^selection_direct_thought')~=nil
+                local tr=require('weread.lib.plugin_util').tr
+                local label=tr(thought and 'Write private thought' or 'Save highlight');local action
+                for _,item in ipairs(owner.menu.item_table) do if item.text==label then action=item.callback;break end end
+                assert(action,'selection action missing');action()
+                local function tap(id)
+                    UI:forceRePaint();local popup=assert(owner.menu._shelf_popup)
+                    assert(popup.button_table:getButtonById(id),'missing '..id):onTapSelectButton()
+                end
+                if thought then
+                    assert(owner.editor and owner.editor.input);owner.editor.input:setInputText('Synthetic private thought')
+                    if input.mode=='selection_direct_thought_draft' then
+                        tap('save_thought_draft');wait(function() return not owner.editor end)
+                        assert(host.checked_message==tr('Thought draft saved on this device.'));host.checked_message=nil
+                        local drafts_action
+                        for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Local thought drafts') then drafts_action=item.callback;break end end
+                        assert(drafts_action);drafts_action();assert(owner.editor and owner.editor.dialog.item_table[1])
+                        owner.editor.dialog.item_table[1].callback();tap('resume_thought_draft')
+                        wait(function() return owner.editor and owner.editor.input end)
+                        assert(owner.editor.input:getInputText()=='Synthetic private thought','direct draft did not restore')
+                        require('weread.ui.thought_editor').cancel(host,owner)
+                    else
+                        tap('submit_thought');wait(function() return not owner.editor or owner.editor.service.preview end)
+                        assert(owner.editor and owner.editor.service.preview,'direct thought preflight failed')
+                        tap('confirm_thought_change');wait(function() return not owner.editor end)
+                    end
+                else
+                    wait(function() return not owner.mark_editor or owner.mark_editor.service.preview end)
+                    assert(owner.mark_editor and owner.mark_editor.service.preview,'direct highlight preflight failed')
+                    tap('confirm_highlight_change');wait(function() return not owner.mark_editor end)
+                end
+                local changed=input.mode:find('_changed$')~=nil
+                local pending=input.mode:find('_no_effect$')~=nil
+                assert(input.mode=='selection_direct_thought_draft' or host.checked_message==tr(pending and (thought
+                    and 'A thought change needs checking. Use Check last thought change before submitting again.'
+                    or 'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.')
+                    or changed and (thought
+                    and 'The thought or quoted highlight changed, or could not be checked. Your local draft is kept. Refresh and try again.'
+                    or 'The cloud mark or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.')
+                    or thought and 'Cloud thought change verified.' or 'Cloud highlight change verified.'),
+                    'unexpected direct annotation result')
+                if thought and changed then
+                    local drafts=require('weread.lib.thought_edit_store'):new(host.library_db,host.client):drafts()
+                    assert(drafts and #drafts==1,'changed source did not retain the local draft')
+                end
+                if pending then
+                    local journal=thought and require('weread.lib.thought_edit_store'):new(host.library_db,host.client)
+                        or require('weread.lib.mark_edit_service').new_journal(host.library_db,host.client)
+                    assert(journal:read().phase=='pending','uncertain annotation did not retain its pending record')
+                    host.checked_message=nil;action()
+                    if thought then
+                        assert(owner.editor and owner.editor.input);owner.editor.input:setInputText('Synthetic private thought')
+                        tap('submit_thought');wait(function() return not owner.editor end)
+                    else wait(function() return not owner.mark_editor end) end
+                    assert(host.checked_message and journal:read().phase=='pending','pending annotation allowed a second attempt')
+                end
+            end
+        end
+    end
+    print('WEREAD_POSITION_READER='..json.encode{ok=true,mode=input.mode,
+        range=owner.reference and owner.reference.range or '',quote=owner.reference and owner.reference.markText or ''})
+    return
 end
 open_menu()
 if input.mode:find('^upload') or input.mode:find('^interval') then

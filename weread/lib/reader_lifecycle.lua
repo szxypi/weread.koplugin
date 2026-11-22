@@ -185,9 +185,10 @@ function M:onReaderReady()
     if weread_book_id then require('weread.lib.rich_footnotes').attach(self) end
     selection_action(self,'detach')
     excerpt_action(self,'detach')
-    if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
+    if (weread_book_id or require('weread.lib.native_direct_path').contains(self.settings,local_file))
+        and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
         require('weread.ui.selection_thought').attach(self)
-        excerpt_action(self,'attach')
+        if weread_book_id then excerpt_action(self,'attach') end
     end
     if weread_book_id then
         FileIdentity.read_document(self.ui.document, weread_book_id)

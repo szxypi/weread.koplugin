@@ -10,6 +10,8 @@ local Marks=require('weread.lib.my_cloud_marks')
 local Dom=require('weread.lib.source_dom')
 local Raw=require('weread.lib.annotation_source')
 local Coordinates=require('weread.lib.source_coordinates')
+local Crypto=require('weread.lib.crypto')
+local Protocol=require('weread.lib.native_position_protocol')
 local M={}
 local function fail(reason) error('selection_reference/'..reason,0) end
 local function hash(v) return type(v)=='string' and #v==64 and v:match('^[a-f0-9]+$') end
@@ -75,6 +77,47 @@ function M.capture(input,read)
         return reference(input.book_id,input.chapter_uid,Candidate.chapter_index(input.chapters,input.chapter_uid),value)
     end)
 end
+local function project_context(raw,a,b,selection)
+    local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
+    local function endpoint(context,label)
+        local text=context.text;local offset=context.point_offset
+        if type(text)~='string' or #text>8192 or Dom.normalize(text)~=text or type(offset)~='number'
+            or offset<0 or offset%1~=0 then fail('selection') end
+        local points={};for at in text:gmatch('()[%z\1-\127\194-\244][\128-\191]*') do points[#points+1]=at end
+        points[#points+1]=#text+1
+        if offset>=#points then fail('selection') end
+        local found={};local target=offset+1
+        local function attempt(first,last)
+            local quote=text:sub(points[first],points[last]-1)
+            local located=map:locate(quote)
+            if not located then return end
+            local point=map:locate_point(quote,target-first)
+            local byte=point and Quote.boundary(map,point.co)
+            if byte and byte==located.first+points[target]-points[first] then found[byte]=found[byte] or point.co end
+        end
+        for _i,width in ipairs({24,48,96,192}) do
+            local first,last=math.max(1,target-width),math.min(#points,target+width)
+            attempt(first,last);attempt(target,last);attempt(first,target)
+        end
+        if not next(found) then fail(label..'_unmatched') end;return found
+    end
+    -- Moving a footnote can give a one-sided endpoint context a different
+    -- source neighbor. Match both endpoints together with the complete
+    -- native selection, then require one unique canonical raw range.
+    local starts,ends=endpoint(a,'start'),endpoint(b,'end')
+    local text=Dom.normalize(selection);local choices={}
+    for first_byte,first in pairs(starts) do
+        for last_byte,last in pairs(ends) do
+            if first_byte<last_byte and map.flat:sub(first_byte,last_byte-1)==text then
+                local value=Quote.project(raw,first,last,selection)
+                if value then choices[value.range]=value end
+            end
+        end
+    end
+    local value,count=nil,0;for _range,result in pairs(choices) do value,count=result,count+1 end
+    if count~=1 then fail(count==0 and 'quote_boundary' or 'quote_ambiguous') end
+    return value
+end
 function M.capture_native(input,read)
     return guarded(function()
         local a,b=input.first,input.last
@@ -89,45 +132,54 @@ function M.capture_native(input,read)
             if not value then fail('selection') end
             return reference(a.book_id,a.chapter_uid,Candidate.chapter_index(input.chapters,a.chapter_uid),value)
         end
-        local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
-        local function endpoint(context,label)
-            local text=context.text;local offset=context.point_offset
-            if type(text)~='string' or #text>8192 or Dom.normalize(text)~=text or type(offset)~='number'
-                or offset<0 or offset%1~=0 then fail('selection') end
-            local points={};for at in text:gmatch('()[%z\1-\127\194-\244][\128-\191]*') do points[#points+1]=at end
-            points[#points+1]=#text+1
-            if offset>=#points then fail('selection') end
-            local found={};local target=offset+1
-            local function attempt(first,last)
-                local quote=text:sub(points[first],points[last]-1)
-                local located=map:locate(quote)
-                if not located then return end
-                local point=map:locate_point(quote,target-first)
-                local byte=point and Quote.boundary(map,point.co)
-                if byte and byte==located.first+points[target]-points[first] then found[byte]=found[byte] or point.co end
-            end
-            for _i,width in ipairs({24,48,96,192}) do
-                local first,last=math.max(1,target-width),math.min(#points,target+width)
-                attempt(first,last);attempt(target,last);attempt(first,target)
-            end
-            if not next(found) then fail(label..'_unmatched') end;return found
-        end
-        -- Moving a footnote can give a one-sided endpoint context a different
-        -- source neighbor. Match both endpoints together with the complete
-        -- native selection, then require one unique canonical raw range.
-        local starts,ends=endpoint(a,'start'),endpoint(b,'end')
-        local text=Dom.normalize(input.text);local choices={}
-        for first_byte,first in pairs(starts) do
-            for last_byte,last in pairs(ends) do
-                if first_byte<last_byte and map.flat:sub(first_byte,last_byte-1)==text then
-                    local value=Quote.project(raw,first,last,input.text)
-                    if value then choices[value.range]=value end
-                end
-            end
-        end
-        local value,count=nil,0;for _range,result in pairs(choices) do value,count=result,count+1 end
-        if count~=1 then fail(count==0 and 'quote_boundary' or 'quote_ambiguous') end
+        local value=project_context(raw,a,b,input.text)
         return reference(a.book_id,a.chapter_uid,Candidate.chapter_index(input.chapters,a.chapter_uid),value)
+    end)
+end
+-- The caller must independently authenticate the account and verify this
+-- native chapter against its Web source before passing raw bytes here.
+local function direct_source(entry,file,raw)
+    if type(entry)~='table' or not Marks.id(entry.book_id) or not Marks.id(entry.chapter_uid)
+        or not Protocol.integer(entry.chapter_idx,0,1000000) or not Protocol.integer(entry.book_version,0,2147483647)
+        or not hash(entry.file_id) or not hash(entry.source_sha256) or type(file)~='string' or file==''
+        or type(raw)~='string' or #raw<1 or #raw>Coordinates.MAX_BYTES or Crypto.sha256_hex(raw)~=entry.source_sha256 then fail('source') end
+end
+function M.capture_direct(input,entry,file,raw)
+    return guarded(function()
+        direct_source(entry,file,raw)
+        local a,b=type(input)=='table' and input.first,input and input.last
+        if type(a)~='table' or type(b)~='table' or type(a.identity)~='table' or type(b.identity)~='table' then fail('selection') end
+        for _,context in ipairs({a,b}) do
+            if context.book_id~=entry.book_id or context.chapter_uid~=entry.chapter_uid or context.file~=file
+                or context.metadata~=entry.file_id..entry.source_sha256 or context.render_path~='OEBPS/text/chapter.xhtml'
+                or context.identity.book_id~=entry.book_id or context.identity.file_id~=entry.file_id
+                or context.identity.book_version~=entry.book_version then fail('source_changed') end
+        end
+        local value=project_context(raw,a,b,input.text)
+        return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
+    end)
+end
+function M.verify_direct(row,entry,file,raw)
+    return guarded(function()
+        direct_source(entry,file,raw)
+        if not M.valid(row,entry.book_id) or row.chapterUid~=tonumber(entry.chapter_uid)
+            or row.chapterIdx~=entry.chapter_idx or row.source.raw_sha256~=entry.source_sha256
+            or row.source.raw_bytes~=#raw then fail('source_changed') end
+        local quote=trim(Raw.quote(Raw.index(raw,{body_only=true}),row.range))
+        local expected=reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,
+            {range=row.range,abstract=quote,raw_sha256=entry.source_sha256,raw_bytes=#raw})
+        if not M.same(row,expected) then fail('source_changed') end
+        return expected
+    end)
+end
+function M.restore_direct(entry,file,key,raw)
+    return guarded(function()
+        direct_source(entry,file,raw)
+        local parsed=M.parse(key)
+        if not parsed or parsed.chapter_uid~=entry.chapter_uid or parsed.raw_sha256~=entry.source_sha256 then fail('source_changed') end
+        local quote=trim(Raw.quote(Raw.index(raw,{body_only=true}),parsed.range))
+        return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,
+            {range=parsed.range,abstract=quote,raw_sha256=entry.source_sha256,raw_bytes=#raw})
     end)
 end
 local function restore(book,current_file,key,read)

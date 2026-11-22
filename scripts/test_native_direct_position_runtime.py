@@ -37,6 +37,29 @@ class Handler(BaseHTTPRequestHandler):
         code,headers,data=200,{},None
         if target.hostname=='i.weread.qq.com' and target.path=='/book/info' and self.command=='GET':
             data=json.dumps(dict(bookId='42',format='epub',version=1)).encode()
+        elif target.hostname=='i.weread.qq.com' and target.path=='/book/bookmarklist' and self.command=='GET' and server.mode.startswith('selection_direct_'):
+            server.valid &= parse_qs(target.query)=={'bookId':['42'],'synckey':['0']}
+            data=json.dumps(dict(bookId='42',updated=[server.mark] if server.mark else [],
+                chapters=[dict(chapterUid=37,title='Synthetic chapter')],hasMore=0)).encode()
+        elif target.hostname=='i.weread.qq.com' and target.path=='/review/list' and self.command=='GET' and server.mode.startswith('selection_direct_'):
+            server.valid &= parse_qs(target.query)=={'bookId':['42'],'listType':['11'],'listMode':['0'],'mine':['1'],'synckey':['0'],'count':['20']}
+            data=json.dumps(dict(reviews=[dict(review=server.review)] if server.review else [],totalCount=int(server.review is not None),hasMore=0)).encode()
+        elif target.hostname=='i.weread.qq.com' and target.path in ('/book/addBookmark','/review/add') and self.command=='POST' and server.mode.startswith('selection_direct_'):
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            from annotation_source_quotes import SourceQuotes
+            quote=SourceQuotes(BODY,body_only=True).quote(request.get('range'))
+            server.valid &= request.get('bookId')=='42' and request.get('bookVersion')==1 and quote=='Unique paragraph 0001'
+            if target.path=='/book/addBookmark':
+                server.valid &= request.get('chapterUid')==37 and request.get('markText')==quote and request.get('type')==1 and server.mark is None
+                if not server.mode.endswith('_no_effect'):
+                    server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=1,range=request['range'],markText=quote,
+                        style=request['style'],colorStyle=request['colorStyle'],createTime=1700000000)
+            else:
+                server.valid &= request.get('chapterUid')=='37' and request.get('abstract')==quote and request.get('isPrivate')==1 and server.review is None
+                if not server.mode.endswith('_no_effect'):
+                    server.review=dict(reviewId='synthetic-direct-thought',bookId='42',userVid='12345678',chapterUid=37,type=1,
+                        range=request['range'],abstract=quote,content=request['content'],isPrivate=1,createTime=1700000000)
+            data=json.dumps({} if server.mode.endswith(('_lost_ack','_no_effect')) else dict(succ=1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/shelf/sync' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             data=json.dumps(dict(books=[dict(bookId='42',finishReading=0,secret=0)],archive=[])).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET' and server.mode.startswith(('upload','interval')):
@@ -81,11 +104,19 @@ class Handler(BaseHTTPRequestHandler):
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/chapterdownload' and self.command=='GET':
             query=parse_qs(target.query,keep_blank_values=True)
             chapters=query.get('chapters',[''])[0];server.valid &= query.get('bookId')==['42'] and chapters in ('0,37','0,38') and query.get('stopAutoPayWhenBNE')==['1']
-            uid=chapters.split(',')[-1];data=archive([('text/'+uid+'.html',BODY if uid=='37' else BODY2),('style/book.css','p{color:black}')]);headers['encryptkey']='vwSvXMONEDngLYTAXw3olg=='
+            uid=chapters.split(',')[-1];raw=BODY if uid=='37' else BODY2
+            if server.mode in ('selection_direct_mark_changed','selection_direct_thought_changed') and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
+                raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
+            if server.mode in ('selection_direct_auth_expired','selection_direct_limited'):
+                code,data=(401 if server.mode=='selection_direct_auth_expired' else 429),b''
+            else:
+                data=archive([('text/'+uid+'.html',raw),('style/book.css','p{color:black}')]);headers['encryptkey']='vwSvXMONEDngLYTAXw3olg=='
         elif target.hostname=='weread.qq.com' and target.path=='/api/userInfo' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'userVid':['12345678']}
-            headers['Set-Cookie']='wr_skey'+'=synthetic-refreshed-cookie; Path=/; Secure'
-            data=json.dumps(dict(vid='12345678')).encode()
+            if server.mode=='selection_direct_web_expired':code,data=401,b''
+            else:
+                headers['Set-Cookie']='wr_skey'+'=synthetic-refreshed-cookie; Path=/; Secure'
+                data=json.dumps(dict(vid='12345678')).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             count=sum(path=='/web/book/getProgress' for _,_,path in server.calls)
             offset=(server.cloud_offset if server.mode.startswith(('upload','interval')) else CLOUD_OFFSET)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
@@ -104,10 +135,10 @@ class Handler(BaseHTTPRequestHandler):
         elif target.hostname=='weread.qq.com' and target.path in ('/web/book/chapter/e_0','/web/book/chapter/e_1','/web/book/chapter/e_3') and self.command=='POST':
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             server.valid &= request.get('b')==weread_e('42') and request.get('c') in (weread_e('37'),weread_e('38'))
-            if server.mode=='move' and target.path.endswith('e_0'):time.sleep(0.8)
+            if server.mode in ('move','selection_direct_move') and target.path.endswith('e_0'):time.sleep(0.8)
             if server.mode=='interval_move' and target.path.endswith('e_0') and any(path=='/book/read' for _,_,path in server.calls):time.sleep(0.8)
             raw=BODY2 if request.get('c')==weread_e('38') else BODY
-            if server.mode=='mismatch':raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
+            if server.mode in ('mismatch','selection_direct_mismatch'):raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
             data=shards(raw)[['e_0','e_1','e_3'].index(target.path.rsplit('/',1)[1])].encode()
         else:code,data=400,b''
         self.send_response(code)
@@ -137,7 +168,11 @@ MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_chan
        'upload','upload_cancel','upload_changed','upload_lost_ack','upload_missing_before','upload_missing_after',
        'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable',
        'interval','interval_conflict','interval_noack','interval_move','interval_offline',
-       'interval_close','interval_close_conflict','interval_close_noack','interval_close_offline','interval_close_reopen')
+       'interval_close','interval_close_conflict','interval_close_noack','interval_close_offline','interval_close_reopen',
+       'selection_direct','selection_direct_mismatch','selection_direct_move','selection_direct_mark','selection_direct_thought',
+       'selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_thought_draft',
+       'selection_direct_auth_expired','selection_direct_web_expired','selection_direct_limited',
+       'selection_direct_mark_lost_ack','selection_direct_thought_lost_ack','selection_direct_mark_no_effect','selection_direct_thought_no_effect')
 
 def run(runtime,modes=MODES):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -162,15 +197,23 @@ def run(runtime,modes=MODES):
                         prepared=frame(child,'WEREAD_POSITION_PREPARED=');path=prepared['path'];assert Path(path).is_file()
                         payload['second']=prepared.get('second')
                         payload['path']=path;server.mode=mode;server.calls=[];server.cloud_offset=CLOUD_OFFSET;server.cloud_summary='Synthetic cloud point'
+                        server.mark=None;server.review=None
                         child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_reader_probe.lua')],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                         result=frame(child,'WEREAD_POSITION_READER=');assert result['ok'] and result['mode']==mode
+                        if mode=='selection_direct':
+                            from annotation_source_quotes import SourceQuotes
+                            assert SourceQuotes(BODY,body_only=True).quote(result['range'])==result['quote']=='Unique paragraph 0001'
                         if mode in ('match','preview','preview_missing','upload','upload_missing_before','interval'):compare_offset(result)
                         assert server.valid and not server.leaked
                         writes=[path for _,_,path in server.calls if path in ('/web/book/read','/book/read')]
                         write_count=2 if mode in ('interval','interval_noack','interval_close','interval_close_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else 0
                         assert writes==['/book/read']*write_count, (mode,writes)
-                        if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload','interval')):
+                        mark_posts=sum(path=='/book/addBookmark' for _,_,path in server.calls)
+                        thought_posts=sum(path=='/review/add' for _,_,path in server.calls)
+                        assert mark_posts==(1 if mode in ('selection_direct_mark','selection_direct_mark_lost_ack','selection_direct_mark_no_effect') else 0), (mode,mark_posts)
+                        assert thought_posts==(1 if mode in ('selection_direct_thought','selection_direct_thought_lost_ack','selection_direct_thought_no_effect') else 0), (mode,thought_posts)
+                        if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload','interval','selection_direct')):
                             assert sum(path=='/web/book/chapter/e_0' for _,_,path in server.calls)==(2 if mode in ('cloud','cloud_after') else 1)
                         if mode.startswith('cloud') and mode!='cloud_move':
                             assert sum(path=='/book/getProgress' for _,_,path in server.calls)==(4 if mode in ('cloud','cloud_after') else 2)

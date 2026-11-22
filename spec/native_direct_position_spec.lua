@@ -7,7 +7,7 @@ local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_s
     file_id=string.rep('a',64),key=string.rep('b',64),copy=0,catalog_sha256=string.rep('c',64),
     catalog_order=2,catalog_count=3,catalog_prev='36',catalog_next='38'}
 local scope={vid='123',epoch=1};local native={scope=scope};local web={web={cookies={wr_vid='123'}}}
-local live=true;local source_changed=false;local file_changed=false;local web_error;local anchor_ok=true
+local live=true;local source_changed=false;local file_changed=false;local change_file_during_fetch=false;local web_error;local anchor_ok=true
 local target_reversible=true;local source_requests=0;local web_requests=0
 local anchor_text='valid target anchor';local anchor_offset=2
 package.preload['weread.lib.source_dom']=function() return {normalize=function(s) return s end} end
@@ -18,6 +18,7 @@ package.preload['weread.lib.native_direct_cache']=function() return {
 package.preload['weread.lib.native_read_access']=function() return {matches=function() return live end} end
 package.preload['weread.lib.native_chapter_source']=function() return {fetch=function()
     source_requests=source_requests+1
+    if change_file_during_fetch then file_changed=true end
     return {is_text=false,book_version=7,reading_catalog_sha256=entry.catalog_sha256,body=source_changed and body..'x' or body}
 end} end
 package.preload['weread.lib.source_currentness']=function() return {
@@ -63,4 +64,16 @@ web_error=nil;anchor_ok=false;value,reason=check();expect(not value and reason==
 anchor_ok=true;context.identity.file_id=string.rep('d',64);value,reason=check();expect(not value and reason=='invalid','different reader file accepted')
 context.identity.file_id=entry.file_id;web.web.cookies.wr_vid='456';value,reason=check();expect(not value and reason=='invalid','different account accepted')
 web.web.cookies.wr_vid='123';live=false;value,reason=check();expect(not value and reason=='invalid','stale session accepted')
+live=true;local verified=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(verified==body,'dual-source proof did not return verified raw bytes')
+source_changed=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(not verified and reason=='source_changed','changed direct source was exposed');source_changed=false
+web_error='source_currentness/web_expired';verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(not verified and reason=='web_expired','selection proof lost expired Web authorization');web_error=nil
+file_changed=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(not verified and reason=='file_changed','selection proof exposed an unverified cache');file_changed=false
+change_file_during_fetch=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(not verified and reason=='file_changed','selection proof missed a cache replaced during source read')
+file_changed=false;change_file_during_fetch=false
+live=false;expect(not Position.verified_source({}, {},entry,context.file,native,web,function() return live end),'stale selection exposed source')
 print('PASS: native reader source proof stays read-only and identity-bound ('..checks..' checks)')

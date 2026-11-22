@@ -42,6 +42,29 @@ local native={file='/cached.epub',book_id='900001',chapter_uid='2',identity=iden
 local endpoint=F.clone(native);endpoint.point_offset=19
 local result,why=Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive)
 expect(result and Ref.same(result,row),'native contexts did not map to same source: '..tostring(why))
+local direct_entry={book_id='900001',chapter_uid='2',chapter_idx=3,book_version=7,file_id=identity.file_id,
+    source_sha256=Crypto.sha256_hex(raw)}
+local direct_first=F.clone(native);direct_first.metadata=direct_entry.file_id..direct_entry.source_sha256
+local direct_last=F.clone(direct_first);direct_last.point_offset=19
+local direct_input={first=direct_first,last=direct_last,text='Unique selected quote'}
+local direct=assert(Ref.capture_direct(direct_input,direct_entry,'/cached.epub',raw))
+expect(Ref.same(direct,row) and Ref.same(assert(Ref.verify_direct(direct,direct_entry,'/cached.epub',raw)),row),
+    'direct chapter selection differed from independently cached source')
+expect(Ref.same(assert(Ref.restore_direct(direct_entry,'/cached.epub',direct.bookmarkId,raw)),direct),
+    'direct chapter draft did not restore its exact quote')
+expect(not Ref.restore_direct(direct_entry,'/cached.epub',direct.bookmarkId,raw..'changed'),'changed direct draft source was accepted')
+expect(not Ref.capture_direct(direct_input,direct_entry,'/cached.epub',raw..'changed'),'changed direct source was accepted')
+local foreign=F.clone(direct_input);foreign.last.identity.file_id=string.rep('e',64)
+expect(not Ref.capture_direct(foreign,direct_entry,'/cached.epub',raw),'foreign direct endpoint was accepted')
+foreign=F.clone(direct_input);foreign.text='Unique selected changes'
+expect(not Ref.capture_direct(foreign,direct_entry,'/cached.epub',raw),'different direct selection was accepted')
+local duplicate=raw:gsub('</body>','<p>Unique selected quote and following context for a native boundary.</p></body>')
+local duplicate_entry=F.clone(direct_entry);duplicate_entry.source_sha256=Crypto.sha256_hex(duplicate)
+local ambiguous=F.clone(direct_input);ambiguous.first.metadata=duplicate_entry.file_id..duplicate_entry.source_sha256
+ambiguous.last.metadata=ambiguous.first.metadata
+expect(not Ref.capture_direct(ambiguous,duplicate_entry,'/cached.epub',duplicate),'ambiguous repeated direct selection was accepted')
+local forged_direct=F.clone(direct);forged_direct.markText='Different quote'
+expect(not Ref.verify_direct(forged_direct,direct_entry,'/cached.epub',raw),'forged direct quote was accepted')
 endpoint.metadata='changed';expect(not Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive),'foreign native endpoint accepted')
 local imported_book={book_id='CB_Synthetic',bookVersion=7,chapters=chapters,cached_file='/cached.epub'}
 local imported_identity_raw=Identity.encode(imported_book,chapters,Identity.capture(imported_book),Crypto.sha256_hex(raw))

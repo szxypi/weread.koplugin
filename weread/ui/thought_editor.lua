@@ -227,6 +227,13 @@ function M.resume(host,owner,key,version,current,redraw)
     ctx.restore_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
     local source_file=host.ui and host.ui.document and host.ui.document.file
     local started=ctx.restore_worker:start(function()
+        if owner.direct then
+            local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
+            local row=require('weread.lib.native_direct_reference').restore(host.client,host.settings,owner.direct_entry,source_file,
+                draft.reference_id,owner.native,owner.web,function() return host.settings:auth_scope_matches(owner.scope)
+                    and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end)
+            return {reference=row}
+        end
         local book=host.settings:get_book(owner.id)
         if not book then return {} end
         book.chapters=host.library_db:getChapters(owner.id)

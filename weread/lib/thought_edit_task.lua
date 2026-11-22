@@ -14,24 +14,39 @@ function M.observe(client,settings,selected,book)
 end
 function M.preview(client,settings,selected,input)
     local snapshot=M.observe(client,settings,selected,input.book_id)
-    local marks,metadata
+    local marks,metadata,direct_version
     if input.operation=='create' then
         local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=function() return current(settings,selected) end})
         local ok,result=pcall(function()
             if input.reference.selection then
-                local book=settings:get_book(input.book_id)
-                if not book then error('thought_edit/source',0) end
-                book.chapters=require('weread.lib.library_db'):new(settings):getChapters(input.book_id)
-                local reference,format=require('weread.lib.selection_reference').verify(input.reference,book,input.source_file)
-                if not reference or format~='web_xhtml' and format~='web_txt' then error('thought_edit/source',0) end
-                local source=require('weread.lib.source_currentness')
-                local access=source.capture(settings)
-                if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('thought_edit/source_access',0) end
-                if require('weread.lib.my_cloud_marks').id(input.book_id) then source.fetch(client,reference.source,access,format)
-                elseif format=='web_txt' then source.fetch_cb_txt(client,reference.source,access)
-                else source.fetch_cb(client,reference.source,access) end
+                if require('weread.lib.native_direct_path').contains(settings,input.source_file) then
+                    local reference,why,version=require('weread.lib.native_direct_reference').verify(client,settings,selected,input.reference,
+                        input.source_file,function() return current(settings,selected) end)
+                    if not reference then error(why=='auth_expired' and 'native_direct/auth_expired'
+                        or why=='web_expired' and 'source_currentness/web_expired' or 'thought_edit/source',0) end
+                    if not require('weread.lib.native_position_protocol').integer(version,0,2147483647) then error('thought_edit/source',0) end
+                    direct_version=version
+                else
+                    local book=settings:get_book(input.book_id)
+                    if not book then error('thought_edit/source',0) end
+                    book.chapters=require('weread.lib.library_db'):new(settings):getChapters(input.book_id)
+                    local reference,format=require('weread.lib.selection_reference').verify(input.reference,book,input.source_file)
+                    if not reference or format~='web_xhtml' and format~='web_txt' then error('thought_edit/source',0) end
+                    local source=require('weread.lib.source_currentness')
+                    local access=source.capture(settings)
+                    if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('thought_edit/source_access',0) end
+                    if require('weread.lib.my_cloud_marks').id(input.book_id) then source.fetch(client,reference.source,access,format)
+                    elseif format=='web_txt' then source.fetch_cb_txt(client,reference.source,access)
+                    else source.fetch_cb(client,reference.source,access) end
+                end
             else marks=auth:read_my_cloud_marks(selected.credentials,input.book_id) end
             metadata=auth:read_book_metadata(selected.credentials,input.book_id)
+            if direct_version~=nil then
+                for _,key in ipairs({'bookVersion','version'}) do
+                    if metadata[key]~=nil and metadata[key]~=direct_version then error('thought_edit/source',0) end
+                end
+                if metadata.bookVersion==nil and metadata.version==nil then error('thought_edit/source',0) end
+            end
         end)
         auth:cancel();if not ok then error(result,0) end
     end
@@ -39,6 +54,7 @@ function M.preview(client,settings,selected,input)
 end
 function M.expired(reason)
     return reason==Thoughts.EXPIRED or reason=='native_auth/my_marks/http_401' or reason=='native_auth/metadata/http_401'
+        or reason=='native_direct/auth_expired'
 end
 function M.source_login(reason)
     return reason=='thought_edit/source_access' or reason=='source_currentness/web_expired'

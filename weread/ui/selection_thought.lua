@@ -9,6 +9,10 @@ local Popup=require('weread.ui.shelf_popup')
 local Marks=require('weread.lib.my_cloud_marks')
 local Style=require('weread.lib.mark_style')
 local Color=require('weread.lib.mark_color')
+local Identity=require('weread.lib.book_file_identity')
+local DirectPath=require('weread.lib.native_direct_path')
+local NativeAccess=require('weread.lib.native_read_access')
+local Currentness=require('weread.lib.source_currentness')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
 local function viewport_height(host)
@@ -27,6 +31,7 @@ local function current(host,owner)
         and (owner.mode~='scroll' or owner.viewport_height==viewport_height(host))
         and (host._translation_mode==nil or host._translation_mode=='original')
         and Context.same_location(owner.location,Context.location(owner.document,owner.mode))
+        and (not owner.direct or NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web))
 end
 local function stop(host,owner)
     Editor.cancel(host,owner)
@@ -100,6 +105,12 @@ end
 function M.open(host,selection,bookmark)
     M.cancel(host)
     local document=host.ui and host.ui.document;local id=host:detectWeReadBook()
+    local direct=document and not id and DirectPath.contains(host.settings,document.file)
+    if direct then
+        if bookmark then return false end
+        local ok,raw=pcall(document.getDocumentFileContent,document,Identity.PATH)
+        local identity=ok and Identity.decode(raw);id=identity and identity.book_id
+    end
     if not document or not Marks.display_id(id) or not bookmark and (type(selection)~='table' or type(selection.text)~='string'
         or #selection.text==0 or type(selection.pos0)~='string' or type(selection.pos1)~='string'
         ) or bookmark and host.ui.highlight and host.ui.highlight.selected_text
@@ -109,8 +120,15 @@ function M.open(host,selection,bookmark)
     local owner={id=id,document=document,source_file=document.file,mode=mode,location=Context.location(document,mode),
         viewport_height=mode=='scroll' and viewport_height(host) or nil,
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
-        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id)}
+        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id),direct=direct}
     if not owner.location or not owner.account then return false end
+    if direct then
+        owner.native=NativeAccess.capture(host.settings);owner.web=Currentness.capture(host.settings)
+        if type(owner.scope)~='table' or not owner.native or owner.native.renewal_pending or not owner.web or not owner.web.web
+            or not owner.web.web.cookies or owner.web.web.cookies.wr_vid~=owner.scope.vid then
+            host:showInfo(_('Sign in and authorize E-Ink access before checking this position.'));return false
+        end
+    end
     local menu=host:showList(_(bookmark and 'Save cloud bookmark' or 'WeRead highlight or thought'),
         {{text=_(bookmark and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false}})
     if not menu then return false end
@@ -124,9 +142,14 @@ function M.open(host,selection,bookmark)
     local function unavailable(reason)
         if not current(host,owner) then return end
         owner.error=reason or owner.error or 'selection_unavailable'
-        M.cancel(host);host:showInfo(_(bookmark and 'This page could not be matched to a bookmark position in the original source. Try a text page or download this chapter again.'
-            or 'This selection could not be matched to the original source. Try another passage or download this chapter again.'))
+        local message=direct and owner.error=='auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
+            or direct and owner.error=='web_expired' and 'Log in again to verify the selected text.'
+            or direct and owner.error=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+            or bookmark and 'This page could not be matched to a bookmark position in the original source. Try a text page or download this chapter again.'
+            or 'This selection could not be matched to the original source. Try another passage or download this chapter again.'
+        M.cancel(host);host:showInfo(_(message))
     end
+    local function begin_capture()
     owner.thread=coroutine.create(function()
         if bookmark then
             local input=Context.capture(document,id,owner.location,{viewport_height=owner.viewport_height,is_current=function() return current(host,owner) end,
@@ -134,12 +157,18 @@ function M.open(host,selection,bookmark)
             if not input or input.error then owner.error=input and input.error;return nil end
             input.chapters=host.library_db:getChapters(id);return input
         end
-        local inputs={text=selection.text,chapters=host.library_db:getChapters(id)}
+        local inputs={text=selection.text,chapters=not direct and host.library_db:getChapters(id) or nil}
         for _i,pair in ipairs({{'first',selection.pos0},{'last',selection.pos1}}) do
             local location={xpointer=document:getNormalizedXPointer(pair[2]),page=owner.location.page,pos=owner.location.pos,view_mode=mode}
             if not location.xpointer or not location.xpointer:find('/text()',1,true) then return nil end
             inputs[pair[1]]=Context.capture(document,id,location,{is_current=function() return current(host,owner) end,
-                yield=function() coroutine.yield() end})
+                yield=function() coroutine.yield() end,metadata_resolver=direct and function(doc,book,render_path)
+                    local e=owner.direct_entry
+                    if doc~=document or book~=id or render_path~='OEBPS/text/chapter.xhtml' or not e then return nil end
+                    local identity=Identity.read_document(doc,book)
+                    if identity.file_id~=e.file_id or identity.book_id~=e.book_id or identity.book_version~=e.book_version then return nil end
+                    return {metadata=e.file_id..e.source_sha256,identity=identity,chapter_uid=e.chapter_uid}
+                end or nil})
             if inputs[pair[1]].error then owner.error=inputs[pair[1]].error;return nil end
         end
         return inputs
@@ -159,7 +188,14 @@ function M.open(host,selection,bookmark)
         if not input then unavailable();return end
         owner.worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
         local started=owner.worker:start(function()
-            local row,reason=(bookmark and Bookmark or Reference).capture_native(input);return {reference=row,reason=reason}
+            local row,reason
+            if direct then
+                local function active() return host.settings:auth_scope_matches(owner.scope)
+                    and NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web) end
+                row,reason=require('weread.lib.native_direct_reference').capture(host.client,host.settings,owner.direct_entry,
+                    owner.source_file,input,owner.native,owner.web,active)
+            else row,reason=(bookmark and Bookmark or Reference).capture_native(input) end
+            return {reference=row,reason=reason}
         end,function(result)
             if not current(host,owner) then
                 owner.error='session_changed'
@@ -173,6 +209,25 @@ function M.open(host,selection,bookmark)
         if not started then unavailable() end
     end
     owner.task=advance;UI:scheduleIn(.1,advance);return true
+    end
+    if not direct then return begin_capture() end
+    owner.worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    local started=owner.worker:start(function()
+        return {entry=require('weread.lib.native_direct_cache').identify(host.settings,owner.scope.vid,owner.source_file,function()
+            return host.settings:auth_scope_matches(owner.scope) and NativeAccess.matches(host.settings,owner.native)
+                and Currentness.matches(host.settings,owner.web)
+        end)}
+    end,function(result)
+        if not current(host,owner) then
+            if host._selection_thought_owner==owner then M.cancel(host) end
+            return
+        end
+        local e=type(result)=='table' and result.entry
+        if not e or e.book_id~=id or not require('weread.lib.native_direct_cache').valid_entry(e,id,owner.scope.vid) then unavailable();return end
+        owner.direct_entry=e;begin_capture()
+    end)
+    if not started then unavailable();return false end
+    return true
 end
 function M.open_bookmark(host) return M.open(host,nil,true) end
 function M.detach(host)
@@ -188,7 +243,8 @@ function M.attach(host)
     if not highlight or type(highlight.addToHighlightDialog)~='function' or type(highlight.removeFromHighlightDialog)~='function' then return false end
     local function factory(this)
         return {id='weread_selection_thought',text=_('WeRead highlight or thought'),show_in_highlight_dialog_func=function()
-            return Marks.display_id(host._current_weread_book_id)~=nil and this.selected_text and type(this.selected_text.text)=='string'
+            return (Marks.display_id(host._current_weread_book_id)~=nil or host.ui and host.ui.document
+                and DirectPath.contains(host.settings,host.ui.document.file)) and this.selected_text and type(this.selected_text.text)=='string'
                 and #this.selected_text.text>0 and this.select_mode~=true and host.library_db:accountKey()~=nil
                 and (host._translation_mode==nil or host._translation_mode=='original')
         end,callback=function()
