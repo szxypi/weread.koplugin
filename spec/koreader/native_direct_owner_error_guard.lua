@@ -7,6 +7,7 @@ if not ok then
         or value:match('native_direct_personal_owner_probe%.lua:(%d+)') or value:match('native_home_resume_probe%.lua:(%d+)')
         or value:match('native_direct_cross_owner_probe%.lua:(%d+)') or value:match('native_direct_home_full_owner_probe%.lua:(%d+)')
         or value:match('native_direct_owner_search_offline%.lua:(%d+)')
+        or value:match('native_direct_batch_owner_probe%.lua:(%d+)')
         or value:match('native_direct_owner_search_online%.lua:(%d+)'))
     if type(_G._direct_trial_error_token)=='string' then
         print('WEREAD_NATIVE_THOUGHT_'.._G._direct_trial_error_token..'_RESULT='..
