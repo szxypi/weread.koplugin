@@ -8,6 +8,8 @@ local M={};M.__index=M
 local function checked(fn) local ok,v=pcall(fn);return ok and v==true end
 local function deadline(mode,input,references)
     local selection=mode=='send' and input or mode=='resolve' and input.metadata
+    if type(selection)=='table' and (selection.native_direct==true
+        or type(selection.source)=='table' and selection.source.kind=='native_direct') then return 180 end
     if type(selection)~='table' or not C.cb_id(selection.book_id) or selection.book_version~=0
         or not C.array(references,1,128) then return 70 end
     local count=0

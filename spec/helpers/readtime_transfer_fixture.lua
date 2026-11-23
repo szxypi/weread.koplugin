@@ -27,7 +27,8 @@ function M.new(mode,expect,roots,cb,config)
     local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=f.book_version,
         file_id=f.file_id,version_source=config.version_source or 'epub_snapshot'}))
     assert(f.ledger:collect(f.account,window,{{page='1',start_time=start,duration=2}},start+2,true))
-    f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,{allow_cb=cb})).selection
+    f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,
+        {allow_cb=cb,allow_native=config.version_source=='native_direct'})).selection
     f.client={settings=settings,json_encode=function(_s,x) return Json.encode(x) end,json_decode=function(_s,x) return Json.decode(x) end}
     f.journal=Journal:new{coverage=f.coverage,ledger=f.ledger,codec=f.client,now=function() return f.clock end,nonce=function() return string.rep('1',32) end}
     local function progress(web)

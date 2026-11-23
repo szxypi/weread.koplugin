@@ -16,6 +16,21 @@ local Shelf=require('weread.lib.shelf_flag_change_contract')
 local Auth=require('weread.lib.native_authorization')
 local BASE='https://i.weread.qq.com'
 local M={}
+local function observer(settings,native,current,account,override)
+    if override then return override end
+    return function(client,web,selection,references,previous)
+        local direct=selection.native_direct==true or type(previous)=='table' and previous.kind=='native_direct'
+        if not direct then return Source.observe(client,web,selection,references,previous) end
+        assert(C.array(references,1,1),'readtime_transfer/native_reference')
+        local ref=references[1]
+        assert(type(ref)=='table' and ref.kind=='native_direct' and type(ref.file)=='string'
+            and C.id(ref.chapter_uid) and C.hash(ref.source_sha256),'readtime_transfer/native_reference')
+        local proof=assert(require('weread.lib.native_direct_readtime_source').observe(
+            client,settings,account,selection,ref.file,native,web,current,previous),'readtime_transfer/native_source')
+        assert(C.digest(proof.ref)==C.digest(ref),'readtime_transfer/native_reference')
+        return proof
+    end
+end
 local function web_point(raw,book)
     local point,reason,provided=Remote.project(raw,book,'web');local node=Remote.node(raw,book)
     assert(not reason and point and node and provided.chapter_uid and provided.chapter_idx and provided.chapter_offset and provided.summary,'readtime_transfer/web_position')
@@ -103,7 +118,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
     end
     if not current() then return out end
     auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=current})
-    local observe=options.observe_source or Source.observe
+    local observe=observer(settings,selected,current,options.account,options.observe_source)
     local ok,reason=pcall(function()
         assert(type(selection)=='table' and selection.rows_hash==C.digest(selection.rows) and selection.parts_hash==C.digest(selection.parts),'readtime_transfer/selection')
         local cb=C.cb_id(selection.book_id)
@@ -111,7 +126,9 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         local account=Account(selected.scope.vid);assert(C.account(account),'readtime_transfer/account')
         assert(options.account==account,'readtime_transfer/account')
         local pending,why=journal:pending(account);assert(not pending and not why,'readtime_transfer/pending')
-        local rebuilt=assert(C.select(selection.rows,{parts=selection.parts},now(),selection.book_id,cb),'readtime_transfer/selection')
+        local rebuilt=assert(C.select(selection.rows,{parts=selection.parts},now(),selection.book_id,cb,
+            selection.native_direct==true),'readtime_transfer/selection')
+        assert(rebuilt.native_direct==selection.native_direct,'readtime_transfer/source')
         for _i,key in ipairs({'book_id','file_id','book_version','time_zone','seconds','rows_hash','parts_hash'}) do
             assert(rebuilt[key]==selection[key],'readtime_transfer/selection')
         end
@@ -131,6 +148,11 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         local guest=Signing.guest_token(auth:_request('time_feature',BASE..'/feature?synckey=0',nil,selected.credentials))
         local again,latest_summary=snapshot()
         assert(C.digest(again)==C.digest(before) and (not cb or summary==latest_summary),'readtime_transfer/concurrent_before')
+        if selection.native_direct then
+            assert(C.digest(observe(client,web,selection,references,source))==C.digest(source),'readtime_transfer/source_changed')
+            local final,final_summary=snapshot()
+            assert(C.digest(final)==C.digest(before) and (not cb or summary==final_summary),'readtime_transfer/concurrent_before')
+        end
         local stamp=now();assert(Signing.time_zone(stamp)=='+08:00','readtime_transfer/zone')
         local random=options.random or function() return tonumber(auth.digits(3)) end
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
@@ -196,7 +218,7 @@ function M.resolve(client,settings,selected,web,record,references,journal,option
         assert(not C.cb_id(m.book_id) or m.position_contract==Point.CONTRACT,'readtime_transfer/position_contract')
         assert(type(record.evidence)=='table' and record.evidence.request_hash==record.request_hash,'readtime_transfer/ack')
         local selection={book_id=m.book_id,file_id=m.file_id,book_version=m.book_version}
-        local observe=options.observe_source or Source.observe
+        local observe=observer(settings,selected,current,options.account,options.observe_source)
         assert(C.digest(observe(client,web,selection,references,m.source))==C.digest(m.source),'readtime_transfer/source_changed')
         out.acknowledged=true
         local snapshot=snapshotter(client,auth,selected,web,m.book_id,m.book_version,m.months,current,now,nil,m.position_contract)

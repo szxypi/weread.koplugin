@@ -92,10 +92,13 @@ function M:begin(account,selection,metadata)
         assert(tonumber(query(db,'SELECT COUNT(*) FROM offline_time_seals')[1][1])+#selection.parts<=50000,'full')
         assert(C.digest(selection.rows)==selection.rows_hash and C.digest(selection.parts)==selection.parts_hash,'changed')
         local cb=metadata.protocol=='native-historical-time-cst-cb-v1' and C.cb_id(metadata.book_id)
+        local native=type(metadata.source)=='table' and metadata.source.kind=='native_direct'
+        if native then assert(metadata.source.account==account and selection.native_direct==true,'source') end
         if cb then assert(selection.book_id==metadata.book_id,'source') end
         local fresh,by_id={},{}
         for _i,row in ipairs(selection.rows) do
-            assert(C.verified(row,self.now(),cb==true) and (not cb or row.book_id==metadata.book_id)
+            assert(C.verified(row,self.now(),cb==true,native) and (row.version_source=='native_direct')==native
+                and (not cb or row.book_id==metadata.book_id)
                 and not by_id[row.id],'source');fresh[row.id]=ranges(db,account,row);by_id[row.id]=row
         end
         local function covered(id,stamp)

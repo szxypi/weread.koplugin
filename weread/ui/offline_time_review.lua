@@ -160,8 +160,8 @@ local function render(host,context,kind,value,args)
         menu(host,context,_(args.category=='review' and 'Uncertain time records' or args.category=='covered' and 'Covered time records' or 'Pending local records'),items)
     elseif kind=='detail' then
         local entry=value.entry;local row=entry.source
-        local verified=C.verified(row,os.time(),true)
-        local source_label=row.version_source=='native_direct' and 'E-Ink chapter time is saved locally; transfer is not available yet'
+        local verified=C.verified(row,os.time(),true,true)
+        local source_label=row.version_source=='native_direct' and 'E-Ink chapter source will be checked before transfer'
             or verified and (row.book_version==0 and 'Cached source will be checked before transfer'
             or 'Captured download source is available') or 'Download source needs verification'
         local text=entry.title..'\n'..time_label(row)..'\n'..T(_('Duration: %1'),seconds(row.duration))
@@ -233,14 +233,19 @@ transfer=function(host,context,mode,input)
     end
     local references,book,chapters
     local selection=mode=='send' and input or input.metadata
+    local direct=online and (selection.native_direct==true or type(selection.source)=='table' and selection.source.kind=='native_direct')
     if online then
         local id=input.book_id or input.metadata.book_id
-        book=host.settings:get_book(id)
-        chapters=book and book.chapters
-        if type(chapters)~='table' or #chapters==0 then chapters=host.library_db:getChapters(id) end
-        if type(chapters)~='table' or #chapters<=126 then
-            references=require('weread.lib.readtime_source').references(book,chapters,selection)
-            if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
+        if direct then
+            if mode=='resolve' then references={selection.source.ref} end
+        else
+            book=host.settings:get_book(id)
+            chapters=book and book.chapters
+            if type(chapters)~='table' or #chapters==0 then chapters=host.library_db:getChapters(id) end
+            if type(chapters)~='table' or #chapters<=126 then
+                references=require('weread.lib.readtime_source').references(book,chapters,selection)
+                if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
+            end
         end
     end
     host:showBusy(_(online and 'Checking and transferring saved time...' or 'Updating saved time...'),function() M.close(host) end)
@@ -269,15 +274,20 @@ transfer=function(host,context,mode,input)
     if not online or references then start(references);return end
     local operation={};context.operation=operation
     local previous=mode=='resolve' and input.metadata.source or nil
+    local scope=direct and host.settings:get_auth_scope() or nil
     local worker=host.offline_time_review_worker
     local scan
-    scan=function(cursor)
+    scan=function(cursor,prior)
         if not current() or context.operation~=operation then
             if host._offline_time_review==context and context.operation==operation then M.close(host) end
             return
         end
         local page={};context.source_page=page
         local ran,started=pcall(worker.start,worker,function()
+            if direct then
+                return require('weread.lib.native_direct_readtime_source').scan_page(
+                    host.settings,context.account,scope,selection,cursor,prior,current)
+            end
             return require('weread.lib.readtime_source').scan_page(book,chapters,selection,previous,cursor)
         end,function(result)
             if context.source_page~=page then return end
@@ -288,8 +298,9 @@ transfer=function(host,context,mode,input)
             end
             if type(result)=='table' and result.kind=='found' and type(result.reference)=='table' then
                 start({result.reference})
-            elseif type(result)=='table' and result.kind=='more' and result.cursor==cursor+32 and result.cursor<=#chapters+2 then
-                scan(result.cursor)
+            elseif type(result)=='table' and result.kind=='more' and result.cursor==cursor+32
+                and result.cursor<=(direct and 2001 or #chapters+2) then
+                scan(result.cursor,result.prior)
             else
                 if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
                 host:showInfo(_('Download source needs verification'));load(host,context,'summary',{})
@@ -339,7 +350,7 @@ load=function(host,context,kind,args)
             return {entry=entry,coverage=assert(coverage:preview_individual(context.account,{entry.source}))}
         end
         local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account,nil,
-            {historical=true,allow_cb=true,exclude_book_ids=context.excluded}))
+            {historical=true,allow_cb=true,allow_native=true,exclude_book_ids=context.excluded}))
         result.title=result.selection and title(host,result.selection.book_id) or nil;return result
     end,function(value)
         if not owns(host,context) or context.operation~=operation then

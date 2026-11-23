@@ -135,6 +135,14 @@ eq(assert(queue:select(account,nil,{historical=true})).selection,false)
 result=assert(queue:select(account,nil,{historical=true,allow_cb=true}))
 eq(result.selection.book_id,'CB_Synthetic');eq(result.selection.book_version,0)
 eq(result.selection.rows[1].version_source,'epub_unknown');eq(ledger:summary(account).pending,8)
+-- Native and ordinary rows can share an EPUB fingerprint; never mix their
+-- source types in one transfer, even when book, version and date match.
+ledger,_,queue=fixture({{start_time=100000,duration=2,origin='native_direct'},
+    {start_time=100010,duration=3,origin='epub_snapshot'}})
+result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,3);eq(result.selection.native_direct,nil)
+result=assert(queue:select(account,nil,{historical=true,allow_native=true}))
+eq(result.selection.seconds,2);eq(result.selection.native_direct,true);eq(#result.selection.rows,1)
+eq(result.selection.rows[1].version_source,'native_direct');eq(ledger:summary(account).pending,5)
 -- Skipping one book is a read-only view filter and cannot starve another book.
 ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2},
                         {book_id='42',start_time=100010,duration=3}})

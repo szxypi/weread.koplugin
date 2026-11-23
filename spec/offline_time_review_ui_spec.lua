@@ -214,5 +214,28 @@ Review.show(host);deliver();choose('Pending local records');deliver()
 host._offline_time_menu.item_table[1].callback();deliver()
 eq(host._offline_time_detail.title:find('Cached source will be checked before transfer',1,true)~=nil,true)
 eq(zero_ledger:summary(account).pending,2)
+Review.close(host)
+-- Native chapter time reaches source discovery without ordinary book metadata.
+local direct_dir=root..'/direct';assert(os.execute('mkdir -p '..string.format('%q',direct_dir))==0)
+local direct_ledger=Ledger:new(direct_dir);local direct_coverage=Coverage:new(direct_dir,function() return 100 end)
+assert(direct_coverage:initialize())
+local direct_window=assert(direct_ledger:begin(account,{book_id='42',stats_book=1,start_time=100,time_zone='+08:00',book_version=7,
+    file_id=string.rep('e',64),version_source='native_direct'}))
+assert(direct_ledger:collect(account,direct_window,{{page='1',start_time=100,duration=2}},102,true))
+host.offline_time.store=direct_ledger;host.readtime_coverage=direct_coverage
+host.settings.get_book=function() error('native source must not require Web cache metadata') end
+local direct=require('weread.lib.native_direct_readtime_source');local saved_direct_scan=direct.scan_page
+local direct_ref={kind='native_direct',file='/synthetic/native.epub',chapter_uid='7',source_sha256=string.rep('b',64)}
+local direct_scans=0
+direct.scan_page=function(_settings,selected_account,_scope,selection,cursor,prior,current)
+    direct_scans=direct_scans+1;eq(selected_account,account);eq(selection.native_direct,true);eq(current(),true)
+    if cursor==1 then return {kind='more',cursor=33,prior={stamp='fixture'}} end
+    eq(cursor,33);eq(prior.stamp,'fixture');return {kind='found',reference=direct_ref}
+end
+dispatched=nil;Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();eq(dispatched,nil);deliver();eq(dispatched,nil);deliver()
+eq(direct_scans,2);eq(dispatched.mode,'send');eq(dispatched.input.native_direct,true);eq(dispatched.refs[1].file,direct_ref.file)
+dispatched.callback({kind='unconfirmed'});eq(direct_ledger:summary(account).pending,2)
+direct.scan_page=saved_direct_scan
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))
 print('offline_time_review_ui_spec: '..checks..' checks')

@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from urllib.parse import parse_qs, urlsplit
 import test_native_full_book_runtime as fixture
 from run_persistent_ui_probe import extract_candidate
 from test_native_direct_navigation_runtime import frame
@@ -15,8 +16,27 @@ from test_native_direct_navigation_runtime import frame
 REPO = Path(__file__).resolve().parent.parent
 
 
+class IndexedHandler(fixture.Handler):
+    def dispatch(self):
+        target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos' and self.command == 'POST':
+            server = self.server
+            server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
+            incoming = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            server.valid &= incoming == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
+            rows = [dict(chapterUid=int(uid), chapterIdx=index, wordCount=250, price=0)
+                    for index, uid in enumerate(('37', '38', '39'), 1)]
+            data = json.dumps({'data': [dict(bookId='42', updated=rows)]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        super().dispatch()
+
+
 def run(runtime):
-    server = ThreadingHTTPServer(('127.0.0.1', 0), fixture.Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), IndexedHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -52,8 +72,8 @@ def run(runtime):
                                            input=json.dumps({'first': saved['37'], 'second': saved['38']}), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     assert frame(probe, 'WEREAD_DIRECT_OFFLINE_TIME=') == dict(ok=True, network_blocked=True,
-                        real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True,
-                        account_isolated=True, transfer_disabled=True)
+                        real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, source_discovery=True, source_ui=True,
+                        account_isolated=True, ordinary_path_isolated=True)
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native chapter offline time capture at both KOReader sizes')
     finally:

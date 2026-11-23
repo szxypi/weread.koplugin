@@ -37,4 +37,30 @@ assert(not bad and reason=='invalid' and fetches==before,'wrong account reached 
 live=false;bad,reason=observe();assert(not bad and reason=='file_changed');live=true
 stamp=string.rep('e',64);bad,reason=observe(result);assert(not bad and reason=='source_changed')
 stamp='invalid';bad,reason=observe();assert(not bad and reason=='source_changed')
+-- Search all inventory pages; identical file IDs in different chapters are
+-- ambiguous even when both files individually verify.
+local Identity=require('weread.lib.book_file_identity')
+local book={book_id='42',bookVersion=7};local digest=string.rep('f',64)
+local actual=assert(Identity.decode(Identity.encode(book,{{}},Identity.capture(book),digest,7)))
+local wanted={book_id='42',file_id=actual.file_id,book_version=7}
+local inventory={};for i=1,34 do inventory[i]={chapter_uid=tostring(i),chapter_idx=i,
+    book_version=7,text_digest=string.rep('e',64),source_sha256=string.rep('a',64)} end
+inventory[33].text_digest=digest
+local opened=0;local cache={list=function() return inventory end,open=function(_,_,_,item)
+    opened=opened+1;return {path='/chapter-'..item.chapter_uid,file_id=actual.file_id,book_version=7,source_sha256=item.source_sha256}
+end}
+local function scan(cursor,prior) return TimeSource.scan_page({},account,native.scope,wanted,cursor,prior,current,{cache=cache}) end
+local page=scan(1);assert(page.kind=='more' and page.cursor==33 and opened==0)
+local final=scan(page.cursor,page.prior);assert(final.kind=='found' and final.reference.chapter_uid=='33' and opened==1)
+inventory[34].text_digest=digest
+page=scan(1);final=scan(page.cursor,page.prior);assert(final.kind=='ambiguous','identical chapter fingerprint was guessed')
+inventory[34].text_digest=string.rep('e',64);page=scan(1)
+inventory[1].chapter_uid='999';final=scan(page.cursor,page.prior)
+assert(final.kind=='unavailable','changed inventory was accepted across pages')
+inventory[33].chapter_idx=nil;page=scan(1);final=scan(page.cursor,page.prior)
+assert(final.kind=='unavailable','chapter without verified index was selected')
+inventory[33].chapter_idx=33
+cache.open=function() return nil end;page=scan(1);final=scan(page.cursor,page.prior)
+assert(final.kind=='unavailable','corrupt matching chapter was skipped')
+assert(TimeSource.scan_page({},string.rep('e',20),native.scope,wanted,1,nil,current,{cache=cache}).kind=='unavailable')
 print('PASS: native reading-time source proof is account, file and version bound')

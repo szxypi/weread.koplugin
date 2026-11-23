@@ -53,14 +53,15 @@ function M.row(row)
 end
 function M.part(part) return exact_keys(part,PART_KEYS) and M.integer(part.row_id,1,2^53-1)
     and M.integer(part.start_time,1,4102444800) and M.integer(part.duration,1,60) end
-function M.verified(row,now,allow_cb)
+function M.verified(row,now,allow_cb,allow_native)
     if not M.row(row) then return false end
     local positive=(M.id(row.book_id) or allow_cb==true and M.cb_id(row.book_id))
         and row.book_version>0 and row.version_source=='epub_snapshot'
     -- This only permits selection. The task must subsequently prove that the
     -- original archive is content-bound TXT and the current server is unversioned.
     local imported_zero=allow_cb==true and M.cb_id(row.book_id) and row.book_version==0 and row.version_source=='epub_unknown'
-    return (positive or imported_zero) and M.hash(row.file_id)
+    local native=allow_native==true and M.id(row.book_id) and row.book_version>0 and row.version_source=='native_direct'
+    return (positive or imported_zero or native) and M.hash(row.file_id)
         and row.start_time+row.duration<=now and pcall(Protocol.zone,row.time_zone)
 end
 function M.protocol_rows(rows)
@@ -70,7 +71,7 @@ function M.protocol_rows(rows)
     end
     return result
 end
-function M.select(rows,coverage,now,book_id,allow_cb)
+function M.select(rows,coverage,now,book_id,allow_cb,allow_native)
     assert(M.array(rows,0,100) and type(coverage)=='table' and M.array(coverage.parts,0,6000))
     local by_id={};for _i,row in ipairs(rows) do assert(M.row(row) and not by_id[row.id]);by_id[row.id]=row end
     local selected={rows={},parts={},seconds=0};local seen={}
@@ -79,11 +80,13 @@ function M.select(rows,coverage,now,book_id,allow_cb)
         local row=assert(by_id[part.row_id])
         assert(M.integer(part.start_time,row.start_time,row.start_time+row.duration-1)
             and M.integer(part.duration,1,row.start_time+row.duration-part.start_time))
-        if M.verified(row,now,allow_cb) and (not book_id or row.book_id==book_id) and selected.seconds<600 and #selected.parts<100 then
+        if M.verified(row,now,allow_cb,allow_native) and (not book_id or row.book_id==book_id) and selected.seconds<600 and #selected.parts<100 then
             if not selected.book_id then
                 selected.book_id,selected.file_id,selected.book_version,selected.time_zone=row.book_id,row.file_id,row.book_version,row.time_zone
+                if row.version_source=='native_direct' then selected.native_direct=true end
             end
-            if row.book_id==selected.book_id and row.file_id==selected.file_id and row.book_version==selected.book_version and row.time_zone==selected.time_zone then
+            if row.book_id==selected.book_id and row.file_id==selected.file_id and row.book_version==selected.book_version
+                and row.time_zone==selected.time_zone and (row.version_source=='native_direct')==(selected.native_direct==true) then
                 local duration=math.min(part.duration,600-selected.seconds)
                 selected.parts[#selected.parts+1]={row_id=row.id,start_time=part.start_time,duration=duration}
                 selected.seconds=selected.seconds+duration

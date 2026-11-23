@@ -253,6 +253,78 @@ expect(result.kind=='unconfirmed' and record.phase=='acknowledged','multi TXT AC
 f.applied=true;f.mode=nil;local multi_configs=f.configs
 result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
 expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==multi_configs,'multi TXT read-only resolution')
+-- Native chapter rows use the production dispatch adapter and durable ledger;
+-- the source verifier is substituted with a deterministic read-only proof.
+local Direct=require('weread.lib.native_direct_readtime_source');local direct_observe=Direct.observe
+local direct_ref={kind='native_direct',file='/synthetic-direct.epub',chapter_uid='7',source_sha256=string.rep('b',64)}
+local function direct_fixture(mode)
+    local item=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,false,{version_source='native_direct'})
+    item.options.observe_source=nil
+    Direct.observe=function(_client,_settings,account,selection,file,_native,_web,current,previous)
+        item.source_reads=item.source_reads+1
+        if not current() or item.mode=='source_changed' and previous and item.posts>0
+            or item.mode=='source_before' and previous then return nil end
+        expect(account==item.account and selection.file_id==item.file_id and file==direct_ref.file)
+        return {kind='native_direct',ref=direct_ref,account=account,file_id=selection.file_id}
+    end
+    return item
+end
+f=direct_fixture();expect(f.selection.native_direct==true,'native row not selected')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==2,'native time did not settle')
+record=assert(f.journal:get(f.account,result.attempt))
+expect(record.metadata.source.kind=='native_direct' and record.metadata.source.account==f.account,'native source not journaled')
+expect(f.source_reads==3,'native source was not checked before and after dispatch')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==1,'native settled time replayed')
+f=direct_fixture('source_before')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'changed source reached dispatch')
+for _i,mode in ipairs({'lost','no_ack','source_changed'}) do
+    f=direct_fixture(mode)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+    expect(result.kind=='unconfirmed' and result.attempted and f.posts==1,mode)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+    expect(not result.attempted and f.posts==1,'native uncertain transfer replayed')
+end
+f=direct_fixture('no_delta')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+record=f.journal:pending(f.account);expect(result.kind=='unconfirmed' and record.phase=='acknowledged')
+f.applied=true;f.mode=nil;local direct_configs=f.configs
+result=Task.resolve(f.client,f.settings,f.native,f.web,record,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==direct_configs,'native read-only resolution')
+Direct.observe=direct_observe
+-- Exercise the real native source proof and transfer adapter together. Only
+-- the chapter fetches and archive lookup are synthetic; verification,
+-- selection, durable claim, accounting and readback are production code.
+do
+    local Cache=require('weread.lib.native_direct_cache')
+    local NativeSource=require('weread.lib.native_chapter_source')
+    local DirectCurrent=require('weread.lib.source_currentness')
+    local old_identify,old_fetch,old_web_fetch=Cache.identify,NativeSource.fetch,DirectCurrent.fetch
+    local direct_body='<html><body><p>Synthetic native chapter text.</p></body></html>'
+    f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,false,{version_source='native_direct'})
+    f.options.observe_source=nil
+    local direct_entry={owner=Crypto.sha256_hex('native-direct-account\0'..f.native.scope.vid),book_id='42',chapter_uid='7',
+        chapter_idx=0,book_version=7,title='Synthetic',missing_images=0,text_digest=string.rep('a',64),
+        source_sha256=Crypto.sha256_hex(direct_body),file_id=f.file_id,key=string.rep('b',64),copy=0}
+    local reference={kind='native_direct',file='/synthetic/source.epub',chapter_uid='7',source_sha256=direct_entry.source_sha256}
+    Cache.identify=function(_settings,_vid,file,current) return current() and file==reference.file and direct_entry or nil end
+    NativeSource.fetch=function() return {is_text=false,book_version=7,body=direct_body} end
+    DirectCurrent.fetch=function(_client,expected,_web,_format,options)
+        local catalog={{bookId='42',bookVersion=7}}
+        options.verify_catalog(catalog);options.verify_catalog(catalog)
+        local proof={};for key,value in pairs(expected) do proof[key]=value end
+        proof.catalog_stamp=string.rep('d',64);proof.source_current=true;proof.upload_verified=false
+        return proof
+    end
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(result.kind=='confirmed' and f.posts==1,'real native source proof did not reach verified accounting')
+    record=assert(f.journal:get(f.account,result.attempt))
+    expect(record.metadata.source.source_sha256==reference.source_sha256 and record.metadata.source.ref.file==reference.file,
+        'native source proof was not bound to journal')
+    Cache.identify,NativeSource.fetch,DirectCurrent.fetch=old_identify,old_fetch,old_web_fetch
+end
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_task_spec: '..n..' checks')

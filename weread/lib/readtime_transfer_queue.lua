@@ -9,10 +9,12 @@ end
 local function same(row,group)
     return not group.book_id or row.book_id==group.book_id and row.file_id==group.file_id
         and row.book_version==group.book_version and row.time_zone==group.time_zone
+        and (row.version_source=='native_direct')==(group.native_direct==true)
 end
 function M:select(account,book_id,options)
     options=options or {}
     local allow_cb=options.allow_cb==true
+    local allow_native=options.allow_native==true
     if not C.account(account) or book_id~=nil and not (C.id(book_id) or allow_cb and C.cb_id(book_id)) then return nil,'invalid_selection' end
     local excluded=options.exclude_book_ids or {};local excluded_count=0
     if type(excluded)~='table' then return nil,'invalid_selection' end
@@ -42,7 +44,7 @@ function M:select(account,book_id,options)
                 if not C.array(range,2,2) or not C.integer(range[1],row.start_time,row.start_time+row.duration-1)
                     or not C.integer(range[2],range[1]+1,row.start_time+row.duration) then return nil,'invalid_page' end
             end
-            if not C.verified(row,now,allow_cb) then report.unsupported=report.unsupported+row.duration
+            if not C.verified(row,now,allow_cb,allow_native) then report.unsupported=report.unsupported+row.duration
             elseif excluded[row.book_id] then report.skipped=report.skipped+row.duration
             elseif (not book_id or row.book_id==book_id) and same(row,selected) then
                 candidates[#candidates+1]=row;blocked[row.id]=entry.blocked
@@ -79,11 +81,12 @@ function M:select(account,book_id,options)
                     end
                 end
             end
-            local next_group=C.select(candidates,available,now,book_id,allow_cb)
+            local next_group=C.select(candidates,available,now,book_id,allow_cb,allow_native)
             if next_group then
                 if not selected.book_id then
                     selected.book_id,selected.file_id,selected.book_version,selected.time_zone=
                         next_group.book_id,next_group.file_id,next_group.book_version,next_group.time_zone
+                    selected.native_direct=next_group.native_direct
                 end
                 local by_id={};for _i,row in ipairs(next_group.rows) do by_id[row.id]=row end
                 for _i,part in ipairs(next_group.parts) do
@@ -99,7 +102,7 @@ function M:select(account,book_id,options)
             report.upper_id,report.last_id,report.scan_complete=upper,cursor,not page.has_more
             if selected.seconds==0 then return {selection=false,report=report} end
             table.sort(selected.parts,function(a,b) return a.start_time<b.start_time end)
-            local complete=C.select(selected.rows,{parts=selected.parts},now,selected.book_id,allow_cb)
+            local complete=C.select(selected.rows,{parts=selected.parts},now,selected.book_id,allow_cb,allow_native)
             return {selection=assert(complete),report=report}
         end
         if #page.rows==0 or page.last_id~=cursor then return nil,'invalid_page' end
