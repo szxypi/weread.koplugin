@@ -68,9 +68,17 @@ else
             'native search book not listed on home')
     else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
     local message
-    if input.mode=='damage' then host.showInfo=function(_,text) message=text end end
-    view.on_select(selected,'books')
-    if input.mode=='damage' then
+    if input.mode=='damage' or input.mode=='detail_damage' then host.showInfo=function(_,text) message=text end end
+    if input.mode=='detail' or input.mode=='detail_damage' then
+        host:showBookMenu(assert(host.settings:get_book(id)))
+        local detail=assert(host._book_detail_view);local action
+        for _,button in ipairs(detail._action_buttons) do
+            if button.text==require('weread.lib.plugin_util').tr('Continue saved E-Ink chapter') then action=button end
+        end
+        assert(action and action.enabled~=false,'missing detail resume action')
+        action.callback()
+    else view.on_select(selected,'books') end
+    if input.mode=='damage' or input.mode=='detail_damage' then
         pump(function() return message~=nil end)
         assert(not Reader.instance,'damaged native chapter opened')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})

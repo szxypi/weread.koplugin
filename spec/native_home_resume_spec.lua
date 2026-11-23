@@ -74,4 +74,14 @@ s.jobs[2].callback(checked)
 expect(not s.path and s.message,'changed resume pointer opened an old chapter')
 host,s=fixture();Resume.record(host);s.finish(1);s.book.home_recent_account='other'
 expect(not Resume.can_resume(host,s.book,'42'),'other account home pointer accepted')
+host,s=fixture();Resume.record(host);s.finish(1);host._book_detail_view=view
+expect(Resume.open_detail(host,s.book,'42',view),'detail resume did not start');s.finish(2)
+expect(s.path==path and not host.busy_message,'detail did not open verified saved chapter')
+host,s=fixture();Resume.record(host);s.finish(1);host._book_detail_view=view
+Resume.open_detail(host,s.book,'42',view);local detail_job=s.jobs[2];local detail_result=detail_job.task()
+host._book_detail_view={};detail_job.callback(detail_result)
+expect(not s.path,'closed or replaced detail opened the old chapter')
+host,s=fixture();Resume.record(host);s.finish(1);host._book_detail_view=view
+Resume.open_detail(host,s.book,'42',view);exists=false;s.finish(2)
+expect(not s.path and s.message and not host.busy_message,'damaged detail chapter was opened or failed silently')
 print('PASS: native home recording and verified offline resume ('..checks..' checks)')

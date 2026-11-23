@@ -96,7 +96,7 @@ function M.record(host)
     return true
 end
 
-function M.open(host,book,id,view,view_current)
+local function open(host,book,id,view,view_current,detail)
     if not M.can_resume(host,book,id) or type(view_current)~='function' then return false end
     local scope=host.settings:get_auth_scope();local owner=account(host,scope)
     local pointer=book.native_home_resume
@@ -104,12 +104,14 @@ function M.open(host,book,id,view,view_current)
     local ctx={scope=scope,owner=owner,view=view,session=host._reader_session_gen or 0,pointer=pointer}
     host._native_home_resume=ctx
     local function current()
-        return host._native_home_resume==ctx and not host._weread_suspended and host.shelf_view==view and view_current()
+        return host._native_home_resume==ctx and not host._weread_suspended
+            and (detail and host._book_detail_view==view or not detail and host.shelf_view==view) and view_current()
             and (host._reader_session_gen or 0)==ctx.session and account(host,scope)==owner
     end
     local function fail()
         local live=current();M.cancel(host)
-        if live then host:showInfo(_('The saved E-Ink chapter changed or could not be verified. Open the book details to choose a chapter.')) end
+        if live then host:showInfo(detail and _('The saved E-Ink chapter changed or could not be verified. Choose a saved chapter instead.')
+            or _('The saved E-Ink chapter changed or could not be verified. Open the book details to choose a chapter.')) end
     end
     local w=worker(host)
     if not w then fail();return false end
@@ -128,5 +130,13 @@ function M.open(host,book,id,view,view_current)
     end)
     if not ok or not started then fail();return false end
     return true
+end
+
+function M.open(host,book,id,view,view_current)
+    return open(host,book,id,view,view_current,false)
+end
+
+function M.open_detail(host,book,id,view)
+    return open(host,book,id,view,function() return host._book_detail_view==view end,true)
 end
 return M

@@ -1627,6 +1627,17 @@ function M:showBookMenu(book)
         end)}
     end
     if require('weread.lib.native_position_protocol').id(book_id) then
+        local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
+        if resume and resume.can_resume(self,saved,book_id) then
+            local resume_scope=self.settings:get_auth_scope()
+            local resume_session=self._reader_session_gen
+            actions[#actions+1]={text=_('Continue saved E-Ink chapter'),callback=self:safeCallback(_('Continue saved E-Ink chapter'),function()
+                if self._book_detail_view~=view or self._reader_session_gen~=resume_session
+                    or not self.settings:auth_scope_matches(resume_scope) then return end
+                local latest=self.settings:get_book(book_id)
+                if resume.can_resume(self,latest,book_id) then resume.open_detail(self,latest,book_id,view) end
+            end)}
+        end
         actions[#actions+1]={text=_('Read E-Ink chapter'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
         end)}
@@ -1693,6 +1704,8 @@ function M:showBookMenu(book)
                 self:cancelBookReading()
                 local native_direct=package.loaded['weread.ui.native_direct_reading']
                 if native_direct then native_direct.cancel(self) end
+                local native_home=package.loaded['weread.ui.native_home_resume']
+                if native_home and self._native_home_resume and self._native_home_resume.view==view then native_home.cancel(self) end
                 require('weread.ui.catalog_request').cancel(self)
                 require('weread.ui.download_recovery').cancel(self)
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
