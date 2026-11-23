@@ -64,9 +64,14 @@ function WeReadPlugin:init()
         settings = self.settings, library_db = self.library_db, scheduler = UIManager,
         get_context = function()
             local document = self.ui and self.ui.document
-            return document and { book_id = self:detectWeReadBook(), path = document.file,
+            if not document then return nil end
+            local visible=UIManager:getTopmostVisibleWidget() == self.ui
+            if require('weread.lib.native_direct_path').contains(self.settings,document.file) then
+                return require('weread.lib.native_direct_offline_time').context(self,visible)
+            end
+            return { book_id = self:detectWeReadBook(), path = document.file,
                 document = document, stats = self.ui.statistics,
-                visible = UIManager:getTopmostVisibleWidget() == self.ui } or nil
+                visible = visible }
         end,
         is_online = function() return self:isNetworkConnected() end,
     }

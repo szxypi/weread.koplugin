@@ -111,6 +111,8 @@ function Collector:update(reason, online_hint)
     if active then
         local same = eligible and account == active.account and context.book_id == active.book_id
             and context.path == active.path and context.document == active.document
+            and context.native_time_file_id == active.native_time_file_id
+            and context.native_time_version == active.native_time_version
             and context.stats == active.stats and context.stats.id_curr_book == active.stats_book
         local clock_changed = not sample or sample.wall < active.clock.wall
             or sample.monotonic < active.clock.monotonic or sample.zone ~= active.clock.zone
@@ -138,6 +140,15 @@ function Collector:update(reason, online_hint)
             self.recovered[account] = true
         end
         local identity = FileIdentity.read_document(context.document, context.book_id)
+        if context.native_time_file_id then
+            if identity.file_id~=context.native_time_file_id or identity.book_version~=context.native_time_version
+                or identity.book_id~=context.book_id then
+                self.state, self.error = 'book_mismatch', nil
+                self:_schedule()
+                return false
+            end
+            identity.version_source='native_direct'
+        end
         if identity.version_source == "book_mismatch" then
             self.state, self.error = "book_mismatch", nil
             self:_schedule()
@@ -150,7 +161,8 @@ function Collector:update(reason, online_hint)
         if not id then self.state, self.error = "error", err self:_schedule() return false end
         self.active = { account = account, book_id = context.book_id, path = context.path, id = id,
             stats = context.stats, stats_book = context.stats.id_curr_book, last_seen = sample.wall,
-            document = context.document,
+            document = context.document, native_time_file_id=context.native_time_file_id,
+            native_time_version=context.native_time_version,
             clock = sample, sources = setmetatable({}, { __mode = "k" }) }
         self.error = nil
     end
@@ -158,6 +170,8 @@ function Collector:update(reason, online_hint)
     elseif not self:enabled() then self.state = "disabled"
     elseif self.suspended or self.paused or (context and context.stats and context.stats._reading_paused_ts) then self.state = "paused"
     elseif not account then self.state = "account_unavailable"
+    elseif context and context.native_time_state=='checking' then self.state = 'native_time_checking'
+    elseif context and context.native_time_state=='unavailable' then self.state = 'native_time_unavailable'
     elseif not context or not context.book_id then self.state = "no_book"
     elseif context.visible == false then self.state = "reader_hidden"
     elseif context.book_id:sub(1, 7) == "MP_WXS_" then self.state = "unsupported_book"

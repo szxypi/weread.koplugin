@@ -11,6 +11,8 @@ local _,T=Util.tr,Util.T
 local M={REVIEW_WORKER_MAX_BYTES=1024*1024}
 local STATUS={recording='Recording offline reading',online='Online; offline recording is idle',disabled='Disabled',paused='Paused',
     no_book='Open a WeRead book to record time',reader_hidden='Return to the reading page to record time',
+    native_time_checking='Checking the saved E-Ink chapter',
+    native_time_unavailable='Could not verify this E-Ink chapter; time is not recorded',
     book_mismatch='This file does not match the reading book; time is not recorded',unsupported_book='Offline time recording is unavailable for public-account articles',
     account_unavailable='Log in to associate offline reading time',statistics_unavailable='Enable KOReader Reading statistics to record time',
     clock_unavailable='Device clock is unavailable',clock_changed='Device clock changed; recording is waiting',
@@ -159,7 +161,8 @@ local function render(host,context,kind,value,args)
     elseif kind=='detail' then
         local entry=value.entry;local row=entry.source
         local verified=C.verified(row,os.time(),true)
-        local source_label=verified and (row.book_version==0 and 'Cached source will be checked before transfer'
+        local source_label=row.version_source=='native_direct' and 'E-Ink chapter time is saved locally; transfer is not available yet'
+            or verified and (row.book_version==0 and 'Cached source will be checked before transfer'
             or 'Captured download source is available') or 'Download source needs verification'
         local text=entry.title..'\n'..time_label(row)..'\n'..T(_('Duration: %1'),seconds(row.duration))
             ..'\n'.._(STATES[entry.state])..'\n'.._(source_label)

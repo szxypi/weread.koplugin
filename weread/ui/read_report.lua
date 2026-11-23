@@ -97,6 +97,7 @@ function M:getReadReportMenuItems()
             callback = self:safeCallback(_("Record offline reading time locally"), function(menu)
                 local enabled = self.settings:get("offline_time", {}).enabled == true
                 if self.offline_time then self.offline_time:stop("disabled") end
+                local native_time=package.loaded['weread.lib.native_direct_offline_time'];if native_time then native_time.cancel(self) end
                 local ok = pcall(function()
                     self.settings:set("offline_time", { enabled = not enabled })
                     if self.settings:flush() == false then error("write_failed") end

@@ -125,8 +125,9 @@ function Store:begin(account, window)
     local version = integer(window.book_version, 0, 2147483647) or 0
     local file_id, origin = window.file_id or "", window.version_source or "legacy_unverified"
     local valid_id = type(file_id) == "string" and #file_id == 64 and file_id:match("^[0-9a-f]+$")
-    if not ({ legacy_unverified = true, unavailable = true, epub_unknown = true, epub_snapshot = true })[origin]
+    if not ({ legacy_unverified = true, unavailable = true, epub_unknown = true, epub_snapshot = true, native_direct = true })[origin]
         or (file_id ~= "" and not valid_id) or (origin == "epub_snapshot" and (version == 0 or not valid_id))
+        or (origin == "native_direct" and not valid_id)
         or (origin == "epub_unknown" and (version ~= 0 or not valid_id))
         or (origin == "unavailable" and (version ~= 0 or file_id ~= "")) then return nil, "invalid_window" end
     return self:_access(account, function(db)
