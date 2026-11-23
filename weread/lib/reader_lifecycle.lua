@@ -136,6 +136,7 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval']
@@ -196,6 +197,9 @@ function M:onReaderReady()
         require('weread.lib.native_account_location').ready(self,weread_book_id)
     end
     if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
+    if not weread_book_id and require('weread.lib.native_direct_path').contains(self.settings,local_file) then
+        require('weread.ui.native_home_resume').record(self)
+    end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
         -- we must intercept taps on thought links to suppress the native footnote
@@ -309,6 +313,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close']
     if self._native_direct_interval and not direct_close then direct_close=require('weread.lib.native_direct_close') end
@@ -412,6 +417,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     require('weread.ui.catalog_request').cancel(self)
     require('weread.ui.download_recovery').cancel(self)
@@ -588,6 +594,7 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end

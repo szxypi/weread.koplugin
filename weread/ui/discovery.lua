@@ -85,11 +85,15 @@ function M:showDiscoveryPage(tab, books, options)
         on_settings = home and Scope.guard(current, function() self:showHomeQuickSettings() end) or nil,
         on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
         on_select = Scope.guard(current, function(book)
-            if tab == "home" and book._cached then
+            if tab == "home" then
                 local saved_books=self.settings:get("books", {})
                 local id=ShelfSnapshot.persisted_id(book)
                 local stored=id and ReadAccess.cached_book(saved_books,id)
-                if stored and self:isBookDownloaded(book,saved_books) then self:startBookReading(stored)
+                local resume=stored and stored.native_home_resume and require('weread.ui.native_home_resume')
+                if resume then
+                    if resume.can_resume(self,stored,id) then resume.open(self,stored,id,view,current)
+                    else self:showBookRecord(book) end
+                elseif stored and book._cached and self:isBookDownloaded(book,saved_books) then self:startBookReading(stored)
                 else self:showBookRecord(book) end
             else self:showBookRecord(book) end
         end),
@@ -159,7 +163,7 @@ function M:recordRecentReading(book_id)
     -- Keep the legacy field untouched: older local and pending positions may
     -- still depend on it for their account identity.
     return self.settings:patch_reading_state(book_id, {
-        home_recent_at = os.time(), home_recent_account = self.library_db:accountKey() or '',
+        home_recent_at = os.time(), home_recent_account = self.library_db:accountKey() or '', native_home_resume=false,
     })
 end
 

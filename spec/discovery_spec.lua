@@ -203,6 +203,23 @@ expect(not opened and selected_detail.bookId=='42','home resume opened a conflic
 home_saved['42']=nil;home_saved[42]=nil
 selected_detail=nil;shown.callbacks.on_select({bookId='42',_cached=true})
 expect(not opened and selected_detail.bookId=='42','home resume ignored a removed cached record')
+local old_resume=package.loaded['weread.ui.native_home_resume']
+local selected_native,allow_native
+package.loaded['weread.ui.native_home_resume']={
+    can_resume=function() return allow_native end,
+    open=function(_,book,id,view,current)
+        selected_native={book=book,id=id,view=view,current=current};return true
+    end,
+}
+home_saved['42']={book_id='42',native_home_resume={at=1}}
+allow_native=true;selected_detail=nil
+shown.callbacks.on_select({bookId='42',_cached=false})
+expect(selected_native and selected_native.id=='42' and selected_native.book==home_saved['42'] and not selected_detail,
+    'native home entry did not take precedence without an ordinary download')
+allow_native=false;selected_detail=nil;selected_native=nil;opened=nil
+shown.callbacks.on_select({bookId='42',_cached=true})
+expect(selected_detail and not selected_native and not opened,'invalid native pointer fell back to another reader')
+package.loaded['weread.ui.native_home_resume']=old_resume
 fetched.on_redraw(1)
 expect(shown.data.title == "Home", "cover completion lost home context")
 shown.callbacks.on_close()

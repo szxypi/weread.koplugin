@@ -123,6 +123,12 @@ expect(BookStore.patch_reading(settings,'book/42',index,{home_recent_at=100,home
 patched=BookStore.load(settings,'book/42',index)
 expect(patched.home_recent_at==100 and patched.home_recent_account=='' and patched.last_local_account=='owner'
     and patched.pending_upload_account=='synthetic-account-key','recent reading changed unrelated pending ownership')
+expect(BookStore.patch_reading(settings,'book/42',index,{native_home_resume={at=100,entry={book_id='42'}}}),
+    'native home pointer patch failed')
+expect(BookStore.load(settings,'book/42',index).native_home_resume.entry.book_id=='42',
+    'native home pointer did not round-trip with reading state')
+expect(BookStore.patch_reading(settings,'book/42',index,{native_home_resume=false})
+    and not BookStore.load(settings,'book/42',index).native_home_resume,'ordinary reading did not clear native pointer')
 metadata_file=assert(io.open(index.cache_dir..'/metadata.json','rb'))
 expect(metadata_file:read('*a')==metadata_bytes,'recent event rewrote metadata');metadata_file:close()
 

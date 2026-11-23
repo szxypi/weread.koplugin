@@ -430,6 +430,7 @@ local zh = {
     ["Sign in to the account that saved these E-Ink chapters."] = "请登录保存这些墨水屏章节的账号。",
     ["Loading saved E-Ink chapters..."] = "正在查找已保存的墨水屏章节…",
     ["Checking saved E-Ink chapter..."] = "正在检查已保存的墨水屏章节…",
+    ["The saved E-Ink chapter changed or could not be verified. Open the book details to choose a chapter."] = "已保存的墨水屏章节已变化或无法核验，请打开书籍详情选择章节。",
     ["Saved E-Ink chapters"] = "已保存的墨水屏章节",
     ["No usable saved E-Ink chapters for this book and account. Existing files are kept."] = "此账号没有可用的本书墨水屏章节，已有文件会保留。",
     ["Copy %1"] = "副本 %1",

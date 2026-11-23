@@ -236,6 +236,8 @@ function M:closeWeReadUI()
     if self.cancelBookReading then self:cancelBookReading() end
     local native_direct=package.loaded['weread.ui.native_direct_reading']
     if native_direct then native_direct.cancel(self) end
+    local native_home=package.loaded['weread.ui.native_home_resume']
+    if native_home then native_home.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
