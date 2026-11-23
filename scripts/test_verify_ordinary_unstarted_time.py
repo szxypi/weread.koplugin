@@ -1,5 +1,6 @@
 """Synthetic no-position time probe, including unknown outcomes and replay."""
 from copy import deepcopy
+from contextlib import ExitStack
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -12,7 +13,7 @@ import verify_ordinary_unstarted_time as task
 
 
 class UnstartedTimeTests(unittest.TestCase):
-    def exercise(self,mode):
+    def exercise(self,mode,ui_sample=False):
         grant=dict(vid='900000',deviceId='eink334691225'+'1'*19,
             accessToken='synthetic-access',refreshToken='synthetic-refresh')
         saved=dict(vid=grant['vid'],cookies={'wr_vid':grant['vid'],'wr_skey':'synthetic-cookie'})
@@ -34,6 +35,7 @@ class UnstartedTimeTests(unittest.TestCase):
             def check(self,*_args):return True
         class Chapter:
             def inspect(self,_grant,_offset):
+                self_outer.assertEqual(_offset,2 if ui_sample else 0)
                 state['candidates']+=1
                 version=8 if mode=='source_change' and state['candidates']>1 else 7
                 return (dict(book_id='42',expected=dict(format='epub',version=version)),
@@ -63,16 +65,31 @@ class UnstartedTimeTests(unittest.TestCase):
             value,_=intent.read();state['start']=value['plan']['selection']['start_time'];state['sent']+=1
             return {'succ':0} if mode=='bad_ack' else {'succ':1}
         backend=MemoryBackend();intent=Intent(backend=backend)
-        with patch.object(task,'store',return_value=intent),patch.object(task,'other_pending',return_value=False),\
-             patch.object(task,'SessionStore',Sessions),patch.object(task,'NativeSessionStore',Natives),\
-             patch.object(task,'PriorGuard',Prior),patch.object(task,'successor_store',return_value=object()),\
-             patch.object(task,'auto_store',return_value=object()),patch.object(task,'Intent',return_value=object()),\
-             patch.object(task,'ChapterProbe',Chapter),\
-             patch.object(task,'NativeRead',Read),patch.object(task,'Native',Capability),patch.object(task,'WebSourceProbe',Web),\
-             patch.object(task,'state_hash',return_value='shelf-hash'),patch.object(task,'web_cookies',return_value=saved['cookies']),\
-             patch.object(task,'local_zone',return_value='+08:00'),patch.object(task,'time',clock),\
-             patch.object(task.NativeProbe,'request',post):
-            report=task.run(apply=mode!='dry')
+        self_outer=self
+        class Previous:
+            def __init__(self,*_args):pass
+            def check(self,_grant,selected,interval=None):
+                if mode=='prior_changed' or selected['book_id']!='42':raise ValueError('prior')
+                if interval is not None:self_outer.assertEqual(interval['protocol_rows'][0]['duration'],2)
+                return True
+        patches=[patch.object(task,'store',return_value=intent),patch.object(task,'other_pending',return_value=False),
+             patch.object(task,'OrdinaryUnstartedUiTimeStore',return_value=intent),patch.object(task,'PreviousSamples',Previous),
+             patch('verify_ordinary_unstarted_initial.store',return_value=object()),
+             patch('verify_ordinary_unstarted_initial.chapter_index',return_value=1),
+             patch('verify_native_direct_roundtrip.catalog',return_value='catalog'),
+             patch('verify_native_direct_roundtrip.current_source',return_value=b'Synthetic chapter'),
+             patch.object(task,'SessionStore',Sessions),patch.object(task,'NativeSessionStore',Natives),
+             patch.object(task,'PriorGuard',Prior),patch.object(task,'successor_store',return_value=object()),
+             patch.object(task,'auto_store',return_value=object()),patch.object(task,'Intent',return_value=object()),
+             patch.object(task,'ChapterProbe',Chapter),
+             patch.object(task,'inspect_book',side_effect=lambda grant,_book:Chapter().inspect(grant,2)),
+             patch.object(task,'NativeRead',Read),patch.object(task,'Native',Capability),patch.object(task,'WebSourceProbe',Web),
+             patch.object(task,'state_hash',return_value='shelf-hash'),patch.object(task,'web_cookies',return_value=saved['cookies']),
+             patch.object(task,'local_zone',return_value='+08:00'),patch.object(task,'time',clock),
+             patch.object(task.NativeProbe,'request',post)]
+        with ExitStack() as stack:
+            for item in patches:stack.enter_context(item)
+            report=task.run(apply=mode!='dry',ui_sample=ui_sample)
         return report,intent,state
 
     def test_dry_never_claims_or_sends(self):
@@ -95,6 +112,14 @@ class UnstartedTimeTests(unittest.TestCase):
         report,intent,state=self.exercise('source_change')
         self.assertEqual(report['result'],'UNVERIFIED');self.assertEqual(state['sent'],0)
         self.assertEqual(intent.read(),(None,None))
+
+    def test_separate_ui_sample_and_prior_guard(self):
+        for mode in ('dry','success','prior_changed'):
+            report,intent,state=self.exercise(mode,True)
+            self.assertEqual(state['sent'],int(mode=='success'))
+            self.assertEqual(report['result'],{'dry':'UNSTARTED_TIME_DRY_VERIFIED','success':'UNSTARTED_TIME_VERIFIED',
+                'prior_changed':'UNVERIFIED'}[mode])
+            self.assertEqual(intent.read()[0]['phase'] if intent.read()[0] else None,'verified' if mode=='success' else None)
 
 
 if __name__=='__main__':unittest.main()

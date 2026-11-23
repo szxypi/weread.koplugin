@@ -23,6 +23,7 @@ from cb_unstarted_time_fixture_flow import _baseline,run as time_flow
 from native_direct_time_trial_store import Intent
 from native_initial_position import no_chapter
 from native_time_capture_evidence import account_key
+from ordinary_unstarted_ui_prior import OrdinaryUnstartedUiTimeStore,PreviousSamples,inspect_book
 from readtime_upload_model import batch,confirmed,guest_token,local_zone
 from secure_native_session import NativeSessionStore,project_lock
 from secure_weread_session import ACCOUNT,MacKeychain,SessionStore
@@ -72,30 +73,48 @@ def build_body(grant,book,version,start,now,guest,config,r1,r2):
     return batch(grant,book,rows,guest,config,now,r1,now*1000,r2,current_zone='+08:00')
 
 
-def run(*,apply=False):
+def run(*,apply=False,ui_sample=False):
     report=dict(result='UNVERIFIED',phase='preflight',account_data_posts=0,authentication_posts=0,
         dispatch_may_have_occurred=False,private_data_in_report=False)
     web=saved=grant=None;state=dict(receipt=None,permit=None,sent=0,expected=None,acknowledged=False)
     try:
-        intent=store()
+        if type(ui_sample) is not bool:raise ValueError('unstarted_ordinary/mode')
+        intent=OrdinaryUnstartedUiTimeStore() if ui_sample else store()
         if intent.read()!=(None,None) or other_pending():raise ValueError('unstarted_ordinary/pending')
         saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
+        if ui_sample:
+            from verify_ordinary_unstarted_initial import store as position_store
+            previous=PreviousSamples(store(),position_store())
+        else:previous=None
         def current():return SessionStore().load()==saved and NativeSessionStore().load(saved['vid'])==grant
         if not current():raise ValueError('unstarted_ordinary/session')
         guards=[PriorGuard(Intent()),PriorGuard(successor_store()),PriorGuard(auto_store())]
         for guard in guards:guard.check(grant)
+        selected=None
         def candidate():
-            sample,chapter,source=ChapterProbe().inspect(grant,0)
+            if ui_sample and selected is not None:sample,chapter,source=inspect_book(grant,selected['book_id'])
+            else:sample,chapter,source=ChapterProbe().inspect(grant,2 if ui_sample else 0)
             if sample['expected']['format']!='epub' or not source['html'] or not chapter['free_or_owned']:
                 raise ValueError('unstarted_ordinary/source')
             version=sample['expected']['version']
             if type(version) is not int or not 1<=version<=2147483647:raise ValueError('unstarted_ordinary/version')
-            return dict(book_id=sample['book_id'],chapter_uid=str(chapter['uid']),version=version,
+            chosen=dict(book_id=sample['book_id'],chapter_uid=str(chapter['uid']),version=version,
                 source_sha256=hashlib.sha256(source['source']).hexdigest())
+            if previous:previous.check(grant,chosen)
+            return chosen
         selected=candidate();book=selected['book_id'];version=selected['version']
         web=WebSourceProbe();web.vid=saved['vid']
         for key,value in saved['cookies'].items():web.set_cookie(key,value)
         web.verify_account();web.book_id=book;cookies=web_cookies(web,saved['vid'])
+        if previous:
+            from verify_ordinary_unstarted_initial import chapter_index
+            from verify_native_direct_roundtrip import catalog,current_source
+            web.chapter=selected['chapter_uid']
+            index=chapter_index(web,book,selected['chapter_uid']);catalog(web,book,selected['chapter_uid'],index)
+            sample,chapter,_=inspect_book(grant,book)
+            if (sample['book_id']!=book or str(chapter['uid'])!=selected['chapter_uid']
+                    or hashlib.sha256(current_source(sample,selected['chapter_uid'],grant,web)).hexdigest()!=selected['source_sha256']
+                    or candidate()!=selected):raise ValueError('unstarted_ordinary/source')
         api=NativeRead(grant,book);native=Native(grant,book)
         native_shelf=state_hash(ChapterProbe().request('shelf',NATIVE+'/shelf/sync',credentials=grant))
         web_shelf=state_hash(web.request('shelf',WEB+'/web/shelf/sync'))
@@ -106,6 +125,7 @@ def run(*,apply=False):
         def authority(permit=None):
             if not current() or web_cookies(web,saved['vid'])!=cookies:return False
             for guard in guards:guard.check(grant)
+            if previous:previous.check(grant,selected)
             if state_hash(ChapterProbe().request('shelf',NATIVE+'/shelf/sync',credentials=grant))!=native_shelf:return False
             if state_hash(web.request('shelf',WEB+'/web/shelf/sync'))!=web_shelf:return False
             value,raw=intent.read()
@@ -125,6 +145,7 @@ def run(*,apply=False):
                 raise ValueError('unstarted_ordinary/clock')
             stamp=int(time.time());interval=dict(protocol_rows=[dict(start_time=start,duration=2)])
             for guard in guards:guard.check(grant,interval)
+            if previous:previous.check(grant,selected,interval)
             if candidate()!=selected:raise ValueError('unstarted_ordinary/source')
             stamp=int(time.time());body=build_body(grant,book,version,start,stamp,guest,token,secrets.randbelow(1000),secrets.randbelow(1000))
             targets=[]
@@ -178,11 +199,11 @@ def run(*,apply=False):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
-    parser.add_argument('--apply',action='store_true');args=parser.parse_args(argv)
+    parser.add_argument('--apply',action='store_true');parser.add_argument('--ui-sample',action='store_true');args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('apply requires saved session')
     if not args.saved_session:
         print(json.dumps(dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0)));return 0
-    resource.setrlimit(resource.RLIMIT_CORE,(0,0));report=run(apply=args.apply);print(json.dumps(report))
+    resource.setrlimit(resource.RLIMIT_CORE,(0,0));report=run(apply=args.apply,ui_sample=args.ui_sample);print(json.dumps(report))
     return int(report['result'] not in ('UNSTARTED_TIME_DRY_VERIFIED','UNSTARTED_TIME_VERIFIED'))
 
 
