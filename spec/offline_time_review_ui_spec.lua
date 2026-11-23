@@ -41,7 +41,7 @@ local function choose(label)
     error('missing menu row: '..label)
 end
 Review.show(host);eq(host._offline_time_menu,nil);eq(host.busy_message~=nil,true);deliver()
-eq(host._offline_time_menu.title,'Offline reading time');choose('Pending local records');deliver()
+eq(host._offline_time_menu.title,'Local reading time');choose('Pending local records');deliver()
 eq(#host._offline_time_menu.item_table,22);choose('Next batch');deliver()
 eq(#host._offline_time_menu.item_table,7);choose('Previous batch');deliver()
 eq(host._offline_time_menu.item_table[1].text:match('^%d%d%d%d%-%d%d%-%d%d')~=nil,true)
@@ -50,7 +50,7 @@ local menu=host._offline_time_menu;local open=menu.item_table[1].callback;open()
 eq(host._offline_time_detail.title:find('Captured download source is available',1,true)~=nil,true)
 eq(host._offline_time_detail.title:find('+08:00',1,true)~=nil,true)
 host._offline_time_detail.buttons[1][1].callback();deliver();eq(host._offline_time_menu.title,'Pending local records')
-choose('Offline reading time');deliver();choose('Check saved time');deliver()
+choose('Local reading time');deliver();choose('Check saved time');deliver()
 eq(host._offline_time_detail.title:find('Local duplicate check: 600 s',1,true)~=nil,true)
 eq(C.digest(ledger:pending(account)),original)
 eq(host._offline_time_detail.buttons[3][1].text,'Skip this book for now')
@@ -84,7 +84,7 @@ host._offline_time_detail.buttons[1][1].callback();local old=#jobs
 host.busy_message.cancel();eq(host._offline_time_review,nil);deliver(old);eq(host._offline_time_menu,nil)
 Review.show(host);local first=#jobs;Review.show(host);local second=#jobs
 deliver(first);eq(host.busy_message~=nil,true);deliver(second);eq(host._offline_time_menu~=nil,true)
-open();eq(host._offline_time_menu.title,'Offline reading time') -- stale first-page callback
+open();eq(host._offline_time_menu.title,'Local reading time') -- stale first-page callback
 -- Account, same-account auth, document and reader session changes cancel local results.
 for _i,change in ipairs({'account','auth','document','session'}) do
     Review.show(host);local job=#jobs
@@ -163,13 +163,13 @@ eq(dispatched.mode,'send')
 dispatched.callback({kind='unconfirmed'});eq(C.digest(ledger:pending(account)),original)
 dispatched=nil;Review.show(host);deliver();choose('Check saved time');deliver()
 host._offline_time_detail.buttons[2][1].callback();local old_scan_job=#jobs
-host.busy_message.cancel();Review.show(host);deliver();eq(host._offline_time_menu.title,'Offline reading time')
-deliver(old_scan_job);eq(dispatched,nil);eq(host._offline_time_menu.title,'Offline reading time')
+host.busy_message.cancel();Review.show(host);deliver();eq(host._offline_time_menu.title,'Local reading time')
+deliver(old_scan_job);eq(dispatched,nil);eq(host._offline_time_menu.title,'Local reading time')
 source.scan_page=function() return {kind='unavailable'} end
 Review.show(host);deliver();choose('Check saved time');deliver()
 host._offline_time_detail.buttons[2][1].callback();deliver()
 eq(dispatched,nil);eq(host.info,'Download source needs verification');deliver()
-eq(host._offline_time_menu.title,'Offline reading time');eq(C.digest(ledger:pending(account)),original)
+eq(host._offline_time_menu.title,'Local reading time');eq(C.digest(ledger:pending(account)),original)
 source.scan_page=function() return {kind='more',cursor=33} end
 Review.show(host);deliver();choose('Check saved time');deliver()
 host._offline_time_detail.buttons[2][1].callback();owner=string.rep('b',20);deliver()

@@ -1,5 +1,6 @@
--- Offline-only collection from native KOReader statistics. The transport is
--- deliberately separate: collecting never sends requests or changes progress.
+-- Local KOReader statistics collection. Ordinary downloads are captured only
+-- offline; isolated native chapters also capture online because their position
+-- sync explicitly sends zero reading time. Collection never sends requests.
 local Stats = require("weread.lib.offline_time_stats")
 local Store = require("weread.lib.offline_time_store")
 local FileIdentity = require("weread.lib.book_file_identity")
@@ -117,9 +118,10 @@ function Collector:update(reason, online_hint)
         local clock_changed = not sample or sample.wall < active.clock.wall
             or sample.monotonic < active.clock.monotonic or sample.zone ~= active.clock.zone
             or math.abs((sample.wall - active.clock.wall) - (sample.monotonic - active.clock.monotonic)) >= 5
-        if not same or online ~= false or clock_changed or active.stats._reading_paused_ts then
+        local eligible_network=active.native_time_file_id~=nil or online==false
+        if not same or not eligible_network or clock_changed or active.stats._reading_paused_ts then
             local endpoint = active.last_seen
-            if same and sample and not clock_changed and (online == false or reason == "network_connected") then
+            if same and sample and not clock_changed and (eligible_network or reason == "network_connected") then
                 endpoint = math.max(endpoint, math.min(sample.wall, active.stats._reading_paused_ts or sample.wall))
             end
             if not self:_seal(endpoint) then self.state = "error" self:_schedule() return false end
@@ -133,7 +135,8 @@ function Collector:update(reason, online_hint)
             active.clock = sample
         end
     end
-    if not self.active and eligible and sample and online == false and not context.stats._reading_paused_ts then
+    if not self.active and eligible and sample and (online == false or context.native_time_file_id~=nil)
+        and not context.stats._reading_paused_ts then
         if not self.recovered[account] then
             local recovered, err = self.store:recover(account)
             if not recovered then self.state, self.error = "error", err self:_schedule() return false end
@@ -166,7 +169,7 @@ function Collector:update(reason, online_hint)
             clock = sample, sources = setmetatable({}, { __mode = "k" }) }
         self.error = nil
     end
-    if self.active then self.state = "recording"
+    if self.active then self.state = self.active.native_time_file_id and 'recording_native' or 'recording'
     elseif not self:enabled() then self.state = "disabled"
     elseif self.suspended or self.paused or (context and context.stats and context.stats._reading_paused_ts) then self.state = "paused"
     elseif not account then self.state = "account_unavailable"
@@ -211,9 +214,10 @@ function Collector:stop(reason)
     local active, context = self.active, self.get_context()
     local ok, online = pcall(self.is_online)
     local endpoint = active.last_seen
-    if sample and ok and online == false and self.library_db:accountKey() == active.account
+    if sample and (active.native_time_file_id~=nil or ok and online == false) and self.library_db:accountKey() == active.account
         and context and context.path == active.path and context.document == active.document
-        and context.book_id == active.book_id and sample.wall >= active.clock.wall
+        and context.book_id == active.book_id and context.native_time_file_id==active.native_time_file_id
+        and context.native_time_version==active.native_time_version and sample.wall >= active.clock.wall
         and sample.monotonic >= active.clock.monotonic and sample.zone == active.clock.zone
         and math.abs((sample.wall - active.clock.wall) - (sample.monotonic - active.clock.monotonic)) < 5 then
         endpoint = math.max(endpoint, math.min(sample.wall, active.stats._reading_paused_ts or sample.wall))

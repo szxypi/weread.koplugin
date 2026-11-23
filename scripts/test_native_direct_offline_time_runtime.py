@@ -74,7 +74,8 @@ def run(runtime):
                                            input=json.dumps({'first': saved['37'], 'second': saved['38'], 'indexed': indexed}), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     assert frame(probe, 'WEREAD_DIRECT_OFFLINE_TIME=') == dict(ok=True, network_blocked=True,
-                        real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, source_discovery=True, source_ui=True,
+                        real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, online_capture=True,
+                        source_discovery=True, source_ui=True,
                         account_isolated=True, ordinary_path_isolated=True)
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native chapter offline time capture at both KOReader sizes')

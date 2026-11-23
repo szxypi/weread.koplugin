@@ -91,10 +91,10 @@ function M:getReadReportMenuItems()
             end),
         },
         {
-            text = _("Record offline reading time locally"),
+            text = _("Record offline and E-Ink chapter time locally"),
             keep_menu_open = true, check_callback_updates_menu = true,
             checked_func = function() return self.settings:get("offline_time", {}).enabled == true end,
-            callback = self:safeCallback(_("Record offline reading time locally"), function(menu)
+            callback = self:safeCallback(_("Record offline and E-Ink chapter time locally"), function(menu)
                 local enabled = self.settings:get("offline_time", {}).enabled == true
                 if self.offline_time then self.offline_time:stop("disabled") end
                 local native_time=package.loaded['weread.lib.native_direct_offline_time'];if native_time then native_time.cancel(self) end
@@ -111,8 +111,8 @@ function M:getReadReportMenuItems()
             end),
         },
         {
-            text = _("Offline reading time"),
-            callback = self:safeCallback(_("Offline reading time"), function() self:showOfflineTimeStatus() end),
+            text = _("Local reading time"),
+            callback = self:safeCallback(_("Local reading time"), function() self:showOfflineTimeStatus() end),
         },
     }
 end

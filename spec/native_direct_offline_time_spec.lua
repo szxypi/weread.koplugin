@@ -32,24 +32,30 @@ local function account() return Crypto.sha256_hex('weread-library:'..vid):sub(1,
 local host={settings=settings,ui={document=document,statistics=stats},client={},_reader_session_gen=1,
     library_db={accountKey=function() return account() end}}
 local scheduler={scheduleIn=function() end,unschedule=function() end}
-local now=1000
+local now=1000;local online=false
 local source={available=function() return true end,snapshot=function() return {{page='1',start_time=1000,duration=now-1000}} end,
     persisted=function() return {} end}
 local service=Collector:new{settings=settings,library_db=host.library_db,scheduler=scheduler,
-    get_context=function() return Direct.context(host,true) end,is_online=function() return false end,
+    get_context=function() return Direct.context(host,true) end,is_online=function() return online end,
     clock=function() return {wall=now,monotonic=now,zone='+08:00'} end,source=source}
 host.offline_time=service
 assert(service:start() and service.state=='native_time_checking' and not service.active)
 local first=jobs[1];first.callback(first.task())
-assert(service.active and service.state=='recording','verified chapter did not start offline collection')
+assert(service.active and service.state=='recording_native','verified chapter did not start collection')
 now=1010;assert(service:update('timer'))
 local rows=assert(service.store:pending(account()))
 assert(#rows==1 and rows[1].duration==10 and rows[1].version_source=='native_direct')
 assert(rows[1].file_id==identity.file_id and rows[1].book_id=='42' and rows[1].book_version==7)
 assert(not C.verified(rows[1],now),'native chapter time entered ordinary transfer queue')
 assert(service:update('timer') and service:status().pending==10,'same interval was captured twice')
-assert(service:pause());now=1020
-assert(service:status().pending==10,'paused time was recorded')
+online=true;now=1015;assert(service:update('network_connected',true))
+assert(service.active and service:status().pending==15,'online transition lost or duplicated native time')
+online=nil;now=1020;assert(service:update('timer'))
+assert(service.active and service:status().pending==20,'unknown network state lost native time')
+online=false;now=1025;assert(service:update('network_disconnected',false))
+assert(service:status().pending==25,'offline transition lost or duplicated native time')
+online=true;now=1028;assert(service:pause());now=1030
+assert(service:status().pending==28,'online pause lost its tail or recorded the pause')
 -- A late worker result cannot resume a paused collector or attach another account.
 Direct.cancel(host);service:start();local late=jobs[#jobs];assert(service:pause())
 late.callback(late.task());assert(service.paused and not service.active)

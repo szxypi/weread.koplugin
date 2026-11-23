@@ -9,7 +9,8 @@ local _,T=Util.tr,Util.T
 -- reference from the scan worker. Its bounded UID/index list can exceed
 -- 256 KiB, even though no chapter text or credentials are in that response.
 local M={REVIEW_WORKER_MAX_BYTES=1024*1024}
-local STATUS={recording='Recording offline reading',online='Online; offline recording is idle',disabled='Disabled',paused='Paused',
+local STATUS={recording='Recording offline reading',recording_native='Recording E-Ink chapter reading time',
+    online='Online; offline recording is idle',disabled='Disabled',paused='Paused',
     no_book='Open a WeRead book to record time',reader_hidden='Return to the reading page to record time',
     native_time_checking='Checking the saved E-Ink chapter',
     native_time_unavailable='Could not verify this E-Ink chapter; time is not recorded',
@@ -141,7 +142,7 @@ local function render(host,context,kind,value,args)
         if value.record then table.insert(items,6,{text=_('Review unfinished transfer'),callback=function()
             load(host,context,'transfer_record',{})
         end}) end
-        menu(host,context,_('Offline reading time'),items)
+        menu(host,context,_('Local reading time'),items)
     elseif kind=='page' then
         local page=value.page;local items={}
         args.upper_id=page.upper_id
@@ -156,7 +157,7 @@ local function render(host,context,kind,value,args)
         if page.has_more then items[#items+1]={text=_('Next batch'),callback=function()
             args.cursors[args.index+1]=page.last_id;args.index=args.index+1;load(host,context,'page',args)
         end} end
-        items[#items+1]={text=_('Offline reading time'),callback=function() load(host,context,'summary',{}) end}
+        items[#items+1]={text=_('Local reading time'),callback=function() load(host,context,'summary',{}) end}
         menu(host,context,_(args.category=='review' and 'Uncertain time records' or args.category=='covered' and 'Covered time records' or 'Pending local records'),items)
     elseif kind=='detail' then
         local entry=value.entry;local row=entry.source

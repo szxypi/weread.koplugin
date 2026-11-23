@@ -40,6 +40,14 @@ assert(total>=5 and total==collector.active.last_seen-started,'actual offline dw
 local endpoint=collector.active.last_seen
 assert(collector:update('timer'))
 assert(collector:status().pending-total==collector.active.last_seen-endpoint,'duplicate capture')
+host.isNetworkConnected=function() return true end
+assert(collector:update('network_connected',true) and collector.active,'online transition stopped native capture')
+local online_start=collector.active.last_seen;local before_online=collector:status().pending
+socket.sleep(6);assert(collector:update('timer'))
+assert(collector:status().pending-before_online==collector.active.last_seen-online_start,
+    'online native time was lost or duplicated')
+host.isNetworkConnected=function() return false end
+assert(collector:update('network_disconnected',false) and collector.active,'offline transition stopped native capture')
 reader:handleEvent(require('ui/event'):new('ReadingPaused'))
 assert(not collector.active and not collector.task,'pause did not seal capture')
 local paused=collector:status().pending;socket.sleep(2)
@@ -52,10 +60,11 @@ assert(collector:stop('paused'))
 local first_total=collector:status().pending
 host:openFile(input.second)
 pump(function() return Reader.instance and Reader.instance~=reader and Reader.instance.document.file==input.second end)
-reader=Reader.instance;host=assert(reader.weread);host.isNetworkConnected=function() return false end
+reader=Reader.instance;host=assert(reader.weread);host.isNetworkConnected=function() return true end
 collector=host.offline_time;assert(collector:start());pump(function() return collector.active~=nil end)
-started=collector.active.last_seen;socket.sleep(6);assert(collector:update('timer'))
-assert(collector:status().pending-first_total==collector.active.last_seen-started,'chapter transition lost or duplicated time')
+started=collector.active.last_seen;local before_second=collector:status().pending
+assert(before_second>=first_total);socket.sleep(6);assert(collector:update('timer'))
+assert(collector:status().pending-before_second==collector.active.last_seen-started,'online chapter start lost or duplicated time')
 assert(collector:stop('paused'))
 local account=host.library_db:accountKey();local rows=assert(collector.store:pending(account))
 assert(#rows>0)
@@ -127,5 +136,5 @@ pump(function() return host._native_offline_time and host._native_offline_time.s
 assert(not collector.active and collector:status().pending==0,'foreign account recorded or saw previous time')
 assert(collector.store:summary(account).pending==previous,'old account records changed')
 print('WEREAD_DIRECT_OFFLINE_TIME='..json.encode{ok=true,network_blocked=true,real_statistics=true,
-    pause_resume=true,deduplicated=true,chapter_change=true,source_discovery=true,source_ui=true,
+    pause_resume=true,deduplicated=true,chapter_change=true,online_capture=true,source_discovery=true,source_ui=true,
     account_isolated=true,ordinary_path_isolated=true})
