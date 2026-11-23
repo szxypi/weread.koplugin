@@ -8,7 +8,8 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local input=require('json').decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local scope={vid=input.vid,epoch=1}
-local settings={data_dir=home,cache_dir=home,get=function(_,_,default) return default end,
+local data=input.plugin_home and home..'/weread' or home
+local settings={data_dir=data,cache_dir=data,get=function(_,_,default) return default end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
 require('weread.lib.native_read_access').capture=function() error('offline lookup requested credentials') end
 local client=require('weread.lib.client'):new(settings)

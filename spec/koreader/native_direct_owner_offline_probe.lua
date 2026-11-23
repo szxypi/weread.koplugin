@@ -6,7 +6,8 @@ assert(dofile(assert(arg[2])..'/spec/koreader/offline_network_guard.lua')())
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 assert(type(input.token)=='string' and #input.token>=6 and #input.token<=128)
-local settings={data_dir=home,cache_dir=home,get=function(_,_,default) return default end}
+local data=input.plugin_home and home..'/weread' or home
+local settings={data_dir=data,cache_dir=data,get=function(_,_,default) return default end}
 assert(require('weread.lib.native_direct_path').contains(settings,input.path))
 G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefaults'):open()
 local Device=require('device');require('document/canvascontext'):init(Device)
