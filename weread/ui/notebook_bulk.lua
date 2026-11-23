@@ -25,7 +25,7 @@ end
 
 function M.start(host,owner,is_current,missing_only)
     missing_only=missing_only==true
-    if not is_current(host,owner) or owner.bulk_context or owner.context or not owner.value then return false end
+    if not is_current(host,owner) or owner.bulk_context or owner.image_bulk_context or owner.context or not owner.value then return false end
     if not host:isNetworkOnline() then host:showOffline(_('My notebooks'));return false end
     local access=Marks.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end

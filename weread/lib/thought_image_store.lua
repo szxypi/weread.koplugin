@@ -49,9 +49,16 @@ function M:read(owner,key)
         return row[1]
     end)
 end
-function M:write(owner,key,data)
+function M:write(owner,key,data,options)
     if type(key)~='string' or #key~=64 or not key:match('^[a-f0-9]+$') or not Images.dimensions(data) then return false end
-    return run(self,owner,true,function(db)
+    local result=run(self,owner,true,function(db)
+        if options and options.current and not options.current() then error('thought_image_store/cancelled',0) end
+        if options and options.preserve_existing then
+            local existing=statement(db,[[SELECT CASE WHEN length(CAST(body AS BLOB))<=? THEN body ELSE NULL END,digest
+                FROM thought_image_cache WHERE cache_key=?]],Images.MAX_BYTES,key)
+            if existing and type(existing[1])=='string' and type(existing[2])=='string'
+                and Crypto.sha256_hex(existing[1])==existing[2] and Images.dimensions(existing[1]) then return 'exists' end
+        end
         statement(db,[[INSERT INTO thought_image_cache(cache_key,body,digest,serial)
             VALUES(?,?,?,(SELECT COALESCE(MAX(serial),0)+1 FROM thought_image_cache))
             ON CONFLICT(cache_key) DO UPDATE SET body=excluded.body,digest=excluded.digest,serial=excluded.serial]],
@@ -64,13 +71,29 @@ function M:write(owner,key,data)
                 count=count+1;if count>M.MAX_ENTRIES+1 then error('thought_image_store/quota',0) end
                 local size=tonumber(row[2]);if not size or size<1 or size>Images.MAX_BYTES then error('thought_image_store/quota',0) end
                 total=total+size
-                if count>M.MAX_ENTRIES or total>M.MAX_TOTAL then remove[#remove+1]=row[1] end
+                if count>M.MAX_ENTRIES or total>M.MAX_TOTAL then
+                    if options and options.preserve_existing then error('thought_image_store/full',0) end
+                    remove[#remove+1]=row[1]
+                end
                 row=stmt:step()
             end
         end)
         stmt:close();if not ok then error('thought_image_store/quota',0) end
         for _,old in ipairs(remove) do statement(db,'DELETE FROM thought_image_cache WHERE cache_key=?',old) end
+        if options and options.current and not options.current() then error('thought_image_store/cancelled',0) end
         return true
-    end)==true
+    end)
+    return result=='exists' and 'exists' or result==true
+end
+function M:clear(owner,current)
+    return run(self,owner,true,function(db)
+        if current and not current() then error('thought_image_store/cancelled',0) end
+        local row=statement(db,'SELECT COUNT(*) FROM thought_image_cache')
+        local count=row and tonumber(row[1])
+        if not count or count<0 or count%1~=0 or count>2147483647 then error('thought_image_store/count',0) end
+        statement(db,'DELETE FROM thought_image_cache')
+        if current and not current() then error('thought_image_store/cancelled',0) end
+        return count
+    end)
 end
 return M

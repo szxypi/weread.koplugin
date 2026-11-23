@@ -40,7 +40,12 @@ if mode=='quota' then
     local a=assert(cache.key('42','a',url));local b=assert(cache.key('42','b',url));local c=assert(cache.key('42','c',url))
     cache.MAX_ENTRIES=2
     assert(bytes:find('\0',1,true) and images:write(account,a,bytes) and images:read(account,a)==bytes)
-    assert(images:write(account,b,bytes) and images:write(account,c,bytes))
+    assert(images:write(account,a,bytes..'X',{preserve_existing=true})=='exists' and images:read(account,a)==bytes,
+        'concurrent cached image was overwritten')
+    assert(images:write(account,b,bytes))
+    assert(not images:write(account,c,bytes,{preserve_existing=true}) and images:read(account,a)==bytes
+        and images:read(account,b)==bytes and not images:read(account,c),'offline batch evicted earlier images')
+    assert(images:write(account,c,bytes))
     assert(not images:read(account,a) and images:read(account,b)==bytes and images:read(account,c)==bytes)
     assert(not images:read('foreign-account',b) and not images:write('foreign-account',a,bytes))
     cache.MAX_TOTAL=#bytes;assert(images:write(account,a,bytes))

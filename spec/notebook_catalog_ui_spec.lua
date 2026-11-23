@@ -3,6 +3,7 @@ local UI={close=function(_self,view) view.closed=true;if view.onCloseWidget then
     show=function(self,view) self.top=view end,nextTick=function(_self,callback) callback() end}
 package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/buttondialog']=function() return {new=function(_self,data) return data end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_self,data) return data end} end
 package.preload['ui/widget/inputdialog']=function() return {new=function(_self,data)
     function data:getInputText() return self.input end
     return data
@@ -54,6 +55,11 @@ row(menu,'Save all notebook notes for offline use').callback()
 expect(not value.started and #value.notices==1 and not menu._shelf_popup,'offline save attempted a request')
 row(menu,'Save only missing notebook notes').callback()
 expect(not value.started and #value.notices==2 and not menu._shelf_popup,'offline missing-only save attempted a request')
+row(menu,'Save images from saved thoughts').callback()
+expect(not value.started and #value.notices==3 and not menu._shelf_popup,'offline image save attempted a request')
+row(menu,'Clear saved thought and review images').callback();local clear=assert(menu._shelf_popup)
+expect(clear.text:find('review images',1,true) and not value.started,'image clear skipped confirmation')
+UI:close(clear)
 row(menu,'Synthetic book').callback();local popup=menu._shelf_popup
 expect(popup.buttons[1][1].text=='My cloud highlights (2)' and popup.buttons[2][1].text=='My cloud thoughts (1)' and popup.buttons[3][1].text=='My cloud bookmarks (3)','counts or actions missing')
 popup.buttons[2][1].callback();expect(value.opened[1]=='showMyCloudThoughts' and value.opened[2]=='900001','thought action wrong')

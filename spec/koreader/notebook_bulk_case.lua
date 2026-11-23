@@ -26,8 +26,15 @@ return function(plugin,owner,mode,counters,wait,tick)
     if mode=='live' then
         local parent=tonumber(ffi.C.getpid());local transient=plugin.showTransientInfo
         plugin.showTransientInfo=function() end
+        local image_url='https://weread-picture-1258476243.file.myqcloud.com/notebook-fixture.png'
         function client:request(options)
             local h=options.headers or {};local id=options.url and options.url:match('bookId=(%d+)')
+            if options.url==image_url and options.method=='GET' and options.skip_cookie and options.sensitive
+                and not options.persist_response_cookies and not h.Cookie and not h.Authorization
+                and tonumber(ffi.C.getpid())~=parent then
+                counters[12]=counters[12]+1;assert(options.sink(require('weread.lib.native_missing_image')))
+                options.sink(nil);return nil,200
+            end
             local marks=options.url=='https://i.weread.qq.com/book/bookmarklist?bookId='..tostring(id)..'&synckey=0'
             local thoughts=options.url=='https://i.weread.qq.com/review/list?bookId='..tostring(id)
                 ..'&listType=11&listMode=0&mine=1&synckey=0&count=20'
@@ -87,6 +94,26 @@ return function(plugin,owner,mode,counters,wait,tick)
             assert(read(book.bookId,'marks').updated[1].bookmarkId=='bulk-mark-'..book.bookId)
             assert(read(book.bookId,'thoughts').reviews[1].reviewId=='bulk-thought-'..book.bookId)
         end
+        local source={reviews={{reviewId='bulk-thought-'..a,review={reviewId='bulk-thought-'..a,bookId=a,userVid='900000',
+            content='bulk saved thought',pictures={{url=image_url}}}}},totalCount=1,hasMore=false}
+        local thought=require('weread.lib.my_cloud_thoughts').project(plugin.client,source,a,'900000',1000)
+        assert(cache:new(plugin.library_db,plugin.client,'thoughts'):write(thought))
+        owner.value.books={all[3],all[4]}
+        owner.menu:onMenuSelect(item('Save images from saved thoughts'))
+        wait(function() return owner.image_bulk_context~=nil end);local image_job=owner.image_bulk_context
+        wait(function() return not owner.image_bulk_context end)
+        assert(image_job.saved==1 and image_job.cached==0 and image_job.done==2 and counters[12]==1 and counters[11]==0)
+        local images=require('weread.lib.thought_image_store');local image_key=assert(images.key(a,'bulk-thought-'..a,image_url))
+        local image_store=images:new(plugin.library_db);local account=plugin.library_db:accountKey()
+        assert(image_store:read(account,image_key)==require('weread.lib.native_missing_image'))
+        owner.menu:onMenuSelect(item('Save images from saved thoughts'))
+        wait(function() return owner.image_bulk_context~=nil end);image_job=owner.image_bulk_context
+        wait(function() return not owner.image_bulk_context end)
+        assert(image_job.saved==0 and image_job.cached==1 and counters[12]==1)
+        owner.menu:onMenuSelect(item('Clear saved thought and review images'))
+        local confirm=assert(owner.menu._shelf_popup);confirm.ok_callback()
+        wait(function() return owner.image_bulk_context~=nil end);wait(function() return not owner.image_bulk_context end)
+        assert(not image_store:read(account,image_key) and read(a,'thoughts').reviews[1].reviewId=='bulk-thought-'..a)
         owner.value.books=all;client.request=request;plugin.showTransientInfo=transient
     else
         assert(read(a,'marks').updated[1].bookmarkId=='bulk-mark-'..a)

@@ -16,7 +16,8 @@ from verify_eink_login import BASE, NativeProbe, NoRedirect
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--review',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();mode=parser.add_mutually_exclusive_group()
+    mode.add_argument('--review',action='store_true');mode.add_argument('--bulk',action='store_true');args=parser.parse_args()
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     saved=credentials=None
     try:
@@ -47,7 +48,8 @@ def main():
         payload=json.dumps({'url':sample,'sha256':hashlib.sha256(data).hexdigest()}).encode()
         command=['docker','exec','-i','-e','SDL_VIDEODRIVER=dummy',
             '-e','LD_LIBRARY_PATH=/validation/runtime/lib/koreader/libs','-w','/source','weread-validation','python3',
-            'scripts/test_native_book_reviews_cache_runtime.py' if args.review else 'scripts/test_thought_images_runtime.py',
+            'scripts/test_native_book_reviews_cache_runtime.py' if args.review else
+            'scripts/test_notebook_image_bulk_runtime.py' if args.bulk else 'scripts/test_thought_images_runtime.py',
             '--koreader','/validation/runtime/lib/koreader','--public-stdin']
         sizes=[['--width','600','--height','800','--dpi','167'],
             ['--width','1264','--height','1680','--dpi','300']] if args.review else [[]]

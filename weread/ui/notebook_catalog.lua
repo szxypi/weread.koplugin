@@ -18,6 +18,7 @@ local function current(host,owner)
 end
 local function stop(host,owner)
     require('weread.ui.notebook_bulk').cancel(host,owner)
+    require('weread.ui.notebook_image_bulk').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
     require('weread.ui.notebook_search').cancel(host,owner)
     local context=owner.context;owner.context=nil
@@ -130,6 +131,18 @@ render=function(host,owner)
                 if current(host,owner) then
                     require('weread.ui.notebook_search').cancel(host,owner)
                     require('weread.ui.notebook_bulk').start(host,owner,current,true)
+                end
+            end}
+            items[#items+1]={text=_('Save images from saved thoughts'),callback=function()
+                if current(host,owner) then
+                    require('weread.ui.notebook_search').cancel(host,owner)
+                    require('weread.ui.notebook_image_bulk').start(host,owner,current)
+                end
+            end}
+            items[#items+1]={text=_('Clear saved thought and review images'),callback=function()
+                if current(host,owner) then
+                    require('weread.ui.notebook_search').cancel(host,owner)
+                    require('weread.ui.notebook_image_bulk').clear(host,owner,current)
                 end
             end}
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
