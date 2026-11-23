@@ -57,9 +57,9 @@ def run(runtime):
                                             str(REPO)], input=json.dumps(payload), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     path = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')['37']
-                    for mode in ('record', 'reopen', 'detail', 'damage', 'detail_damage', 'switch'):
+                    for mode in ('record', 'reopen', 'detail', 'shelf_detail', 'damage', 'detail_damage', 'shelf_damage', 'detail_closed', 'switch'):
                         receipt = Path(path).parent/'receipt.txt'
-                        original = receipt.read_bytes() if mode in ('damage', 'detail_damage') else None
+                        original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'shelf_damage') else None
                         if original is not None:
                             receipt.write_bytes(original+b'corrupt')
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),

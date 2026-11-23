@@ -68,17 +68,39 @@ else
             'native search book not listed on home')
     else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
     local message
-    if input.mode=='damage' or input.mode=='detail_damage' then host.showInfo=function(_,text) message=text end end
-    if input.mode=='detail' or input.mode=='detail_damage' then
+    local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage'
+    local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
+    if damage then host.showInfo=function(_,text) message=text end end
+    if shelf then
+        host.isNetworkOnline=function() return false end
+        host:applyShelfSnapshot({{bookId=id,title='Synthetic book',author='Fixture'}},{})
+        host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
+        local shelf_view=assert(host.shelf_view);local shelf_book
+        for _,book in ipairs(shelf_view.books) do if book.bookId==id then shelf_book=book end end
+        assert(shelf_book,'native chapter not listed on shelf')
+        shelf_view.on_select(shelf_book,'books')
+        assert(host._book_detail_view,'shelf selection did not open offline details')
+    elseif input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
         host:showBookMenu(assert(host.settings:get_book(id)))
+    end
+    if shelf or input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
         local detail=assert(host._book_detail_view);local action
-        for _,button in ipairs(detail._action_buttons) do
-            if button.text==require('weread.lib.plugin_util').tr('Continue saved E-Ink chapter') then action=button end
+        for _,button in ipairs(detail._footer_actions) do
+            if button.text==require('weread.lib.plugin_util').tr('▤ Continue reading') then action=button end
         end
-        assert(action and action.enabled~=false,'missing detail resume action')
-        action.callback()
+        assert(action and action.enabled~=false,'missing primary detail resume action')
+        UI:forceRePaint()
+        if input.mode=='detail_closed' then
+            UI:close(detail)
+            assert(not host._book_detail_view,'detail did not close')
+            action.callback()
+            assert(not Reader.instance and not host._native_home_resume,'closed detail started a resume')
+            print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+            os.exit(0)
+        end
+        action:onTapFooterAction()
     else view.on_select(selected,'books') end
-    if input.mode=='damage' or input.mode=='detail_damage' then
+    if damage then
         pump(function() return message~=nil end)
         assert(not Reader.instance,'damaged native chapter opened')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})

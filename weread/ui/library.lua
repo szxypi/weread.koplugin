@@ -1626,17 +1626,19 @@ function M:showBookMenu(book)
             self:readCachedCopy(latest,view)
         end)}
     end
+    local native_resume_action
     if require('weread.lib.native_position_protocol').id(book_id) then
         local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
         if resume and resume.can_resume(self,saved,book_id) then
             local resume_scope=self.settings:get_auth_scope()
             local resume_session=self._reader_session_gen
-            actions[#actions+1]={text=_('Continue saved E-Ink chapter'),callback=self:safeCallback(_('Continue saved E-Ink chapter'),function()
+            native_resume_action=self:safeCallback(_('Continue saved E-Ink chapter'),function()
                 if self._book_detail_view~=view or self._reader_session_gen~=resume_session
                     or not self.settings:auth_scope_matches(resume_scope) then return end
                 local latest=self.settings:get_book(book_id)
-                if resume.can_resume(self,latest,book_id) then resume.open_detail(self,latest,book_id,view) end
-            end)}
+                if resume.can_resume(self,latest,book_id) then resume.open_detail(self,latest,book_id,view)
+                else self:showInfo(_('The saved E-Ink chapter changed or could not be verified. Choose a saved chapter instead.')) end
+            end)
         end
         actions[#actions+1]={text=_('Read E-Ink chapter'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
@@ -1671,8 +1673,8 @@ function M:showBookMenu(book)
             callback = open_chapter_list,
         },
         {
-            text = _("▤ Read"),
-            callback = self:safeCallback(_("Read"), function()
+            text = native_resume_action and _('▤ Continue reading') or _("▤ Read"),
+            callback = native_resume_action or self:safeCallback(_("Read"), function()
                 self:startBookReading(book, view)
             end),
         },

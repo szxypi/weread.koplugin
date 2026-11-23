@@ -428,6 +428,7 @@ local zh = {
     ["Read cached copy"] = "阅读已缓存章节",
     ["Read saved E-Ink chapter"] = "阅读已保存墨水屏章节",
     ["Continue saved E-Ink chapter"] = "继续阅读上次墨水屏章节",
+    ["▤ Continue reading"] = "▤ 继续阅读",
     ["The saved E-Ink chapter changed or could not be verified. Choose a saved chapter instead."] = "上次阅读的墨水屏章节已更改或无法核对，请选择已保存的章节。",
     ["Sign in to the account that saved these E-Ink chapters."] = "请登录保存这些墨水屏章节的账号。",
     ["Loading saved E-Ink chapters..."] = "正在查找已保存的墨水屏章节…",
