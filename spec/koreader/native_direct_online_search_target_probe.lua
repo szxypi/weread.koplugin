@@ -10,7 +10,7 @@ local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local settings=require('weread.lib.settings'):new();assert(settings.data_dir==home..'/weread')
 settings.mock_endpoint=input.mock_endpoint
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',{wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
+settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
 local scope=assert(settings:get_auth_scope())
 assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
 local native=assert(require('weread.lib.native_read_access').capture(settings))
