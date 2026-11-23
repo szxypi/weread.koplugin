@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-24",
+  "result": "NATIVE_DIRECT_OFFLINE_DRAFT_ROUNDTRIP_VERIFIED",
+  "book_samples": 1,
+  "chapter_samples": 1,
+  "reader_resolution": [1264, 1680],
+  "reader_environment": "isolated_koreader_reader",
+  "offline_draft_from_downloaded_source": true,
+  "offline_network_requests": 0,
+  "dry_run_account_data_posts": 0,
+  "account_data_posts": 3,
+  "independently_verified_steps": 3,
+  "conditional_highlight_cleanup_posts": 0,
+  "authentication_posts": 0,
+  "local_draft_removed_after_verified_submission": true,
+  "original_records_restored": true,
+  "original_reading_state_restored": true,
+  "derived_chapter_metadata_changed": false,
+  "credential_file_audit": true,
+  "temporary_profile_removed": true,
+  "intent_cleared": true,
+  "physical_kindle_tested": false
+}

@@ -25,6 +25,7 @@ from verify_translation_preflight import save_refreshed_web_session
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply',action='store_true');parser.add_argument('--expected-intent')
+    parser.add_argument('--offline-draft',action='store_true',help='Create the thought draft offline before reconnecting')
     parser.add_argument('--book-offset',type=int,choices=range(51),default=15)
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if not args.lua_command or args.apply!=bool(args.expected_intent):parser.error('runner and apply fingerprint required')
@@ -48,7 +49,8 @@ def main(argv=None):
         if state is None:
             phase='prepare_intent';receipt=store.prepare(probe.plan.bound)
         def persist_final():save_refreshed_web_session(session,saved,probe.web)
-        phase='reader';execute(probe,credentials,store,receipt,args.lua_command,source=source,armed=args.apply,report=report,on_final=persist_final)
+        phase='reader';execute(probe,credentials,store,receipt,args.lua_command,source=source,armed=args.apply,report=report,on_final=persist_final,
+            offline_draft=args.offline_draft)
         report['authentication_posts']=0
     except (Exception,KeyboardInterrupt) as error:
         report.update(result='UNVERIFIED',phase=phase,no_automatic_replay=True)

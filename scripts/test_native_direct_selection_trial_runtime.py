@@ -70,21 +70,23 @@ class Probe:
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
+    parser.add_argument('--offline-draft',action='store_true');args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-direct-trial-test-',dir='/dev/shm') as directory:
             candidate=Path(directory)/'candidate.zip'
             subprocess.run(['bash',str(REPO/'scripts/package_release.sh'),str(candidate)],cwd=REPO,check=True,capture_output=True)
             for width,height,dpi in ((600,800,167),(1264,1680,300)):
-                for armed,case in ((False,'normal'),(True,'normal'),(True,'lost_ack'),(True,'no_effect')):
+                cases=((False,'normal'),(True,'normal')) if args.offline_draft else ((False,'normal'),(True,'normal'),(True,'lost_ack'),(True,'no_effect'))
+                for armed,case in cases:
                     server.case=case;server.mode='selection_direct_trial';server.calls=[];server.leaked=False;server.valid=True;server.mark=None;server.review=None
                     probe=Probe(server);store=SelectionTrialStore(Backend());receipt=store.prepare(probe.plan.bound);report={}
                     source=dict(book_id='42',uid='37',book_version=1,source_sha256=probe.payload['source_raw_sha256'],
                         mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                     command=[sys.executable,str(REPO/'scripts/run_native_direct_selection_trial.py'),'--koreader',str(args.koreader),
                         '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
-                    try:execute(probe,probe.payload['selection_preview']['credentials'],store,receipt,command,source=source,armed=armed,report=report)
+                    try:execute(probe,probe.payload['selection_preview']['credentials'],store,receipt,command,source=source,armed=armed,report=report,offline_draft=args.offline_draft)
                     except Exception as error:
                         if case!='no_effect':raise AssertionError((width,armed,case,report,repr(error))) from error
                         assert report['result']=='UNVERIFIED' and store.read()[0]['phase']=='pending'
@@ -94,11 +96,13 @@ def main():
                         else:raise AssertionError('pending trial replayed')
                         assert len(server.calls)==count
                     else:assert case!='no_effect'
+                    if args.offline_draft:assert report['offline_draft_prepared'] and report['offline_draft_submitted']==armed
                     posts=[path for method,host,path in server.calls if method=='POST' and host=='i.weread.qq.com' and path.startswith('/review/')]
                     assert posts==(['/review/add'] if case=='no_effect' else ['/review/add','/review/useredit','/review/delete'] if armed else [])
                     assert server.valid and not server.leaked and server.review is None
                     assert (store.read()[0] is None)==(armed and case!='no_effect')
-        print('PASS: two dimensions; dry run, round trip, lost acknowledgements, and no-effect replay blocking')
+        print('PASS: two dimensions; offline draft dry run and round trip' if args.offline_draft else
+            'PASS: two dimensions; dry run, round trip, lost acknowledgements, and no-effect replay blocking')
     finally:server.shutdown();server.server_close();thread.join()
 
 

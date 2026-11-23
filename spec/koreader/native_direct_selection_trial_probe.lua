@@ -27,10 +27,11 @@ local credentials={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local capture=Access.capture
 Access.capture=function(s,existing) return capture(s,existing or credentials) end
 local client=require('weread.lib.client'):new(settings);local request=client.request
-local gate;local sequence=1
+local gate;local sequence=1;local online=not trial.offline_draft
 local native='https://i.weread.qq.com';local web='https://weread.qq.com'
 local writes={[native..'/review/add']='create',[native..'/review/useredit']='edit',[native..'/review/delete']='delete'}
 client.request=function(self,options)
+    assert(online,'direct_selection_trial/offline_network')
     local url,headers=options.url,options.headers or {};assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     local operation=writes[url]
     if operation then
@@ -72,7 +73,7 @@ local reader=Reader.instance;local library=require('weread.lib.library_db'):new(
 local entry=assert(require('weread.lib.native_direct_cache').identify(settings,scope.vid,input.path,function() return true end))
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.source_sha256==input.source_sha256)
 local host={ui=reader,settings=settings,client=client,library_db=library,_reader_session_gen=1,
-    isNetworkConnected=function() return true end,isNetworkOnline=function() return true end,
+    isNetworkConnected=function() return online end,isNetworkOnline=function() return online end,
     showBusy=function(self,label,cancel) self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message) end,
     closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
     showInputDialog=function(_,dialog) UI:show(dialog) end,showInfo=function(self,message) self.checked_message=message end,
@@ -97,6 +98,17 @@ local tr=require('weread.lib.plugin_util').tr
 local function tap(id)
     UI:forceRePaint();assert(owner.menu._shelf_popup.button_table:getButtonById(id)):onTapSelectButton()
 end
+if trial.offline_draft then
+    assert(owner.offline_source and require('weread.lib.native_direct_cache').read_raw_source(input.path,entry))
+    local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Write private thought') then action=item.callback end end
+    assert(action);action();assert(owner.editor and owner.editor.input)
+    owner.editor.input:setInputText(cfg.body.content);tap('save_thought_draft')
+    wait(function() return not owner.editor end);assert(host.checked_message==tr('Thought draft saved on this device.'))
+    Selection.cancel(host);online=true;host.checked_message=nil
+    assert(Selection.open(host,{text=cfg.reference.markText,pos0=first,pos1=last}))
+    owner=assert(host._selection_thought_owner);wait(function() return owner.reference~=nil or host.checked_message~=nil end)
+    assert(owner.reference and require('weread.lib.selection_reference').same(row,owner.reference))
+end
 local function perform(kind,content,reference)
     host.checked_message=nil
     if kind=='create' then
@@ -106,7 +118,11 @@ local function perform(kind,content,reference)
         local editor=require('weread.ui.thought_editor')
         assert(editor.start(host,owner,kind,reference,function(h,o) return h._selection_thought_owner==o end))
     end
-    if kind~='delete' then assert(owner.editor and owner.editor.input);owner.editor.input:setInputText(content);tap('submit_thought') end
+    if kind~='delete' then
+        assert(owner.editor and owner.editor.input)
+        if kind=='create' and trial.offline_draft then assert(owner.editor.input:getInputText()==content) end
+        owner.editor.input:setInputText(content);tap('submit_thought')
+    end
     wait(function() return not owner.editor or owner.editor.service.preview end);assert(owner.editor and owner.editor.service.preview)
     tap('confirm_thought_change');wait(function() return not owner.editor end)
 end
@@ -114,9 +130,11 @@ perform('create',cfg.body.content,row)
 local journal=require('weread.lib.thought_edit_store'):new(library,client)
 if not trial.armed then
     assert(gate:read().phase=='blocked' and journal:read().phase=='pending')
+    if trial.offline_draft then assert(#assert(journal:drafts())==1) end
     print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=0,posts=0,blocked=true});return
 end
 assert(host.checked_message==tr('Cloud thought change verified.') and journal:read().phase=='idle')
+if trial.offline_draft then assert(#assert(journal:drafts())==0) end
 local cache=require('weread.lib.my_cloud_marks_store'):new(library,client,'thoughts');local target
 for _,item in ipairs(assert(cache:read(input.book_id)).reviews) do
     if item.content==cfg.body.content and item.isPrivate==1 then assert(not target);target=item end

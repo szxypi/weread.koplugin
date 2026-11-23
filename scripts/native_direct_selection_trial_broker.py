@@ -12,8 +12,8 @@ from native_trial_pipe import Frames,reply,stop,write_initial
 from selection_trial_model import fingerprint
 
 
-def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_final=None):
-    if type(armed) is not bool or not command or not isinstance(source,dict):raise ValueError('direct_selection_trial/input')
+def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_final=None,offline_draft=False):
+    if type(armed) is not bool or type(offline_draft) is not bool or not command or not isinstance(source,dict):raise ValueError('direct_selection_trial/input')
     state,current=store.read();probe.current()
     if state is None or current!=receipt or state['phase']!='prepared' or state['plan']!=probe.plan.bound:
         raise ValueError('direct_selection_trial/intent')
@@ -25,6 +25,7 @@ def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_fin
         source_sha256=source['source_sha256'],web_cookies=probe.payload['cookies'],selection_preview=cfg,
         trial=dict(armed=armed,rpc_token=token,original_ids=sorted(probe.plan.baseline['thoughts']),
             edited_text=note_text(probe.plan.bound['nonce'],True)))
+    if offline_draft:payload['trial']['offline_draft']=True
     # The caller never sends real credentials to a mock endpoint.
     if source.get('mock_endpoint') is not None:payload['mock_endpoint']=source['mock_endpoint']
     if armed:receipt=store.claim(receipt)
@@ -69,6 +70,7 @@ def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_fin
             claims=claims,independent_steps=steps,account_data_posts=3+probe.cleanup_posts if armed and not source.get('mock_endpoint') else 0,
             synthetic_posts=3+probe.cleanup_posts if armed and source.get('mock_endpoint') else 0,cleanup_posts=probe.cleanup_posts,temporary_profile_removed=True,credential_file_audit=True,
             installed_bytes_match=True,no_automatic_replay=True,intent_fingerprint=fingerprint(probe.plan.bound))
+        if offline_draft:report['offline_draft_submitted']=armed;report['offline_draft_prepared']=True
         if armed:
             report['original_records_restored']=True
             report['derived_chapter_metadata_changed']=probe.derived_chapter_metadata_changed
