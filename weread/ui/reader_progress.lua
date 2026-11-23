@@ -103,6 +103,8 @@ function M.show(host,options)
     local prev_action,next_action
     if can_open and prev then prev_action=function() open_chapter(-1) end end
     if can_open and next_chapter then next_action=function() open_chapter(1) end end
+    if type(options.previous_action)=='function' then prev_action=function() finish(options.previous_action) end end
+    if type(options.next_action)=='function' then next_action=function() finish(options.next_action) end end
     if options.native_chapters and type(ui.toc)=='table' then
         local function has_target(method)
             if type(ui.toc[method])~='function' then return false end
@@ -117,9 +119,19 @@ function M.show(host,options)
     local scope=options.single_chapter and _('Current chapter file') or _('Current file')
     local heading=util.T(_('%1 · page %2 / %3 · %4%'),scope,snapshot.page,snapshot.total,
         string.format('%.1f',snapshot.percent))
+    if type(options.chapter_number)=='number' and type(options.chapter_count)=='number'
+        and options.chapter_number%1==0 and options.chapter_count%1==0 and options.chapter_number>=1
+        and options.chapter_number<=options.chapter_count and options.chapter_count<=20000 then
+        heading=heading..'\n'..util.T(_('Chapter %1 / %2'),tostring(options.chapter_number),tostring(options.chapter_count))
+    end
     if options.single_chapter then
-        local ok,estimate=pcall(require('weread.lib.reader_whole_estimate').for_document,
-            snapshot.document,options.book,options.chapters,options.chapter_index,options.chapter_uid,snapshot.percent)
+        local ok,estimate
+        if type(options.estimate)=='function' then ok,estimate=pcall(options.estimate,snapshot.percent)
+        else
+            ok,estimate=pcall(require('weread.lib.reader_whole_estimate').for_document,
+                snapshot.document,options.book,options.chapters,options.chapter_index,options.chapter_uid,snapshot.percent)
+        end
+        if type(estimate)~='number' or estimate~=estimate or estimate<0 or estimate>100 then estimate=nil end
         if ok and estimate then
             state.whole_estimate=estimate
             heading=heading..'\n'..util.T(_('Whole book ≈ %1% (loaded catalog estimate)'),string.format('%.1f',estimate))

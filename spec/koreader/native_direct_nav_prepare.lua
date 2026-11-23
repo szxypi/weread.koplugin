@@ -9,7 +9,8 @@ local home=assert(os.getenv('KO_HOME'));local scope={vid=input.credentials.vid,e
 local data_dir=input.plugin_profile and home..'/weread' or home
 if input.plugin_profile then assert(require('libs/libkoreader-lfs').mkdir(data_dir)) end
 local settings={data_dir=data_dir,cache_dir=data_dir,mock_endpoint=input.mock_endpoint,
-    get=function(_,_,default) return default end,get_auth_scope=function() return scope end,
+    get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end,
+    get_auth_scope=function() return scope end,
     auth_scope_matches=function(_,value) return value==scope end}
 local store={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local original=Access.capture
@@ -48,5 +49,11 @@ for _,index in ipairs((input.mode=='two' or input.mode=='full' or input.mode=='c
             {book_id='42',title='Synthetic',author='Fixture'},row,prepared,function() return true end))
         assert(missing.path~=saved.path);output.missing_copy=missing.path
     end
+end
+if input.plugin_profile then
+    local library=require('weread.lib.library_db'):new(settings)
+    local compact=assert(require('weread.ui.native_direct_reading').project(catalog,'42'))
+    assert(require('weread.lib.native_direct_catalog_store').save(library,settings,client,scope,compact,function() return true end),
+        'synthetic catalog estimate was not saved')
 end
 print('WEREAD_DIRECT_NAV_PREPARED='..json.encode(output))

@@ -1038,6 +1038,7 @@ local zh = {
     ["Current chapter file"] = "当前章节",
     ["Previous chapter"] = "上一章",
     ["Current file"] = "当前文件",
+    ["Chapter %1 / %2"] = "第 %1 / %2 章",
     ["%1 · page %2 / %3 · %4%"] = "%1 · 第 %2 / %3 页 · %4%",
     ["Whole book ≈ %1% (loaded catalog estimate)"] = "全书约 %1%（按已载入目录估算）",
     ["The loaded catalog may be incomplete."] = "目录可能不完整。",

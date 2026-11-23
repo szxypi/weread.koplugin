@@ -340,6 +340,10 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,openFile=function() error('batch unexpectedly opened reader') end}
+if input.mode=='catalog_capture' then
+    settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
+    host.library_db=require('weread.lib.library_db'):new(settings)
+end
 host:showBookMenu({book_id='42',title='Synthetic',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
 for _,button in ipairs(view._action_buttons) do
@@ -348,7 +352,33 @@ end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
-if input.mode=='cancel' then
+if input.mode=='catalog_capture' then
+    local cache=require('weread.lib.native_direct_cache')
+    local rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==3)
+    local entry=rows[1];entry.file_id=assert(cache.open(settings,scope.vid,'42',entry,function() return true end)).file_id
+    local catalog_store=require('weread.lib.native_direct_catalog_store')
+    local saved=assert(catalog_store.read(host.library_db,settings,client,scope,entry,function() return true end))
+    assert(catalog_store.estimate(saved,entry,50)>0,
+        'production chapter catalog was not saved for local progress')
+    local old_scope=scope;scope={vid='87654321',epoch=2}
+    assert(not catalog_store.read(host.library_db,settings,client,scope,entry,function() return true end),
+        'another account read this catalog')
+    scope=old_scope
+    local original=host._native_direct_reading.catalog
+    local changed={book_id=original.book_id,version=original.version,reading_digest=original.reading_digest,chapters={}}
+    for index,row in ipairs(original.chapters) do
+        changed.chapters[index]={};for key,value in pairs(row) do changed.chapters[index][key]=value end
+    end
+    changed.chapters[1].wordCount=changed.chapters[1].wordCount+1
+    local checks=0
+    assert(not catalog_store.save(host.library_db,settings,client,scope,changed,function()
+        checks=checks+1;return checks<3
+    end),'stale catalog was committed')
+    local restored=assert(catalog_store.read(host.library_db,settings,client,scope,entry,function() return true end))
+    assert(restored.chapters[1].words==saved.chapters[1].words,'failed save changed the stored catalog')
+    confirm.cancel_callback();UI:close(confirm)
+    assert(not host._native_direct_reading and not host.busy_message)
+elseif input.mode=='cancel' then
     confirm.cancel_callback();UI:close(confirm)
     assert(not host._native_direct_reading and not host.busy_message)
 elseif input.mode=='stale' then

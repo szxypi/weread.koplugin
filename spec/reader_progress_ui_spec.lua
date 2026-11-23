@@ -103,4 +103,22 @@ manager.show=original_show
 local saved_document=host.ui.document;host.ui.document=nil;info=nil
 assert(not Progress.show(host,opts) and info=='Reading progress is unavailable for this file.')
 host.ui.document=saved_document
+local direct_previous,direct_next=0,0
+local direct={single_chapter=true,chapter_number=2,chapter_count=3,
+    estimate=function(percent) assert(percent==20);return 40 end,
+    previous_action=function() direct_previous=direct_previous+1 end,
+    next_action=function() direct_next=direct_next+1 end,
+    is_current=function() return true end}
+assert(Progress.show(host,direct))
+assert(shown.title:find('Current chapter file',1,true) and shown.title:find('Chapter 2 / 3',1,true)
+    and shown.title:find('Whole book ≈ 40.0%',1,true))
+button('progress_previous_chapter').callback();tasks[#tasks]()
+assert(direct_previous==1 and direct_next==0,'native previous action was not invoked')
+assert(Progress.show(host,direct));button('progress_next_chapter').callback();account='two';tasks[#tasks]();account='one'
+assert(direct_next==0,'stale native chapter action was invoked')
+assert(Progress.show(host,direct));button('progress_next_chapter').callback();tasks[#tasks]()
+assert(direct_next==1,'native next action was not invoked')
+direct.estimate=function() return 101 end
+assert(Progress.show(host,direct) and not host._weread_reader_progress.whole_estimate)
+assert(shown.title:find('Whole-book estimate unavailable.',1,true));Progress.cancel(host)
 print('reader_progress_ui_spec: native events, chapter navigation and cancellation passed')

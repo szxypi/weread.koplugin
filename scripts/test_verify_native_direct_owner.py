@@ -101,6 +101,40 @@ class NativeDirectOwnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue())['result'],
                 'NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED' if full else 'UNVERIFIED')
 
+    def test_progress_estimate_requires_complete_weights_and_independent_result(self):
+        rows=[dict(uid=0,wordCount=0),dict(uid=37,wordCount=300),dict(uid=38,wordCount=700)]
+        sample={'book_id':'42','expected':{'format':'epub','version':1,'chapters':rows}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,rows[1],{'html':True,'source':b'private text'}))
+        result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,
+            installed_bytes_match=True,full_ui=True)
+        marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+        for checked in (False,True):
+            if checked:result['progress_estimate_verified']=True
+            child=SimpleNamespace(returncode=0,stdout=marker+json.dumps(result).encode()+b'\n')
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child) as run,\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123'}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                code=task.main(['--saved-session','--home','--home-full-ui','--progress-estimate','--lua-command','runner'])
+            self.assertEqual(code,0 if checked else 1)
+            self.assertEqual(json.loads(run.call_args.kwargs['input'])['progress_estimate'],
+                dict(order=1,count=2,before=0,words=300,total=1000))
+            self.assertNotIn('private text',output.getvalue())
+            self.assertNotIn('private-token',output.getvalue())
+        del rows[2]['wordCount']
+        with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run') as run,\
+                redirect_stdout(io.StringIO()):
+            saved.return_value.load.return_value={'vid':'123'}
+            native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+            self.assertEqual(task.main(['--saved-session','--home','--home-full-ui','--progress-estimate','--lua-command','runner']),1)
+        run.assert_not_called()
+
     def test_home_web_progress_is_independently_compared(self):
         sample={'book_id':'42','expected':{'format':'epub','version':1}}
         probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},

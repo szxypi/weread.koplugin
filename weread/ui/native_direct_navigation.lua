@@ -238,7 +238,17 @@ function M.start(host,direction,notes)
                 require('weread.ui.native_direct_search').open(host,entry)
             end,
             on_read_stats=function() if current() then M.cancel(host);host:showReadStats() end end,
-            on_reader_progress=function() if current() then require('weread.ui.reader_progress').show(host,{is_current=current}) end end,
+            on_reader_progress=function()
+                if not current() then return end
+                local entry=ctx.entry
+                require('weread.ui.reader_progress').show(host,{is_current=current,single_chapter=true,
+                    chapter_number=entry.catalog_order,chapter_count=entry.catalog_count,
+                    previous_action=entry.catalog_prev and function() step(-1) end or nil,
+                    next_action=entry.catalog_next and function() step(1) end or nil,
+                    estimate=function(percent)
+                        return require('weread.lib.native_direct_catalog_store').estimate(ctx.progress_catalog,entry,percent)
+                    end})
+            end,
             on_reader_typography=function() if current() then require('weread.ui.reader_typography').show(host) end end,
             on_reader_display=function() if current() then require('weread.ui.reader_display').show(host,{is_current=current}) end end,
             on_delayed_screenshot=function() if current() then host:onShowWeReadDelayedScreenshot() end end,
@@ -252,13 +262,19 @@ function M.start(host,direction,notes)
     busy('Checking saved E-Ink chapter...')
     run(function()
         local entry=Cache.identify(host.settings,scope.vid,path,current)
-        return entry and {entry=entry} or {error='invalid'}
+        if not entry then return {error='invalid'} end
+        local ok,catalog=pcall(require('weread.lib.native_direct_catalog_store').read,
+            host.library_db,host.settings,host.client,scope,entry,current)
+        return {entry=entry,progress_catalog=ok and catalog or nil}
     end,function(value)
         if type(value)~='table' or type(value.entry)~='table'
             or not Cache.valid_entry(value.entry,value.entry.book_id,scope.vid) then
             fail('The saved chapter changed or could not be verified. Existing files were kept.');return
         end
         ctx.entry=value.entry
+        if require('weread.lib.native_direct_catalog_store').matches(value.progress_catalog,value.entry) then
+            ctx.progress_catalog=value.progress_catalog
+        end
         if notes then
             local id=ctx.entry.book_id
             local identity=require('weread.lib.book_file_identity').read_document(document,id)

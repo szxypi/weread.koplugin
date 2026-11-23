@@ -63,6 +63,7 @@ def main(argv=None):
     parser.add_argument('--online-missing',action='store_true',help='Also verify cancel and confirmed missing-chapter download')
     parser.add_argument('--home',action='store_true',help='Verify native home resume in a fresh offline process')
     parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
+    parser.add_argument('--progress-estimate',action='store_true',help='Check the native chapter progress panel offline')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--store-search',action='store_true',help='Select an off-shelf book through a public search')
     parser.add_argument('--quick-search',action='store_true',help='Search the bookstore from the native reader')
@@ -79,6 +80,7 @@ def main(argv=None):
         parser.error('online search requires neighbor and Web progress comparison')
     if args.online_missing and not args.online_search:parser.error('online missing requires online search')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
+    if args.progress_estimate and not args.home_full_ui:parser.error('progress estimate requires full home UI')
     if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies or args.image_refresh):
         parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
@@ -119,6 +121,15 @@ def main(argv=None):
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']))
+            if args.progress_estimate:
+                rows=[row for row in sample['expected']['chapters'] if row['uid']>0]
+                if not 1<=len(rows)<=20000 or any(type(row.get('wordCount')) is not int
+                    or not 0<=row['wordCount']<=100000000 for row in rows):raise ValueError('progress_catalog')
+                index=next(i for i,row in enumerate(rows) if row['uid']==chapter['uid'])
+                weights=[row['wordCount'] for row in rows];total=sum(weights)
+                if not 0<weights[index]<=total<=2000000000000:raise ValueError('progress_weights')
+                payload['progress_estimate']=dict(order=index+1,count=len(rows),before=sum(weights[:index]),
+                    words=weights[index],total=total)
             if args.store_search:
                 styles=re.findall(r'<style\b[^>]*>(.*?)</style\s*>',native['source'].decode('utf-8'),re.I|re.S)
                 if (len(styles)!=1 or not 0<len(styles[0].encode())<=32768 or '\\' in styles[0]
@@ -194,6 +205,7 @@ def main(argv=None):
                 if args.home_full_ui:required.add('full_ui')
                 if args.store_search:required|={'store_search','inline_style_verified'}
                 if args.quick_search:required.add('quick_search')
+                if args.progress_estimate:required.add('progress_estimate_verified')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
@@ -216,6 +228,7 @@ def main(argv=None):
                 if args.compare_web_progress:report['web_position_unchanged']=True
                 if args.store_search:report.update(store_search=True,off_shelf=True,web_shelf_unchanged=True,inline_style_verified=True)
                 if args.quick_search:report['quick_search_verified']=True
+                if args.progress_estimate:report['progress_estimate_verified']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}

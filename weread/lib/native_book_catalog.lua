@@ -40,7 +40,8 @@ function M.project(raw,book_id,info)
             local words=item.wordCount or 0
             if words>100000000 then return model end
             chapters[#chapters+1]={chapterUid=string.format('%.0f',item.uid),title=title,
-                chapterIdx=a or b,level=level,wordCount=words,downloadable=item.free_or_owned==true}
+                chapterIdx=a or b,level=level,wordCount=words,wordCountKnown=item.wordCount~=nil,
+                downloadable=item.free_or_owned==true}
             digest_parts[#digest_parts+1]=string.format('%.0f:%s:%.0f;',item.uid,
                 a~=nil and tostring(a) or b~=nil and tostring(b) or '-',level)
         end

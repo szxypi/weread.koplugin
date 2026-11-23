@@ -40,7 +40,7 @@ def expected(raw, book_id, info):
         level=integer(source['level'],100) if 'level' in source else 1
         words=item.get('wordCount',0)
         if words>100000000:raise ValueError('words')
-        row=dict(chapterUid=str(item['uid']),title=title,level=level,wordCount=words,
+        row=dict(chapterUid=str(item['uid']),title=title,level=level,wordCount=words,wordCountKnown='wordCount' in item,
                  downloadable=item['free_or_owned'])
         if a is not None or b is not None:row['chapterIdx']=a if a is not None else b
         result.append(row)
@@ -83,7 +83,12 @@ def main(argv=None):
                 info=api.request('book',BASE+'/book/info?'+urlencode({'bookId':key}),credentials=credentials)
                 raw=api.request('catalog',BASE+'/book/chapterInfos',catalog_body(key),credentials=credentials)
                 chapters,readable=compare(raw,key,info,args.lua_command)
-                sizes.append(dict(chapters=chapters,explicitly_free_or_owned=readable))
+                weights=expected(raw,key,info)['chapters']
+                known=sum(row['wordCountKnown'] for row in weights)
+                zero=sum(row['wordCountKnown'] and row['wordCount']==0 for row in weights)
+                sizes.append(dict(chapters=chapters,explicitly_free_or_owned=readable,
+                    word_counts_known=known,zero_word_count=zero,
+                    complete_weights=known==chapters and sum(row['wordCount'] for row in weights)>0))
             if state_hash(api.request('shelf',BASE+'/shelf/sync',credentials=credentials))!=before:
                 raise ValueError('shelf_changed')
             report.update(result='NATIVE_BOOK_CATALOG_READONLY_VERIFIED',samples=sizes,shelf_unchanged=True)

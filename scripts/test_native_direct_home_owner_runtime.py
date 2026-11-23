@@ -38,6 +38,7 @@ def main():
     parser.add_argument('--koreader', type=Path, required=True)
     parser.add_argument('--store-only', action='store_true')
     parser.add_argument('--quick-only', action='store_true')
+    parser.add_argument('--progress-only', action='store_true')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', 0), StoreHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -56,6 +57,8 @@ def main():
                     continue
                 if args.quick_only and not quick_search:
                     continue
+                if args.progress_only and (not full_ui or store_search):
+                    continue
                 server.mode = 'selection_direct_overlay'
                 server.calls, server.leaked, server.valid, server.review = [], False, True, None
                 fixture.BODY = BODY.replace('<body>','<head><style>/* synthetic */ p{margin-left:7px}</style></head><body>') if store_search else BODY
@@ -69,6 +72,9 @@ def main():
                     '--height', str(height), '--dpi', str(dpi)]
                 if full_ui:
                     command.append('--full-ui')
+                if args.progress_only:
+                    command.append('--progress-estimate')
+                    payload['progress_estimate']=dict(order=1,count=2,before=0,words=500,total=1000)
                 if store_search:
                     command.append('--store-search')
                     payload['store_search_keyword']='Synthetic'
@@ -87,6 +93,7 @@ def main():
                 assert result.get('store_search', False) is store_search
                 assert result.get('inline_style_verified', False) is store_search
                 assert result.get('quick_search', False) is quick_search
+                assert result.get('progress_estimate_verified',False) is args.progress_only
                 assert server.valid and not server.leaked
                 assert all(path in ('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
                 assert any(path=='/store/search' for _,_,path in server.calls) is store_search

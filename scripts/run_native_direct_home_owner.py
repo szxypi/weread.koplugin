@@ -27,11 +27,14 @@ def main(argv=None):
     parser.add_argument('--full-ui', action='store_true')
     parser.add_argument('--store-search', action='store_true')
     parser.add_argument('--quick-search', action='store_true')
+    parser.add_argument('--progress-estimate', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
     if args.quick_search and not args.store_search:
         parser.error('quick search requires store search')
+    if args.progress_estimate and not args.full_ui:
+        parser.error('progress estimate requires full UI')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -54,6 +57,16 @@ def main(argv=None):
         if args.store_search and (not isinstance(payload.get('inline_style'),str)
                 or not 0<len(payload['inline_style'].encode())<=32768):
             raise ValueError('inline_style')
+        progress=payload.get('progress_estimate')
+        if args.progress_estimate:
+            if (not isinstance(progress,dict) or set(progress)!={'order','count','before','words','total'}
+                    or any(type(value) is not int for value in progress.values())
+                    or not 1<=progress['order']<=progress['count']<=20000
+                    or not 0<=progress['before']<progress['total']<=2000000000000
+                    or not 0<progress['words']<=progress['total']-progress['before']):
+                raise ValueError('progress_estimate')
+        elif progress is not None:
+            raise ValueError('progress_estimate')
         with tempfile.TemporaryDirectory(prefix='weread-native-home-owner-', dir='/dev/shm') as directory:
             root = Path(directory)
             profile, xdg = root/'profile', root/'xdg'
@@ -117,6 +130,8 @@ def main(argv=None):
                 private = dict(mode=mode, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
                 if args.store_search:
                     private['store_search'] = True
+                if args.progress_estimate:
+                    private['progress_estimate'] = progress
                 code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                                                 str(REPO), str(REPO/'spec/koreader/native_home_resume_probe.lua')], env,
                                                json.dumps(private).encode(), runtime, timeout=150)
@@ -124,7 +139,9 @@ def main(argv=None):
                     match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                     if match:
                         report['probe_line'] = int(match.group(1))
-                if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != dict(ok=True, mode=mode, network_blocked=True):
+                expected=dict(ok=True, mode=mode, network_blocked=True)
+                if args.progress_estimate: expected['progress_estimate']=True
+                if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != expected:
                     raise ValueError('home')
             phase = 'audit'
             credentials = payload['credentials']
@@ -152,6 +169,8 @@ def main(argv=None):
                 report['inline_style_verified'] = True
             if args.quick_search:
                 report['quick_search'] = True
+            if args.progress_estimate:
+                report['progress_estimate_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

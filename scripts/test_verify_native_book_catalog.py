@@ -31,6 +31,7 @@ class VerifyNativeCatalogTests(unittest.TestCase):
         raw,info=fixture();expected=task.expected(raw,'456',info)
         self.assertEqual([r['chapterUid'] for r in expected['chapters']],['7','8','9'])
         self.assertEqual([r['downloadable'] for r in expected['chapters']],[True,True,False])
+        self.assertTrue(all(row['wordCountKnown'] for row in expected['chapters']))
         def runner(_command,**kwargs):
             self.assertEqual(json.loads(kwargs['input'])['book_id'],'456')
             return subprocess.CompletedProcess([],0,task.FRAME+json.dumps(expected).encode()+b'\n')
@@ -45,6 +46,12 @@ class VerifyNativeCatalogTests(unittest.TestCase):
             with self.subTest(bad=bad),self.assertRaises(ValueError):task.expected(raw,'456',info)
         raw,info=fixture();raw['data'][0]['updated'][1]['chapterIndex']=2
         with self.assertRaises(ValueError):task.expected(raw,'456',info)
+
+    def test_missing_word_count_is_not_a_known_zero(self):
+        raw,info=fixture();del raw['data'][0]['updated'][1]['wordCount']
+        row=task.expected(raw,'456',info)['chapters'][0]
+        self.assertEqual(row['wordCount'],0)
+        self.assertIs(row['wordCountKnown'],False)
 
 
 if __name__=='__main__':unittest.main()

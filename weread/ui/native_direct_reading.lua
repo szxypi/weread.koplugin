@@ -34,9 +34,13 @@ local function project(model,id)
     for index,row in ipairs(model.reading_chapters) do
         if type(row)~='table' or type(row.chapterUid)~='string' or Protocol.id(row.chapterUid)~=row.chapterUid
             or seen[row.chapterUid] or not text(row.title,2048) or type(row.downloadable)~='boolean'
+            or row.wordCountKnown~=nil and type(row.wordCountKnown)~='boolean'
+            or row.wordCountKnown==true and not Protocol.integer(row.wordCount,0,100000000)
+            or row.wordCountKnown==false and row.wordCount~=nil and row.wordCount~=0
             or row.chapterIdx~=nil and not Protocol.integer(row.chapterIdx,0,1000000) then return nil end
         seen[row.chapterUid]=true
         rows[index]={chapterUid=row.chapterUid,title=row.title,chapterIdx=row.chapterIdx,downloadable=row.downloadable,
+            wordCount=row.wordCountKnown and row.wordCount or nil,wordCountKnown=row.wordCountKnown,
             catalog_order=index,catalog_count=#model.reading_chapters}
     end
     for index,row in ipairs(rows) do
@@ -215,6 +219,10 @@ function M.start(host,book,view,options)
                         or (value=='native_auth/native_catalog_info/http_429' or value=='native_auth/native_catalog_catalog/http_429') and 'rate_limited' or 'unavailable'}
                 end
                 local result=project(value,id)
+                if result and host.library_db then
+                    pcall(require('weread.lib.native_direct_catalog_store').save,host.library_db,host.settings,host.client,
+                        scope,result,current)
+                end
                 return result or {error='unavailable'}
             end
             local expected={book_id=id,chapter_uid=ctx.chapter.chapterUid,book_version=ctx.catalog.version,

@@ -17,6 +17,11 @@ assert(#value.reading_chapters==3 and value.reading_chapters[1].chapterUid=='7'
     and value.reading_chapters[1].chapterIdx==1 and value.reading_chapters[1].downloadable
     and value.reading_chapters[2].chapterIdx==2 and value.reading_chapters[2].downloadable
     and value.reading_chapters[3].chapterIdx==nil and not value.reading_chapters[3].downloadable)
+assert(value.reading_chapters[1].wordCountKnown and value.reading_chapters[1].wordCount==1500)
+local without_info,without_raw=fixture();without_raw.data[1].updated[3].wordCount=nil
+local without_words=Catalog.project(without_raw,'456',without_info)
+assert(without_words.reading_chapters[2].wordCount==0 and not without_words.reading_chapters[2].wordCountKnown,
+    'missing chapter count was confused with a known zero')
 assert(raw.data[1].updated[3].chapterUid=='8','source catalog was modified')
 local changed_info,changed_raw=fixture();changed_raw.data[1].updated[2].chapterIdx=0
 local changed=Catalog.project(changed_raw,'456',changed_info)

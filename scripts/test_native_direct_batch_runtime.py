@@ -75,7 +75,7 @@ def run(runtime):
                     payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                         refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
                         mock_endpoint='http://127.0.0.1:'+str(server.server_port))
-                    for mode in ('cancel', 'stale', 'fail', 'resume', 'repeat', 'offline'):
+                    for mode in ('cancel', 'stale', 'fail', 'resume', 'repeat', 'offline', 'catalog_capture'):
                         if mode == 'resume':
                             server.resume_marker.touch()
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),

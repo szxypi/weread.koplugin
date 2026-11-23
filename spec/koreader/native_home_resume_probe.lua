@@ -111,6 +111,28 @@ else
     local file=assert(io.open(home..'/anchor','rb'));local anchor=assert(file:read('*a'));file:close()
     assert(reader.document:isXPointerInCurrentPage(anchor),'native page was not restored')
     assert(not reader.weread:detectWeReadBook(),'native resume gained Web position authority')
+    if input.progress_estimate then
+        local expected=input.progress_estimate;local active=reader.weread
+        assert(input.mode=='reopen' and type(expected)=='table')
+        assert(active:onShowWeReadQuickMenu())
+        pump(function()
+            local top=UI:getTopmostVisibleWidget()
+            return top and type(top.getButtonById)=='function' and top:getButtonById('reader_progress')~=nil
+        end)
+        assert(UI:getTopmostVisibleWidget():getButtonById('reader_progress')):onTapSelectButton()
+        pump(function() return active._weread_reader_progress~=nil end)
+        local state=assert(active._weread_reader_progress)
+        local wanted=(expected.before+expected.words*state.snapshot.percent/100)/expected.total*100
+        assert(type(state.whole_estimate)=='number' and math.abs(state.whole_estimate-wanted)<1e-7,
+            'native progress estimate differed from independent catalog weights')
+        local util=require('weread.lib.plugin_util')
+        assert(state.dialog.title:find(util.T(util.tr('Chapter %1 / %2'),tostring(expected.order),tostring(expected.count)),1,true),
+            'native progress panel displayed the wrong chapter')
+        assert(reader.document:isXPointerInCurrentPage(anchor),'progress panel changed the reading page')
+        UI:close(state.dialog)
+    end
 end
-print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+local result={ok=true,mode=input.mode,network_blocked=true}
+if input.progress_estimate then result.progress_estimate=true end
+print('WEREAD_NATIVE_HOME='..json.encode(result))
 os.exit(0)

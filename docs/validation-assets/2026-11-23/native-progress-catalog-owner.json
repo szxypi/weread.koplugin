@@ -1,0 +1,17 @@
+{
+  "result": "NATIVE_BOOK_CATALOG_READONLY_VERIFIED",
+  "samples": [
+    {"chapters": 41, "word_counts_known": 41, "zero_word_count": 0, "complete_weights": true},
+    {"chapters": 31, "word_counts_known": 31, "zero_word_count": 0, "complete_weights": true},
+    {"chapters": 42, "word_counts_known": 42, "zero_word_count": 0, "complete_weights": true}
+  ],
+  "python_koreader_catalog_projection_match": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_comparison": 0,
+  "prior_expiry_checks": {"http_401": 2, "account_data_writes": 0},
+  "separate_credential_renewal": {"attempts": 1, "same_owner": true, "keychain_readback": true},
+  "private_data_saved": false,
+  "real_reader_panel_tested": false,
+  "physical_kindle_tested": false
+}
