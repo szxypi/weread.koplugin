@@ -65,7 +65,9 @@ class UnstartedTimeTests(unittest.TestCase):
         backend=MemoryBackend();intent=Intent(backend=backend)
         with patch.object(task,'store',return_value=intent),patch.object(task,'other_pending',return_value=False),\
              patch.object(task,'SessionStore',Sessions),patch.object(task,'NativeSessionStore',Natives),\
-             patch.object(task,'PriorGuard',Prior),patch.object(task,'ChapterProbe',Chapter),\
+             patch.object(task,'PriorGuard',Prior),patch.object(task,'successor_store',return_value=object()),\
+             patch.object(task,'auto_store',return_value=object()),patch.object(task,'Intent',return_value=object()),\
+             patch.object(task,'ChapterProbe',Chapter),\
              patch.object(task,'NativeRead',Read),patch.object(task,'Native',Capability),patch.object(task,'WebSourceProbe',Web),\
              patch.object(task,'state_hash',return_value='shelf-hash'),patch.object(task,'web_cookies',return_value=saved['cookies']),\
              patch.object(task,'local_zone',return_value='+08:00'),patch.object(task,'time',clock),\
