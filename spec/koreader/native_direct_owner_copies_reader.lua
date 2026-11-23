@@ -12,7 +12,7 @@ local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 assert(settings.data_dir==home..'/weread')
 settings:set('account',{user_vid=input.vid,name='Offline fixture',login_method='qr'})
-settings:set('cookies',{wr_vid=input.vid,wr_skey='synthetic-offline-cookie'});settings:flush()
+settings:set('cookies',{['wr_'..'vid']=input.vid,wr_skey='synthetic-offline-cookie'});settings:flush()
 local PluginLoader=require('pluginloader')
 PluginLoader.enabled_plugins,PluginLoader.disabled_plugins,PluginLoader.loaded_plugins={},{},{}
 for _,entry in ipairs(PluginLoader:_discover()) do if entry.name=='weread' then PluginLoader:_load{entry} end end
