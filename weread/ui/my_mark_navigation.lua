@@ -134,13 +134,13 @@ function M.start(host,owner,row,is_current)
             and age<=(job.downloading and 1800 or 120)
             and (not host.ui.document and not job.location or Context.same_location(job.location,at))
     end
-    local function fail()
+    local function fail(message)
         if owner.navigation~=job then return end
         if not current() then M.cancel(host,owner);return end
         M.cancel(host,owner)
-        host:showInfo(_(job.failed_label))
+        host:showInfo(_(message or job.failed_label))
     end
-    local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=4*1024*1024} end)
+    local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=4*1024*1024,timeout=180} end)
     if not ok then fail();return false end
     job.worker=worker
     local book=host.settings:get_book(owner.id) or {book_id=owner.id,title=''}
@@ -316,6 +316,69 @@ function M.start(host,owner,row,is_current)
                 job.task=advance;UI:scheduleIn(.1,advance)
             end)
         end
+        local function other_chapter(entry)
+            local mark=owner.thoughts and {bookmarkId='\1'..job.row.reviewId,type=1,chapterUid=job.row.chapterUid,
+                markText=job.row.abstract,range=job.row.range} or {bookmarkId=job.row.bookmarkId,type=job.row.type,
+                chapterUid=job.row.chapterUid,markText=job.row.markText,range=job.row.range}
+            local function safe_text(value)
+                return type(value)=='string' and #value<=2048 and not value:find('[%z%c]')
+                    and require('weread.lib.protocol').utf8_substr(value,#value)==value and value or ''
+            end
+            local target_book={book_id=owner.id,title=safe_text(book.title),author=safe_text(book.author)}
+            local online=host.isNetworkOnline and host:isNetworkOnline() or false
+            run(function()
+                local resolved,why=require('weread.lib.native_direct_note_target').resolve(host.client,host.settings,
+                    host.library_db,entry,file,target_book,mark,online,function() return host.settings:auth_scope_matches(owner.scope) end)
+                return resolved or {error=why or 'unavailable'}
+            end,function(result)
+                if not file_current(entry) then fail();return end
+                local target=type(result)=='table' and result.entry
+                if not target or not Cache.valid_entry(target,owner.id,owner.scope.vid)
+                    or target.chapter_uid~=tostring(mark.chapterUid) or target.book_version~=entry.book_version
+                    or target.catalog_sha256~=entry.catalog_sha256 or target.catalog_count~=entry.catalog_count
+                    or not require('weread.lib.native_direct_path').contains(host.settings,result.path) then
+                    local reason=type(result)=='table' and result.error
+                    fail(reason=='not_saved' and 'The target chapter or its verified source is unavailable offline. Connect and try again.'
+                        or reason=='ambiguous' and 'Multiple saved versions of the target chapter disagree. The current chapter was kept.'
+                        or reason=='catalog_missing' and 'Chapter order is unavailable. Reopen this chapter online to update it.'
+                        or reason=='catalog_changed' and 'The chapter list changed. Please open it again.'
+                        or reason=='not_entitled' and 'The cloud chapter is not available to this account.'
+                        or reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+                        or reason=='auth_expired' and 'E-Ink authorization expired. Please authorize again.' or nil);return
+                end
+                local started=os.time();local used=false;local destination=result.path
+                local function receive(reader)
+                    if used then return false end
+                    used=true
+                    local age=os.time()-started;local next_host=reader and reader.weread
+                    local doc=next_host and next_host.ui and next_host.ui.document
+                    if age<0 or age>180 or (host._reader_session_gen or 0)~=session+1
+                        or owner_key(host)~=account or not scope_current(host,owner) or not next_host or next_host==host
+                        or not doc or doc~=reader.document or doc==document or doc.file~=destination
+                        or owner_key(next_host)~=account or not scope_current(next_host,owner) then return false end
+                    local id=Identity.read_document(doc,owner.id)
+                    if id.book_id~=owner.id or id.file_id~=target.file_id or id.book_version~=target.book_version then return false end
+                    local location=reader_location(next_host);local next_session=next_host._reader_session_gen or 0
+                    if not location then return false end
+                    local incoming={id=owner.id,account=account,scope=owner.scope,value={},thoughts=owner.thoughts}
+                    local function still_current()
+                        local actual=next_host.ui and next_host.ui.document
+                        local identity=actual and Identity.read_document(actual,owner.id)
+                        return actual==doc and actual.file==destination and (next_host._reader_session_gen or 0)==next_session
+                            and owner_key(next_host)==account and scope_current(next_host,incoming)
+                            and identity.book_id==owner.id and identity.file_id==target.file_id
+                            and identity.book_version==target.book_version
+                            and Context.same_location(location,reader_location(next_host))
+                    end
+                    UI:scheduleIn(.1,function()
+                        if still_current() then M.start(next_host,incoming,job.row,still_current) end
+                    end)
+                    return true
+                end
+                owner.navigation=nil;close_busy(host,job)
+                host:openFile(destination,receive)
+            end)
+        end
         busy()
         return run(function()
             return {entry=Cache.identify(host.settings,owner.scope.vid,file,function()
@@ -323,7 +386,9 @@ function M.start(host,owner,row,is_current)
         end,function(value)
             local entry=type(value)=='table' and value.entry
             if not entry or not Cache.valid_entry(entry,entry.book_id,owner.scope.vid) or not file_current(entry) then fail();return end
-            if entry.book_id~=owner.id or entry.chapter_uid~=tostring(job.row.chapterUid) then launch() else prepare(entry) end
+            if entry.book_id~=owner.id then launch()
+            elseif entry.chapter_uid~=tostring(job.row.chapterUid) then other_chapter(entry)
+            else prepare(entry) end
         end)
     end
     busy();return launch()
