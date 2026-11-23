@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from urllib.parse import parse_qs, urlsplit
 
 import test_native_direct_position_runtime as fixture
@@ -18,6 +19,29 @@ from test_native_direct_position_runtime import BODY, Handler, REPO
 class StoreHandler(Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if getattr(self.server,'time_preflight',False):
+            value=None
+            if target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
+                value=dict(timestamp=int(time.time()),bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,
+                    summary='Synthetic point',readingTime=100,recordReadingTime=0,ttsTime=0)
+            elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET':
+                value=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,summary='Synthetic point')
+            elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                self.server.valid &= body==dict(bookIds=['42'])
+                value=dict(data=[dict(bookId='42',book=dict(bookId='42',bookVersion=1),
+                    updated=[dict(chapterUid=37,chapterIdx=1),dict(chapterUid=38,chapterIdx=2)])])
+            elif target.hostname=='i.weread.qq.com' and target.path=='/readdata/detail' and self.command=='GET':
+                month=int(parse_qs(target.query)['baseTime'][0]);value=dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0)
+            elif target.hostname=='i.weread.qq.com' and target.path=='/config' and self.command=='GET':
+                value=dict(token='synthetic-config')
+            elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET':
+                value=dict(feature={})
+            if value is not None:
+                self.server.calls.append((self.command,target.hostname,target.path))
+                self.server.leaked |= any(key.lower() in ('vid','accesstoken','cookie') for key in self.headers)
+                raw=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Length',str(len(raw)))
+                self.end_headers();self.wfile.write(raw);return
         if self.command == 'GET' and target.hostname == 'i.weread.qq.com' and target.path in ('/store/search','/book/info'):
             self.server.leaked |= any(key.lower() in ('vid','accesstoken','cookie') for key in self.headers)
             self.server.calls.append((self.command,target.hostname,target.path))
@@ -41,6 +65,7 @@ def main():
     parser.add_argument('--progress-only', action='store_true')
     parser.add_argument('--reminder-only', action='store_true')
     parser.add_argument('--time-only', action='store_true')
+    parser.add_argument('--time-preflight-only', action='store_true')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', 0), StoreHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -63,9 +88,10 @@ def main():
                     continue
                 if args.reminder_only and (not full_ui or store_search):
                     continue
-                if args.time_only and (not full_ui or store_search):
+                if (args.time_only or args.time_preflight_only) and (not full_ui or store_search):
                     continue
-                server.mode = 'selection_direct_overlay'
+                server.time_preflight=args.time_preflight_only
+                server.mode = 'preview' if args.time_preflight_only else 'selection_direct_overlay'
                 server.calls, server.leaked, server.valid, server.review = [], False, True, None
                 fixture.BODY = BODY.replace('<body>','<head><style>/* synthetic */ p{margin-left:7px}</style></head><body>') if store_search else BODY
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
@@ -83,8 +109,10 @@ def main():
                     payload['progress_estimate']=dict(order=1,count=2,before=0,words=500,total=1000)
                 if args.reminder_only:
                     command.append('--offline-reminder')
-                if args.time_only:
+                if args.time_only or args.time_preflight_only:
                     command.extend(('--offline-time','--offline-time-ui'))
+                if args.time_preflight_only:
+                    command.append('--offline-time-preflight')
                 if store_search:
                     command.append('--store-search')
                     payload['store_search_keyword']='Synthetic'
@@ -105,10 +133,18 @@ def main():
                 assert result.get('quick_search', False) is quick_search
                 assert result.get('progress_estimate_verified',False) is args.progress_only
                 assert result.get('offline_reminder_verified',False) is args.reminder_only
-                assert result.get('offline_time_verified',False) is args.time_only
-                assert result.get('offline_time_ui_verified',False) is args.time_only
+                assert result.get('offline_time_verified',False) is (args.time_only or args.time_preflight_only)
+                assert result.get('offline_time_ui_verified',False) is (args.time_only or args.time_preflight_only)
+                assert result.get('offline_time_preflight_verified',False) is args.time_preflight_only
                 assert server.valid and not server.leaked
-                assert all(path in ('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
+                allowed=('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload')
+                if args.time_preflight_only:
+                    allowed+=('/book/getProgress','/shelf/sync','/readdata/detail','/config','/feature','/api/userInfo',
+                              '/web/book/chapterInfos','/web/book/getProgress','/web/book/chapter/e_0','/web/book/chapter/e_1',
+                              '/web/book/chapter/e_3','/web/reader/42','/web/reader/42k37')
+                unexpected={path for _,_,path in server.calls if path not in allowed
+                    and not (args.time_preflight_only and path.startswith('/web/reader/'))}
+                assert not unexpected, sorted(unexpected)
                 assert any(path=='/store/search' for _,_,path in server.calls) is store_search
                 if quick_search:
                     assert sum(path=='/store/search' for _,_,path in server.calls)==2

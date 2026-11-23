@@ -67,6 +67,7 @@ def main(argv=None):
     parser.add_argument('--offline-reminder',action='store_true',help='Verify local offline reminder across fresh processes')
     parser.add_argument('--offline-time',action='store_true',help='Verify offline time capture across fresh processes')
     parser.add_argument('--offline-time-ui',action='store_true',help='Verify today’s time selection and native menu')
+    parser.add_argument('--offline-time-preflight',action='store_true',help='Run read-only current-day transfer preflight')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--store-search',action='store_true',help='Select an off-shelf book through a public search')
     parser.add_argument('--quick-search',action='store_true',help='Search the bookstore from the native reader')
@@ -87,6 +88,8 @@ def main(argv=None):
     if args.offline_reminder and not args.home_full_ui:parser.error('offline reminder requires full home UI')
     if args.offline_time and not args.home_full_ui:parser.error('offline time requires full home UI')
     if args.offline_time_ui and not args.offline_time:parser.error('offline time UI requires offline time')
+    if args.offline_time_preflight and (not args.offline_time_ui or not args.compare_web_progress):
+        parser.error('offline time preflight requires UI and Web progress comparison')
     if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies or args.image_refresh):
         parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
@@ -127,6 +130,11 @@ def main(argv=None):
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']))
+            if args.offline_time_preflight:
+                payload['web_cookies']={cookie.name:cookie.value for cookie in web.cookies
+                    if cookie.name in {'wr_vid','wr_skey','wr_rt','wr_ql','wr_pf'}}
+                if payload['web_cookies'].get('wr_vid')!=saved['vid'] or not payload['web_cookies'].get('wr_skey'):
+                    raise ValueError('web_cookie')
             if args.progress_estimate:
                 rows=[row for row in sample['expected']['chapters'] if row['uid']>0]
                 if not 1<=len(rows)<=20000 or any(type(row.get('wordCount')) is not int
@@ -183,12 +191,29 @@ def main(argv=None):
             result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','record','reopen','audit','prepare','offline_first',
-                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search','offline_reminder','offline_time',
+                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search','offline_reminder','offline_time','offline_time_preflight',
                     'online_missing_prepare','online_missing_search'}:report['runner_phase']=result['phase']
                 if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record',
                                                  'quick_menu','quick_input','quick_results','reader','quick','input','results','confirm','switch','locate'}:
                     report['runner_stage']=result['probe_stage']
                 if type(result.get('probe_line')) is int and 0<=result['probe_line']<=10000:report['runner_line']=result['probe_line']
+                if result.get('preflight_last') in {'none','metadata','native_progress','shelf','statistics','config','feature',
+                    'native_catalog','native_source','user','web_progress','web_catalog','reader','web_source'}:
+                    report['preflight_last']=result['preflight_last']
+                if type(result.get('preflight_status')) is int and -1<=result['preflight_status']<=599:
+                    report['preflight_status']=result['preflight_status']
+                if result.get('preflight_source_reason') in {'none','invalid','file_changed','source_changed','unavailable',
+                    'web_expired','auth_expired','not_entitled','rate_limited','session_changed'}:
+                    report['preflight_source_reason']=result['preflight_source_reason']
+                if result.get('preflight_transport') in {'none','sensitive_request_failed','other'}:
+                    report['preflight_transport']=result['preflight_transport']
+                if type(result.get('preflight_error_line')) is int and 0<=result['preflight_error_line']<=10000:
+                    report['preflight_error_line']=result['preflight_error_line']
+                if result.get('preflight_point_failure') in {'none','native_invalid','native_missing','native_no_chapter','native_other',
+                    'web_invalid','web_missing','web_no_chapter','web_other'}:
+                    report['preflight_point_failure']=result['preflight_point_failure']
+                if result.get('audit_match') in {'accessToken','refreshToken','deviceId','wr_skey','wr_rt','wr_ql','wr_pf'}:
+                    report['audit_match']=result['audit_match']
                 if result.get('archive_status') in {'ok','filename','entry_limit','password','checksum','manifest_chapter',
                     'body_selection','manifest_parse','body_limit','other'}:report['archive_status']=result['archive_status']
                 if result.get('download_status') in {'http_200','http_401','http_429','http_other','transport'}:
@@ -215,6 +240,7 @@ def main(argv=None):
                 if args.offline_reminder:required.add('offline_reminder_verified')
                 if args.offline_time:required.add('offline_time_verified')
                 if args.offline_time_ui:required.add('offline_time_ui_verified')
+                if args.offline_time_preflight:required.add('offline_time_preflight_verified')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
@@ -241,6 +267,7 @@ def main(argv=None):
                 if args.offline_reminder:report['offline_reminder_verified']=True
                 if args.offline_time:report['offline_time_verified']=True
                 if args.offline_time_ui:report['offline_time_ui_verified']=True
+                if args.offline_time_preflight:report['offline_time_preflight_verified']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}

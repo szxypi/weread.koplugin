@@ -17,6 +17,16 @@ REPO = Path(__file__).resolve().parent.parent
 FRAME = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
 
 
+def contains_private(content, key, value):
+    # Single-character cookie flags commonly occur in unrelated files. For
+    # short values, require an actual keyed assignment, not a raw substring.
+    if len(value) >= 8:
+        return value in content
+    name=re.escape(key.encode());secret=re.escape(value)
+    return re.search(rb'(?<![A-Za-z0-9_])'+name+rb'[\x22\x27]?\s*\]?\s*[:=]\s*[\x22\x27]?'
+                     +secret+rb'(?![A-Za-z0-9_])',content) is not None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True)
@@ -31,6 +41,7 @@ def main(argv=None):
     parser.add_argument('--offline-reminder', action='store_true')
     parser.add_argument('--offline-time', action='store_true')
     parser.add_argument('--offline-time-ui', action='store_true')
+    parser.add_argument('--offline-time-preflight', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
@@ -44,6 +55,8 @@ def main(argv=None):
         parser.error('offline time requires full UI')
     if args.offline_time_ui and not args.offline_time:
         parser.error('offline time UI requires offline time')
+    if args.offline_time_preflight and not args.offline_time_ui:
+        parser.error('offline time preflight requires offline time UI')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -178,6 +191,49 @@ def main(argv=None):
                     point = observed['rows'], observed['seconds'], observed['snapshot']
                     if saved is not None and point != saved: raise ValueError('offline_time_changed')
                     saved = point
+                if args.offline_time_preflight:
+                    phase = 'offline_time_preflight'
+                    private=dict(credentials=payload['credentials'],cookies=payload['web_cookies'],
+                        book_id=payload['book_id'],uid=payload['uid'])
+                    if payload.get('mock_endpoint') is not None: private['mock_endpoint']=payload['mock_endpoint']
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO),str(REPO/'spec/koreader/native_direct_time_online_preflight.lua')],env,
+                        json.dumps(private).encode(),runtime,timeout=200)
+                    if code:
+                        match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                        if match: report['probe_line']=int(match.group(1))
+                    observed=frame(out,b'WEREAD_DIRECT_TIME_ONLINE=')
+                    if observed.get('last') in {'none','metadata','native_progress','shelf','statistics','config','feature',
+                            'native_catalog','native_source','user','web_progress','web_catalog','reader','web_source'}:
+                        report['preflight_last']=observed['last']
+                    if observed.get('rejected') in {'none','book_info','book_getProgress','shelf_sync','readdata_detail',
+                            'config','feature','book_chapterInfos','book_chapterdownload','api_userInfo','web_book_getProgress',
+                            'web_book_chapterInfos','web_reader_','web_book_chapter_e_','book_batchUploadProgress'}:
+                        report['preflight_rejected']=observed['rejected']
+                    if type(observed.get('last_status')) is int and -1<=observed['last_status']<=599:
+                        report['preflight_status']=observed['last_status']
+                    if observed.get('source_reason') in {'none','invalid','file_changed','source_changed','unavailable',
+                            'web_expired','auth_expired','not_entitled','rate_limited','session_changed'}:
+                        report['preflight_source_reason']=observed['source_reason']
+                    if observed.get('transport') in {'none','sensitive_request_failed','other'}:
+                        report['preflight_transport']=observed['transport']
+                    if type(observed.get('error_line')) is int and 0<=observed['error_line']<=10000:
+                        report['preflight_error_line']=observed['error_line']
+                    if observed.get('point_failure') in {'none','native_invalid','native_missing','native_no_chapter','native_other',
+                            'web_invalid','web_missing','web_no_chapter','web_other'}:
+                        report['preflight_point_failure']=observed['point_failure']
+                    if (code or repaint or observed.get('ok') is not True or observed.get('blocked_before_dispatch') is not True
+                            or observed.get('ledger_unchanged') is not True or observed.get('write_guard_verified') is not True
+                            or type(observed.get('requests')) is not int
+                            or not 1<=observed['requests']<=100):
+                        raise ValueError('offline_time_preflight')
+                    del report['preflight_last']
+                    del report['preflight_rejected']
+                    del report['preflight_status']
+                    del report['preflight_source_reason']
+                    del report['preflight_transport']
+                    del report['preflight_error_line']
+                    del report['preflight_point_failure']
             if args.offline_reminder:
                 phase='offline_reminder'
                 for stage in ('save','conflict_cancel_close','reopen_replace','save','manual_conflict','save','manual_offline','discard_cancel','different','restore','manual_restore',
@@ -193,7 +249,10 @@ def main(argv=None):
                         raise ValueError('offline_reminder')
             phase = 'audit'
             credentials = payload['credentials']
-            secrets = [credentials[key].encode() for key in ('accessToken', 'refreshToken', 'deviceId')]
+            secrets = [(key,credentials[key].encode()) for key in ('accessToken', 'refreshToken', 'deviceId')]
+            if args.offline_time_preflight:
+                secrets.extend((key,value.encode()) for key,value in payload['web_cookies'].items()
+                    if key!='wr_vid' and isinstance(value,str) and value)
             for item in profile.rglob('*'):
                 if item.is_symlink():
                     raise ValueError('symlink')
@@ -201,8 +260,10 @@ def main(argv=None):
                     if item.stat().st_size > 128*1024*1024:
                         raise ValueError('file_limit')
                     content = item.read_bytes()
-                    if any(secret in content for secret in secrets):
-                        raise ValueError('credential_file')
+                    for key,secret in secrets:
+                        if contains_private(content,key,secret):
+                            report['audit_match']=key
+                            raise ValueError('credential_file')
             with zipfile.ZipFile(args.candidate) as archive:
                 for item in archive.infolist():
                     if not item.is_dir() and archive.read(item) != (profile/'plugins'/item.filename).read_bytes():
@@ -225,6 +286,8 @@ def main(argv=None):
                 report['offline_time_verified'] = True
             if args.offline_time_ui:
                 report['offline_time_ui_verified'] = True
+            if args.offline_time_preflight:
+                report['offline_time_preflight_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

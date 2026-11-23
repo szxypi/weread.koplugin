@@ -202,6 +202,35 @@ class NativeDirectOwnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue()).get('offline_time_ui_verified',False),checked)
             self.assertNotIn('private text',output.getvalue());self.assertNotIn('private-token',output.getvalue())
 
+    def test_time_preflight_requires_result_and_keeps_cookie_private(self):
+        sample={'book_id':'42','expected':{'format':'epub','version':1}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,{'uid':37},{'html':True,'source':b'private text'}))
+        result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,installed_bytes_match=True,
+            full_ui=True,offline_time_verified=True,offline_time_ui_verified=True)
+        marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+        for checked in (False,True):
+            if checked:result['offline_time_preflight_verified']=True
+            child=SimpleNamespace(returncode=0,stdout=marker+json.dumps(result).encode()+b'\n')
+            cookies=[SimpleNamespace(name='wr_vid',value='123'),SimpleNamespace(name='wr_skey',value='private-web-token')]
+            web=SimpleNamespace(cookies=cookies,set_cookie=lambda *_args:None,verify_account=lambda:None,
+                request=lambda *_args:{'stage':'progress'})
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'WebSourceProbe',return_value=web),patch.object(task,'reading_position',return_value=1),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child) as run,\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123','cookies':{'wr_vid':'123','wr_skey':'private-web-token'}}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-native-token'}
+                code=task.main(['--saved-session','--home','--home-full-ui','--offline-time','--offline-time-ui',
+                    '--offline-time-preflight','--compare-web-progress','--lua-command','runner'])
+            self.assertEqual(code,0 if checked else 1)
+            self.assertEqual(json.loads(output.getvalue()).get('offline_time_preflight_verified',False),checked)
+            self.assertIn('private-web-token',run.call_args.kwargs['input'].decode())
+            for secret in ('private-web-token','private-native-token','private text'):
+                self.assertNotIn(secret,output.getvalue())
+
     def test_home_web_progress_is_independently_compared(self):
         sample={'book_id':'42','expected':{'format':'epub','version':1}}
         probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
