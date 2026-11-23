@@ -12,7 +12,6 @@ from cb_fixture_native_time_intent import Intent as UiIntent
 from cb_fixture_position import plan as fixture_plan
 from verify_native_statistics import period
 from verify_readtime_upload import expected_statistics
-import time
 from cb_fixture_position_intent import Intent as SeedIntent
 from test_cb_fixture_position import fixture
 from test_cb_fixture_position_transport import MemoryBackend
@@ -56,7 +55,7 @@ class TestFixtureManualTrial(unittest.TestCase):
 
     def run_trial(self,success):
         target,sample=fixture();sample['source_raw_sha256']=hashlib.sha256(sample['source'].encode()).hexdigest()
-        source_plan=fixture_plan(target,sample);now=int(time.time());day=(now+28800)//86400*86400-28800
+        source_plan=fixture_plan(target,sample);now=1700007200;day=(now+28800)//86400*86400-28800
         state={'offset':source_plan['first'],'summary':'seed summary','seconds':0,
             'stats':dict(baseTime=period('monthly',now)[0],readTimes={str(day):0},totalReadTime=0,readDays=0)}
         owner='900000';grant=dict(vid=owner);saved=dict(vid=owner,cookies={'wr_vid':owner,'wr_skey':'synthetic-session'})
@@ -98,7 +97,7 @@ class TestFixtureManualTrial(unittest.TestCase):
             calls.append((width,height,dpi))
             if not success:raise ValueError('unknown')
             state.update(offset=payload['first_offset'],summary=payload['timer_summary'],seconds=state['seconds']+10)
-            state['stats']=expected_statistics(state['stats'],int(time.time()),10);state['stats']['readDays']=0
+            state['stats']=expected_statistics(state['stats'],now,10);state['stats']['readDays']=0
             return True
         journal=FakeJournal();seed=SeedIntent(backend=MemoryBackend());ui=UiIntent(backend=MemoryBackend())
         def fake_upload(_probe,provided,_grant,_same,read_source,*,apply,cleanup_gate):
@@ -113,7 +112,7 @@ class TestFixtureManualTrial(unittest.TestCase):
         with patch.object(task,'CbReadingProbe',FakeBase),patch.object(task,'Web',FakeWeb),patch.object(task,'WebSourceProbe',FakeRead),\
              patch.object(task,'PositionProbe',FakeSeed),patch.object(task,'NativeRead',FakeNativeRead),\
              patch.object(task,'backend',side_effect=fake_backend),patch.object(task,'lock',side_effect=lambda _name:nullcontext),\
-             patch.object(task,'ui_runner',side_effect=fake_ui),\
+             patch.object(task,'ui_runner',side_effect=fake_ui),patch.object(task,'time',SimpleNamespace(time=lambda:now,sleep=lambda _seconds:None)),\
              patch.object(task,'save_refreshed_web_session',return_value=False):
             report=task.run(saved,None,FakeNative(),grant,journal,seed,ui,['runner'],apply=True,upload_factory=lambda *_:None,upload_run=fake_upload)
         self.assertEqual(report['result'],'FIXTURE_NATIVE_TIME_VERIFIED' if success else 'UNVERIFIED')
