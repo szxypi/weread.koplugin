@@ -38,7 +38,7 @@ def run(runtime, full_only=False):
 
 def run_cases(runtime,server,candidate,full_only=False):
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
-            for mode in ('two','gap','online','full'):
+            for mode in ('two','gap','online','full','copies'):
                 if full_only and mode!='full':
                     continue
                 with tempfile.TemporaryDirectory(prefix='weread-native-nav-',dir='/dev/shm') as root:
@@ -58,8 +58,8 @@ def run_cases(runtime,server,candidate,full_only=False):
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_nav_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     saved=frame(child,'WEREAD_DIRECT_NAV_PREPARED=')
-                    assert '37' in saved and (('38' in saved)==(mode in ('two','full'))) and (('39' in saved)==(mode=='gap'))
-                    payload.update(first=saved['37'],second=saved.get('38'))
+                    assert '37' in saved and (('38' in saved)==(mode in ('two','full','copies'))) and (('39' in saved)==(mode=='gap'))
+                    payload.update(first=saved['37'],second=saved.get('38'),missing_copy=saved.get('missing_copy'))
                     if mode!='online':payload.pop('credentials')
                     probe='native_direct_full_reader_probe.lua' if mode=='full' else 'native_direct_nav_probe.lua'
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader'/probe),str(REPO)],
@@ -72,7 +72,13 @@ def run_cases(runtime,server,candidate,full_only=False):
                         result=frame(child,'WEREAD_DIRECT_NAV_RESULT=')
                         assert result['ok'] and result['mode']==mode
                         if mode=='online':assert result['path'] and Path(result['path']).is_file()
-                    expected=['37','38'] if mode in ('two','online','full') else ['37','39']
+                        if mode=='copies':
+                            assert result['path']==saved['missing_copy']
+                            payload['choose']='complete'
+                            child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader'/probe),str(REPO)],
+                                input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
+                            assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
+                    expected=['37','38','38'] if mode=='copies' else ['37','38'] if mode in ('two','online','full') else ['37','39']
                     assert server.chapters==expected and server.valid and not server.leaked
 
 if __name__=='__main__':

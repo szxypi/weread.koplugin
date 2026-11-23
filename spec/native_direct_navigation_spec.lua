@@ -1,20 +1,24 @@
 package.path='./?.lua;'..package.path
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
-package.preload['ui/uimanager']=function() return {} end
-package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
+package.preload['ui/uimanager']=function() return {close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
+package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
+    T=function(pattern,value) return (pattern:gsub('%%1',value)) end} end
 local source={book_id='42',chapter_uid='37',book_version=1,source_sha256=string.rep('c',64),key=string.rep('a',64),copy=0,
     file_id=string.rep('f',64),catalog_sha256=string.rep('b',64),catalog_order=2,catalog_count=3,catalog_prev='36',catalog_next='38'}
 local next_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('e',64),copy=0,
-    catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
+    title='Next',missing_images=2,catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
+local full_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('f',64),copy=0,
+    title='Next',missing_images=0,catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
 local rows={next_entry};local source_ok=true;local can_open=true
-package.preload['weread.lib.native_direct_cache']=function() return {
-    valid_entry=function(entry,id,account) return entry==source and id=='42' and account=='123' end,
+package.preload['weread.lib.native_direct_cache']=function() return {MAX_ENTRIES=2000,
+    valid_entry=function(entry,id,account) return (entry==source or entry==next_entry or entry==full_entry) and id=='42' and account=='123' end,
     identify=function(_,_,_,current) return current() and source_ok and source or nil end,
     list=function() return rows end,
     open=function(_,_,_,entry,current)
-        if entry==next_entry and current() and can_open then return {path='/tmp/x/native-reader-v1/next.epub',
-            book_version=1,source_sha256=entry.source_sha256,missing_images=0} end
+        if (entry==next_entry or entry==full_entry) and current() and can_open then return {
+            path=entry==next_entry and '/tmp/x/native-reader-v1/next.epub' or '/tmp/x/native-reader-v1/full.epub',
+            book_version=1,source_sha256=entry.source_sha256,missing_images=entry.missing_images} end
     end,
 } end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function(document) return document.identity or {} end} end
@@ -41,6 +45,7 @@ local function fixture()
         showBusy=function(self,_,cancel) self.busy_message={};s.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) s.message=message end,
+        showList=function(_,title,items,_,options) s.title=title;s.items=items;s.subtitle=options.subtitle;return {} end,
         showBookMenu=function(self) self._book_detail_view={} end,
         showMyCloudMarks=function(_,id) s.notes={'marks',id} end,
         showMyCloudBookmarks=function(_,id) s.notes={'bookmarks',id} end,
@@ -56,6 +61,27 @@ expect(shown and shown.opts.show_previous_chapter and shown.opts.show_next_chapt
     'native quick menu did not show chapter navigation or hid sync')
 shown.callbacks.on_next();s.finish(2)
 expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub'),'adjacent saved chapter not opened')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+expect(s.opened==0 and s.title=='Choose a saved chapter copy' and #s.items==2,'multiple copies were silently opened')
+expect(s.items[1].text:find('2 images unavailable',1,true) and s.items[2].text:find('No missing images',1,true),
+    'copy image completeness was not shown')
+s.items[2].callback();s.finish(3)
+expect(s.opened==1 and s.path:find('/full.epub',1,true),'selected complete copy did not open')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+local old_copy=s.items[1].callback;s.account='other';old_copy()
+expect(s.opened==0 and #s.jobs==2,'stale account opened a selected copy')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+s.items[1].callback();can_open=false;s.finish(3)
+expect(s.opened==0 and s.message:find('could not be verified',1,true),'damaged selected copy opened')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+s.items[2].callback();local queued=s.jobs[3];local ready=queued.task();s.account='other';queued.callback(ready)
+expect(s.opened==0 and not host._native_direct_navigation,'late selection opened under a different account')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+s.items[2].callback();source_ok=false;s.finish(3)
+expect(s.opened==0 and s.message:find('could not be verified',1,true),'changed source opened a selected copy')
+host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
+local dismissed=s.items[1].callback;host._native_direct_navigation.menu.close_callback();dismissed()
+expect(s.opened==0 and #s.jobs==2 and not host._native_direct_navigation,'dismissed copy menu remained active')
 host,s=fixture();Nav.start(host);s.finish(1)
 expect(shown.opts.enable_search_cached,'native quick menu did not enable downloaded search')
 shown.callbacks.on_search_cached()

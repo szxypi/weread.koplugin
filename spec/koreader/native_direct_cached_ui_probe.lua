@@ -40,6 +40,10 @@ if test=='other' or test=='bad-entry' then
     assert(host.message==tr('No usable saved E-Ink chapters for this book and account. Existing files are kept.') and not host.opened)
 else
     local menu=assert(host._native_direct_reading.menu)
+    if arg[4] then
+        local marker=arg[4]=='1' and tr('%1 images unavailable'):gsub('%%1','1') or tr('No missing images')
+        for _,item in ipairs(menu.item_table) do assert(item.text:find(marker,1,true),'missing image state not shown') end
+    end
     if test=='copies' then
         assert(#menu.item_table==2 and menu.item_table[1].text~=menu.item_table[2].text)
     else assert(#menu.item_table==1) end

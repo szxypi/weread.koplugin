@@ -6,7 +6,7 @@ local Recovery=require('weread.lib.native_read_recovery')
 local Protocol=require('weread.lib.native_position_protocol')
 local Crypto=require('weread.lib.crypto')
 local PluginUtil=require('weread.lib.plugin_util')
-local _,T=PluginUtil.tr,PluginUtil.T
+local _=PluginUtil.tr
 local M={}
 
 local function capture(settings,store)
@@ -156,17 +156,10 @@ function M.start(host,book,view,options)
     end
     local function show_offline_catalog(rows)
         close_busy()
-        local items,counts,ordinals={},{},{}
-        for _index,entry in ipairs(rows) do counts[entry.chapter_uid]=(counts[entry.chapter_uid] or 0)+1 end
-        for _index,row in ipairs(rows) do
+        local items={};local labels=require('weread.ui.native_direct_copies').labels(rows)
+        for index,row in ipairs(rows) do
             local entry=row
-            local label=entry.title~='' and entry.title or _('Untitled chapter')
-            label=label..'  ·  v'..tostring(entry.book_version)
-            if counts[entry.chapter_uid]>1 then
-                ordinals[entry.chapter_uid]=(ordinals[entry.chapter_uid] or 0)+1
-                label=label..'  ·  '..T(_('Copy %1'),tostring(ordinals[entry.chapter_uid]))
-            end
-            items[#items+1]={text=label,callback=function()
+            items[#items+1]={text=labels[index],callback=function()
                 if not current() or not ctx.menu then return end
                 local menu=ctx.menu;ctx.menu=nil;UIManager:close(menu)
                 ctx.entry=entry;ctx.phase='offline_open'
@@ -176,7 +169,7 @@ function M.start(host,book,view,options)
         end
         if #items==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
         local menu=host:showList(_('Saved E-Ink chapters'),items,nil,
-            {subtitle=_('Online: sync position or save selected highlights and private thoughts.')})
+            {subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.')})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget

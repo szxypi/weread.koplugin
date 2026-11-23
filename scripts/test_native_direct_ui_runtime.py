@@ -57,7 +57,7 @@ def run(runtime):
                     original=target.read_bytes() if target else None
                     if target:target.write_bytes(original+b'corrupt')
                     cached=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cached_ui_probe.lua'),
-                        str(REPO),scenario,str(path)],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
+                        str(REPO),scenario,str(path),'1' if missing else '0'],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
                     if cached.returncode:raise AssertionError(cached.stdout[-5000:]+cached.stderr[-5000:])
                     marker='WEREAD_DIRECT_CACHED_UI='
                     frames=[line for line in cached.stdout.splitlines() if line.startswith(marker)]
@@ -75,7 +75,7 @@ def run(runtime):
                 new_path=Path(json.loads(frames[0].split('=',1)[1])['path'])
                 assert new_path!=path and new_path.is_file() and path.stat().st_size==damaged_size
                 cached=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cached_ui_probe.lua'),
-                    str(REPO),'copies',str(new_path)],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
+                    str(REPO),'copies',str(new_path),'1' if missing else '0'],text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
                 if cached.returncode:raise AssertionError(cached.stdout[-5000:]+cached.stderr[-5000:])
                 frames=[line for line in cached.stdout.splitlines() if line.startswith('WEREAD_DIRECT_CACHED_UI=')]
                 assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(ok=True,case='copies',network_blocked=True)

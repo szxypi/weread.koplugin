@@ -30,7 +30,7 @@ local auth=require('weread.lib.native_authorization'):new(client,{expected_vid=s
 local catalog=require('weread.lib.native_book_catalog').read(auth,input.credentials,'42','native_catalog');auth:cancel()
 local rows=assert(catalog.reading_chapters);assert(#rows==3)
 local output={}
-for _,index in ipairs((input.mode=='two' or input.mode=='full') and {1,2} or input.mode=='gap' and {1,3} or {1}) do
+for _,index in ipairs((input.mode=='two' or input.mode=='full' or input.mode=='copies') and {1,2} or input.mode=='gap' and {1,3} or {1}) do
     local row=rows[index];row.catalog_order=index;row.catalog_count=#rows
     row.catalog_prev=rows[index-1] and rows[index-1].chapterUid or nil
     row.catalog_next=rows[index+1] and rows[index+1].chapterUid or nil
@@ -39,5 +39,14 @@ for _,index in ipairs((input.mode=='two' or input.mode=='full') and {1,2} or inp
     local saved=assert(require('weread.lib.native_direct_reader').build(client,settings,
         {book_id='42',title='Synthetic',author='Fixture'},row,expected,{is_current=function() return true end}))
     output[row.chapterUid]=saved.path
+    if input.mode=='copies' and index==2 then
+        local prepared=assert(require('weread.lib.native_direct_source').fetch(client,settings,'42',row.chapterUid,expected,
+            {is_current=function() return true end,allow_missing_images=true}))
+        prepared.xhtml=prepared.xhtml:gsub('</body>','<p>One synthetic image is missing.</p></body>',1)
+        prepared.missing_images=1
+        local missing=assert(require('weread.lib.native_direct_cache').publish(settings,scope.vid,
+            {book_id='42',title='Synthetic',author='Fixture'},row,prepared,function() return true end))
+        assert(missing.path~=saved.path);output.missing_copy=missing.path
+    end
 end
 print('WEREAD_DIRECT_NAV_PREPARED='..json.encode(output))

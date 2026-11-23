@@ -61,11 +61,21 @@ local function press(id)
     assert(action.enabled~=false);action:onTapSelectButton()
 end
 press('next_chapter')
-wait(function() return host.opened or host.message end)
+wait(function() return host.opened or host.message or host._native_direct_navigation and host._native_direct_navigation.menu end)
+if input.mode=='copies' then
+    local menu=assert(host._native_direct_navigation.menu)
+    assert(#menu.item_table==2 and not host.opened)
+    local wanted=input.choose=='complete' and tr('No missing images') or tr('%1 images unavailable'):gsub('%%1','1')
+    local selected
+    for _,item in ipairs(menu.item_table) do if item.text:find(wanted,1,true) then selected=item end end
+    assert(selected,'copy completeness label not found');menu:onMenuSelect(selected)
+    wait(function() return host.opened or host.message end)
+    assert(not host.message and host.opened==(input.choose=='complete' and input.second or input.missing_copy))
+end
 if input.mode=='gap' then
     assert(not host.opened and host.message==tr('The adjacent chapter is not saved. Connect to download it.'))
 else
-    assert(host.opened and (input.mode=='online' or host.opened==input.second))
+    assert(host.opened and (input.mode=='online' or input.mode=='copies' or host.opened==input.second))
     local second=host.opened
     if input.mode=='two' then
         host.opened=nil
