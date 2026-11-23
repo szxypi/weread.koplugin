@@ -268,4 +268,38 @@ host._weread_suspended=true;s.online=true;Reconnect.connected(host);expect(#task
 host._weread_suspended=nil;Reconnect.connected(host);pump()
 expect(shown and shown.buttons[1][1].id=='reconnect_cloud','checkpointed offline page was not offered after resume')
 Reconnect.cancel(host)
+local function reopened_old()
+    local h,state=fixture(false,false)
+    h.ui.document.identity={book_id='42',file_id='file',book_version=1}
+    h.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+    h.ui.document.isXPointerInDocument=function() return true end
+    Reconnect.ready(h);assert(Reconnect.open_manual(h,entry,saved));pump()
+    return h,state
+end
+host=reopened_old()
+expect(shown.buttons[2][1].id=='reconnect_replace','reopened different page had no replacement option')
+shown.buttons[2][1].callback();expect(shown and shown.ok_callback and shown.cancel_text=='Keep previous reminder',
+    'replacing a reopened position skipped confirmation')
+local cancelled_replace=shown.ok_callback;shown.cancel_callback();cancelled_replace()
+expect(saved.xpointer=='xp2' and page==1 and not host._native_direct_reconnect.conflict,
+    'cancelled replacement changed the old reminder or created a false conflict')
+page=3;Reconnect.view_changed(host)
+expect(Reconnect.checkpoint(host)==true and saved.xpointer=='xp3','cancelled replacement blocked later offline reading')
+Reconnect.cancel(host);saved.xpointer='xp2'
+host=reopened_old();shown.buttons[2][1].callback();shown.ok_callback();pump()
+expect(saved.xpointer=='xp1' and page==1 and shown.buttons[1][1].id=='reconnect_discard',
+    'confirmed replacement did not save the reopened current page')
+Reconnect.cancel(host);saved.xpointer='xp2'
+host=reopened_old();shown.buttons[2][1].callback();local old_confirm=shown.ok_callback
+local replacement={};for key,value in pairs(saved) do replacement[key]=value end;replacement.xpointer='xp4';saved=replacement
+old_confirm();expect(saved.xpointer=='xp4' and page==1,'stale replacement overwrote a newer reminder')
+Reconnect.cancel(host);saved.xpointer='xp2'
+host,s=reopened_old();shown.buttons[2][1].callback();old_confirm=shown.ok_callback;s.account='other';old_confirm()
+expect(saved.xpointer=='xp2' and page==1,'account change accepted the reopened replacement')
+Reconnect.cancel(host)
+host=reopened_old();host._native_direct_reconnect.pending_dirty=true
+host._native_direct_reconnect.unsaved={xpointer='xp3'}
+expect(Reconnect.checkpoint(host,true,true)==false and saved.xpointer=='xp2',
+    'forced replacement accepted an unsaved location from another page')
+Reconnect.cancel(host)
 print('PASS: native offline reconnect choices and session guards ('..checks..' checks)')

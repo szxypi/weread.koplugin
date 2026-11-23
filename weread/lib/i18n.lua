@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Save current page instead"] = "改为保存当前页",
     ["This chapter already has an offline reminder. Save the current page and replace that reminder? The cloud position will not change."] = "本章已有离线提醒。要保存当前页并替换旧提醒吗？云端进度不会改变。",
     ["Save current page"] = "保存当前页",
     ["Keep previous reminder"] = "保留旧提醒",

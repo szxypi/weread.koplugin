@@ -35,6 +35,7 @@ end
 local function dismiss(ctx)
     if ctx.task then UI:unschedule(ctx.task);ctx.task=nil end
     if ctx.dialog then local dialog=ctx.dialog;ctx.dialog=nil;UI:close(dialog) end
+    ctx.replace_token=nil
 end
 local function warn(host)
     if host.showTransientInfo then
@@ -54,10 +55,10 @@ local function visible(host,ctx,point)
     end)
     return ok and value==true
 end
-function M.checkpoint(host,replace_conflict)
+function M.checkpoint(host,replace_conflict,force)
     local ctx=host._native_direct_reconnect
     if not ctx then return nil end
-    local required=ctx.offline and ctx.dirty or ctx.pending_dirty
+    local required=force or ctx.offline and ctx.dirty or ctx.pending_dirty
     if not required then return nil end
     if ctx.conflict and not replace_conflict then return false end
     local point=location(ctx)
@@ -81,6 +82,38 @@ function M.checkpoint(host,replace_conflict)
     if ctx.offline then ctx.baseline=point;ctx.dirty=false end
     return true
 end
+local function offer_replace(host,ctx,entry,point)
+    if not point or not ctx.record or ctx.pending_dirty and not Context.same_location(ctx.unsaved,point) then
+        warn(host);return false
+    end
+    dismiss(ctx)
+    local previous=ctx.record;local token={point=point,record=previous}
+    local unresolved=ctx.pending_dirty or ctx.offline and ctx.dirty
+    ctx.replace_token=token
+    if unresolved then ctx.conflict=token end
+    local dialog
+    local function valid()
+        return current(host,ctx) and not host._weread_suspended and ctx.entry==entry
+            and ctx.record==previous and ctx.replace_token==token
+            and (not unresolved or ctx.conflict==token) and Context.same_location(point,location(ctx))
+    end
+    local function close()
+        if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;ctx.replace_token=nil;UI:close(dialog) end
+    end
+    dialog=require('ui/widget/confirmbox'):new{
+        text=_('This chapter already has an offline reminder. Save the current page and replace that reminder? The cloud position will not change.'),
+        ok_text=_('Save current page'),cancel_text=_('Keep previous reminder'),keep_dialog_open=true,
+        cancel_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;ctx.replace_token=nil end end,
+        ok_callback=function()
+            if ctx.dialog~=dialog or not valid() then close();return end
+            local saved=M.checkpoint(host,true,true);close()
+            if not saved then warn(host);return end
+            ctx.dismissed=nil;ctx.pending=location(ctx);M.connected(host,true)
+        end,
+    }
+    ctx.pending=point;ctx.dialog=dialog;UI:show(dialog)
+    return true
+end
 function M.open_manual(host,entry,record)
     local ctx=host._native_direct_reconnect
     if not ctx and M.ready(host) then ctx=host._native_direct_reconnect end
@@ -93,32 +126,7 @@ function M.open_manual(host,entry,record)
     ctx.entry=entry;ctx.record=record
     if ctx.pending_dirty or ctx.offline and ctx.dirty then
         if ctx.record then
-            local point=location(ctx)
-            if not point or ctx.pending_dirty and not Context.same_location(ctx.unsaved,point) then warn(host);return false end
-            dismiss(ctx)
-            local previous=ctx.record;local conflict={point=point,record=previous}
-            ctx.conflict=conflict
-            local dialog
-            local function valid()
-                return current(host,ctx) and not host._weread_suspended and ctx.entry==entry
-                    and ctx.record==previous and ctx.conflict==conflict and Context.same_location(point,location(ctx))
-            end
-            local function close()
-                if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;UI:close(dialog) end
-            end
-            dialog=require('ui/widget/confirmbox'):new{
-                text=_('This chapter already has an offline reminder. Save the current page and replace that reminder? The cloud position will not change.'),
-                ok_text=_('Save current page'),cancel_text=_('Keep previous reminder'),keep_dialog_open=true,
-                cancel_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil end end,
-                ok_callback=function()
-                    if ctx.dialog~=dialog or not valid() then close();return end
-                    local saved=M.checkpoint(host,true);close()
-                    if not saved then warn(host);return end
-                    ctx.dismissed=nil;ctx.pending=location(ctx);M.connected(host,true)
-                end,
-            }
-            ctx.pending=point;ctx.dialog=dialog;UI:show(dialog)
-            return true
+            return offer_replace(host,ctx,entry,location(ctx))
         end
         if M.checkpoint(host)~=true then warn(host);return false end
     end
@@ -247,7 +255,9 @@ function M.connected(host,manual)
         local function choose(action)
             if ctx.dialog~=dialog then return end
             local allowed=valid();ctx.dialog=nil;ctx.pending=nil;ctx.dismissed=true;UI:close(dialog)
-            if allowed and action=='discard' and ctx.record and ctx.entry and not ctx.pending_dirty then
+            if allowed and action=='replace' and manual and ctx.record and ctx.entry and not ctx.pending_dirty then
+                offer_replace(host,ctx,ctx.entry,snapshot)
+            elseif allowed and action=='discard' and ctx.record and ctx.entry and not ctx.pending_dirty then
                 local record,entry=ctx.record,ctx.entry
                 local confirm
                 local function close_confirm()
@@ -302,6 +312,8 @@ function M.connected(host,manual)
         local buttons={}
         if restore then
             buttons[1]={{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}}
+            if manual then buttons[#buttons+1]={{text=_('Save current page instead'),id='reconnect_replace',
+                callback=function() choose('replace') end}} end
         elseif online(host) then
             buttons={{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
                 {{text=_('Sync this page'),id='reconnect_upload',callback=function() choose('upload') end}}}

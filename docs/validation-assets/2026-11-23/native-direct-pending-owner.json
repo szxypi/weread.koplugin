@@ -1,10 +1,29 @@
 {
   "result": "NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED",
-  "screen_sizes": ["600x800", "1264x1680"],
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
   "books": 1,
   "chapters_opened_per_run": 1,
   "installed_plugin_full_ui": true,
-  "offline_stages": ["save", "manual_conflict", "save", "manual_offline", "discard_cancel", "different", "restore", "manual_restore", "manual_discard", "save", "discard", "cleared"],
+  "offline_stages": [
+    "save",
+    "conflict_cancel_close",
+    "reopen_replace",
+    "save",
+    "manual_conflict",
+    "save",
+    "manual_offline",
+    "discard_cancel",
+    "different",
+    "restore",
+    "manual_restore",
+    "manual_discard",
+    "save",
+    "discard",
+    "cleared"
+  ],
   "conflict_cancel_preserves_previous": true,
   "conflict_confirmation_saves_current": true,
   "manual_review_auto_pull_disabled": true,
@@ -15,9 +34,9 @@
   "web_position_unchanged": true,
   "account_data_writes": 0,
   "authentication_posts_during_comparison": 0,
-  "prior_expiry_checks": {"http_401": 2, "account_data_writes": 0},
-  "separate_credential_renewal": {"attempts": 1, "same_owner": true, "keychain_readback": true},
   "credentials_written_to_files": false,
   "temporary_profiles_removed": true,
-  "physical_kindle_tested": false
+  "physical_kindle_tested": false,
+  "reopen_replace_cancel_preserves_prior": true,
+  "reopen_replace_confirmation_saves_current": true
 }
