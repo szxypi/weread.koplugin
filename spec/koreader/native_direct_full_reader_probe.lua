@@ -115,7 +115,8 @@ assert(not progress.whole_estimate and progress.dialog.title:find(util.tr('Whole
     'corrupt catalog was used for a progress estimate')
 local previous=assert(progress.dialog:getButtonById('progress_previous_chapter'))
 assert(previous.enabled~=false);previous:onTapSelectButton()
-pump(function() return Reader.instance and Reader.instance~=second and Reader.instance.document.file==input.first end)
+pump(function() return Reader.instance and Reader.instance~=second and Reader.instance.document.file==input.first
+    and Reader.instance.weread and (Reader.instance.weread._reader_session_gen or 0)>0 end)
 local reopened=Reader.instance;host=assert(reopened.weread);UI:forceRePaint()
 assert(reopened.document:isXPointerInCurrentPage(anchor),'local page was not restored after chapter return')
 assert(not host:detectWeReadBook() and not host._current_weread_book_id)
