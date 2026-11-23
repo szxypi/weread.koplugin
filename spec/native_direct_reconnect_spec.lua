@@ -22,10 +22,11 @@ package.preload['weread.ui.native_direct_navigation']=function() return {open_po
 local Reconnect=require('weread.ui.native_direct_reconnect')
 local function fixture(connected,enabled)
     tasks={};shown=nil;closed=0;invoked=nil;page=1
-    local state={online=connected,enabled=enabled,account='owner',scope={vid='123',epoch=1}}
+    local state={online=connected,enabled=enabled,account='owner',scope={vid='123',epoch=1},account_checks=0}
     local host={ui={document={file='/native.epub'},view={view_mode='page'}},_reader_session_gen=1,
         library_db={accountKey=function() return state.account end},
-        settings={get_auth_scope=function() return state.scope end,auth_scope_matches=function(_,scope) return state.scope==scope end,
+        settings={get_auth_scope=function() return state.scope end,auth_scope_matches=function(_,scope)
+            state.account_checks=state.account_checks+1;return state.scope==scope end,
             get=function() return {pull_on_open=state.enabled} end},isNetworkConnected=function() return state.online end}
     return host,state
 end
@@ -62,4 +63,8 @@ Reconnect.suspend(host);host._weread_suspended=true;expect(not shown,'suspend le
 host._weread_suspended=nil;Reconnect.connected(host);pump();expect(shown~=nil,'suspend lost the unanswered reminder')
 host,s=fixture(false,true);Reconnect.ready(host);page=2;Reconnect.view_changed(host);s.online=true;Reconnect.connected(host);pump()
 callback=shown.buttons[2][1].callback;s.enabled=false;callback();expect(not invoked,'disabled pull allowed an old reminder')
+host,s=fixture(false,true);Reconnect.ready(host);local checks_before=s.account_checks
+page=2;Reconnect.view_changed(host);expect(s.account_checks==checks_before,'page event reread account state')
+s.account='other';s.online=true;Reconnect.connected(host)
+expect(#tasks==0 and not host._native_direct_reconnect,'changed account reached the reconnect prompt')
 print('PASS: native offline reconnect choices and session guards ('..checks..' checks)')

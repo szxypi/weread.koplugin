@@ -16,9 +16,12 @@ end
 local function location(ctx)
     return Context.location(ctx.document,ctx.reader.view and ctx.reader.view.view_mode or 'page')
 end
+local function same_reader(host,ctx)
+    return host._native_direct_reconnect==ctx and host.ui==ctx.reader and ctx.reader.document==ctx.document
+        and ctx.document.file==ctx.file and (host._reader_session_gen or 0)==ctx.session
+end
 local function current(host,ctx)
-    if host._native_direct_reconnect~=ctx or host.ui~=ctx.reader or ctx.reader.document~=ctx.document
-        or ctx.document.file~=ctx.file or (host._reader_session_gen or 0)~=ctx.session
+    if not same_reader(host,ctx)
         or not host.settings:auth_scope_matches(ctx.scope) or not host.library_db
         or host.library_db:accountKey()~=ctx.account then return false end
     return true
@@ -48,7 +51,9 @@ end
 function M.view_changed(host)
     local ctx=host._native_direct_reconnect
     if not ctx then return end
-    if not current(host,ctx) then M.cancel(host);return end
+    -- Page events only update local, in-memory state. Recheck the account
+    -- before showing a prompt or opening a position operation, not per page.
+    if not same_reader(host,ctx) then M.cancel(host);return end
     local now=location(ctx)
     if not now then M.cancel(host);return end
     if ctx.dialog or ctx.task then dismiss(ctx) end
