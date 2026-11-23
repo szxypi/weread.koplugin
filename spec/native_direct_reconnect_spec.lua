@@ -24,6 +24,7 @@ package.preload['weread.lib.reader_position']=function() return {goto_xpointer=f
 package.preload['weread.ui.native_direct_navigation']=function() return {open_position=function(_,action) invoked=action end} end
 local saved;local save_fails=false;local lease_allowed=true
 package.preload['weread.lib.native_direct_pending']=function() return {
+    read=function(_,_,_,_,guard) return guard() and saved or nil end,
     save=function(_,_,_,entry,point,guard)
         if save_fails or not guard() then return false end
         saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
@@ -36,7 +37,8 @@ package.preload['weread.lib.native_direct_pending']=function() return {
 } end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function(doc) return doc.identity end} end
 package.preload['weread.lib.native_direct_cache']=function() return {acquire=function()
-    if lease_allowed then return {owns=function() return true end,release=function() end} end end} end
+    if lease_allowed then return {owns=function() return true end,release=function() end} end end,
+    valid_entry=function(entry,id,vid) return entry and entry.book_id==id and vid=='123' end} end
 local Reconnect=require('weread.ui.native_direct_reconnect')
 local function fixture(connected,enabled)
     tasks={};shown=nil;closed=0;invoked=nil;page=1
@@ -45,7 +47,8 @@ local function fixture(connected,enabled)
         library_db={accountKey=function() return state.account end},
         settings={get_auth_scope=function() return state.scope end,auth_scope_matches=function(_,scope)
             state.account_checks=state.account_checks+1;return state.scope==scope end,
-            get=function() return {pull_on_open=state.enabled} end},isNetworkConnected=function() return state.online end}
+            get=function() return {pull_on_open=state.enabled} end},isNetworkConnected=function() return state.online end,
+        showInfo=function(_,message) state.message=message end}
     return host,state
 end
 local function pump() local task=table.remove(tasks,1);assert(task);task() end
@@ -168,4 +171,59 @@ Reconnect.ready(host);Reconnect.bind(host,entry,saved);pump()
 expect(shown.buttons[2][1].id=='reconnect_discard','different page omitted the discard action')
 shown.buttons[2][1].callback();shown.ok_callback()
 expect(not saved and page==1 and not invoked,'discarding another page moved the reader or contacted the cloud')
+saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
+    source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer='xp2'}
+host=fixture(false,false);page=2;host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);expect(Reconnect.open_manual(host,entry,saved),'offline manual reminder did not open');pump()
+expect(#shown.buttons==2 and shown.buttons[1][1].id=='reconnect_discard',
+    'offline manual reminder offered cloud actions or hid local removal')
+shown.buttons[1][1].callback();shown.ok_callback()
+expect(not saved and page==2 and not invoked and Reconnect.checkpoint(host)==nil,
+    'offline removal changed the page or recreated the removed reminder')
+host=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=2;Reconnect.view_changed(host)
+expect(Reconnect.open_manual(host,entry,nil) and saved and saved.xpointer=='xp2',
+    'manual review did not save a new offline page');pump()
+expect(shown.buttons[1][1].id=='reconnect_discard' and not host._native_direct_reconnect.dirty,
+    'manual save did not establish a clean local baseline')
+shown.buttons[1][1].callback();shown.ok_callback()
+expect(not saved and Reconnect.checkpoint(host)==nil,'manual removal recreated the newly saved reminder')
+saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
+    source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer='xp2'}
+Reconnect.cancel(host)
+host,s=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=3;Reconnect.view_changed(host)
+expect(not Reconnect.open_manual(host,entry,saved) and saved.xpointer=='xp2'
+    and s.message=='Save or sync the current offline page before reviewing the earlier reminder.',
+    'manual review overwrote an earlier reminder or moved an unsaved page')
+host,s=fixture(true,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+host.ui.document.isXPointerInDocument=function(_,point) return point=='xp2' end
+Reconnect.ready(host);expect(Reconnect.open_manual(host,entry,saved),'manual review obeyed disabled automatic pull');pump()
+expect(shown.buttons[1][1].id=='reconnect_restore','manual review did not offer the old position')
+local newer_manual={};for key,value in pairs(saved) do newer_manual[key]=value end;newer_manual.xpointer='xp3';saved=newer_manual
+shown.buttons[1][1].callback()
+expect(page==1 and s.message=='The saved offline position changed. Please open it again.',
+    'manual restore used a stale position')
+saved.xpointer='xp2';Reconnect.cancel(host)
+host=fixture(true,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+host.ui.document.isXPointerInDocument=function(_,point) return point=='xp2' end
+Reconnect.ready(host);expect(Reconnect.open_manual(host,entry,saved));pump();shown.buttons[1][1].callback();pump()
+expect(page==2 and shown.buttons[1][1].id=='reconnect_cloud','manual restore did not preserve manual mode')
+Reconnect.cancel(host)
+saved=nil;host,s=fixture(false,true);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+Reconnect.ready(host);page=2;Reconnect.view_changed(host);s.online=true;Reconnect.connected(host);pump()
+shown.buttons[3][1].callback();expect(not saved and not shown,'later unexpectedly wrote an unverified chapter')
+Reconnect.bind(host,entry,nil)
+expect(saved and saved.xpointer=='xp2' and #tasks==0,'late source verification lost or repeated the offline reminder')
+Reconnect.cancel(host);saved=nil
+host,s=fixture(false,true);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+Reconnect.ready(host);page=2;Reconnect.view_changed(host);s.online=true;Reconnect.connected(host);pump()
+shown.buttons[3][1].callback();page=3;Reconnect.view_changed(host);Reconnect.bind(host,entry,nil)
+expect(not saved,'late source verification saved a page that was no longer current')
+Reconnect.cancel(host)
 print('PASS: native offline reconnect choices and session guards ('..checks..' checks)')

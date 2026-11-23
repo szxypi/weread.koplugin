@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["Offline position"] = "离线位置",
+    ["No verified offline position reminder is available for this chapter."] = "本章没有可核对的离线位置提醒。",
+    ["Save or sync the current offline page before reviewing the earlier reminder."] = "当前离线页面尚未保存。请联网同步本页，或关书／休眠保存本页（会替换本章旧提醒）。",
+    ["The saved offline position is on this page."] = "已保存的离线位置在当前页面。",
+    ["The saved offline position changed. Please open it again."] = "保存的离线位置无法核对或已变化，请重新打开。",
     ["Remove this offline position reminder? The local reading page and cloud position will not change."] = "移除此离线位置提醒？本机阅读页面和云端进度均不会改变。",
     ["Remove reminder"] = "移除提醒",
     ["Keep reminder"] = "保留提醒",

@@ -123,9 +123,13 @@ function M.show(opts, callbacks)
         callback = function() dismiss_then(callbacks.on_search_cached) end,
     }})
 
-    if callbacks.on_native_position_check then
-        table.insert(buttons, {{id='native_position_check',text=_('Check native reading position'),
-            callback=function() dismiss_then(callbacks.on_native_position_check) end}})
+    if callbacks.on_native_position_check or callbacks.on_native_offline_reminder then
+        local row={}
+        if callbacks.on_native_position_check then row[#row+1]={id='native_position_check',text=_('Check native reading position'),
+            callback=function() dismiss_then(callbacks.on_native_position_check) end} end
+        if callbacks.on_native_offline_reminder then row[#row+1]={id='native_offline_reminder',text=_('Offline position'),
+            callback=function() dismiss_then(callbacks.on_native_offline_reminder) end} end
+        table.insert(buttons,row)
     end
     if callbacks.on_native_cloud_position then
         table.insert(buttons, {{id='native_cloud_position',text=_('Open cloud reading position'),

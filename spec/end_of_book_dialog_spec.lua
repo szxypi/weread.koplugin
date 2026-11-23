@@ -114,6 +114,16 @@ end end
 expect(claim~=nil,'legacy account location action was not shown')
 if claim then claim.callback() end
 expect(claimed==1,'legacy account location action did not delegate')
+local offline=0
+Dialog.show({}, {on_native_position_check=function() end,on_native_offline_reminder=function() offline=offline+1 end})
+local reminder,check
+for _,row in ipairs(shown.buttons) do for _,button in ipairs(row) do
+    if button.id=='native_offline_reminder' then reminder=button end
+    if button.id=='native_position_check' then check=button end
+end end
+expect(reminder and check,'native offline position entry was not shown')
+if reminder then reminder.callback() end
+expect(offline==1,'native offline position entry did not delegate')
 local previous=0
 Dialog.show({show_chapter_nav=true,show_previous_chapter=true,show_next_chapter=true,show_sync_row=false},
     {on_previous=function() previous=previous+1 end})

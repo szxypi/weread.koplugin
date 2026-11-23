@@ -148,7 +148,8 @@ def main(argv=None):
                     raise ValueError('home')
             if args.offline_reminder:
                 phase='offline_reminder'
-                for stage in ('save','discard_cancel','different','restore','discard','cleared'):
+                for stage in ('save','manual_offline','discard_cancel','different','restore','manual_restore',
+                              'manual_discard','save','discard','cleared'):
                     private=dict(stage=stage,path=str(path),book_id=payload['book_id'],vid=payload['credentials']['vid'])
                     code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                         str(REPO),str(REPO/'spec/koreader/native_direct_pending_reader_probe.lua')],env,

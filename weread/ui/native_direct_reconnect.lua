@@ -61,7 +61,7 @@ function M.checkpoint(host)
     if not required then return nil end
     local point=location(ctx)
     if not point or not ctx.entry or not current(host,ctx)
-        or ctx.pending_dirty and not Context.same_location(ctx.pending,point) then return false end
+        or ctx.pending_dirty and not Context.same_location(ctx.unsaved,point) then return false end
     local identity=require('weread.lib.book_file_identity').read_document(ctx.document,ctx.entry.book_id)
     if identity.file_id~=ctx.entry.file_id or identity.book_id~=ctx.entry.book_id
         or identity.book_version~=ctx.entry.book_version then return false end
@@ -76,8 +76,34 @@ function M.checkpoint(host)
     ctx.record={file_id=ctx.entry.file_id,book_id=ctx.entry.book_id,chapter_uid=ctx.entry.chapter_uid,
         version=ctx.entry.book_version,source_sha256=ctx.entry.source_sha256,key=ctx.entry.key,
         copy=ctx.entry.copy,xpointer=point.xpointer}
-    ctx.pending_dirty=false
+    ctx.pending_dirty=false;ctx.unsaved=nil
+    if ctx.offline then ctx.baseline=point;ctx.dirty=false end
     return true
+end
+function M.open_manual(host,entry,record)
+    local ctx=host._native_direct_reconnect
+    if not ctx and M.ready(host) then ctx=host._native_direct_reconnect end
+    if not ctx or not current(host,ctx) or host._weread_suspended
+        or not require('weread.lib.native_direct_cache').valid_entry(entry,entry and entry.book_id,ctx.scope.vid)
+        or record~=nil and not same_entry(entry,record) then return false end
+    local identity=require('weread.lib.book_file_identity').read_document(ctx.document,entry.book_id)
+    if identity.book_id~=entry.book_id or identity.file_id~=entry.file_id
+        or identity.book_version~=entry.book_version then return false end
+    ctx.entry=entry;ctx.record=record
+    if ctx.pending_dirty or ctx.offline and ctx.dirty then
+        if ctx.record then
+            if host.showInfo then host:showInfo(_('Save or sync the current offline page before reviewing the earlier reminder.')) end
+            return false
+        end
+        if M.checkpoint(host)~=true then warn(host);return false end
+    end
+    if not ctx.record then
+        if host.showInfo then host:showInfo(_('No verified offline position reminder is available for this chapter.')) end
+        return false
+    end
+    dismiss(ctx);ctx.dismissed=nil;ctx.pending=location(ctx)
+    if not ctx.pending then return false end
+    return M.connected(host,true)
 end
 function M.bind(host,entry,record)
     local ctx=host._native_direct_reconnect
@@ -85,7 +111,7 @@ function M.bind(host,entry,record)
     ctx.entry=entry
     if same_entry(entry,record) then ctx.record=record end
     if ctx.pending_dirty and M.checkpoint(host)==false then warn(host) end
-    if ctx.record and online(host) and not ctx.offline then
+    if ctx.record and online(host) and not ctx.offline and not ctx.dismissed then
         ctx.pending=location(ctx);M.connected(host)
     end
 end
@@ -155,21 +181,23 @@ function M.suspend(host)
         dismiss(ctx)
     end
 end
-function M.connected(host)
+function M.connected(host,manual)
     local ctx=host._native_direct_reconnect
     if not ctx then return end
     if not current(host,ctx) then M.cancel(host);return end
-    if not online(host) or host._weread_suspended then return end
+    if host._weread_suspended or not manual and not online(host) then return end
     local now=location(ctx)
     if not now then M.cancel(host);return end
-    local changed=ctx.offline and ctx.dirty and not Context.same_location(ctx.baseline,now)
-    ctx.offline=false;ctx.baseline=now;ctx.dirty=false
     local settings=host.settings:get('sync',{})
-    if changed then ctx.pending=now;ctx.pending_dirty=true end
-    if ctx.pending_dirty and ctx.entry and M.checkpoint(host)==false then warn(host) end
-    if type(settings)~='table' or settings.pull_on_open~=true then
-        if not ctx.pending_dirty then ctx.pending=nil end
-        return
+    if not manual then
+        local changed=ctx.offline and ctx.dirty and not Context.same_location(ctx.baseline,now)
+        ctx.offline=false;ctx.baseline=now;ctx.dirty=false
+        if changed then ctx.pending=now;ctx.unsaved=now;ctx.pending_dirty=true end
+        if ctx.pending_dirty and ctx.entry and M.checkpoint(host)==false then warn(host) end
+        if type(settings)~='table' or settings.pull_on_open~=true then
+            if not ctx.pending_dirty then ctx.pending=nil end
+            return
+        end
     end
     if not ctx.pending and ctx.record and not ctx.dismissed then ctx.pending=now end
     if not ctx.pending or not Context.same_location(ctx.pending,now) then ctx.pending=nil;return end
@@ -177,8 +205,8 @@ function M.connected(host)
     local snapshot=ctx.pending
     local function valid()
         local config=host.settings:get('sync',{})
-        return current(host,ctx) and not host._weread_suspended and online(host)
-            and type(config)=='table' and config.pull_on_open==true
+        return current(host,ctx) and not host._weread_suspended
+            and (manual or online(host) and type(config)=='table' and config.pull_on_open==true)
             and Context.same_location(snapshot,location(ctx))
     end
     ctx.task=function()
@@ -216,30 +244,44 @@ function M.connected(host)
                 }
                 ctx.pending=snapshot;ctx.dialog=confirm;UI:show(confirm)
             elseif allowed and action=='restore' and ctx.record and ctx.entry then
+                local saved=require('weread.lib.native_direct_pending').read(host.library_db,host.settings,ctx.scope,
+                    ctx.entry,function() return valid() and ctx.record~=nil end)
+                if not same_entry(ctx.entry,saved) or saved.xpointer~=ctx.record.xpointer then
+                    if host.showInfo then host:showInfo(_('The saved offline position changed. Please open it again.')) end
+                    return
+                end
                 local identity=require('weread.lib.book_file_identity').read_document(ctx.document,ctx.entry.book_id)
                 local ok,found=pcall(ctx.document.isXPointerInDocument,ctx.document,ctx.record.xpointer)
                 if identity.file_id==ctx.entry.file_id and identity.book_id==ctx.entry.book_id
                     and identity.book_version==ctx.entry.book_version and ok and found then
                     local moved=require('weread.lib.reader_position').goto_xpointer(ctx.reader,ctx.record.xpointer)
                     if moved and current(host,ctx) and visible(host,ctx,ctx.record.xpointer) then
-                        ctx.dismissed=nil;ctx.pending=location(ctx);M.connected(host);return
+                        ctx.dismissed=nil;ctx.pending=location(ctx)
+                        if manual and ctx.offline then ctx.baseline=ctx.pending;ctx.dirty=false end
+                        M.connected(host,manual);return
                     end
                 end
                 if host.showInfo then host:showInfo(_('Could not confirm the saved offline position. Please check the current page.')) end
             elseif allowed and action then
-                require('weread.ui.native_direct_navigation').open_position(host,action)
+                if online(host) then require('weread.ui.native_direct_navigation').open_position(host,action)
+                elseif host.showOffline then host:showOffline(_('Check native reading position')) end
             end
         end
         local restore=ctx.record and not ctx.pending_dirty and not visible(host,ctx,ctx.record.xpointer)
-        local buttons=restore and {{{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}}}
-            or {{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
+        local buttons={}
+        if restore then
+            buttons[1]={{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}}
+        elseif online(host) then
+            buttons={{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
                 {{text=_('Sync this page'),id='reconnect_upload',callback=function() choose('upload') end}}}
+        end
         if ctx.record and not ctx.pending_dirty then
             buttons[#buttons+1]={{text=_('Remove offline reminder'),id='reconnect_discard',callback=function() choose('discard') end}}
         end
         buttons[#buttons+1]={{text=_('Later'),id='reconnect_later',callback=function() choose() end}}
         dialog=require('ui/widget/buttondialog'):new{
             title=restore and _('This chapter has a saved offline position. Open that position?')
+                or not online(host) and _('The saved offline position is on this page.')
                 or _('You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?'),
             buttons=buttons,
             close_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;ctx.dismissed=true end end,
@@ -247,5 +289,6 @@ function M.connected(host)
         ctx.dialog=dialog;UI:show(dialog)
     end
     UI:scheduleIn(.2,ctx.task)
+    return true
 end
 return M

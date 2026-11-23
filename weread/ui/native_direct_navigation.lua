@@ -215,6 +215,26 @@ function M.start(host,direction,notes)
                 local entry=ctx.entry;M.cancel(host)
                 require('weread.ui.native_direct_position').start(host,entry)
             end,
+            on_native_offline_reminder=function()
+                if not current() then return end
+                local original=ctx.entry
+                busy('Checking saved E-Ink chapter...')
+                run(function()
+                    local entry=Cache.identify(host.settings,scope.vid,path,current)
+                    if not entry then return {error='invalid'} end
+                    local pending=require('weread.lib.native_direct_pending').read(host.library_db,host.settings,scope,entry,current)
+                    return {entry=entry,pending=pending}
+                end,function(value)
+                    local entry=type(value)=='table' and value.entry
+                    if not Cache.valid_entry(entry,original.book_id,scope.vid) or entry.chapter_uid~=original.chapter_uid
+                        or entry.book_version~=original.book_version or entry.file_id~=original.file_id
+                        or entry.source_sha256~=original.source_sha256 or entry.key~=original.key or entry.copy~=original.copy then
+                        fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+                    end
+                    close_busy();M.cancel(host)
+                    require('weread.ui.native_direct_reconnect').open_manual(host,entry,value.pending)
+                end)
+            end,
             on_native_cloud_position=function()
                 if not current() then return end
                 local entry=ctx.entry;M.cancel(host)

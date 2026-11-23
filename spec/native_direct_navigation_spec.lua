@@ -32,6 +32,11 @@ package.preload['weread.ui.end_of_book_dialog']=function() return {show=function
 local search_entry
 local refresh_entry
 local position_entry
+local manual_entry
+package.preload['weread.lib.native_direct_pending']=function() return {read=function(_,_,_,entry,current)
+    if current() then return {file_id=entry.file_id,xpointer='saved'} end end} end
+package.preload['weread.ui.native_direct_reconnect']=function() return {open_manual=function(_,entry,record)
+    manual_entry={entry=entry,record=record};return true end} end
 package.preload['weread.ui.native_direct_position']=function() return {start=function(_,entry,options)
     position_entry={entry=entry,options=options};return true end} end
 package.preload['weread.ui.native_direct_image_refresh']=function() return {start=function(_,entry) refresh_entry=entry end} end
@@ -44,7 +49,7 @@ package.preload['weread.ui.native_direct_reading']=function() return {start=func
     auto_target={book=book,view=view,options=options};return true end} end
 local Nav=require('weread.ui.native_direct_navigation')
 local function fixture()
-    shown=nil;auto_target=nil;refresh_entry=nil;position_entry=nil;rows={next_entry};source_ok=true;can_open=true;page=1
+    shown=nil;auto_target=nil;refresh_entry=nil;position_entry=nil;manual_entry=nil;rows={next_entry};source_ok=true;can_open=true;page=1
     local s={jobs={},opened=0,online=false,account='owner',scope={vid='123',epoch=1}}
     local document={file='/tmp/x/native-reader-v1/current.epub',identity={book_id='42',file_id=source.file_id,book_version=1}}
     local host={ui={document=document},client={},_reader_session_gen=1,
@@ -107,6 +112,17 @@ expect(shown.opts.enable_search_book,'native quick menu did not enable online se
 shown.callbacks.on_search_book()
 expect(online_search and online_search.id=='42' and online_search.uid=='37' and online_search.entry==source
     and not host._native_direct_navigation,'online search did not receive the verified chapter')
+host,s=fixture();Nav.start(host);s.finish(1)
+expect(type(shown.callbacks.on_native_offline_reminder)=='function','offline reminder action missing')
+shown.callbacks.on_native_offline_reminder();expect(#s.jobs==2,'offline reminder did not recheck its source')
+s.finish(2)
+expect(manual_entry and manual_entry.entry==source and manual_entry.record.xpointer=='saved'
+    and not host._native_direct_navigation,'offline reminder did not receive the verified chapter')
+host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_native_offline_reminder()
+local pending_job=s.jobs[2];local pending_value=pending_job.task();s.account='other';pending_job.callback(pending_value)
+expect(not manual_entry and not host._native_direct_navigation,'old account opened the offline reminder')
+host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_native_offline_reminder();source_ok=false;s.finish(2)
+expect(not manual_entry and s.message:find('could not be verified',1,true),'changed source opened the offline reminder')
 host,s=fixture();Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)
 expect(s.opened==0 and s.message=='The adjacent chapter is not saved. Connect to download it.','offline missing chapter was guessed')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)

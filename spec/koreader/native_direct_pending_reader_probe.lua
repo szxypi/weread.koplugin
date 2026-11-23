@@ -18,10 +18,11 @@ else
     local scope=settings:get_auth_scope()
     assert(scope and scope.vid==input.vid and settings:auth_scope_matches(scope))
 end
-local sync=settings:get('sync',{});sync.pull_on_open=true;sync.upload_on_close=false;sync.upload_interval_minutes=0
+local manual=input.stage=='manual_offline' or input.stage=='manual_restore' or input.stage=='manual_discard'
+local sync=settings:get('sync',{});sync.pull_on_open=not manual;sync.upload_on_close=false;sync.upload_interval_minutes=0
 settings:set('sync',sync);settings:flush()
 local Common=require('weread.ui.common')
-Common.isNetworkConnected=function() return input.stage~='save' end;Common.isNetworkOnline=Common.isNetworkConnected
+Common.isNetworkConnected=function() return input.stage~='save' and not manual end;Common.isNetworkOnline=Common.isNetworkConnected
 local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
 for _,entry in ipairs(loader:_discover()) do if entry.name=='weread' then loader:_load{entry} end end
 assert(#loader.enabled_plugins==1)
@@ -61,6 +62,39 @@ if input.stage=='save' then
     local found=false
     for _,row in ipairs(rows) do if row.key==entry.key and row.copy==entry.copy then found=row.pending_offline==true end end
     assert(found,'saved chapter did not show its pending-position hint')
+elseif manual then
+    local record=assert(read())
+    if input.stage=='manual_restore' then
+        assert(not reader.document:isXPointerInCurrentPage(record.xpointer),'manual restore did not start on another page')
+    else assert(reader.document:isXPointerInCurrentPage(record.xpointer),'offline chapter did not reopen at its saved page') end
+    assert(host:onShowWeReadQuickMenu())
+    pump(function()
+        local top=UI:getTopmostVisibleWidget()
+        return top and type(top.getButtonById)=='function' and top:getButtonById('native_offline_reminder')~=nil
+    end)
+    local quick=UI:getTopmostVisibleWidget()
+    UI:forceRePaint();assert(quick:getContentSize().h<=Device.screen:getHeight(),'quick menu exceeded the screen')
+    assert(quick:getButtonById('native_offline_reminder')):onTapSelectButton()
+    pump(function() return owner.dialog~=nil end)
+    if input.stage=='manual_restore' then
+        assert(owner.dialog:getButtonById('reconnect_restore')):onTapSelectButton()
+        pump(function() return owner.dialog and owner.dialog:getButtonById('reconnect_later') end)
+        assert(reader.document:isXPointerInCurrentPage(record.xpointer),'manual offline restore missed the saved page')
+    end
+    assert(not owner.dialog:getButtonById('reconnect_cloud') and not owner.dialog:getButtonById('reconnect_upload'),
+        'offline manual reminder offered cloud actions')
+    assert(owner.dialog:getButtonById('reconnect_discard') and owner.dialog:getButtonById('reconnect_later'),
+        'offline manual reminder omitted local choices')
+    if input.stage=='manual_discard' then
+        owner.dialog:getButtonById('reconnect_discard'):onTapSelectButton()
+        assert(owner.dialog and owner.dialog.ok_callback,'offline discard skipped confirmation')
+        owner.dialog.ok_callback();assert(not read(),'offline confirmation did not remove the reminder')
+        assert(reader.document:isXPointerInCurrentPage(record.xpointer),'offline removal moved the page')
+        reader:onClose(false);assert(not read(),'closing recreated a removed offline reminder')
+    else
+        owner.dialog:getButtonById('reconnect_later'):onTapSelectButton();assert(read(),'manual review removed the reminder')
+        reader:onClose(false)
+    end
 elseif input.stage=='discard_cancel' then
     pump(function() return owner.record and owner.dialog end)
     local button=assert(owner.dialog:getButtonById('reconnect_discard'));button:onTapSelectButton()
@@ -82,6 +116,7 @@ elseif input.stage=='restore' then
     assert(reader.document:isXPointerInCurrentPage(record.xpointer),'offline anchor was not restored')
     local button=assert(owner.dialog:getButtonById('reconnect_later'));button:onTapSelectButton()
     assert(read(),'later removed the restored reminder')
+    reader.rolling:onGotoPage(1);host:onPageUpdate();assert(read(),'moving after restore removed the reminder')
     reader:onClose(false)
 elseif input.stage=='discard' then
     pump(function() return owner.record and owner.dialog end)
