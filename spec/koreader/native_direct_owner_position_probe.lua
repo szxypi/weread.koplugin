@@ -16,8 +16,9 @@ end,get_book=function() return nil end,get_auth_scope=function() return scope en
 local store={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local capture=Access.capture
 Access.capture=function(s,existing) return capture(s,existing or store) end
-local client=require('weread.lib.client'):new(settings);local request=client.request
+local client=require('weread.lib.client'):new(settings);local request=client.request;local online=true
 client.request=function(self,options)
+    assert(online,'offline draft attempted a network request')
     local url,headers=options.url,options.headers or {};local native='https://i.weread.qq.com';local web='https://weread.qq.com'
     assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     if url==native..'/book/info?bookId='..input.book_id then assert(options.method=='GET')
@@ -76,11 +77,11 @@ local entry=assert(require('weread.lib.native_direct_cache').identify(settings,s
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.file_id)
 local library=(input.upload_dry_run or input.selection) and require('weread.lib.library_db'):new(settings) or {accountKey=function() return 'owner' end}
 local host={ui=reader,settings=settings,client=client,library_db=library,
-    _reader_session_gen=1,isNetworkConnected=function() return true end,
+    _reader_session_gen=1,isNetworkConnected=function() return online end,isNetworkOnline=function() return online end,
     showBusy=function(self,label,cancel)
         self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message)
     end,closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
-    showInfo=function(self,message) self.checked_message=message end,
+    showInfo=function(self,message) self.checked_message=message end,showInputDialog=require('weread.ui.common').showInputDialog,
     detectWeReadBook=function() return nil end,
     showList=require('weread.ui.common').showList}
 if input.selection then
@@ -127,6 +128,30 @@ if input.selection then
         wait(function() return result~=nil end)
         assert(result.mark_preview==true and result.thought_preview==true)
         report.mark_preview=true;report.thought_preview=true
+    end
+    if input.offline_draft then
+        selection.cancel(host);online=false;host.checked_message=nil
+        assert(selection.open(host,{text=chosen,pos0=first,pos1=last}))
+        local offline=assert(host._selection_thought_owner)
+        wait(function() return offline.reference~=nil or host.checked_message~=nil end)
+        assert(offline.offline_source and offline.reference and require('weread.lib.selection_reference').same(reference,offline.reference))
+        local tr=require('weread.lib.plugin_util').tr;local write,drafts
+        for _,item in ipairs(offline.menu.item_table) do
+            if item.text==tr('Write private thought') then write=item.callback end
+            if item.text==tr('Local thought drafts') then drafts=item.callback end
+            assert(item.text~=tr('Save highlight'))
+        end
+        assert(write and drafts);write();assert(offline.editor and offline.editor.input)
+        offline.editor.input:setInputText('Synthetic offline draft')
+        UI:forceRePaint();assert(offline.menu._shelf_popup.button_table:getButtonById('save_thought_draft')):onTapSelectButton()
+        wait(function() return not offline.editor end);assert(host.checked_message==tr('Thought draft saved on this device.'))
+        host.checked_message=nil;drafts();assert(offline.editor and offline.editor.dialog.item_table[1])
+        offline.editor.dialog.item_table[1].callback();UI:forceRePaint()
+        assert(offline.menu._shelf_popup.button_table:getButtonById('resume_thought_draft')):onTapSelectButton()
+        wait(function() return offline.editor and offline.editor.input end)
+        assert(offline.editor.input:getInputText()=='Synthetic offline draft')
+        require('weread.ui.thought_editor').cancel(host,offline);selection.cancel(host)
+        report.offline_draft=true
     end
     print('WEREAD_DIRECT_OWNER_POSITION='..json.encode(report))
     selection.cancel(host);return

@@ -3,10 +3,15 @@ local live=true;local source_error;local file_ok=true;local calls=0
 local settings={data_dir='/synthetic'};local file='/synthetic/native-reader-v1/chapter.epub'
 local native={scope={vid='123'}};local web={web={cookies={wr_vid='123'}}};local entry={book_id='42',book_version=7}
 local row={selection=true};local input={first={},last={},text='quote'}
+local identified=entry;local library={};local cached='verified source';local reads,writes=0,0
 package.preload['weread.lib.native_read_access']=function() return {matches=function() return live end} end
 package.preload['weread.lib.source_currentness']=function() return {capture=function() return web end,matches=function() return live end} end
 package.preload['weread.lib.native_direct_cache']=function() return {identify=function(_,account,path,current)
-    assert(account=='123' and path==file and current());return file_ok and entry or nil end} end
+    assert(account=='123' and path==file and current());return file_ok and identified or nil end} end
+package.preload['weread.lib.native_direct_mark_source_store']=function() return {new=function(_,db)
+    assert(db==library);return {read=function(_,e) assert(e==identified);reads=reads+1;return cached end,
+        write=function(_,e,raw) assert(e==entry and raw=='verified source');writes=writes+1;return true end}
+end} end
 package.preload['weread.lib.native_direct_position']=function() return {verified_source=function(_,_,e,path,n,w,current)
     assert(e==entry and path==file and n==native and w==web and current());calls=calls+1
     if source_error then return nil,source_error end;return 'verified source'
@@ -30,12 +35,30 @@ expect(Direct.capture({},settings,entry,file,input,native,web,current,true)==row
 verified,_,version=Direct.verify({},settings,native,row,file,current,true)
 expect(verified==row and version==7,'bookmark source version missing')
 expect(Direct.restore({},settings,entry,file,'draft',native,web,current)==row,'verified draft unavailable')
+expect(Direct.capture({},settings,entry,file,input,native,web,current,false,library)==row and writes==1,
+    'verified online selection did not populate the offline source cache')
+expect(Direct.restore({},settings,entry,file,'draft',native,web,current,library)==row and writes==2,
+    'verified online draft did not populate the offline source cache')
 local previous=calls
+expect(Direct.capture_cached(settings,library,entry,file,input,native,web,current)==row and calls==previous and reads==1,
+    'offline selection did not use cached verified source')
+expect(Direct.restore_cached(settings,library,entry,file,'draft',native,web,current)==row and calls==previous and reads==2,
+    'offline draft did not use cached verified source')
+cached=nil;local no_cache,no_cache_reason=Direct.capture_cached(settings,library,entry,file,input,native,web,current)
+expect(not no_cache and no_cache_reason=='offline_source_unavailable' and calls==previous,'missing cache triggered a source request')
+cached='verified source';identified={book_id='42',book_version=8}
+expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current) and calls==previous and reads==3,
+    'changed chapter was matched to an old cached source')
+identified=entry
 expect(not Direct.capture({},settings,entry,'/outside',input,native,web,current) and calls==previous,'outside path read source')
 file_ok=false;expect(not Direct.verify({},settings,native,row,file,current) and calls==previous,'invalid cache read source');file_ok=true
 web.web.cookies.wr_vid='456';local result,why=Direct.verify({},settings,native,row,file,current)
 expect(not result and why=='web_expired' and calls==previous,'foreign Web account read source');web.web.cookies.wr_vid='123'
+web.web.cookies.wr_vid='456';expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current)
+    and calls==previous,'foreign account used cached source');web.web.cookies.wr_vid='123'
 source_error='source_changed';result,why=Direct.capture({},settings,entry,file,input,native,web,current)
 expect(not result and why=='source_changed','changed source produced a selection')
 source_error=nil;live=false;expect(not Direct.restore({},settings,entry,file,'draft',native,web,current),'changed account restored a draft')
+expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current)
+    and not Direct.restore_cached(settings,library,entry,file,'draft',native,web,current),'changed account used offline source')
 print('PASS: native selection and draft bind both source channels to the account ('..checks..' checks)')

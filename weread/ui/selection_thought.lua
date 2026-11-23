@@ -55,9 +55,12 @@ render=function(host,owner)
     if not current(host,owner) then return end
     local items={}
     if owner.reference then
+        if owner.offline_source then items[#items+1]={text=_('Offline draft uses a verified cached source. Reconnect before submitting.'),select_enabled=false} end
+        if not owner.offline_source then
         items[#items+1]={text=_(owner.bookmarks and 'Save cloud bookmark' or 'Save highlight'),callback=function()
             if current(host,owner) then require('weread.ui.mark_editor').start(host,owner,owner.bookmarks and 'bookmark_create' or 'create',owner.reference,current,render) end
         end}
+        end
         items[#items+1]={text=_(owner.bookmarks and 'Bookmark source preview' or 'Quoted text'),callback=function()
             if current(host,owner) then Popup.show(owner.menu,require('weread.ui.thought_text').viewer{
                 title=_(owner.bookmarks and 'Bookmark source preview' or 'Quoted text'),text=owner.reference.markText,add_default_buttons=true}) end
@@ -65,7 +68,7 @@ render=function(host,owner)
         if not owner.bookmarks then items[#items+1]={text=_('Write private thought'),callback=function()
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
-        if not owner.bookmarks then
+        if not owner.bookmarks and not owner.offline_source then
             local preferences={}
             preferences[#preferences+1]={model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'}
             preferences[#preferences+1]={model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'}
@@ -115,11 +118,14 @@ function M.open(host,selection,bookmark)
         ) or bookmark and host.ui.highlight and host.ui.highlight.selected_text
         or host._translation_mode and host._translation_mode~='original' then return false end
     if not bookmark and #selection.text>4096 then host:showInfo(_('Select less text to write a WeRead thought.'));return false end
+    local offline_source=direct and not host:isNetworkOnline()
+    if offline_source and bookmark then host:showOffline(_('Bookmark'));return false end
     local mode=host.ui.view and host.ui.view.view_mode or 'page'
     local owner={id=id,document=document,source_file=document.file,mode=mode,location=Context.location(document,mode),
         viewport_height=mode=='scroll' and viewport_height(host) or nil,
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
-        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id),direct=direct}
+        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id),direct=direct,
+        offline_source=offline_source}
     if not owner.location or not owner.account then return false end
     if direct then
         owner.native=NativeAccess.capture(host.settings);owner.web=Currentness.capture(host.settings)
@@ -141,7 +147,8 @@ function M.open(host,selection,bookmark)
     local function unavailable(reason)
         if not current(host,owner) then return end
         owner.error=reason or owner.error or 'selection_unavailable'
-        local message=direct and owner.error=='auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
+        local message=direct and owner.offline_source and 'The verified offline source is unavailable. Reconnect and select this text again.'
+            or direct and owner.error=='auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
             or direct and owner.error=='web_expired' and 'Log in again to verify the selected text.'
             or direct and owner.error=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
             or bookmark and 'This page could not be matched to a bookmark position in the original source. Try a text page or download this chapter again.'
@@ -192,8 +199,13 @@ function M.open(host,selection,bookmark)
             if direct then
                 local function active() return host.settings:auth_scope_matches(owner.scope)
                     and NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web) end
-                row,reason=require('weread.lib.native_direct_reference').capture(host.client,host.settings,owner.direct_entry,
-                    owner.source_file,input,owner.native,owner.web,active,bookmark)
+                local refs=require('weread.lib.native_direct_reference')
+                if owner.offline_source then
+                    row,reason=refs.capture_cached(host.settings,host.library_db,owner.direct_entry,owner.source_file,input,owner.native,owner.web,active)
+                else
+                    row,reason=refs.capture(host.client,host.settings,owner.direct_entry,
+                        owner.source_file,input,owner.native,owner.web,active,bookmark,host.library_db)
+                end
             else row,reason=(bookmark and Bookmark or Reference).capture_native(input) end
             return {reference=row,reason=reason}
         end,function(result)

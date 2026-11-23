@@ -100,7 +100,7 @@ local function mark_references(settings,owner,book)
             local journal,_,why=fs().symlinkattributes(path..suffix)
             if journal or why~=2 then return nil end
         end
-        return {files={},unverified=false}
+        return {files={},chapters={},unverified=false}
     end
     if info.mode~='file' then return nil end
     local opened,db=pcall(function() return require('lua-ljsqlite3/init').open(path,'ro') end)
@@ -118,7 +118,7 @@ local function mark_references(settings,owner,book)
     end
     local ok,result=pcall(function()
         db:exec('PRAGMA busy_timeout=200')
-        local value={files={},unverified=false}
+        local value={files={},chapters={},unverified=false}
         for _,item in ipairs({
             {name='native_direct_mark_source',sql='SELECT file_id FROM native_direct_mark_source WHERE book_id=? LIMIT 129',max=128},
             {name='native_direct_offline_pending',sql='SELECT file_id FROM native_direct_offline_pending WHERE book_id=? LIMIT 257',max=256},
@@ -129,6 +129,20 @@ local function mark_references(settings,owner,book)
                 local rows=query(item.sql,book);assert(#rows<=item.max)
                 for _,row in ipairs(rows) do
                     if hash(row[1],64) then value.files[row[1]]=true else value.unverified=true end
+                end
+            end
+        end
+        local draft_schema=query('SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE','thought_drafts')
+        if #draft_schema>0 then
+            assert(#draft_schema==1 and draft_schema[1][1]=='table')
+            local rows=query('SELECT operation,reference_id FROM thought_drafts WHERE book_id=? LIMIT 17',book)
+            assert(#rows<=16)
+            for _,row in ipairs(rows) do
+                if (row[1]~='create' and row[1]~='edit') or not require('weread.lib.thought_edit_contract').key(row[2]) then
+                    value.unverified=true
+                elseif row[1]=='create' and row[2]:sub(1,10)=='selection:' then
+                    local selection=require('weread.lib.selection_reference').parse(row[2])
+                    if selection then value.chapters[selection.chapter_uid]=true else value.unverified=true end
                 end
             end
         end
@@ -188,6 +202,7 @@ local function references(settings,owner,book,vid,codec)
     local marks=mark_references(settings,owner,book)
     if not marks then return nil end
     for key in pairs(marks.files) do refs.files[key]=true end
+    refs.chapters=marks.chapters
     if marks.unverified then refs.unverified=true end
     if not reading_files_valid(settings,book,owner,codec) then refs.unverified=true;return refs end
     local saved
@@ -279,7 +294,7 @@ function M.scan(settings,vid,book,owner,codec,current,lease)
         local record=opened and {schema=1,owner=entry.owner,book=book,chapter=entry.chapter_uid,key=entry.key,
             copy=entry.copy,file_id=opened.file_id,md5=md5,files=files}
         if info and info.mode=='directory' and record and valid(record,vid,book,folder) and clear==true
-            and not refs.unverified and not refs.files[opened.file_id] then
+            and not refs.unverified and not refs.files[opened.file_id] and not refs.chapters[entry.chapter_uid] then
             plan.items[#plan.items+1]={folder=folder,info=info,record=record,staged=false}
             local bytes=bytes_remaining(dir,files,false)
             if not bytes then return nil,'changed' end
@@ -296,7 +311,8 @@ function M.scan(settings,vid,book,owner,codec,current,lease)
                 local path=record and dir..'/'..epub(book,record.chapter)
                 local clear=path and Protect.no_sidecars(path,{allow_missing=true,fingerprint=record.md5})
                 local present=record and entries(dir,record.files,true)
-                if record and present and clear==true and not refs.unverified and not refs.files[record.file_id] then
+                if record and present and clear==true and not refs.unverified and not refs.files[record.file_id]
+                    and not refs.chapters[record.chapter] then
                     plan.items[#plan.items+1]={folder=folder,info=info,record=record,staged=true}
                     local bytes=bytes_remaining(dir,record.files,true)
                     if not bytes then return nil,'changed' end
@@ -328,7 +344,7 @@ function M.step(settings,codec,plan,lease,index,current)
     if not current() or not lease:owns() or Cache.book_directory(settings,plan.vid,plan.book)~=plan.root
         or not same(plan.root_info,fs().symlinkattributes(plan.root)) then return false,'changed' end
     local refs=references(settings,plan.owner,plan.book,plan.vid,codec)
-    if not refs or refs.unverified or refs.files[item.record.file_id] then return false,'changed' end
+    if not refs or refs.unverified or refs.files[item.record.file_id] or refs.chapters[item.record.chapter] then return false,'changed' end
     local dir=plan.root..'/'..item.folder;local path=dir..'/'..epub(plan.book,item.record.chapter)
     if not same(item.info,fs().symlinkattributes(dir))
         or Protect.no_sidecars(path,{allow_missing=item.staged,fingerprint=item.record.md5})~=true

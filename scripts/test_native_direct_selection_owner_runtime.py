@@ -25,7 +25,7 @@ def run(runtime):
                 credentials=dict(vid='12345678',accessToken='synthetic-access',refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19)
                 payload=dict(credentials=credentials,book_id='42',uid='37',book_version=1,
                     source_sha256=hashlib.sha256(BODY.encode()).hexdigest(),search_token='Unique paragraph 0001',
-                    web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},selection=True,annotation_preview=True,
+                    web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},selection=True,annotation_preview=True,offline_draft=True,
                     mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                 child=subprocess.run(['python3',str(REPO/'scripts/run_native_direct_position_owner.py'),'--koreader',str(runtime),
                     '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)],
@@ -37,6 +37,7 @@ def run(runtime):
                 assert result['credential_file_audit'] and result['installed_bytes_match'] and result['profile_removed']
                 assert independent_selection(BODY.encode(),{key:result['position'][key] for key in ('ok','selection','range','quote')})
                 assert result['position']['mark_preview'] and result['position']['thought_preview']
+                assert result['position']['offline_draft']
                 assert result['position']['selection']=='Unique paragraph 0001'
                 assert server.valid and not server.leaked
                 assert not any(path in ('/book/read','/web/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)

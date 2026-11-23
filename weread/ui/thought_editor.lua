@@ -229,12 +229,21 @@ function M.resume(host,owner,key,version,current,redraw)
     busy(ctx,'Checking selected text…')
     ctx.restore_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
     local source_file=host.ui and host.ui.document and host.ui.document.file
+    local offline=owner.direct and not host:isNetworkOnline()
     local started=ctx.restore_worker:start(function()
         if owner.direct then
             local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
-            local row=require('weread.lib.native_direct_reference').restore(host.client,host.settings,owner.direct_entry,source_file,
-                draft.reference_id,owner.native,owner.web,function() return host.settings:auth_scope_matches(owner.scope)
-                    and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end)
+            local function current_source() return host.settings:auth_scope_matches(owner.scope)
+                and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end
+            local refs=require('weread.lib.native_direct_reference')
+            local row
+            if offline then
+                row=refs.restore_cached(host.settings,host.library_db,owner.direct_entry,source_file,
+                    draft.reference_id,owner.native,owner.web,current_source)
+            else
+                row=refs.restore(host.client,host.settings,owner.direct_entry,source_file,
+                    draft.reference_id,owner.native,owner.web,current_source,host.library_db)
+            end
             return {reference=row}
         end
         local book=host.settings:get_book(owner.id)

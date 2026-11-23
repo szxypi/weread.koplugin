@@ -166,6 +166,22 @@ if input.mode=='cleanup_start' or input.mode=='cleanup_recover' or input.mode=='
         assert(not cleanup.step(settings,codec,plan,lease,1,current),'new cached mark source did not invalidate cleanup')
         database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
         database:exec('DELETE FROM native_direct_mark_source');database:close()
+        -- A retained selection draft protects its chapter even if the
+        -- verified raw-source cache has since been evicted.
+        database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec('CREATE TABLE thought_drafts (book_id TEXT,operation TEXT,reference_id TEXT)')
+        statement=database:prepare('INSERT INTO thought_drafts VALUES(?,?,?)')
+        statement:bind('42','create','selection:'..pinned.chapter_uid..':1-2:'..pinned.source_sha256):step()
+        statement:close();database:close()
+        local draft_plan=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#draft_plan.items==0 and draft_plan.protected==3,'draft chapter was selected after source eviction')
+        assert(not cleanup.step(settings,codec,plan,lease,1,current),'new thought draft did not invalidate cleanup')
+        database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec("UPDATE thought_drafts SET reference_id='selection:invalid'");database:close()
+        local invalid_draft=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#invalid_draft.items==0 and invalid_draft.protected==3,'unverifiable draft allowed cleanup')
+        database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec('DROP TABLE thought_drafts');database:close()
         local library={accountKey=function() return owner end,
             open=function() return require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db') end}
         assert(require('weread.lib.native_direct_pending').save(library,settings,scope,pinned,'/synthetic.1',current))

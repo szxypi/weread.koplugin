@@ -23,6 +23,7 @@ from verify_native_chapter_package import ChapterProbe
 from verify_native_txt_position import Native
 from verify_reader_progress import find_node,project
 from verify_source_coordinates import FilteredSource
+from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE,WebSourceProbe
 
 FRAME=b'\nWEREAD_DIRECT_POSITION_OWNER_RUN='
@@ -75,6 +76,7 @@ def main(argv=None):
     parser.add_argument('--cloud-cross',action='store_true',help='Exercise a confirmed readable cloud chapter across files')
     parser.add_argument('--selection',action='store_true',help='Check a native selection without writing account data')
     parser.add_argument('--annotation-preview',action='store_true',help='Also prepare highlight and private thought without dispatch')
+    parser.add_argument('--offline-draft',action='store_true',help='Create and reopen a private local draft without network')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
@@ -85,12 +87,13 @@ def main(argv=None):
     if args.cloud_cross and (not args.cloud or args.current_cloud_chapter or args.cloud_denied):parser.error('cloud cross requires a readable different chapter')
     if args.selection and args.cloud:parser.error('selection is a separate read-only probe')
     if args.annotation_preview and not args.selection:parser.error('annotation preview requires selection')
+    if args.offline_draft and not args.selection:parser.error('offline draft requires selection')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
-    saved=credentials=web=native_api=target_native=None;phase='start'
+    saved=credentials=web=native_api=target_native=store=None;phase='start'
     try:
         if args.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));phase='credentials'
-            saved=SessionStore().load();credentials=NativeSessionStore().load(saved['vid']);probe=ChapterProbe()
+            store=SessionStore();saved=store.load();credentials=NativeSessionStore().load(saved['vid']);probe=ChapterProbe()
             phase='shelf';baseline=state_hash(probe.request('shelf',NATIVE_BASE+'/shelf/sync',credentials=credentials))
             phase='native_source';sample,chapter,native=probe.inspect(credentials,args.book_offset)
             if sample['expected']['format']!='epub' or sample['expected']['version'] is None or not native['html']:
@@ -136,13 +139,16 @@ def main(argv=None):
                 other_fields=make_content_params(web.book_id,web.chapter,other.psvts,sc=1)
                 parts=[web.request(key,BASE+'/web/book/chapter/'+key,other_fields,as_json=False) for key in ('e_0','e_1','e_3')]
                 if decode_content_shards(*parts).encode()!=target_native['source']:raise ValueError('target_source_changed')
+            if save_refreshed_web_session(store,saved,web):
+                owner=saved['vid'];saved.clear();saved=store.load()
+                if saved['vid']!=owner:raise ValueError('session_changed')
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']),web_cookies=saved['cookies'],cloud=args.cloud,
                 upload_preview=args.upload_preview,upload_dry_run=args.upload_dry_run,
                 cloud_denied=args.cloud_denied,cloud_cross=args.cloud_cross,
                 target_uid=str(baseline_point['chapter_uid']) if args.cloud_cross else None,start_page=args.start_page,
-                selection=args.selection,annotation_preview=args.annotation_preview)
+                selection=args.selection,annotation_preview=args.annotation_preview,offline_draft=args.offline_draft)
             data=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(data)>65536:raise ValueError('input_limit')
             phase='reader_position';report['credentials_written_to_files']=None
@@ -171,6 +177,7 @@ def main(argv=None):
                 checked={key:output[key] for key in ('ok','selection','range','quote')}
                 if not independent_selection(native['source'],checked):raise ValueError('selection')
                 if args.annotation_preview and (output.get('mark_preview') is not True or output.get('thought_preview') is not True):raise ValueError('preview')
+                if args.offline_draft and output.get('offline_draft') is not True:raise ValueError('offline_draft')
             else:
                 current={key:output[key] for key in ('ok','text','point_offset','offset')}
                 if not independent_offset(native['source'],current):raise ValueError('offset')
@@ -193,6 +200,7 @@ def main(argv=None):
                 shelf_unchanged=True,cloud_upload=False)
             if args.selection:report.update(actual_reader_selection=True,independent_quote_matches=True)
             if args.annotation_preview:report.update(highlight_preview=True,private_thought_preview=True)
+            if args.offline_draft:report.update(offline_draft=True,offline_network_requests=0)
             if args.cloud and not (args.upload_preview or args.upload_dry_run):report.update(cloud_comparison=relation,cloud_position_opened=opened,cloud_unchanged=True)
             if args.upload_preview:report.update(upload_preview=True,cloud_unchanged=True)
             if args.upload_dry_run:report.update(upload_dry_run=True,cloud_unchanged=True,progress_post_blocked=True)
@@ -203,6 +211,9 @@ def main(argv=None):
         if 'HTTP 401' in str(error):report['reason']='auth_expired'
         elif 'HTTP 429' in str(error):report['reason']='rate_limited'
     finally:
+        if web and saved and store:
+            try:save_refreshed_web_session(store,saved,web)
+            except Exception:report['result']='UNVERIFIED'
         if web:web.close()
         if saved:saved.clear()
         if credentials:credentials.clear()

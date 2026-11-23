@@ -20,7 +20,7 @@ local document={file='/synthetic/native-reader-v1/chapter.epub',getDocumentFileC
 local host={ui={document=document,view={view_mode='page'}},_reader_session_gen=1,discovery_epoch=1,client={},
     settings={data_dir='/synthetic',get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end},
     library_db={accountKey=function() return 'account' end},detectWeReadBook=function() return nil end,
-    showList=function() return {} end,showInfo=function() error('unexpected information dialog') end}
+    isNetworkOnline=function() return true end,showList=function() return {} end,showInfo=function() error('unexpected information dialog') end}
 local chosen={text='Synthetic selection',pos0='/a',pos1='/b'}
 assert(Selection.open(host,chosen));local first=assert(host._selection_thought_owner)
 assert(Selection.open(host,chosen));local second=assert(host._selection_thought_owner)

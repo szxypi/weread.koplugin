@@ -46,6 +46,7 @@ def main(argv=None):
         if payload.get('selection') is True and any(payload.get(key) is True for key in ('cloud','upload_preview','upload_dry_run','cloud_denied','cloud_cross')):
             raise ValueError('selection_mode')
         if payload.get('annotation_preview') is True and payload.get('selection') is not True:raise ValueError('preview_mode')
+        if payload.get('offline_draft') is True and payload.get('selection') is not True:raise ValueError('draft_mode')
         endpoint=payload.get('mock_endpoint')
         if not synthetic_endpoint_allowed(payload,endpoint):raise ValueError('synthetic_endpoint')
         with tempfile.TemporaryDirectory(prefix='weread-native-position-owner-',dir='/dev/shm') as temporary:
@@ -80,7 +81,7 @@ def main(argv=None):
                 cloud_denied=payload.get('cloud_denied') is True,cloud_cross=payload.get('cloud_cross') is True,
                 target_uid=payload.get('target_uid'),start_page=payload.get('start_page',1),
                 selection=payload.get('selection') is True,selection_text=payload.get('search_token'),
-                annotation_preview=payload.get('annotation_preview') is True)
+                annotation_preview=payload.get('annotation_preview') is True,offline_draft=payload.get('offline_draft') is True)
             if endpoint is not None:private['mock_endpoint']=endpoint
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                 str(plugin),str(REPO/'spec/koreader/native_direct_owner_position_probe.lua')],
@@ -100,6 +101,9 @@ def main(argv=None):
             if private['annotation_preview']:
                 fields|={'mark_preview','thought_preview'}
                 if position.get('mark_preview') is not True or position.get('thought_preview') is not True:raise ValueError('annotation_preview')
+            if private['offline_draft']:
+                fields.add('offline_draft')
+                if position.get('offline_draft') is not True:raise ValueError('offline_draft')
             if private['upload_dry_run']:
                 fields.add('upload_dry_run')
                 if position.get('upload_dry_run') is not True:raise ValueError('upload_dry_run')
