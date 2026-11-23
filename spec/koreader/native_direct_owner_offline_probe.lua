@@ -16,6 +16,20 @@ assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.s
 local hits=assert(doc:findAllText(input.token,false,0,8,false,0));assert(hits[1])
 local raw=doc:getDocumentFileContent(require('weread.lib.position_source').meta_path(input.uid))
 assert(not raw or raw=='')
+if input.required_images and input.required_images>0 then
+    assert(input.missing_images==0)
+    local text=assert(doc:getDocumentFileContent('OEBPS/text/chapter.xhtml'))
+    local seen,count={},0
+    for href in text:gmatch('src%s*=%s*["\']%.%./(images/eink%-[%da-f]+%.[%a]+)["\']') do
+        if not seen[href] then
+            seen[href]=true;count=count+1
+            local bytes=assert(doc:getDocumentFileContent('OEBPS/'..href))
+            local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,32,32))
+            assert(bitmap:getWidth()>0 and bitmap:getHeight()>0);bitmap:free()
+        end
+    end
+    assert(count>=input.required_images,'chapter images not independently decoded')
+end
 if input.missing_images>0 then
     local text=assert(doc:getDocumentFileContent('OEBPS/text/chapter.xhtml'))
     assert(text:find('部分图片暂不可用',1,true) or text:find('Some images could not be loaded',1,true))

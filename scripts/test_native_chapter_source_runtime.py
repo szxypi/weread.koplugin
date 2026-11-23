@@ -62,10 +62,15 @@ class Handler(BaseHTTPRequestHandler):
             elif server.mode == 'remote_redirect':
                 code, body = 302, b''
                 headers['location'] = 'https://other.invalid/'
+            elif server.mode == 'remote_redirect_good':
+                code, body = 302, b'redirect-body'
+                headers['location'] = 'https://download.sz.gfp.tencent-cloud.com/final.png'
             elif server.mode == 'remote_invalid':
                 body = b'not an image'
             else:
                 body = PNG
+        elif target.hostname == 'download.sz.gfp.tencent-cloud.com' and target.path == '/final.png' and server.mode == 'remote_redirect_good':
+            body = PNG
         elif target.hostname != 'i.weread.qq.com':
             code, body = 400, b''
         elif target.path == '/book/info' and self.command == 'GET':
@@ -122,6 +127,7 @@ def run(runtime):
                            book_id='42', uid='37', mock_endpoint=endpoint, prepare=True)
             for mode, reason, count in (('ok', None, 3), ('read', None, 3), ('remote', None, 4), ('remote_owner', None, 4),
                                         ('remote_rate', 'rate_limited', 4), ('remote_redirect', 'unavailable', 4),
+                                        ('remote_redirect_good', None, 5),
                                         ('remote_invalid', 'invalid_image', 4), ('paid', 'not_entitled', 2), ('rate', 'rate_limited', 3),
                                         ('auth', 'auth_expired', 3), ('missing_header', 'unavailable', 3),
                                         ('corrupt', 'unavailable', 3), ('rate_json', 'rate_limited', 3),
@@ -129,7 +135,7 @@ def run(runtime):
                                         ('catalog_rejected', 'service_rejected', 2)):
                 server.mode, server.paths, server.leaked = mode, [], False
                 server.catalog_valid, server.download_valid = True, True
-                payload['render'] = mode in ('read', 'remote')
+                payload['render'] = mode in ('read', 'remote', 'remote_redirect_good')
                 payload['fetch_remote'] = mode.startswith('remote')
                 payload['owner_render'] = mode == 'remote_owner'
                 payload['search_token'] = 'integrated' if mode == 'remote_owner' else None
@@ -143,10 +149,10 @@ def run(runtime):
                 assert not server.leaked and server.catalog_valid and server.download_valid, mode
                 if reason is None:
                     assert process.returncode == 0 and value['ok'], mode
-                    expected_body = REMOTE_BODY if mode in ('remote', 'remote_owner') else READING_BODY if mode == 'read' else b'<p>Synthetic</p>'
+                    expected_body = REMOTE_BODY if mode in ('remote', 'remote_owner', 'remote_redirect_good') else READING_BODY if mode == 'read' else b'<p>Synthetic</p>'
                     assert value['body_sha256'] == hashlib.sha256(expected_body).hexdigest(), mode
                     assert value['web_coordinate_authority'] is False, mode
-                    if mode == 'remote':
+                    if mode in ('remote', 'remote_redirect_good'):
                         assert value['resources'] == dict(ok=True, localized=2, remote=0, downloaded=1,
                                                           web_coordinate_authority=False, rendered=True), mode
                     elif mode == 'remote_owner':

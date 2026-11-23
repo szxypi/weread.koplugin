@@ -28,6 +28,7 @@ def main(argv=None):
     parser.add_argument('--offline-search',action='store_true',help='Search real cached chapters in the installed reader')
     parser.add_argument('--online-search',action='store_true',help='Search online from both native chapters')
     parser.add_argument('--online-missing',action='store_true',help='Also test cancel and download in a clean profile')
+    parser.add_argument('--require-images',type=int,default=0,help='Decode at least this many distinct chapter images offline')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
@@ -35,6 +36,7 @@ def main(argv=None):
     if args.online_search and (not args.neighbor or args.offline_search):parser.error('--online-search requires --neighbor only')
     if args.online_missing and not args.online_search:parser.error('--online-missing requires --online-search')
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1
+            or not 0<=args.require_images<=64
             or not any(row.split()[1:3]==['/dev/shm','tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
         parser.error('Linux, KOReader and tmpfs are required')
     report=dict(result='UNVERIFIED',profile_removed=False);root=None;phase='input'
@@ -83,7 +85,7 @@ def main(argv=None):
                         or not 0<=result['neighbor_missing_images']<=64):raise ValueError('neighbor_path')
             phase='offline_first'
             offline=json.dumps(dict(path=str(path),token=payload['search_token'],uid=payload['uid'],book_id=payload['book_id'],
-                                    missing_images=result['missing_images'],plugin_home=plugin_home),
+                                    missing_images=result['missing_images'],plugin_home=plugin_home,required_images=args.require_images),
                                ensure_ascii=False).encode()
             code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
                                         str(plugin),str(repo)],env,offline,runtime,timeout=90)

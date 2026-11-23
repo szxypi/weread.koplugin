@@ -4,7 +4,7 @@ local Resources=require('weread.lib.native_chapter_resources')
 local Crypto=require('weread.lib.crypto')
 local Position=require('weread.lib.native_position_protocol')
 local M={MAX_IMAGE=8*1024*1024,MAX_TOTAL=32*1024*1024}
-local ALLOWED={'qq.com','qpic.cn','qlogo.cn','weixin.qq.com','myqcloud.com','qcloud.com'}
+local ALLOWED={'qq.com','qpic.cn','qlogo.cn','weixin.qq.com','myqcloud.com','qcloud.com','gfp.tencent-cloud.com'}
 local function current(options)
     if type(options.is_current)~='function' then return false end
     local ok,value=pcall(options.is_current)
@@ -13,7 +13,8 @@ end
 function M.allowed(reference)
     if type(reference)~='string' or #reference==0 or #reference>4096 or reference:find('[%z%c%s\\]') then return nil end
     local url=reference:sub(1,2)=='//' and 'https:'..reference or reference
-    local authority=url:match('^[Hh][Tt][Tt][Pp][Ss]://([^/?#]+)')
+    url=url:gsub('^[Hh][Tt][Tt][Pp][Ss]://','https://')
+    local authority=url:match('^https://([^/?#]+)')
     if not authority or url:find('#',1,true) or authority:find('@',1,true) then return nil end
     local host=authority:lower()
     if host:sub(-4)==':443' then host=host:sub(1,-5) end
@@ -30,6 +31,17 @@ local function mime(data)
     if data:sub(1,3)=='\255\216\255' then return 'image/jpeg' end
     if data:sub(1,6)=='GIF87a' or data:sub(1,6)=='GIF89a' then return 'image/gif' end
     if data:sub(1,4)=='RIFF' and data:sub(9,12)=='WEBP' then return 'image/webp' end
+end
+local function redirect_url(base,location)
+    if location:sub(1,2)=='//' then return M.allowed('https:'..location) end
+    if location:match('^[%a][%w+.-]*:') then return M.allowed(location) end
+    local origin=base:match('^(https://[^/?#]+)')
+    if not origin then return nil end
+    if location:sub(1,1)=='/' then return M.allowed(origin..location) end
+    local path=base:match('^[^?]+') or base
+    if location:sub(1,1)=='?' then return M.allowed(path..location) end
+    local directory=path:match('^(https://[^/]+/.*)/[^/]*$') or origin
+    return M.allowed(directory..'/'..location)
 end
 local SOURCE_FIELDS={'book_id','chapter_uid','book_version','catalog_sha256','reading_catalog_sha256','source_channel',
     'coordinate_source_authoritative','is_text','body','css','unusable_resources','image_signatures_recognized'}
@@ -92,14 +104,13 @@ function M.complete(client,source,options)
         assets[#assets+1]={source=reference,data=require('weread.lib.native_missing_image'),media_type='image/png'}
         missing=missing+1;return true
     end
-    for _,reference in ipairs(initial.remote_urls) do
-        local url=M.allowed(reference)
-        local allowed,why=ready();if not allowed then return nil,why end
-        if not url then
-            if not placeholder(reference) then return nil,'remote_unsupported' end
-        else
+    local function fetch(url)
+        local visited={}
+        for hop=0,3 do
+            if visited[url] then return nil,'unavailable' end
+            visited[url]=true
             local chunks,size={},0
-            local ok,raw,code=pcall(client.request,client,{
+            local ok,raw,code,headers=pcall(client.request,client,{
                 url=url,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
                 diagnostic_api='native_chapter_image',timeout={5,22},
                 headers={Accept='image/*',['Referer']='https://weread.qq.com/'},
@@ -112,22 +123,41 @@ function M.complete(client,source,options)
                     return 1
                 end,
             })
-            allowed,why=ready();if not allowed then return nil,why end
+            local allowed,why=ready();if not allowed then return nil,why end
             code=tonumber(code)
             if code==429 then return nil,'rate_limited' end
-            local data=ok and code==200 and size<=M.MAX_IMAGE and total+size<=M.MAX_TOTAL
-                and (type(raw)=='string' and raw or table.concat(chunks)) or nil
-            if not data or #data==0 or #data>M.MAX_IMAGE or total+#data>M.MAX_TOTAL then
-                if not placeholder(reference) then return nil,'unavailable' end
+            if ok and (code==301 or code==302 or code==303 or code==307 or code==308) then
+                local location=type(headers)=='table' and (headers.location or headers.Location)
+                if hop==3 or type(location)~='string' or #location==0 or #location>4096
+                    or location:find('[%z%c%s\\]')
+                    or headers.location and headers.Location and headers.location~=headers.Location then return nil,'unavailable' end
+                url=redirect_url(url,location)
+                if not url then return nil,'unavailable' end
+            else
+                local data=ok and code==200 and size<=M.MAX_IMAGE and total+size<=M.MAX_TOTAL
+                    and (type(raw)=='string' and raw or table.concat(chunks)) or nil
+                if not data or #data==0 or #data>M.MAX_IMAGE or total+#data>M.MAX_TOTAL then return nil,'unavailable' end
+                if not mime(data) then return nil,'invalid_image' end
+                return data
+            end
+        end
+        return nil,'unavailable'
+    end
+    for _,reference in ipairs(initial.remote_urls) do
+        local url=M.allowed(reference)
+        local allowed,why=ready();if not allowed then return nil,why end
+        if not url then
+            if not placeholder(reference) then return nil,'remote_unsupported' end
+        else
+            local data,fetch_reason=fetch(url)
+            if not data then
+                if fetch_reason=='rate_limited' or fetch_reason=='session_changed' or fetch_reason=='source_changed' then return nil,fetch_reason end
+                if not placeholder(reference) then return nil,fetch_reason end
             else
                 local media_type=mime(data)
-                if not media_type then
-                    if not placeholder(reference) then return nil,'invalid_image' end
-                else
-                    total=total+#data;downloaded=downloaded+1
-                    assets[#assets+1]={source=reference,data=data,media_type=media_type}
-                    digests[#digests+1]=Crypto.sha256_hex(data)
-                end
+                total=total+#data;downloaded=downloaded+1
+                assets[#assets+1]={source=reference,data=data,media_type=media_type}
+                digests[#digests+1]=Crypto.sha256_hex(data)
             end
         end
     end

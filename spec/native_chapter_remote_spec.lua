@@ -57,6 +57,45 @@ for _,url in ipairs({'http://img.qq.com/a','https://127.0.0.1/a','https://qq.com
 end
 assert(Remote.allowed('//img.qq.com/a')=='https://img.qq.com/a')
 assert(Remote.allowed('https://img.qq.com:443/a')=='https://img.qq.com:443/a')
+assert(Remote.allowed('HTTPS://img.qq.com/a')=='https://img.qq.com/a')
+assert(Remote.allowed('https://download.sz.gfp.tencent-cloud.com/a'))
+assert(not Remote.allowed('https://gfp.tencent-cloud.com.evil.invalid/a'))
+-- Each redirect is independently checked, the original credential-free
+-- request is rebuilt, and response bytes from a redirect are discarded.
+local target='https://download.sz.gfp.tencent-cloud.com/final.png'
+local function redirect_case(kind)
+    local seen={};local live=true
+    local redirected={request=function(_self,request)
+        seen[#seen+1]=request.url
+        assert(request.skip_cookie and request.persist_response_cookies==false and request.sensitive)
+        assert(not request.headers.Cookie and not request.headers.vid and not request.headers.accessToken)
+        if #seen==1 then
+            request.sink('redirect body')
+            if kind=='cancel' then live=false end
+            local location=kind=='bad' and 'https://evil.invalid/a' or kind=='downgrade' and 'http://img.qq.com/a'
+                or kind=='relative' and '/final.png' or kind=='loop' and ref or target
+            return nil,302,{location=location}
+        end
+        if kind=='rate' then return nil,429,{} end
+        request.sink(png);return nil,200,{}
+    end}
+    local got,why=Remote.complete(redirected,source,{is_current=function() return live end})
+    if kind=='good' or kind=='relative' then
+        assert(got and #seen==2 and got.assets[1].data==png and got.downloaded_images==1)
+        assert(seen[2]==(kind=='relative' and 'https://img.qq.com/final.png' or target))
+    else
+        assert(not got and #seen==(kind=='rate' and 2 or 1))
+        assert(why==(kind=='cancel' and 'session_changed' or kind=='rate' and 'rate_limited' or 'unavailable'))
+    end
+end
+for _,kind in ipairs({'good','relative','bad','downgrade','loop','rate','cancel'}) do redirect_case(kind) end
+local hop_count=0;alive=true
+local looping={request=function(_self,_request)
+    hop_count=hop_count+1
+    return nil,302,{location='https://img.qq.com/hop'..hop_count..'.png'}
+end}
+local stopped_hops,hop_reason=Remote.complete(looping,source,options)
+assert(not stopped_hops and hop_reason=='unavailable' and hop_count==4,'redirect limit was not enforced')
 local unsafe={book_id='42',chapter_uid='7',book_version=1,catalog_sha256=string.rep('a',64),
     source_channel='eink',coordinate_source_authoritative=false,is_text=false,unusable_resources=0,
     body='<img src="https://evil.invalid/a"/>',css='',assets={},

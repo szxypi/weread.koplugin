@@ -1,0 +1,16 @@
+{
+  "scope": "one real account, one chapter with two redirected images",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "observed_redirects": 2,
+  "redirect_target": "HTTPS Tencent resource service",
+  "independent_target_fetches": "two valid image responses without credentials",
+  "installed_plugin_results": "zero missing images in both sizes",
+  "offline_reopen": true,
+  "distinct_images_decoded_offline_per_size": 2,
+  "native_shelf_unchanged": true,
+  "account_data_writes": 0,
+  "separate_authentication_renewal_posts": 1,
+  "credentials_written_to_files": false,
+  "temporary_profiles_removed": true,
+  "physical_kindle_tested": false
+}
