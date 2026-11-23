@@ -52,16 +52,21 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
     end
     local rows=Cache.list(settings,scope.vid,source.book_id,active)
     if not rows then return nil,'storage' end
-    local choices,digest={},nil
+    local choices,digest,ambiguous={},nil,false
     for _,candidate in ipairs(rows) do
         if matches(candidate) then
-            if digest and digest~=candidate.source_sha256 then return nil,'ambiguous' end
+            if digest and digest~=candidate.source_sha256 then ambiguous=true end
             digest=candidate.source_sha256;choices[#choices+1]=candidate
         end
     end
-    for _,candidate in ipairs(choices) do
-        local result=prepare(candidate)
-        if result then return result end
+    if ambiguous and not online then return nil,'ambiguous' end
+    -- Conflicting local editions cannot identify the current source. Online,
+    -- bypass them and rebuild from the verified catalog and current source.
+    if not ambiguous then
+        for _,candidate in ipairs(choices) do
+            local result=prepare(candidate)
+            if result then return result end
+        end
     end
     if not online then return nil,'not_saved' end
     local Access=require('weread.lib.native_read_access')

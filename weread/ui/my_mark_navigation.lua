@@ -339,7 +339,7 @@ function M.start(host,owner,row,is_current)
                     or not require('weread.lib.native_direct_path').contains(host.settings,result.path) then
                     local reason=type(result)=='table' and result.error
                     fail(reason=='not_saved' and 'The target chapter or its verified source is unavailable offline. Connect and try again.'
-                        or reason=='ambiguous' and 'Multiple saved versions of the target chapter disagree. The current chapter was kept.'
+                        or reason=='ambiguous' and 'Multiple saved versions of the target chapter disagree. Connect and try again.'
                         or reason=='catalog_missing' and 'Chapter order is unavailable. Reopen this chapter online to update it.'
                         or reason=='catalog_changed' and 'The chapter list changed. Please open it again.'
                         or reason=='not_entitled' and 'The cloud chapter is not available to this account.'

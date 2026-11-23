@@ -53,6 +53,7 @@ def verify_rows(raw,baseline,uid,rows,thoughts=False):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--thoughts',action='store_true')
+    parser.add_argument('--cross-chapter',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private runner required together')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0)
@@ -94,9 +95,14 @@ def main(argv=None):
             chapters=[row for row in catalog_model['chapters'] if str(row['uid']) in marked and row.get('free_or_owned') is True
                 and catalog_model['format']=='epub' and catalog_model['version'] is not None and row.get('wordCount',0)>0]
             if chapters:
-                selected=(book,catalog_model,chapters[0]);break
+                for candidate in chapters:
+                    origin=next((item for item in catalog_model['chapters'] if str(item['uid'])!=str(candidate['uid'])
+                        and item.get('free_or_owned') is True and item.get('wordCount',0)>0),None)
+                    if not args.cross_chapter or origin:
+                        selected=(book,catalog_model,candidate,origin);break
+                if selected:break
         if selected is None:raise ValueError('no_eligible_marked_chapter')
-        book,model,chapter=selected;uid=str(chapter['uid']);notes=AnnotationProbe();notes.identity=book;notes.grant=digest(credentials)
+        book,model,chapter,origin=selected;uid=str(chapter['uid']);notes=AnnotationProbe();notes.identity=book;notes.grant=digest(credentials)
         phase='baseline';before=notes.observe(credentials,'direct_personal_before')
         collection=before['thoughts'] if args.thoughts else before['marks']['updated']
         rows=[row for row in collection.values() if row.get('type')==1 and str(row.get('chapterUid'))==uid]
@@ -106,6 +112,13 @@ def main(argv=None):
         archive_probe=ChapterProbe();archive_probe.archive_url=NATIVE+'/book/chapterdownload?'+urlencode(fields)
         archive,envelope=archive_probe.download(archive_probe.archive_url,credentials);source=read(archive,password(envelope,credentials['vid']),uid)
         if not source['html']:raise ValueError('source')
+        origin_source=None
+        if args.cross_chapter:
+            phase='origin_source';origin_uid=str(origin['uid']);fields['chapters']='0,'+origin_uid
+            origin_probe=ChapterProbe();origin_probe.archive_url=NATIVE+'/book/chapterdownload?'+urlencode(fields)
+            origin_archive,origin_envelope=origin_probe.download(origin_probe.archive_url,credentials)
+            origin_source=read(origin_archive,password(origin_envelope,credentials['vid']),origin_uid)
+            if not origin_source['html']:raise ValueError('source')
         phase='web_source';web=WebSourceProbe();web.vid=saved['vid'];web.book_id=book;web.chapter=uid
         for key,value in saved['cookies'].items():web.set_cookie(key,value)
         web.verify_account();before_web=reading_position(web.request('progress_before',BASE+'/web/book/getProgress?bookId='+book),book)
@@ -117,6 +130,18 @@ def main(argv=None):
         web.verify_account();save_refreshed_web_session(session,saved,web);saved=session.load()
         payload=dict(credentials=credentials,book_id=book,uid=uid,book_version=model['version'],
             source_sha256=hashlib.sha256(source['source']).hexdigest(),web_cookies=saved['cookies'],expect_thoughts=args.thoughts)
+        if args.cross_chapter:
+            quotes=SourceQuotes(source['source'].decode('utf-8'),body_only=True)
+            note_id='reviewId' if args.thoughts else 'bookmarkId';quote_key='abstract' if args.thoughts else 'markText'
+            chosen=next((row for row in rows if isinstance(row.get(note_id),str) and 0<len(row[note_id])<=256
+                and isinstance(row.get('range'),str) and isinstance(row.get(quote_key),str)
+                and 0<len(row[quote_key].encode())<=4096 and normalized(row[quote_key])
+                and normalized(quotes.quote(row['range']))==normalized(row[quote_key])
+                and (not args.thoughts or isinstance(row.get('content'),str))),None)
+            if not chosen:raise ValueError('no_eligible_marked_chapter')
+            payload.update(cross_chapter=True,origin_uid=origin_uid,
+                origin_source_sha256=hashlib.sha256(origin_source['source']).hexdigest(),
+                expected_id=chosen[note_id])
         phase='reader';child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,timeout=480)
         if len(child.stdout)>131072 or child.stdout.count(FRAME)!=1:raise ValueError('frame')
@@ -143,7 +168,9 @@ def main(argv=None):
         report.update(result='DIRECT_PERSONAL_OWNER_VERIFIED',variant='thoughts' if args.thoughts else 'marks',native_web_source_matches=True,
             independent_quotes_match=True,offline_reopen=True,original_cloud_state_unchanged=True,web_position_unchanged=True,
             credential_file_audit=True,temporary_profile_removed=True,installed_bytes_match=True)
-        if args.thoughts:
+        if args.cross_chapter:
+            report.update(cross_chapter=True,verified_notes=len(result['rows']),navigation_from_other_chapter=True)
+        elif args.thoughts:
             report.update(visible_thoughts=len(result['rows']),chapter_thoughts=len(rows),
                 all_chapter_thoughts_displayed={row['id'] for row in result['rows']}=={row['reviewId'] for row in rows},
                 popup_contents_independently_matched=True,navigation_from_other_page=True)

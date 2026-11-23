@@ -14,6 +14,7 @@ from run_persistent_ui_probe import extract_candidate
 from annotation_source_quotes import SourceQuotes
 from test_native_direct_personal_marks_runtime import PersonalHandler
 from test_native_direct_position_runtime import BODY2, REPO
+import test_native_direct_position_runtime as fixture
 
 
 def frame(child, marker):
@@ -73,6 +74,24 @@ def run(runtime):
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                     assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=True,kind='mark',failed_safely=True)
                     assert not server.calls
+                    # Retain two different copies under the same catalog, then
+                    # exercise the actual offline refusal and online recovery.
+                    fixture.BODY2=BODY2.replace('</body>','<p>Earlier cached edition.</p></body>')
+                    server.mode='match';server.calls=[]
+                    child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_conflict_prepare.lua'),str(REPO)],
+                        input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
+                    conflict=Path(frame(child,'WEREAD_CONFLICT_PREPARED=')['path']);assert conflict.is_file()
+                    fixture.BODY2=BODY2;server.mode='selection_direct_overlay'
+                    payload.update(offline=True,kind='mark',expect_failure=True);server.calls=[]
+                    child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
+                        input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
+                    assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=True,kind='mark',failed_safely=True)
+                    assert not server.calls and conflict.is_file()
+                    payload.update(offline=False,expect_failure=False);server.calls=[]
+                    child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
+                        input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
+                    assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=False,kind='mark')
+                    assert any(path=='/book/chapterdownload' for _,_,path in server.calls) and conflict.is_file()
         print('PASS: cross-chapter marks, thoughts and bookmarks, online and offline at two sizes')
     finally:
         server.shutdown();server.server_close();thread.join()

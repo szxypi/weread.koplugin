@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-23",
+  "scope": "one real account, one highlight and one thought, each across two chapters",
+  "screens": ["600x800", "1264x1680"],
+  "verified_notes_per_variant": 1,
+  "native_and_web_source_bytes_match": true,
+  "quotes_independently_matched": true,
+  "offline_reopen_and_navigation": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_validation": 0,
+  "native_authentication_renewals_before_validation": 1,
+  "renewal_after_independent_http_401": true,
+  "original_cloud_state_unchanged": true,
+  "web_position_unchanged": true,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "limitations": ["one account and one note per variant", "real bookmark cross-chapter navigation not validated", "physical Kindle untested"]
+}

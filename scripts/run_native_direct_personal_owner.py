@@ -39,7 +39,10 @@ def main(argv=None):
                 SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_DIRECT_OWNER_TMPFS='1')
             phase='prepare';payload['plugin_home']=True
-            raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+            prepare_payload=dict(payload)
+            if payload.get('cross_chapter') is True:
+                prepare_payload.update(uid=payload['origin_uid'],source_sha256=payload['origin_source_sha256'])
+            raw=json.dumps(prepare_payload,ensure_ascii=False,separators=(',',':')).encode()
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                 str(plugin),str(REPO/'spec/koreader/native_direct_owner_ui_probe.lua')],env,raw,runtime,timeout=180)
             prepared=frame(out,b'WEREAD_DIRECT_OWNER=')
@@ -55,8 +58,9 @@ def main(argv=None):
             payload['path']=str(path);stages=[]
             for offline in (False,True):
                 phase='offline' if offline else 'online';payload['offline']=offline
+                probe='native_direct_cross_owner_probe.lua' if payload.get('cross_chapter') is True else 'native_direct_personal_owner_probe.lua'
                 code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
-                    str(plugin),str(REPO/'spec/koreader/native_direct_personal_owner_probe.lua')],env,
+                    str(plugin),str(REPO/'spec/koreader'/probe)],env,
                     json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode(),runtime,timeout=180)
                 if code:
                     try:

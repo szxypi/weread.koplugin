@@ -55,6 +55,10 @@ fixture(false);state.source={};result,why=resolve();expect(not result and why=='
 fixture(false);state.valid=false;result,why=resolve();expect(not result and why=='invalid')
 fixture(false);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,catalog_sha256='catalog',catalog_count=2,source_sha256='different'}}
 result,why=resolve();expect(not result and why=='ambiguous' and state.prepared==0)
+fixture(true);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,catalog_sha256='catalog',catalog_count=2,source_sha256='different'}}
+result,why=resolve();expect(result and not why and state.built==1 and state.prepared==1 and state.cancelled)
+fixture(true);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,catalog_sha256='catalog',catalog_count=2,source_sha256='different'}}
+state.bad_quote=true;result,why=resolve();expect(not result and why=='target_unavailable' and state.built==1 and state.cancelled)
 fixture(true);state.rows={};result=resolve();expect(result and state.built==1 and state.cancelled and state.prepared==1)
 fixture(true);state.rows={};state.catalog.reading_digest='different';result,why=resolve();expect(not result and why=='catalog_changed' and state.built==0 and state.cancelled)
 fixture(true);state.rows={};state.catalog.chapters[2].downloadable=false;result,why=resolve();expect(not result and why=='not_entitled' and state.built==0)

@@ -6,6 +6,7 @@
   "target_missing_online_download_and_navigation": true,
   "offline_new_process_navigation": true,
   "offline_corrupt_source_keeps_original_chapter": true,
+  "conflicting_cached_sources_offline_refused_online_reverified": true,
   "offline_network_requests": 0,
   "component_checks": ["changed account and page", "one-use handoff", "catalog change", "unavailable entitlement", "ambiguous cached source", "corrupt file", "quote mismatch"],
   "real_account_requests": 0,
