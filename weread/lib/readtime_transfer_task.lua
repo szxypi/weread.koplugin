@@ -36,7 +36,7 @@ local function web_point(raw,book)
     assert(not reason and point and node and provided.chapter_uid and provided.chapter_idx and provided.chapter_offset and provided.summary,'readtime_transfer/web_position')
     point.summary=node.summary;return P.point_hash(point)
 end
-local function snapshotter(client,auth,selected,web,book,expected_version,expected_months,current,now,day_guard,point_contract)
+local function snapshotter(client,auth,selected,web,book,expected_version,expected_months,current,now,day_guard,point_contract,reject_unstarted)
     local cb=C.cb_id(book)
     return function()
         assert(current(),'readtime_transfer/stale')
@@ -52,6 +52,13 @@ local function snapshotter(client,auth,selected,web,book,expected_version,expect
         assert(C.integer(raw.timestamp,1,4102444800) and math.abs(raw.timestamp-now())<=60,'readtime_transfer/clock')
         local fetch=cb and client.get_shelf_display_progress or client.get_progress_snapshot
         local remote=fetch(client,book,web.web,{classify_auth=true,fresh=true})
+        if reject_unstarted then
+            local state=require('weread.lib.native_cloud_state')
+            if state.from(raw,book) and state.from(remote,book)
+                and state.zero(P.counts(assert(Remote.node(raw,book)))) then
+                error('readtime_transfer/position_required',0)
+            end
+        end
         local native_hash,wp,counts,summary,web_counts
         if point_contract==Point.CONTRACT then
             if cb then
@@ -144,7 +151,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
         local snapshot=snapshotter(client,auth,selected,web,selection.book_id,window.version,window.months,current,now,function()
             return not metadata or Accounting.day(now())==Accounting.day(metadata.created_at)
-        end,Point.CONTRACT)
+        end,Point.CONTRACT,selection.native_direct==true)
         local before,summary=snapshot()
         assert(not cb or P.same_counts(before.counts,before.web_counts),'readtime_transfer/cb_counts')
         local config=auth:_request('time_config',BASE..'/config?token=1',nil,selected.credentials)
@@ -183,7 +190,8 @@ function M.run(client,settings,selected,web,selection,references,journal,options
     if not ok then
         if out.attempted then out.kind='unconfirmed'
         else
-            out.kind=type(reason)=='string' and reason:find('/http_401',1,true) and 'login'
+            out.kind=reason=='readtime_transfer/position_required' and 'position_required'
+                or type(reason)=='string' and reason:find('/http_401',1,true) and 'login'
                 or type(reason)=='string' and reason:find('readtime_source/format',1,true) and 'unsupported_source'
                 or 'unavailable'
             if record and journal:owns(record,'prepared') then journal:cancel_prepared(record) end

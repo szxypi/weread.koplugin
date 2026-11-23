@@ -47,6 +47,9 @@ expect(f.restarts==1 and f.refreshes==1 and not f.host._offline_time_transfer_lo
 f=fixture();f.options.observe_source=function() error('readtime_source/format') end
 expect(f.start());f.deliver()
 expect(f.result.kind=='unsupported_source' and f.posts==0 and f.ledger:summary(f.account).pending==2)
+f=fixture();expect(f.start());f.worker.callback({kind='position_required'})
+expect(f.result.kind=='position_required' and f.posts==0 and f.ledger:summary(f.account).pending==2
+    and not f.host._offline_time_transfer_lock,'first-position guidance was discarded or retained its lease')
 -- Refuse an active writer, without abandoning its job, even before a claim.
 for _i,busy in ipairs({'report','preparation','sync','source','native_position','position'}) do
     f=fixture()

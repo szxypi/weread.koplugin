@@ -287,8 +287,16 @@ transfer=function(host,context,mode,input)
                 completed='Local records updated. Original transfer evidence is kept.',
                 unconfirmed='Cloud accounting is not confirmed. The request is kept and will not be sent again.',
                 unsupported_source='This imported book format cannot transfer saved time yet. Its records are kept.',
+                position_required='This book has no cloud reading position yet. Sync a page first, then transfer the saved reading time. The local records are kept.',
                 unavailable='Could not complete this operation. Saved records are kept.',login='Log in again before checking saved time.'}
-            dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end)
+            local actions={}
+            if result.kind=='position_required' and direct and context.document and refs and refs[1]
+                and context.document.file==refs[1].file then
+                actions[1]={text='Open reading quick menu',callback=function()
+                    M.close(host);require('weread.ui.reader_navigation').onShowWeReadQuickMenu(host)
+                end}
+            end
+            dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end,actions)
         end)
         if not started then
             if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil

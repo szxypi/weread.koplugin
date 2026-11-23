@@ -99,10 +99,28 @@ if input.stage=='reopen_review' then
     assert(#sent.references==1 and sent.references[1].kind=='native_direct'
         and sent.references[1].file==found.reference.file
         and sent.references[1].source_sha256==found.reference.source_sha256,'menu selected a different source')
-    sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
+    if input.expect_no_position then
+        assert(sent.references[1].file==reader.document.file,'selected source is not the open file')
+        sent.callback({kind='position_required'})
+        local dialog=assert(host._offline_time_detail);local quick_action
+        for _,row in ipairs(dialog.buttons) do for _,button in ipairs(row) do
+            if button.text==tr('Open reading quick menu') then quick_action=button end
+        end end
+        assert(quick_action,'first-position quick menu action missing');quick_action.callback()
+        pump(function()
+            local top=UI:getTopmostVisibleWidget()
+            return top and type(top.getButtonById)=='function' and top:getButtonById('native_upload_position')~=nil
+        end,'quick')
+        assert(not host._offline_time_review,'time review remained open')
+        UI:close(UI:getTopmostVisibleWidget())
+    else
+        sent.callback({kind='unavailable'});host:closeOfflineTimeUI()
+    end
+    host.offline_time_transfer_service=nil
     assert(require('weread.lib.readtime_transfer_contract').digest(assert(collector.store:pending(account)))==snapshot,
         'blocked preparation changed the ledger')
 end
 reader:onClose(false)
 print('WEREAD_DIRECT_TIME_OWNER='..json.encode{ok=true,stage=input.stage,network_blocked=true,rows=count,seconds=total,
-    snapshot=snapshot,review_verified=input.stage=='reopen_review'})
+    snapshot=snapshot,review_verified=input.stage=='reopen_review',
+    guidance_verified=input.stage=='reopen_review' and input.expect_no_position==true})

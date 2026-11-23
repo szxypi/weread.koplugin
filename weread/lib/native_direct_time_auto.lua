@@ -156,6 +156,8 @@ function M:send(selection,ref)
             self.operation=nil
             if not self:current() then self:stop();return end
             if type(result)=='table' and result.kind=='confirmed' then self:schedule()
+            elseif type(result)=='table' and result.kind=='position_required' then
+                self:stop(true,'Sync this page to the cloud before transferring this book’s saved reading time.')
             else self:stop(true,'Automatic reading-time sync needs review. Open local reading time.') end
         end)
     if not ok or not started then

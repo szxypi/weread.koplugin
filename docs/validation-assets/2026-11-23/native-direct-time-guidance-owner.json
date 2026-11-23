@@ -1,0 +1,28 @@
+{
+  "result": "NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "books": 1,
+  "chapters_per_run": 1,
+  "native_and_web_no_chapter_confirmed": true,
+  "native_time_counters_zero": true,
+  "production_transfer_task_guidance_verified": true,
+  "local_time_preserved": true,
+  "ui_callback_simulated": true,
+  "actual_reader_quick_menu_opened": true,
+  "cloud_sync_button_visible": true,
+  "backend_dispatch_blocked": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_verification": 0,
+  "credentials_written_to_files": false,
+  "shelf_unchanged": true,
+  "web_position_unchanged": true,
+  "temporary_profiles_removed": true,
+  "positive_position_regression_screen": "600x800",
+  "separate_prior_authorization_renewal_posts": 1,
+  "direct_unstarted_transfer_tested": false,
+  "real_time_upload_tested": false,
+  "physical_kindle_tested": false
+}

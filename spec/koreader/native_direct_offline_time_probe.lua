@@ -125,8 +125,20 @@ assert(reference and reference.kind=='native_direct' and reference.file and refe
 local saved=assert(require('weread.lib.native_direct_cache').identify(host.settings,scope.vid,reference.file,function() return true end))
 assert(saved.file_id==first_row.file_id,'UI sent a different chapter source')
 assert((saved.chapter_idx~=nil)==input.indexed,'fixture did not exercise the expected cached chapter index')
-sent.callback({kind='unavailable'});host:closeOfflineTimeUI()
-collector.store,host.readtime_coverage=actual_store,actual_coverage;sent=nil
+assert(reference.file~=input.second,'fixture did not select a different open chapter')
+sent.callback({kind='position_required'})
+for _,row in ipairs(assert(host._offline_time_detail).buttons) do for _,button in ipairs(row) do
+    assert(button.text~=tr('Open reading quick menu'),'guidance offered the wrong open chapter')
+end end
+host:closeOfflineTimeUI()
+local current_entry=assert(require('weread.lib.native_direct_cache').identify(host.settings,scope.vid,input.second,function() return true end))
+local current_dir=home..'/time-current-fixture';assert(require('libs/libkoreader-lfs').mkdir(current_dir))
+local current_store=Ledger:new(current_dir);local current_coverage=Coverage:new(current_dir,function() return os.time()-100 end)
+assert(current_coverage:initialize());local now=os.time()-10
+local current_window=assert(current_store:begin(account,{book_id='42',stats_book=1,start_time=now,time_zone='+08:00',
+    book_version=current_entry.book_version,file_id=current_entry.file_id,version_source='native_direct'}))
+assert(current_store:collect(account,current_window,{{page='1',start_time=now,duration=5}},now+5,true))
+collector.store,host.readtime_coverage=current_store,current_coverage;sent=nil
 host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
 item=nil
 for _,row in ipairs(host._offline_time_menu.item_table) do
@@ -140,7 +152,18 @@ end end
 assert(submit,'current-day native batch was not offered');submit.callback();pump(function() return sent~=nil end)
 assert(sent.mode=='send' and sent.owner==account and sent.selection.native_direct==true
     and sent.selection.current_day==true and sent.guard(),'current-day batch was not sent to the service')
-sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
+local opened=0;local navigation=require('weread.ui.reader_navigation');local open_quick=navigation.onShowWeReadQuickMenu
+navigation.onShowWeReadQuickMenu=function() opened=opened+1 end
+sent.callback({kind='position_required'})
+local prompt=assert(host._offline_time_detail);local action
+for _,row in ipairs(prompt.buttons) do for _,button in ipairs(row) do
+    if button.text==tr('Open reading quick menu') then action=button end
+end end
+assert(action,'first-position guidance omitted the quick menu');action.callback()
+assert(opened==1 and not host._offline_time_review and current_store:summary(account).pending==5,
+    'first-position guidance did not preserve time or open the reader menu')
+navigation.onShowWeReadQuickMenu=open_quick
+collector.store,host.readtime_coverage=actual_store,actual_coverage;host.offline_time_transfer_service=nil
 -- Real UI scheduler and subprocess selection/source scan; only transport is
 -- substituted. A one-second interval makes this a bounded timer simulation.
 host.settings:set('offline_time',{enabled=true,auto_native=false});host.settings:flush()

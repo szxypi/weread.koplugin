@@ -42,8 +42,13 @@ function M.new(mode,expect,roots,cb,config)
         local reading=20+(f.applied and 2 or 0)
         if web and (f.mode=='cb_web_counter_mismatch' or f.mode=='cb_web_counter_changed' and f.posts>0) then reading=reading+1 end
         if web and f.mode=='cb_web_counter_delay' and f.posts>0 and f.reads<=1 then reading=20 end
-        return {timestamp=f.clock,book={bookId=f.book_id,chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
-            summary=summary,readingTime=reading,recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}}
+        local point={bookId=f.book_id,chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
+            summary=summary,readingTime=reading,recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}
+        if f.mode=='no_position' or f.mode=='no_position_nonzero' or f.mode=='no_position_mixed' and not web then
+            point.chapterUid,point.chapterIdx,point.chapterOffset,point.progress,point.summary=0,nil,0,0,nil
+            point.readingTime=f.mode=='no_position_nonzero' and 20 or 0
+        end
+        return {timestamp=f.clock,book=point}
     end
     function f.client:get_progress_snapshot(book,access)
         expect(not cb and book==f.book_id and access.cookies.wr_vid=='900000');return progress(true)

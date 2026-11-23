@@ -66,6 +66,10 @@ f.callback({kind='unconfirmed'});expect(not f.host._native_auto_time and f.host.
     'uncertain result did not stop automatic sync')
 expect(not f.start() and not next(f.jobs),'uncertain result was automatically retried')
 expect(f.start(true),'explicit reset did not rearm')
+f=fixture();f.start();f.advance(300);f.deliver();f.deliver();f.deliver()
+f.callback({kind='position_required'})
+expect(f.host._native_auto_time_blocked and f.messages[1]=='Sync this page to the cloud before transferring this book’s saved reading time.'
+    and not next(f.jobs),'unstarted book did not stop automatic transfer with useful guidance')
 f=fixture();f.start();f.online=false;f.advance(300);expect(not f.starts and not f.host._native_auto_time,'offline timer dispatched')
 f=fixture();f.start();f.visible=false;f.advance(300);expect(#f.work==0 and next(f.jobs),'covered reader started work')
 f.visible=true;f.host.offline_time.active=nil;f.advance(300);expect(#f.work==0 and next(f.jobs),'inactive collector started work')

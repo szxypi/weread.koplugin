@@ -42,6 +42,7 @@ def main(argv=None):
     parser.add_argument('--offline-time', action='store_true')
     parser.add_argument('--offline-time-ui', action='store_true')
     parser.add_argument('--offline-time-preflight', action='store_true')
+    parser.add_argument('--no-position-guidance', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
@@ -57,6 +58,8 @@ def main(argv=None):
         parser.error('offline time UI requires offline time')
     if args.offline_time_preflight and not args.offline_time_ui:
         parser.error('offline time preflight requires offline time UI')
+    if args.no_position_guidance and not args.offline_time_preflight:
+        parser.error('no-position guidance requires offline time preflight')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -171,6 +174,7 @@ def main(argv=None):
                 saved = None
                 for stage in (('capture', 'reopen', 'reopen_review') if args.offline_time_ui else ('capture', 'reopen')):
                     private = dict(stage=stage, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                    if args.no_position_guidance: private['expect_no_position']=True
                     code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                         str(REPO), str(REPO/'spec/koreader/native_direct_time_owner_probe.lua')], env,
                         json.dumps(private).encode(), runtime, timeout=150)
@@ -186,7 +190,8 @@ def main(argv=None):
                             or type(observed.get('seconds')) is not int or observed['seconds'] < 5
                             or not isinstance(observed.get('snapshot'), str)
                             or re.fullmatch(r'[0-9a-f]{64}', observed['snapshot']) is None
-                            or observed.get('review_verified') is not (stage == 'reopen_review')):
+                            or observed.get('review_verified') is not (stage == 'reopen_review')
+                            or observed.get('guidance_verified') is not (stage == 'reopen_review' and args.no_position_guidance)):
                         raise ValueError('offline_time')
                     point = observed['rows'], observed['seconds'], observed['snapshot']
                     if saved is not None and point != saved: raise ValueError('offline_time_changed')
@@ -194,7 +199,7 @@ def main(argv=None):
                 if args.offline_time_preflight:
                     phase = 'offline_time_preflight'
                     private=dict(credentials=payload['credentials'],cookies=payload['web_cookies'],
-                        book_id=payload['book_id'],uid=payload['uid'])
+                        book_id=payload['book_id'],uid=payload['uid'],expect_no_position=args.no_position_guidance)
                     if payload.get('mock_endpoint') is not None: private['mock_endpoint']=payload['mock_endpoint']
                     code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                         str(REPO),str(REPO/'spec/koreader/native_direct_time_online_preflight.lua')],env,
@@ -224,6 +229,7 @@ def main(argv=None):
                         report['preflight_point_failure']=observed['point_failure']
                     if (code or repaint or observed.get('ok') is not True or observed.get('blocked_before_dispatch') is not True
                             or observed.get('ledger_unchanged') is not True or observed.get('write_guard_verified') is not True
+                            or observed.get('position_required') is not args.no_position_guidance
                             or type(observed.get('requests')) is not int
                             or not 1<=observed['requests']<=100):
                         raise ValueError('offline_time_preflight')
@@ -288,6 +294,8 @@ def main(argv=None):
                 report['offline_time_ui_verified'] = True
             if args.offline_time_preflight:
                 report['offline_time_preflight_verified'] = True
+            if args.no_position_guidance:
+                report['no_position_guidance_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

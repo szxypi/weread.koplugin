@@ -99,7 +99,7 @@ function M:start(mode,account,input,references,guard,callback)
         if not self:_current(job) then self:cancel();callback({kind='cancelled'});return end
         self:_release(job,true)
         local valid=type(result)=='table' and ({confirmed=true,saved_confirmation=true,unconfirmed=true,unavailable=true,
-            unsupported_source=true,login=true,completed=true})[result.kind]
+            unsupported_source=true,position_required=true,login=true,completed=true})[result.kind]
         if valid and (result.kind=='confirmed' or result.kind=='saved_confirmation') then
             local row=self.journal:get(account,result.attempt)
             valid=row and (row.phase=='settled' or row.phase=='confirmed') and row.evidence and row.evidence.audit

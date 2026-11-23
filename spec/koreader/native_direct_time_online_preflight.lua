@@ -140,6 +140,8 @@ local result=require('weread.lib.readtime_transfer_task').run(client,settings,na
 journal.begin=begin
 assert(not result.attempted and not result.acknowledged)
 assert(digest(assert(ledger:pending(account)))==before and not journal:pending(account))
-print('WEREAD_DIRECT_TIME_ONLINE='..json.encode{ok=reached and blocked==0,blocked_before_dispatch=true,ledger_unchanged=true,
+local expected=input.expect_no_position==true
+local matched=expected and result.kind=='position_required' and not reached or not expected and reached
+print('WEREAD_DIRECT_TIME_ONLINE='..json.encode{ok=matched and blocked==0,blocked_before_dispatch=true,ledger_unchanged=true,
     last=last,requests=count,rejected=rejected,last_status=last_status,source_reason=source_reason,transport=transport,
-    error_line=error_line,point_failure=point_failure,write_guard_verified=true})
+    error_line=error_line,point_failure=point_failure,write_guard_verified=true,position_required=result.kind=='position_required'})
