@@ -12,6 +12,14 @@
     "shelf_unchanged": true,
     "refreshed_web_session_saved": true
   },
-  "owner_full_plugin_ui_verified": false,
+  "owner_isolated_plugin_ui": {
+    "entry": "direct_shelf_status_menu",
+    "ordinary_book_both_sizes": true,
+    "imported_book_both_sizes": true,
+    "profile_credentials_audited_and_removed": true,
+    "account_data_writes": 0,
+    "shelf_unchanged": true
+  },
+  "owner_shelf_navigation_verified": false,
   "physical_device_verified": false
 }

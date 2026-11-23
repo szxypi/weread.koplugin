@@ -14,7 +14,7 @@ from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import WebSourceProbe
 
 
-def inspect(saved, credentials, probe, command):
+def inspect(saved, credentials, probe, command, *, ui_kind=None):
     before = probe.shelf(credentials)
     initial = project(before)
     ordinary, imported = [], []
@@ -30,7 +30,10 @@ def inspect(saved, credentials, probe, command):
             ordinary.append(value)
         elif re.fullmatch(r'CB_[A-Za-z0-9]{1,64}', value):
             imported.append(value)
-    ids = sorted(ordinary)[:5] + sorted(imported)[:5]
+    if ui_kind not in (None, 'ordinary', 'imported'):
+        raise ValueError('owner_reading_state/scope')
+    ids = (sorted(ordinary)[:1] if ui_kind == 'ordinary' else sorted(imported)[:1] if ui_kind == 'imported'
+           else sorted(ordinary)[:5] + sorted(imported)[:5])
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('owner_reading_state/scope')
     probe.allowed = set(ids)
@@ -55,27 +58,32 @@ def inspect(saved, credentials, probe, command):
     if child.returncode or len(child.stdout) > 65536 or child.stdout.count(frame) != 1:
         raise ValueError('owner_reading_state/lua')
     result = json.loads(child.stdout.split(frame)[1])
-    if result != {'model': expected, 'native': expected, 'requests': len(ids)}:
+    expected_result = {'model': expected, 'native': expected, 'requests': len(ids)}
+    if ui_kind:
+        expected_result['ui'] = True
+    if result != expected_result:
         raise ValueError('owner_reading_state/mismatch')
     if project(probe.shelf(credentials)) != initial:
         raise ValueError('owner_reading_state/shelf_changed')
-    return dict(result='OWNER_READ_ONLY_VERIFIED', ordinary_books=min(len(ordinary), 5),
-                imported_books=min(len(imported), 5), lua_projection_matches=True,
-                native_https_readback_matches=True, account_data_writes=0, shelf_unchanged=True)
+    return dict(result='OWNER_READ_ONLY_VERIFIED', ordinary_books=sum(not value.startswith('CB_') for value in ids),
+                imported_books=sum(value.startswith('CB_') for value in ids), lua_projection_matches=True,
+                native_https_readback_matches=True, full_plugin_ui_verified=bool(ui_kind),
+                account_data_writes=0, shelf_unchanged=True)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--ui-kind', choices=('ordinary', 'imported'))
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    if args.saved_session != bool(args.lua_command):
+    if args.saved_session != bool(args.lua_command) or args.ui_kind and not args.saved_session:
         parser.error('saved session and Lua command are required together')
     if not args.saved_session:
         print(json.dumps({'result': 'OFFLINE_ONLY', 'account_data_writes': 0}))
         return 0
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    saved = credentials = web = None
+    saved = credentials = web = store = None
     try:
         store = SessionStore()
         native_store = NativeSessionStore()
@@ -86,14 +94,18 @@ def main(argv=None):
         for key, value in saved['cookies'].items():
             web.set_cookie(key, value)
         web.verify_account()
-        report = inspect(saved, credentials, ReadOnlyProbe(), args.lua_command)
+        report = inspect(saved, credentials, ReadOnlyProbe(), args.lua_command, ui_kind=args.ui_kind)
         if store.load() != saved or native_store.load(saved['vid']) != credentials:
             raise ValueError('owner_reading_state/session_changed')
         web.verify_account()
-        report['refreshed_web_session_saved'] = save_refreshed_web_session(store, saved, web)
     except Exception:
         report = {'result': 'UNVERIFIED', 'account_data_writes': 0}
     finally:
+        if web and saved and store and web.authenticated:
+            try:
+                report['refreshed_web_session_saved'] = save_refreshed_web_session(store, saved, web)
+            except Exception:
+                report.update(result='UNVERIFIED', session_preservation_failed=True)
         if web:
             web.close()
         if saved:
