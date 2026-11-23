@@ -44,7 +44,7 @@ local function search_dialog(host,owner)
         if not valid() then return end
         local query=Query.trim(value)
         if #query>1024 then host:showInfo(_('Search text is too long.'));return end
-        owner.search=query~='' and query or nil;owner.needle=Search.prepare(owner.search)
+        owner.search=query~='' and query or nil;owner.needle=Search.prepare(owner.search);owner.terms=Search.terms(owner.needle)
         Popup.close(owner.menu);render(host,owner)
     end
     dialog=require('ui/widget/inputdialog'):new{title=_('Search notebooks'),input=owner.search or '',input_type='text',buttons={{
@@ -56,7 +56,7 @@ end
 local function ordered_books(owner)
     local entries={}
     for index,book in ipairs(owner.value.books) do
-        if Search.matches(book,owner.needle) then
+        if Search.matches(book,owner.needle,owner.terms) then
             local total
             if book.noteCount~=nil and book.reviewCount~=nil and book.bookmarkCount~=nil then
                 total=book.noteCount+book.reviewCount+book.bookmarkCount

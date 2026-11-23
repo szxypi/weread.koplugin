@@ -28,6 +28,15 @@ expect(calls == before, "NUL was passed to the Unicode normalizer")
 expect(Search.matches({}, nil) and not Search.matches(nil, "x"), "empty or malformed input handling changed")
 expect(Search.contains("café",Search.prepare("É")),"shared text matching lost Unicode case mapping")
 expect(not Search.contains(nil,Search.prepare("x")) and not Search.contains("text",nil),"shared text matching accepted invalid input")
+local book={title="三体 黑暗森林",author="刘慈欣",bookId=123456}
+for _, query in ipairs({"三体 刘慈欣", "刘慈欣　森林", "123456\194\160刘慈欣", "森林 三体"}) do
+    local needle=Search.prepare(query)
+    expect(Search.matches(book,needle,Search.terms(needle)),"multiword title/author/id query failed")
+end
+expect(not Search.matches(book,Search.prepare("三体 不存在")),"missing keyword matched")
+expect(not Search.matches({title="三体",author="刘慈欣"},Search.prepare("三体 %")),"keyword treated as a pattern")
+expect(Search.matches({title="one two"},Search.prepare("one two")),"exact phrase stopped matching")
+expect(not Search.matches({title="one",author="other"},Search.prepare("one two")),"incomplete cross-field query matched")
 
 package.loaded["ffi/utf8proc"] = previous
 package.loaded["weread.lib.shelf_search"] = nil

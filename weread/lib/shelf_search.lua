@@ -27,15 +27,33 @@ function Search.contains(value, needle)
         and fold(value):find(needle, 1, true) ~= nil
 end
 
-function Search.matches(book, needle)
+function Search.terms(needle)
+    return require("weread.lib.search_query").words(needle)
+end
+
+function Search.matches(book, needle, terms)
     if not needle then return true end
     if type(book) ~= "table" then return false end
+    local fields = {}
     for _, field in ipairs({ "title", "author", "authors", "bookId", "book_id" }) do
         local value = book[field]
         if type(value) == "number" and (field == "bookId" or field == "book_id") then value = tostring(value) end
-        if Search.contains(value, needle) then return true end
+        if type(value) == "string" then
+            value = fold(value)
+            if type(needle) == "string" and value:find(needle, 1, true) then return true end
+            fields[#fields + 1] = value
+        end
     end
-    return false
+    terms = terms or Search.terms(needle)
+    if #terms < 2 then return false end
+    for _, term in ipairs(terms) do
+        local found = false
+        for _, value in ipairs(fields) do
+            if value:find(term, 1, true) then found = true; break end
+        end
+        if not found then return false end
+    end
+    return true
 end
 
 return Search

@@ -831,6 +831,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local recent_account = group_owner(self)
     local downloaded_cache = {}
     local needle = ShelfSearch.prepare(keyword)
+    local terms = ShelfSearch.terms(needle)
     local function filtered(source, with_download_state)
         local result = {}
         local sorted = sortBooks(source or {}, self.settings:get("shelf").sort_order,
@@ -838,7 +839,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         for _i, book in ipairs(sorted) do
             local matches_filters = not with_download_state
                 or self:bookMatchesFilters(book, saved_books, downloaded_cache)
-            if matches_filters and ShelfSearch.matches(book, needle) then
+            if matches_filters and ShelfSearch.matches(book, needle, terms) then
                 if with_download_state then
                     book._cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
                 end

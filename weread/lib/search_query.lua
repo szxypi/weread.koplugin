@@ -47,4 +47,23 @@ local function trim(value)
     return value:sub(first, last)
 end
 
-return { trim = trim }
+-- Split on the same Unicode whitespace accepted by trim. Preserve all other
+-- bytes so malformed text and literal punctuation remain literal searches.
+local function words(value)
+    if type(value) ~= "string" then return {} end
+    local result, first, position = {}, nil, 1
+    while position <= #value do
+        local length = space_length(value, position, #value - position + 1)
+        if length then
+            if first then result[#result + 1] = value:sub(first, position - 1); first = nil end
+            position = position + length
+        else
+            first = first or position
+            position = position + 1
+        end
+    end
+    if first then result[#result + 1] = value:sub(first) end
+    return result
+end
+
+return { trim = trim, words = words }

@@ -316,7 +316,9 @@ for _kind_index,kind in ipairs({'sort','filter','search'}) do
             assert(view._shelf_closed and not view._shelf_popup)
             if kind=='search' then
                 assert(plugin.shelf_search_keyword=='合成书籍 1' and #plugin.shelf_view.books>0)
-                for _book_index,book in ipairs(plugin.shelf_view.books) do assert(book.title:find('合成书籍 1',1,true)) end
+                for _book_index,book in ipairs(plugin.shelf_view.books) do
+                    assert(book.title:find('合成书籍',1,true) and (book.title:find('1',1,true) or tostring(book.bookId):find('1',1,true)))
+                end
             else assert(writes==1 and json.encode(plugin.settings:get('shelf'))~=before) end
         else
             for _i=1,5 do tick() end
@@ -360,6 +362,14 @@ for _,case in ipairs({{'CAFÉ','SYN-U1'},{'STRASSE','SYN-U2'},{'josé','SYN-U2'
     pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
     assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2],
         'Unicode shelf search missed a grouped book or escaped the active group')
+end
+for _,case in ipairs({{'JOSÉ　STRASSE','SYN-U2'},{'SYN-U2\194\160josé','SYN-U2'},
+        {'STRASSE missing',false},{'Café outside',false}}) do
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText(case[1]);search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(case[2] and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2]
+        or not case[2] and #plugin.shelf_view.books==0,'multiword search or active group constraint failed')
 end
 -- Real paged shelf: equal values keep original order within pinned/unpinned
 -- sections after page changes and after switching the sort field.

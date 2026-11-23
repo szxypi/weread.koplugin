@@ -73,7 +73,7 @@ if phase=='live' then
     view,manager=manage();local actions=choose_group(view,manager,'本机测试');local picker=group_action(view,actions,1)
     picker:onMenuSelect(entry(picker,'合成书一'))
     local search=select_row(view,picker,text('Search shelf'))
-    search:setInputText('writer');button(search,text('Search')).callback()
+    search:setInputText('writer　书三');button(search,text('Search')).callback()
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup
     assert(entry(picker,'合成书三') and not pcall(entry,picker,'合成书一'),'author search did not filter')
@@ -82,7 +82,7 @@ if phase=='live' then
     picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
     assert(entry(picker,'合成书三').mandatory=='','bulk deselect missed matching book')
     picker:onMenuSelect(entry(picker,text('Select matching shelf books')))
-    search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'writer'))
+    search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'writer　书三'))
     search:setInputText('无匹配');button(search,text('Search')).callback()
     pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup;assert(entry(picker,text('No matching shelf books.')))

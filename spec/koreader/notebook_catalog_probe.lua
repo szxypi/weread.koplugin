@@ -222,6 +222,13 @@ local ok,reason=pcall(function()
     local found=false
     for _,row in ipairs(menu.item_table) do if row.notebook_id==chosen.bookId then found=true end end
     assert(found and owner.search==query and counters[0]==request_count);UI:forceRePaint()
+    if synthetic then
+        local combined=chosen.bookId..'　'..query..' 合成作者'
+        menu:onMenuSelect(item('Search notebooks'));input_dialog=assert(menu._shelf_popup)
+        input_dialog:setInputText(combined);input_dialog.buttons[1][2].callback();tick()
+        local matching={};for _,row in ipairs(menu.item_table) do if row.notebook_id then matching[#matching+1]=row.notebook_id end end
+        assert(#matching==1 and matching[1]==chosen.bookId and counters[0]==request_count,'notebook multiword search failed')
+    end
     menu:onMenuSelect(item('Search notebooks'));input_dialog=assert(menu._shelf_popup)
     input_dialog.buttons[1][1].callback();tick();assert(not owner.search)
     menu:onMenuSelect(item('Sort notebooks'));local sort=assert(menu._shelf_popup)

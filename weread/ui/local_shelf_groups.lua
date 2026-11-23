@@ -115,10 +115,11 @@ function M.open(host,owner,is_current,on_change)
             end}
         end
         local needle=ShelfSearch.prepare(state.query)
+        local terms=ShelfSearch.terms(needle)
         local matches={}
         for _,book in ipairs(host.shelf_regular or {}) do
             local id=Identity.persisted_id(book)
-            if id and ShelfSearch.matches(book,needle) then
+            if id and ShelfSearch.matches(book,needle,terms) then
                 local row={text=type(book.title)=='string' and book.title~='' and book.title or _('Untitled book'),
                     mandatory=selected[id] and '✓' or ''}
                 row.callback=function()
