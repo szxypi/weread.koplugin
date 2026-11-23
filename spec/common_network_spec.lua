@@ -47,6 +47,15 @@ local host = setmetatable({
     end,
 }, { __index = Common })
 
+local previous_navigation=package.loaded['weread.ui.my_mark_navigation']
+local order={}
+package.loaded['weread.ui.my_mark_navigation']={cancel_incoming=function(current)
+    assert(current==host);order[#order+1]='cancel'
+end}
+host:safeCallback('new action',function(value) order[#order+1]=value end)('action')
+eq(table.concat(order,','),'cancel,action','new action cancels an incoming native note before opening')
+package.loaded['weread.ui.my_mark_navigation']=previous_navigation
+
 eq(host:runOnlineTask("automatic", function() end, nil, {
     silent_offline = true,
 }), false, "silent offline task does not start")

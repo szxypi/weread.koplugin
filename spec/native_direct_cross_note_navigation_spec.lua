@@ -83,4 +83,26 @@ do local _,_,start,finish=fixture('mark');state.bad_target=true;expect(start());
 do local _,next_host,start,finish,tick,receive=fixture('mark');expect(start());finish();finish();expect(receive());next_host.ui.document.page=2;tick();expect(not state.moved and #jobs==0) end
 do local _,_,start,finish,_,receive=fixture('mark');expect(start());finish();finish();state.account='b';expect(not receive() and not state.moved) end
 do local _,_,start,finish,_,receive=fixture('mark');expect(start());finish();finish();state.valid=false;expect(not receive() and not state.moved) end
+do
+    local _,next_host,start,finish,_,receive=fixture('mark');expect(start());finish();finish();expect(receive())
+    Navigation.cancel_incoming(next_host)
+    expect(not next_host._native_direct_note_incoming and #tasks==0 and #jobs==0 and not state.moved)
+end
+do
+    local _,next_host,start,finish,tick,receive=fixture('mark');expect(start());finish();finish();expect(receive());tick()
+    expect(next_host._native_direct_note_incoming and #jobs==1)
+    Navigation.cancel_incoming(next_host);finish()
+    expect(not next_host._native_direct_note_incoming and #jobs==0 and not state.moved)
+end
+do
+    local _,next_host,start,finish,_,receive=fixture('mark');expect(start());finish();finish();expect(receive())
+    next_host.ui.document.page=2;Navigation.on_view_changed(next_host)
+    expect(not next_host._native_direct_note_incoming and #tasks==0 and not state.moved)
+end
+do
+    local _,next_host,start,finish,_,receive=fixture('mark');expect(start());finish();finish();expect(receive())
+    local stale=next_host._native_direct_note_incoming.task;Navigation.cancel_incoming(next_host)
+    local replacement={};next_host._native_direct_note_incoming=replacement;stale()
+    expect(next_host._native_direct_note_incoming==replacement and not state.moved)
+end
 print('native_direct_cross_note_navigation_spec: '..checks..' checks passed')

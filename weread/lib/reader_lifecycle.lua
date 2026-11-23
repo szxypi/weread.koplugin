@@ -136,6 +136,7 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval']
     if direct_interval then direct_interval.cancel(self) end
@@ -266,6 +267,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.on_view_changed then direct_note.on_view_changed(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.on_view_changed(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
@@ -286,6 +288,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.on_view_changed then direct_note.on_view_changed(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.on_view_changed(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.on_view_changed(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open'];if direct_cloud then direct_cloud.on_view_changed(self) end
@@ -306,6 +309,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close']
     if self._native_direct_interval and not direct_close then direct_close=require('weread.lib.native_direct_close') end
     local direct_close_token

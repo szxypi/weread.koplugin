@@ -16,6 +16,19 @@ local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plug
 for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_load{item} end end
 assert(#loader.enabled_plugins==1)
 local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
+local cancelled,cancel_page=false,nil
+if input.expect_cancel then
+    local Navigation=require('weread.ui.my_mark_navigation');local start=Navigation.start
+    Navigation.start=function(host,...)
+        local result=start(host,...)
+        if host.ui and host.ui.document and host.ui.document.file~=input.path and host._native_direct_note_incoming then
+            cancel_page=host.ui.document:getCurrentPage()
+            host:safeCallback('synthetic new action',function() cancelled=true end)()
+            assert(not host._native_direct_note_incoming,'new action did not cancel pending navigation')
+        end
+        return result
+    end
+end
 local function wait(predicate)
     local deadline=socket.gettime()+80
     while not predicate() do assert(socket.gettime()<deadline,'cross note timeout');UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
@@ -59,6 +72,15 @@ if input.expect_failure then
     return
 end
 assert(not host.test_message,'cross chapter preparation failed: '..tostring(host.test_message))
+if input.expect_cancel then
+    wait(function() return cancelled end)
+    local second=Reader.instance;local deadline=socket.gettime()+2
+    while socket.gettime()<deadline do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    assert(second==Reader.instance and second.document:getCurrentPage()==cancel_page and not second.weread._native_direct_note_incoming,
+        'cancelled note changed the new reader')
+    print('WEREAD_CROSS_NOTE='..json.encode{ok=true,kind=input.kind,offline=input.offline==true,cancelled=true})
+    return
+end
 wait(function()
     local reader=Reader.instance
     if not reader or not reader.document or not reader.weread then return false end

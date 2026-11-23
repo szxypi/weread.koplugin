@@ -192,6 +192,8 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    local mark_navigation=package.loaded['weread.ui.my_mark_navigation']
+    if mark_navigation and mark_navigation.cancel_incoming then mark_navigation.cancel_incoming(self) end
     local thought_replies = package.loaded['weread.ui.thought_replies']
     if thought_replies then thought_replies.cancel(self) end
     local reviews = package.loaded['weread.ui.native_book_reviews']

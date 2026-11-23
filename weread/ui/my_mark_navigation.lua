@@ -12,9 +12,25 @@ local function close_busy(host,job)
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
     job.busy=nil
 end
+local function release_incoming(host,owner)
+    local incoming=host._native_direct_note_incoming
+    if not incoming or owner and incoming.owner~=owner then return nil end
+    host._native_direct_note_incoming=nil
+    if incoming.task then UI:unschedule(incoming.task);incoming.task=nil end
+    return incoming
+end
+function M.cancel_incoming(host)
+    local incoming=release_incoming(host)
+    if incoming and incoming.owner then M.cancel(host,incoming.owner) end
+end
+function M.on_view_changed(host)
+    local incoming=host._native_direct_note_incoming
+    if incoming and incoming.current and not incoming.current() then M.cancel_incoming(host) end
+end
 function M.cancel(host,owner)
     local job=owner.navigation;owner.navigation=nil
     if not job then return end
+    release_incoming(host,owner)
     if job.worker then job.worker:cancel() end
     if job.task then UI:unschedule(job.task) end
     local confirm=job.confirm;job.confirm=nil
@@ -256,7 +272,7 @@ function M.start(host,owner,row,is_current)
             local checked,exists=pcall(document.isXPointerInDocument,document,xpointer)
             if not checked or not exists then fail();return end
             local location=job.location
-            owner.navigation=nil;close_busy(host,job);host:closeWeReadUI()
+            owner.navigation=nil;release_incoming(host,owner);close_busy(host,job);host:closeWeReadUI()
             local same=host.ui and host.ui.document==document and document.file==file
                 and owner_key(host)==account and scope_current(host,owner) and (host._reader_session_gen or 0)==session
                 and Context.same_location(location,reader_location(host))
@@ -360,19 +376,27 @@ function M.start(host,owner,row,is_current)
                     if id.book_id~=owner.id or id.file_id~=target.file_id or id.book_version~=target.book_version then return false end
                     local location=reader_location(next_host);local next_session=next_host._reader_session_gen or 0
                     if not location then return false end
+                    M.cancel_incoming(next_host)
                     local incoming={id=owner.id,account=account,scope=owner.scope,value={},thoughts=owner.thoughts}
+                    local pending={owner=incoming}
                     local function still_current()
                         local actual=next_host.ui and next_host.ui.document
                         local identity=actual and Identity.read_document(actual,owner.id)
-                        return actual==doc and actual.file==destination and (next_host._reader_session_gen or 0)==next_session
+                        return next_host._native_direct_note_incoming==pending and actual==doc and actual.file==destination
+                            and (next_host._reader_session_gen or 0)==next_session
                             and owner_key(next_host)==account and scope_current(next_host,incoming)
                             and identity.book_id==owner.id and identity.file_id==target.file_id
                             and identity.book_version==target.book_version
                             and Context.same_location(location,reader_location(next_host))
                     end
-                    UI:scheduleIn(.1,function()
-                        if still_current() then M.start(next_host,incoming,job.row,still_current) end
-                    end)
+                    pending.current=still_current
+                    pending.task=function()
+                        pending.task=nil
+                        if next_host._native_direct_note_incoming~=pending then return end
+                        if not still_current() then M.cancel_incoming(next_host);return end
+                        if not M.start(next_host,incoming,job.row,still_current) then M.cancel_incoming(next_host) end
+                    end
+                    next_host._native_direct_note_incoming=pending;UI:scheduleIn(.1,pending.task)
                     return true
                 end
                 owner.navigation=nil;close_busy(host,job)

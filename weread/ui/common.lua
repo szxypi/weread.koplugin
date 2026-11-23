@@ -19,6 +19,8 @@ function M:safeCallback(label, callback)
     return function(...)
         local args = { ... }
         local ok, err = xpcall(function()
+            local navigation=package.loaded['weread.ui.my_mark_navigation']
+            if navigation and navigation.cancel_incoming then navigation.cancel_incoming(self) end
             return callback(unpack_args(args))
         end, debug.traceback)
         if not ok then

@@ -24,7 +24,7 @@ def frame(child, marker):
     return json.loads(lines[0][len(marker):])
 
 
-def run(runtime):
+def run(runtime, only_cancel=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), PersonalHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
@@ -53,8 +53,8 @@ def run(runtime):
                     server.review=dict(bookId='42',userVid=12345678,reviewId='cross-thought',chapterUid=38,type=1,
                         range=f'{first}-{last}',abstract=quote,content='Synthetic private thought',isPrivate=1,createTime=1700000000)
                     server.mode='selection_direct_overlay'
-                    for offline in (False, True):
-                        for kind in ('mark','thought','bookmark'):
+                    for offline in ((False,) if only_cancel else (False, True)):
+                        for kind in (('mark',) if only_cancel else ('mark','thought','bookmark')):
                             payload.update(offline=offline,kind=kind);server.calls=[]
                             child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
@@ -65,6 +65,12 @@ def run(runtime):
                             if not offline and kind=='mark':
                                 assert any(path=='/book/chapterdownload' for _,_,path in server.calls)
                             if offline: assert not server.calls
+                    payload.update(offline=False,kind='mark',expect_cancel=True);server.calls=[]
+                    child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
+                        input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
+                    assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=False,kind='mark',cancelled=True)
+                    payload.pop('expect_cancel')
+                    if only_cancel: continue
                     databases=list((root/'weread').glob('library-*.db'));assert len(databases)==1
                     with sqlite3.connect(databases[0]) as db:
                         assert db.execute('SELECT count(*) FROM native_direct_mark_source').fetchone()[0]>=1
@@ -92,11 +98,13 @@ def run(runtime):
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                     assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=False,kind='mark')
                     assert any(path=='/book/chapterdownload' for _,_,path in server.calls) and conflict.is_file()
-        print('PASS: cross-chapter marks, thoughts and bookmarks, online and offline at two sizes')
+        print('PASS: cross-chapter cancellation at two sizes' if only_cancel else
+              'PASS: cross-chapter marks, thoughts and bookmarks, online and offline at two sizes')
     finally:
         server.shutdown();server.server_close();thread.join()
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--only-cancel',action='store_true');args=parser.parse_args()
+    run(args.koreader.resolve(),args.only_cancel)
