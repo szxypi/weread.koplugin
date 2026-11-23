@@ -134,7 +134,8 @@ function M.start(host,direction,notes)
         require('weread.ui.end_of_book_dialog').show({show_chapter_nav=true,show_previous_chapter=true,
             show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=true,
             enable_next_chapter=true,enable_book_details=true,show_sync_row=false,
-            enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function'}, {
+            enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
+            enable_search_cached=true}, {
             on_chapter_list=function()
                 local book,view=details()
                 if book and view then require('weread.ui.native_direct_reading').start(host,book,view) end
@@ -164,6 +165,11 @@ function M.start(host,direction,notes)
             on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
             on_search=function() if current() then M.cancel(host);host:showSearch() end end,
             on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,
+            on_search_cached=function()
+                if not current() then return end
+                local entry=ctx.entry;M.cancel(host)
+                require('weread.ui.native_direct_search').open(host,entry)
+            end,
             on_read_stats=function() if current() then M.cancel(host);host:showReadStats() end end,
             on_reader_progress=function() if current() then require('weread.ui.reader_progress').show(host,{is_current=current}) end end,
             on_reader_typography=function() if current() then require('weread.ui.reader_typography').show(host) end end,

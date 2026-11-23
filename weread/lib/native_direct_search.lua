@@ -78,7 +78,7 @@ function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependen
                 local found,co=pcall(map._point,map,source_first)
                 local anchor=found and (map:anchor(co,{segment_only=true}) or map:anchor(co))
                 if anchor then
-                    hits[#hits+1]={anchor=anchor,chapter_uid=entry.chapter_uid,file_id=saved.file_id,
+                    hits[#hits+1]={anchor=anchor,chapter_uid=entry.chapter_uid,file_id=saved.file_id,byte=source_first,
                         context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)}
                 else unresolved=unresolved+1 end
             else unresolved=unresolved+1 end

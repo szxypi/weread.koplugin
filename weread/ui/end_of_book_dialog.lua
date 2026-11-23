@@ -116,6 +116,7 @@ function M.show(opts, callbacks)
     })
 
     table.insert(buttons, {{
+        id = 'search_cached',
         text = _("Search downloaded chapters"),
         enabled = opts.enable_search_cached == true,
         callback = function() dismiss_then(callbacks.on_search_cached) end,

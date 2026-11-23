@@ -244,6 +244,8 @@ function M:closeWeReadUI()
     if direct_position then direct_position.cancel(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open']
     if direct_cloud then direct_cloud.cancel(self) end
+    local direct_search_open=package.loaded['weread.ui.native_direct_search_open']
+    if direct_search_open then direct_search_open.cancel(self) end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
@@ -2751,6 +2753,8 @@ function M:cancelBookSearch()
     if search then search.cancel(self) end
     local cached=package.loaded['weread.ui.cached_book_search']
     if cached then cached.cancel(self) end
+    local direct=package.loaded['weread.ui.native_direct_search']
+    if direct then direct.cancel(self) end
 end
 
 function M:showShelfState(book_id)

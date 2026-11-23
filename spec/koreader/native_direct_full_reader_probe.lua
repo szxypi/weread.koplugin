@@ -68,6 +68,55 @@ assert(not host:detectWeReadBook() and not host._current_weread_book_id)
 G_reader_settings:saveSetting('end_document_action','next_file')
 assert(host:handleEndOfBook({}))
 pump(function() return Reader.instance and Reader.instance~=reopened and Reader.instance.document.file==input.second end)
-assert(not Reader.instance.weread:detectWeReadBook())
+local before_search=Reader.instance;host=assert(before_search.weread)
+assert(not host:detectWeReadBook())
+quick(host,'search_cached')
+pump(function() return host._native_direct_search and host._native_direct_search.input end)
+local owner=host._native_direct_search
+owner.input:setInputText('paragraph 50');owner.input.buttons[1][2].callback()
+pump(function() return owner.finished and not owner.job end)
+assert(owner.checked==2 and owner.unavailable==0 and #owner.value==2,'saved chapters were not searched')
+local wanted
+for _,value in ipairs(owner.value) do if value.entry.chapter_uid=='37' then wanted=value end end
+assert(wanted)
+local item
+for _,row in ipairs(owner.menu.item_table) do
+    if row.text==wanted.title..' · '..wanted.hit.context then item=row end
+end
+assert(item,'search result missing from reader menu');owner.menu:onMenuSelect(item)
+pump(function() return Reader.instance and Reader.instance~=before_search and Reader.instance.document.file==input.first end)
+local searched=Reader.instance;local search_host=assert(searched.weread)
+pump(function() return not search_host._native_direct_search_incoming and not search_host._native_direct_search_open end)
+local check=function() return Reader.instance==searched and searched.document.file==input.first end
+local verified_entry=assert(cache.identify(search_host.settings,'12345678',input.first,check))
+local verified_identity=require('weread.lib.book_file_identity').read_document(searched.document,verified_entry.book_id)
+local verified_index=assert(require('weread.lib.source_dom').open_direct_prepared(searched.document,verified_entry.book_id,
+    verified_entry.chapter_uid,verified_identity,{is_current=check}))
+local target=assert(verified_index:locate_anchor(wanted.hit.anchor))
+assert(searched.document:isXPointerInCurrentPage(target.xpointer),'cross-chapter search opened the wrong page')
+quick(search_host,'search_cached')
+pump(function() return search_host._native_direct_search and search_host._native_direct_search.input end)
+local cancelled=search_host._native_direct_search
+cancelled.input:setInputText('paragraph');cancelled.input.buttons[1][2].callback()
+searched.rolling:onGotoPage(1)
+pump(function() return not search_host._native_direct_search end)
+assert(Reader.instance==searched and searched.document.file==input.first,'search cancellation changed chapter')
+quick(search_host,'search_cached')
+pump(function() return search_host._native_direct_search and search_host._native_direct_search.input end)
+local same=search_host._native_direct_search
+same.input:setInputText('paragraph 80');same.input.buttons[1][2].callback()
+pump(function() return same.finished and not same.job end)
+local same_hit
+for _,value in ipairs(same.value) do if value.entry.chapter_uid=='37' then same_hit=value end end
+assert(same_hit)
+local same_item
+for _,row in ipairs(same.menu.item_table) do
+    if row.text==same_hit.title..' · '..same_hit.hit.context then same_item=row end
+end
+assert(same_item);same.menu:onMenuSelect(same_item)
+pump(function() return not search_host._native_direct_search_open end)
+assert(Reader.instance==searched,'same-chapter result reopened the file')
+local same_point=assert(verified_index:locate_anchor(same_hit.hit.anchor))
+assert(searched.document:isXPointerInCurrentPage(same_point.xpointer),'same-chapter search opened the wrong page')
 print('WEREAD_DIRECT_FULL_READER='..json.encode{ok=true,network_blocked=true,plugin_loaded=true,roundtrip=true,
-    native_page_restored=true,end_of_book=true,web_coordinates=false})
+    native_page_restored=true,end_of_book=true,web_coordinates=false,offline_search=true,search_cancel=true,same_chapter=true})

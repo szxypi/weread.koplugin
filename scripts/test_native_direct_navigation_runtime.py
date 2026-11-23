@@ -24,21 +24,23 @@ def frame(child,marker):
     assert len(lines)==1
     return json.loads(lines[0][len(marker):])
 
-def run(runtime):
+def run(runtime, full_only=False):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-native-nav-package-',dir='/dev/shm') as package_dir:
             candidate=Path(package_dir)/'candidate.zip'
             subprocess.run(['bash',str(REPO/'scripts/package_release.sh'),str(candidate)],cwd=REPO,check=True,capture_output=True)
-            run_cases(runtime,server,candidate)
+            run_cases(runtime,server,candidate,full_only)
         print('PASS: native adjacent chapter navigation, gap protection and online download at both sizes')
     finally:
         server.shutdown();server.server_close();thread.join()
 
-def run_cases(runtime,server,candidate):
+def run_cases(runtime,server,candidate,full_only=False):
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             for mode in ('two','gap','online','full'):
+                if full_only and mode!='full':
+                    continue
                 with tempfile.TemporaryDirectory(prefix='weread-native-nav-',dir='/dev/shm') as root:
                     xdg=Path(root)/'xdg';xdg.mkdir(mode=0o700)
                     env=dict(os.environ,KO_HOME=root,XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
@@ -64,7 +66,8 @@ def run_cases(runtime,server,candidate):
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                     if mode=='full':
                         assert frame(child,'WEREAD_DIRECT_FULL_READER=')==dict(ok=True,network_blocked=True,plugin_loaded=True,
-                            roundtrip=True,native_page_restored=True,end_of_book=True,web_coordinates=False)
+                            roundtrip=True,native_page_restored=True,end_of_book=True,web_coordinates=False,offline_search=True,
+                            search_cancel=True,same_chapter=True)
                     else:
                         result=frame(child,'WEREAD_DIRECT_NAV_RESULT=')
                         assert result['ok'] and result['mode']==mode
@@ -74,4 +77,6 @@ def run_cases(runtime,server,candidate):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--full-only',action='store_true')
+    args=parser.parse_args()
+    run(args.koreader.resolve(),args.full_only)
