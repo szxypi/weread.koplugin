@@ -25,6 +25,7 @@ def main(argv=None):
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
     parser.add_argument('--ui',action='store_true',help='Exercise the native chapter selection menu')
     parser.add_argument('--neighbor',action='store_true',help='Verify adjacent native chapters through the reader menu')
+    parser.add_argument('--copies',action='store_true',help='Test a deliberately incomplete comparison copy offline')
     parser.add_argument('--offline-search',action='store_true',help='Search real cached chapters in the installed reader')
     parser.add_argument('--online-search',action='store_true',help='Search online from both native chapters')
     parser.add_argument('--online-missing',action='store_true',help='Also test cancel and download in a clean profile')
@@ -32,6 +33,8 @@ def main(argv=None):
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
+    if args.copies and (not args.neighbor or args.online_search or args.offline_search):
+        parser.error('--copies requires --neighbor and excludes search modes')
     if args.offline_search and not args.neighbor:parser.error('--offline-search requires --neighbor')
     if args.online_search and (not args.neighbor or args.offline_search):parser.error('--online-search requires --neighbor only')
     if args.online_missing and not args.online_search:parser.error('--online-missing requires --online-search')
@@ -49,7 +52,7 @@ def main(argv=None):
         with tempfile.TemporaryDirectory(prefix='weread-native-direct-owner-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';xdg=root/'xdg'
             (profile/'plugins').mkdir(parents=True);xdg.mkdir(mode=0o700)
-            plugin_home=args.offline_search or args.online_search
+            plugin_home=args.offline_search or args.online_search or args.copies
             if plugin_home:(profile/'settings').mkdir()
             extract_candidate(args.candidate,profile/'plugins');plugin=profile/'plugins/weread.koplugin'
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
@@ -111,13 +114,44 @@ def main(argv=None):
                 neighbor_expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
                     missing_images=result['neighbor_missing_images'],warning_verified=True)
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=neighbor_expected:raise ValueError('neighbor_offline')
+                missing_copy=None
+                if args.copies:
+                    phase='prepare_missing_copy'
+                    if result['neighbor_missing_images']!=0:raise ValueError('neighbor_images')
+                    copy_input=json.dumps(dict(path=str(neighbor_path),vid=payload['credentials']['vid'],plugin_home=plugin_home)).encode()
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_missing_copy.lua'),
+                        str(plugin),str(repo)],env,copy_input,runtime,timeout=120)
+                    saved=line(out,b'WEREAD_DIRECT_OWNER_MISSING_COPY=');missing_copy=Path(saved.get('path',''))
+                    if (code or repaint or saved.get('ok') is not True or not missing_copy.is_file()
+                            or profile not in missing_copy.parents or missing_copy==neighbor_path):raise ValueError('missing_copy')
+                    phase='offline_missing_copy'
+                    copy_offline=json.dumps(dict(path=str(missing_copy),token=neighbor['search_token'],uid=neighbor['uid'],
+                        book_id=payload['book_id'],missing_images=1,plugin_home=plugin_home),ensure_ascii=False).encode()
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
+                        str(plugin),str(repo)],env,copy_offline,runtime,timeout=90)
+                    copy_expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
+                        missing_images=1,warning_verified=True)
+                    if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=copy_expected:raise ValueError('copy_offline')
                 phase='neighbor_navigation'
-                nav_input=json.dumps(dict(first=str(path),second=str(neighbor_path),vid=payload['credentials']['vid'],
-                                          plugin_home=plugin_home)).encode()
+                navigation=dict(first=str(path),second=str(neighbor_path),vid=payload['credentials']['vid'],plugin_home=plugin_home)
+                if missing_copy:navigation['missing_copy']=str(missing_copy)
+                nav_input=json.dumps(navigation).encode()
                 code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_neighbor_offline.lua'),
                     str(plugin),str(repo)],env,nav_input,runtime,timeout=120)
-                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE=')!=dict(
-                        ok=True,network_blocked=True,credentials_not_required=True,roundtrip=True):raise ValueError('neighbor_navigation')
+                expected_nav=dict(ok=True,network_blocked=True,credentials_not_required=True,roundtrip=True)
+                if args.copies:expected_nav['copies_selected']=True
+                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE=')!=expected_nav:raise ValueError('neighbor_navigation')
+                if args.copies:
+                    phase='copies_reader'
+                    reader_input=json.dumps(dict(first=str(path),second=str(neighbor_path),missing_copy=str(missing_copy),
+                        vid=payload['credentials']['vid'])).encode()
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_copies_reader.lua'),
+                        str(repo)],env,reader_input,runtime,timeout=300)
+                    if code:
+                        stages=re.findall(rb'(?m)^WEREAD_COPY_READER_STAGE=(open|first_page|complete_page|incomplete_page)$',out)
+                        if stages:report['reader_stage']=stages[-1].decode()
+                    expected_reader=dict(ok=True,offline=True,installed_plugin=True,distinct_positions=True)
+                    if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_COPY_READER=')!=expected_reader:raise ValueError('copies_reader')
                 if args.offline_search:
                     phase='offline_search'
                     search_input=json.dumps(dict(first=str(path),second=str(neighbor_path),vid=payload['credentials']['vid'],
@@ -214,6 +248,7 @@ def main(argv=None):
                 installed_bytes_match=True,missing_images=result['missing_images'],warning_verified=True)
             if args.neighbor:report.update(neighbor_matches=True,neighbor_offline_roundtrip=True,
                 neighbor_missing_images=result['neighbor_missing_images'])
+            if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
             if args.offline_search:report['offline_search']=True
             if args.online_search:report['online_search']=True
             if args.online_missing:report['online_missing']=True

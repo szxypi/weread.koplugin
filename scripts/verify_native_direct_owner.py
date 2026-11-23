@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
     parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
+    parser.add_argument('--copies',action='store_true',help='Check an isolated incomplete comparison copy offline')
     parser.add_argument('--offline-search',action='store_true',help='Verify installed offline search across the two chapters')
     parser.add_argument('--online-search',action='store_true',help='Verify installed online search in both native chapters')
     parser.add_argument('--online-missing',action='store_true',help='Also verify cancel and confirmed missing-chapter download')
@@ -68,13 +69,15 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
     if args.home and args.neighbor:parser.error('home and neighbor use separate checks')
+    if args.copies and (not args.neighbor or args.online_search or args.offline_search):
+        parser.error('copies requires neighbor and excludes search modes')
     if args.offline_search and not args.neighbor:parser.error('offline search requires neighbor')
     if args.online_search and (not args.neighbor or args.offline_search or not args.compare_web_progress):
         parser.error('online search requires neighbor and Web progress comparison')
     if args.online_missing and not args.online_search:parser.error('online missing requires online search')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
-    if args.compare_web_progress and not (args.home or args.offline_search or args.online_search):
-        parser.error('Web comparison requires home or chapter search')
+    if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies):
+        parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
         parser.error('store search requires full home UI and Web comparison')
     if args.quick_search and not args.store_search:parser.error('quick search requires store search')
@@ -214,6 +217,7 @@ def main(argv=None):
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
                 if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
+                if args.copies:required|={'copies_offline_verified','copies_reader_positions'}
                 if args.offline_search:required.add('offline_search')
                 if args.online_search:required.add('online_search')
                 if args.online_missing:required.add('online_missing')
@@ -243,6 +247,7 @@ def main(argv=None):
                     temporary_profile_removed=True,shelf_unchanged=True,missing_images=result['missing_images'],warning_verified=True)
                 if args.neighbor:report.update(chapters=2,neighbor_matches=True,neighbor_offline_roundtrip=True,
                     neighbor_missing_images=result['neighbor_missing_images'])
+                if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
                 if args.offline_search:report['offline_search_verified']=True
                 if args.online_search:report.update(online_search_verified=True,native_progress_unchanged=True)
                 if args.online_missing:report.update(missing_cancel_verified=True,missing_download_verified=True)

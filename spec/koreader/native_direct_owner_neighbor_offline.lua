@@ -20,6 +20,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     showBusy=function(self,label,cancel) self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message) end,
     closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
     showInfo=function(self) self.failed=true end,
+    showList=require('weread.ui.common').showList,
     openFile=function(self,path) self.opened=path;self.ui.document={file=path};self._reader_session_gen=self._reader_session_gen+1 end,
     onShowWeReadQuickMenu=require('weread.ui.reader_navigation').onShowWeReadQuickMenu}
 local function wait(predicate)
@@ -29,7 +30,8 @@ local function wait(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
-local function press(id)
+local tr=require('weread.lib.plugin_util').tr
+local function press(id,choice)
     assert(host:onShowWeReadQuickMenu())
     wait(function()
         local top=UI:getTopmostVisibleWidget()
@@ -39,8 +41,23 @@ local function press(id)
     assert(not host.failed)
     UI:forceRePaint();local button=assert(UI:getTopmostVisibleWidget():getButtonById(id))
     assert(button.enabled~=false);button:onTapSelectButton()
-    wait(function() return host.failed or host.opened end);assert(not host.failed)
+    wait(function() return host.failed or host.opened or host._native_direct_navigation and host._native_direct_navigation.menu end)
+    assert(not host.failed)
+    if choice then
+        local menu=assert(host._native_direct_navigation.menu);assert(#menu.item_table==2 and not host.opened)
+        local expected=choice=='missing' and tr('%1 images unavailable'):gsub('%%1','1') or tr('No missing images')
+        local selected
+        for _,item in ipairs(menu.item_table) do if item.text:find(expected,1,true) then selected=item end end
+        assert(selected);menu:onMenuSelect(selected);wait(function() return host.failed or host.opened end)
+    end
+    assert(not host.failed and host.opened)
 end
-press('next_chapter');assert(host.opened==input.second);host.opened=nil
+if input.missing_copy then
+    press('next_chapter','missing');assert(host.opened==input.missing_copy);host.opened=nil
+    press('previous_chapter');assert(host.opened==input.first);host.opened=nil
+end
+press('next_chapter',input.missing_copy and 'complete');assert(host.opened==input.second);host.opened=nil
 press('previous_chapter');assert(host.opened==input.first)
-print('WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE='..json.encode{ok=true,network_blocked=true,credentials_not_required=true,roundtrip=true})
+local out={ok=true,network_blocked=true,credentials_not_required=true,roundtrip=true}
+if input.missing_copy then out.copies_selected=true end
+print('WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE='..json.encode(out))
