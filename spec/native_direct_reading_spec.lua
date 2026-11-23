@@ -6,8 +6,13 @@ local digest=string.rep('b',64)
 local scope={vid='123',epoch=1}
 local selected={scope=scope,fingerprint=fingerprint,revision=1,store={},credentials={vid='123'}}
 local account_valid=true
-package.preload['ui/uimanager']=function() return {close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
-package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
+package.preload['ui/uimanager']=function() return {show=function() end,
+    close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
+package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
+    T=function(text,...) local args={...};return (text:gsub('%%(%d)',function(i) return args[tonumber(i)] or '' end)) end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_,value) return value end} end
+package.preload['weread.ui.download_dialog']=function() return {new=function(_,value)
+    value.show=function() end;value.reportProgress=function() end;return value end} end
 package.preload['weread.lib.native_read_access']=function() return {
     capture=function() if account_valid then return selected end end,
     matches=function(_,value) return account_valid and value==selected end,
@@ -63,7 +68,7 @@ local function fixture()
         showOffline=function() error('unexpected offline') end,
         showList=function(_,title,items,_,options) state.title=title;state.items=items;state.subtitle=options.subtitle;return {} end,
         openFile=function(_,path) state.opened=state.opened+1;state.path=path end,
-        _native_direct_worker={start=function(_,task,callback) state.jobs[#state.jobs+1]={task=task,callback=callback};return true end,
+        _native_direct_worker={start=function(_,task,callback,progress) state.jobs[#state.jobs+1]={task=task,callback=callback,progress=progress};return true end,
             cancel=function() state.cancelled=true end}}
     function state.finish(index) local job=state.jobs[index];job.callback(job.task()) end
     return host,state
@@ -91,6 +96,20 @@ expect(#s.jobs==3 and renewal_count==2,'chapter 401 not renewed once')
 build_error=nil;s.finish(3);expect(s.opened==1,'renewed chapter did not open')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);local old=s.jobs[1];UI.cancel(host);old.callback(old.task())
 expect(s.opened==0 and not s.items,'cancelled response changed UI')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);local suspended=s.jobs[1];local response=suspended.task()
+host._weread_suspended=true;suspended.callback(response)
+expect(s.opened==0 and not s.items and not host._native_direct_reading,'suspended reader accepted a late catalog')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+local confirm=assert(host._native_direct_reading.confirm);confirm.cancel_callback()
+expect(not host._native_direct_reading and #s.jobs==1,'cancelled batch started downloading')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+confirm=assert(host._native_direct_reading.confirm);account_valid=false;confirm.ok_callback()
+expect(not host._native_direct_reading and #s.jobs==1,'old account confirmation started downloading')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+confirm=assert(host._native_direct_reading.confirm);confirm.ok_callback()
+expect(#s.jobs==2 and host._native_direct_reading.phase=='batch','batch did not start after confirmation')
+account_valid=false;s.jobs[2].progress(33)
+expect(not host._native_direct_reading and s.cancelled,'account change did not cancel the background batch')
 local target={uid='2',from_uid='1',catalog_sha256=digest,book_version=7,count=2,order=2,direction=1}
 host,s=fixture();sample.reading_chapters[2].downloadable=true
 UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)

@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Exercise offline chapter batches through packaged KOReader detail widgets."""
+import argparse
+from http.server import ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import threading
+from urllib.parse import parse_qs, urlsplit
+
+import test_native_full_book_runtime as fixture
+from run_persistent_ui_probe import extract_candidate
+
+REPO = Path(__file__).resolve().parent.parent
+fixture.body = lambda uid: '<html><body>' + ''.join(
+    f'<p>Chapter {uid}, synthetic paragraph {index} for pagination.</p>' for index in range(30)) + '</body></html>'
+
+class Handler(fixture.Handler):
+    def dispatch(self):
+        target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (self.server.hold and self.command == 'GET' and target.path == '/book/chapterdownload'
+                and parse_qs(target.query).get('chapters') == ['0,38']):
+            self.server.hold_marker.touch()
+            self.server.hold_release.wait(20)
+            try:
+                super().dispatch()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                self.server.hold_done.set()
+            return
+        if self.server.locked and self.command == 'POST' and target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos':
+            request = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            self.server.valid &= request == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
+            rows = [dict(chapterUid=int(uid), wordCount=250, price=1 if uid == '39' else 0)
+                    for uid in ('37', '38', '39')]
+            data = json.dumps({'data': [dict(bookId='42', updated=rows)]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        super().dispatch()
+
+
+def run(runtime):
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with tempfile.TemporaryDirectory(prefix='weread-native-batch-package-', dir='/dev/shm') as package:
+            candidate = Path(package)/'candidate.zip'
+            subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
+                           check=True, capture_output=True)
+            for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env = dict(os.environ, KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'),
+                               LD_LIBRARY_PATH=str(runtime/'libs'), SDL_VIDEODRIVER='dummy', EMULATE_READER='1',
+                               EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(width),
+                               EMULATE_READER_H=str(height), EMULATE_READER_DPI=str(dpi), WEREAD_SYNTHETIC='1')
+                    server.resume, server.expired = True, False
+                    server.locked = False
+                    server.hold = False
+                    server.resume_marker = root/'resume'
+                    server.chapters = []
+                    server.valid, server.leaked = True, False
+                    server.image_requests = server.tar_requests = 0
+                    payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
+                        refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
+                        mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                    for mode in ('cancel', 'stale', 'fail', 'resume', 'repeat', 'offline'):
+                        if mode == 'resume':
+                            server.resume_marker.touch()
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode:
+                            raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        marker = 'WEREAD_DIRECT_BATCH='
+                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                        assert len(frames) == 1
+                        expected = dict(ok=True, mode=mode)
+                        if mode == 'offline': expected['network_blocked'] = True
+                        assert json.loads(frames[0][len(marker):]) == expected
+                        expected_chapters = [] if mode in ('cancel', 'stale') else ['37', '38'] if mode == 'fail' else ['37', '38', '38', '39']
+                        assert server.chapters == expected_chapters and server.valid and not server.leaked
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-locked-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                    server.resume, server.expired, server.locked = False, False, True
+                    server.hold = False
+                    server.chapters = []
+                    for mode in ('locked', 'offline_locked'):
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        marker = 'WEREAD_DIRECT_BATCH='
+                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                        expected = dict(ok=True, mode=mode)
+                        if mode == 'offline_locked': expected['network_blocked'] = True
+                        assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
+                        assert server.chapters == ['37', '38'] and server.valid and not server.leaked
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-cancel-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                    server.resume, server.expired, server.locked, server.hold = False, False, False, True
+                    server.hold_marker, server.hold_release, server.hold_done = root/'hold', threading.Event(), threading.Event()
+                    server.chapters = []
+                    child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                            str(REPO)], input=json.dumps(dict(payload, mode='cancel_running')), text=True,
+                                           env=env, cwd=runtime, capture_output=True, timeout=150)
+                    server.hold_release.set()
+                    assert server.hold_done.wait(10)
+                    if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                    marker = 'WEREAD_DIRECT_BATCH='
+                    frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                    assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == dict(ok=True, mode='cancel_running')
+                    server.hold = False
+                    child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                            str(REPO)], input=json.dumps(dict(payload, mode='offline_partial')), text=True,
+                                           env=env, cwd=runtime, capture_output=True, timeout=150)
+                    if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                    frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                    assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == dict(
+                        ok=True, mode='offline_partial', network_blocked=True)
+        print('PASS: packaged E-Ink batch cancel, rate limit, resume and offline reopen at both sizes')
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--koreader', type=Path, required=True)
+    run(parser.parse_args().koreader.resolve())

@@ -6,7 +6,7 @@ local Recovery=require('weread.lib.native_read_recovery')
 local Protocol=require('weread.lib.native_position_protocol')
 local Crypto=require('weread.lib.crypto')
 local PluginUtil=require('weread.lib.plugin_util')
-local _=PluginUtil.tr
+local _,T=PluginUtil.tr,PluginUtil.T
 local M={}
 
 local function capture(settings,store)
@@ -52,11 +52,14 @@ function M.cancel(host)
     if not ctx then return end
     host._native_direct_reading=nil
     if host._native_direct_worker then host._native_direct_worker:cancel() end
+    if host._native_direct_worker then host._native_direct_worker.timeout=180 end
     Recovery.cancel(host,ctx)
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
     ctx.busy=nil
     local menu=ctx.menu;ctx.menu=nil
     if menu then UIManager:close(menu) end
+    local confirm=ctx.confirm;ctx.confirm=nil
+    if confirm then UIManager:close(confirm) end
 end
 
 function M.start(host,book,view,options)
@@ -65,6 +68,8 @@ function M.start(host,book,view,options)
     if not id then return false end
     local online=host.isNetworkConnected and host:isNetworkConnected() or not host.isNetworkConnected and host:isNetworkOnline()
     local offline=not online or type(options)=='table' and options.cached==true
+    local batch=type(options)=='table' and options.batch==true
+    if batch and offline then host:showOffline(_('Download E-Ink chapters'));return false end
     local target=type(options)=='table' and options.target or nil
     if target~=nil and (offline or type(target)~='table' or type(target.uid)~='string'
         or Protocol.id(target.uid)~=target.uid or type(target.from_uid)~='string' or Protocol.id(target.from_uid)~=target.from_uid
@@ -87,11 +92,11 @@ function M.start(host,book,view,options)
     local document=host.ui and host.ui.document
     local ctx={view=view,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
-        book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target}
+        book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch}
     host._native_direct_reading=ctx
     local function view_current()
         local now=host.ui and host.ui.document
-        return host._native_direct_reading==ctx and host._book_detail_view==view
+        return host._native_direct_reading==ctx and not host._weread_suspended and host._book_detail_view==view
             and (host.discovery_epoch or 0)==ctx.epoch and host._reader_session_gen==ctx.session
             and now==ctx.document and (not now or now.file==ctx.file)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)
@@ -186,7 +191,11 @@ function M.start(host,book,view,options)
         if not current() then M.cancel(host);return end
         ctx.generation=(ctx.generation or 0)+1
         local generation,phase=ctx.generation,ctx.phase
-        local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function()
+        local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
+            if phase=='batch' then
+                return require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
+                    ctx.selected.native,current,progress)
+            end
             if phase=='offline_list' then
                 local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
                 return rows and {rows=rows} or {error='storage'}
@@ -217,7 +226,27 @@ function M.start(host,book,view,options)
             if not current() then M.cancel(host);return end
             if type(result)=='table' and result.error=='auth_expired' then renew();return end
             if type(result)=='table' and result.error=='rate_limited' then
+                if phase=='batch' then
+                    M.cancel(host);host:showInfo(_('WeRead is limiting requests. Completed chapters were kept; try again later.'));return
+                end
                 fail('WeRead is limiting requests. Please try again later.');return
+            end
+            if phase=='batch' then
+                local good=type(result)=='table' and result.ok==true
+                    and Protocol.integer(result.downloaded,0,#ctx.catalog.chapters)
+                    and Protocol.integer(result.saved,0,#ctx.catalog.chapters)
+                    and Protocol.integer(result.unavailable,0,#ctx.catalog.chapters)
+                    and Protocol.integer(result.missing,0,#ctx.catalog.chapters)
+                    and result.downloaded+result.saved+result.unavailable==#ctx.catalog.chapters
+                    and result.missing<=result.downloaded+result.saved
+                local downloaded,saved,unavailable,missing=good and result.downloaded,good and result.saved,
+                    good and result.unavailable,good and result.missing
+                M.cancel(host)
+                if good then
+                    host:showInfo(T(_('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.'),
+                        tostring(downloaded),tostring(saved),tostring(unavailable),tostring(missing)))
+                else host:showInfo(_('The download stopped. Completed E-Ink chapters were kept; check the connection or storage and try again.')) end
+                return
             end
             if phase=='offline_list' then
                 local rows=type(result)=='table' and result.rows
@@ -242,6 +271,32 @@ function M.start(host,book,view,options)
                     reading_digest=result.reading_digest,reading_chapters=result.chapters},id)
                 if not checked then fail();return end
                 ctx.catalog=checked
+                if ctx.batch then
+                    close_busy()
+                    local available=0
+                    for _,chapter in ipairs(checked.chapters) do if chapter.downloadable then available=available+1 end end
+                    if available==0 then fail('No readable E-Ink chapters are available for this book.');return end
+                    local dialog
+                    dialog=require('ui/widget/confirmbox'):new{
+                        text=T(_('Save %1 available E-Ink chapters for offline reading? %2 unavailable chapters will be skipped. Previously saved chapters are kept.'),
+                            tostring(available),tostring(#checked.chapters-available)),
+                        ok_text=_('Download'),cancel_text=_('Cancel'),
+                        ok_callback=function()
+                            if ctx.confirm~=dialog then return end
+                            if not current() then ctx.confirm=nil;M.cancel(host);return end
+                            ctx.confirm=nil;ctx.phase='batch';host._native_direct_worker.timeout=3600
+                            local shown,widget=pcall(function() return require('weread.ui.download_dialog'):new{
+                                title=_('Download E-Ink chapters'),
+                                description=_('Readable chapters are saved individually. Cancel to keep completed chapters.'),
+                                buttons={{{text=_('Cancel'),callback=function() M.cancel(host) end}}},
+                            } end)
+                            if not shown or not widget then fail();return end
+                            host.busy_message=widget;ctx.busy=widget;widget:show();launch()
+                        end,
+                        cancel_callback=function() if ctx.confirm==dialog then ctx.confirm=nil;M.cancel(host) end end,
+                    }
+                    ctx.confirm=dialog;UIManager:show(dialog);return
+                end
                 if ctx.target then
                     local wanted=ctx.target;local chapter=checked.chapters[wanted.order]
                     local neighbor=chapter and (wanted.direction==1 and chapter.catalog_prev or chapter.catalog_next)
@@ -265,7 +320,15 @@ function M.start(host,book,view,options)
             local path=result.path
             M.cancel(host)
             host:openFile(path)
-        end)
+        end,phase=='batch' and function(value)
+            if host._native_direct_reading~=ctx then return end
+            if not current() or ctx.busy~=host.busy_message then M.cancel(host);return end
+            if type(value)=='number' and value>=0 and value<=99 and value%1==0
+                and value>(ctx.batch_progress or -1) then
+                ctx.batch_progress=value
+                ctx.busy:reportProgress(value)
+            end
+        end or nil)
         if not ok or not started then fail() end
     end
     host:showBusy(_(offline and 'Loading saved E-Ink chapters...' or 'Loading E-Ink chapters...'),function() M.cancel(host) end);ctx.busy=host.busy_message

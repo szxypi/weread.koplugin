@@ -267,6 +267,24 @@ function M.list(settings,account,book_id,current)
     return ok and result or nil
 end
 
+-- Count every directory entry, including damaged copies and staging files:
+-- the offline index refuses to scan beyond MAX_ENTRIES even when some entries
+-- are not usable chapters. Never delete anything to make room.
+function M.remaining(settings,account,book_id,current)
+    if type(current)~='function' or current()~=true then return nil end
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return M.MAX_ENTRIES end
+    local ok,count=pcall(function()
+        local total=0
+        for name in lfs.dir(book_dir) do
+            if name~='.' and name~='..' then total=total+1 end
+            if total>M.MAX_ENTRIES or current()~=true then return nil end
+        end
+        return total
+    end)
+    return ok and count and M.MAX_ENTRIES-count or nil
+end
+
 function M.open(settings,account,book_id,entry,current)
     if not valid_entry(entry,book_id,account) or type(current)~='function' or current()~=true then return nil end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
