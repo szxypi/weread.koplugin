@@ -221,13 +221,25 @@ function M:getMainMenuItems()
             end)})
             if book_id==nil then
                 local account=self.library_db and self.library_db:accountKey()
+                local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+                local function same_direct_reader()
+                    local current_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+                    return self.ui and self.ui.document==document and self._reader_session_gen==session
+                        and account==(self.library_db and self.library_db:accountKey())
+                        and require('weread.lib.native_direct_path').contains(self.settings,document.file)
+                        and (scope and self.settings:auth_scope_matches(scope) or not scope and not current_scope)
+                end
                 reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
-                    if self.ui.document==document and self._reader_session_gen==session
-                        and account~=nil and account==(self.library_db and self.library_db:accountKey())
-                        and require('weread.lib.native_direct_path').contains(self.settings,document.file) then
+                    if account~=nil and same_direct_reader() then
                         require('weread.ui.selection_thought').open_bookmark(self)
                     end
                 end)}
+                for _i,choice in ipairs({{'My cloud highlights','marks'},{'My cloud bookmarks','bookmarks'},{'My cloud thoughts','thoughts'}}) do
+                    local label,variant=choice[1],choice[2]
+                    reader_items[#reader_items+1]={text=_(label),callback=self:safeCallback(_(label),function()
+                        if same_direct_reader() then require('weread.ui.native_direct_navigation').open_notes(self,variant) end
+                    end)}
+                end
             end
         end
         if book_id ~= nil then

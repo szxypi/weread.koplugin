@@ -312,6 +312,11 @@ expect(not menu_has(local_reader_items, "Sync progress now")
 host.settings.data_dir='/data/weread'
 host.ui.document={file='/data/weread/native-reader-v1/fixture/book.epub'}
 host._reader_session_gen=7
+local direct_account='owner';local direct_scope={vid='123'};local direct_calls={}
+host.library_db={accountKey=function() return direct_account end}
+host.settings.get_auth_scope=function() return direct_scope end
+host.settings.auth_scope_matches=function(_,scope) return scope==direct_scope end
+package.loaded['weread.ui.native_direct_navigation']={open_notes=function(_,variant) direct_calls[#direct_calls+1]=variant end}
 local direct_quick_calls=0
 host.onShowWeReadQuickMenu=function() direct_quick_calls=direct_quick_calls+1 end
 local direct_items=host:getMainMenuItems()
@@ -319,6 +324,15 @@ local direct_quick
 for _,item in ipairs(direct_items) do if item.text=='WeRead · Quick menu' then direct_quick=item end end
 expect(direct_quick and not menu_has(direct_items,'Sync progress now'),
     'native-only document did not expose the quick menu safely')
+for label,variant in pairs({['My cloud highlights']='marks',['My cloud bookmarks']='bookmarks',['My cloud thoughts']='thoughts'}) do
+    local action;for _,item in ipairs(direct_items) do if item.text==label then action=item.callback end end
+    expect(action~=nil,'native-only menu missing '..label)
+    if action then action();expect(direct_calls[#direct_calls]==variant,'native-only menu selected wrong notes') end
+end
+local stale_notes
+for _,item in ipairs(direct_items) do if item.text=='My cloud bookmarks' then stale_notes=item.callback end end
+local count=#direct_calls;direct_scope={vid='123'};stale_notes()
+expect(#direct_calls==count,'old native menu survived a login change')
 if direct_quick then
     direct_quick.callback();host._reader_session_gen=8;direct_quick.callback()
     expect(direct_quick_calls==1,'stale native-only menu opened in a new reader session')

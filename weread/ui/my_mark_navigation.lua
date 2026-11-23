@@ -234,6 +234,98 @@ function M.start(host,owner,row,is_current)
             return Target.resolve(book,path,job.row,job.request_id)
         end,handle)
     end
+    -- Native single-chapter files do not carry the Web archive metadata used
+    -- by Target.resolve. Bind the selected note to the current chapter's own
+    -- account-scoped cache and verify its complete source/DOM coordinates.
+    local document=host.ui and host.ui.document
+    local direct=document and require('weread.lib.native_direct_path').contains(host.settings,document.file)
+    if direct and not owner.local_search and not owner.search_results and owner.scope then
+        local file=document.file;local account=owner.account;local session=host._reader_session_gen or 0
+        local Cache=require('weread.lib.native_direct_cache');local Identity=require('weread.lib.book_file_identity')
+        local Task=require('weread.lib.personal_mark_task');local Contract=require('weread.lib.mark_edit_contract')
+        local function file_current(entry)
+            if not current() or host.ui.document~=document or document.file~=file
+                or owner_key(host)~=account or (host._reader_session_gen or 0)~=session then return false end
+            local identity=Identity.read_document(document,entry.book_id)
+            return identity.book_id==entry.book_id and identity.file_id==entry.file_id and identity.book_version==entry.book_version
+        end
+        local function move(entry,xpointer)
+            if not file_current(entry) or type(xpointer)~='string' or type(document.isXPointerInDocument)~='function'
+                or not host.ui.rolling
+                or type(host.ui.rolling.onGotoXPointer)~='function' then fail();return end
+            local checked,exists=pcall(document.isXPointerInDocument,document,xpointer)
+            if not checked or not exists then fail();return end
+            local location=job.location
+            owner.navigation=nil;close_busy(host,job);host:closeWeReadUI()
+            local same=host.ui and host.ui.document==document and document.file==file
+                and owner_key(host)==account and scope_current(host,owner) and (host._reader_session_gen or 0)==session
+                and Context.same_location(location,reader_location(host))
+            local identity=Identity.read_document(document,owner.id)
+            if not same or identity.file_id~=entry.file_id or identity.book_version~=entry.book_version then return end
+            local moved_ok,moved=pcall(host.ui.rolling.onGotoXPointer,host.ui.rolling,xpointer)
+            if not moved_ok or moved==false then host:showInfo(_(job.failed_label)) end
+        end
+        local function prepare(entry)
+            if not file_current(entry) then fail();return end
+            local mark=owner.thoughts and {bookmarkId='\1'..job.row.reviewId,type=1,chapterUid=job.row.chapterUid,
+                markText=job.row.abstract,range=job.row.range} or job.row
+            local metadata=entry.file_id..entry.source_sha256..entry.key
+            local hash=Contract.row_hash(mark);local point=mark.type==0
+            local online=host.isNetworkOnline and host:isNetworkOnline() or false
+            run(function()
+                return Task.prepare_direct(host.client,host.settings,host.library_db,file,entry,metadata,{mark},online)
+            end,function(value)
+                if not file_current(entry) or type(value)~='table' or value.metadata~=metadata
+                    or type(value.rows)~='table' or #value.rows~=1 then fail();return end
+                local projected=value.rows[1]
+                if type(projected)~='table' or projected.bookmarkId~=mark.bookmarkId or projected.reference_hash~=hash
+                    or projected.bookmark~=(point and true or nil) then fail();return end
+                local last_yield=os.clock()
+                local thread=coroutine.create(function()
+                    local index=require('weread.lib.source_dom').open_direct_prepared(document,owner.id,entry.chapter_uid,
+                        Identity.read_document(document,owner.id),{is_current=function() return file_current(entry) end,
+                            yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end})
+                    if not index then return end
+                    if point then
+                        local found,reason=index:locate_anchor(projected.anchor)
+                        if reason=='source_dom/walk_diverged' then
+                            found=index:locate_point_search(projected.anchor,mark.markText,Task.MAX_NATIVE_BYTES)
+                        end
+                        return found and found.co==projected.anchor.co and {xpointer=found.xpointer} or nil
+                    end
+                    local span,reason=index:locate_span(projected.first_anchor,projected.last_anchor,Task.MAX_NATIVE_BYTES)
+                    if reason=='source_dom/walk_diverged' then
+                        span=index:locate_span_search(projected.first_anchor,projected.last_anchor,mark.markText,Task.MAX_NATIVE_BYTES)
+                    end
+                    return span and {xpointer=span.pos0,text=span.text} or nil
+                end)
+                local function advance()
+                    job.task=nil
+                    if not file_current(entry) then if owner.navigation==job then M.cancel(host,owner) end;return end
+                    local advanced,located=coroutine.resume(thread)
+                    if not advanced then fail();return end
+                    if coroutine.status(thread)~='dead' then job.task=advance;UI:scheduleIn(.1,advance);return end
+                    if type(located)~='table' or type(located.xpointer)~='string' then fail();return end
+                    if point then move(entry,located.xpointer);return end
+                    run(function() return Task.verify({{bookmarkId=mark.bookmarkId,text=located.text,
+                        normalized_sha256=projected.normalized_sha256}}) end,function(ids)
+                        if type(ids)~='table' or #ids~=1 or ids[1]~=mark.bookmarkId then fail();return end
+                        move(entry,located.xpointer)
+                    end)
+                end
+                job.task=advance;UI:scheduleIn(.1,advance)
+            end)
+        end
+        busy()
+        return run(function()
+            return {entry=Cache.identify(host.settings,owner.scope.vid,file,function()
+                return host.settings:auth_scope_matches(owner.scope) end)}
+        end,function(value)
+            local entry=type(value)=='table' and value.entry
+            if not entry or not Cache.valid_entry(entry,entry.book_id,owner.scope.vid) or not file_current(entry) then fail();return end
+            if entry.book_id~=owner.id or entry.chapter_uid~=tostring(job.row.chapterUid) then launch() else prepare(entry) end
+        end)
+    end
     busy();return launch()
 end
 return M

@@ -14,12 +14,16 @@ function M.cancel(host)
     ctx.busy=nil
 end
 
-function M.start(host,direction)
+function M.start(host,direction,notes)
+    if notes~=nil and notes~='marks' and notes~='bookmarks' and notes~='thoughts' then return false end
     local reader=host.ui;local document=reader and reader.document
     local path=document and document.file
     if not Path.contains(host.settings,path) then return false end
     local scope=host.settings:get_auth_scope()
     if not scope or not host.settings:auth_scope_matches(scope) then
+        host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'));return true
+    end
+    if notes and (not host.library_db or not host.library_db:accountKey()) then
         host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'));return true
     end
     M.cancel(host)
@@ -182,8 +186,21 @@ function M.start(host,direction)
             fail('The saved chapter changed or could not be verified. Existing files were kept.');return
         end
         ctx.entry=value.entry
-        if direction==1 or direction==-1 then close_busy();step(direction) else menu() end
+        if notes then
+            local id=ctx.entry.book_id
+            local identity=require('weread.lib.book_file_identity').read_document(document,id)
+            if identity.book_id~=id or identity.file_id~=ctx.entry.file_id or identity.book_version~=ctx.entry.book_version then
+                fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+            end
+            local method=notes=='marks' and 'showMyCloudMarks' or notes=='bookmarks' and 'showMyCloudBookmarks' or 'showMyCloudThoughts'
+            close_busy();M.cancel(host)
+            if type(host[method])=='function' then host[method](host,id) end
+        elseif direction==1 or direction==-1 then close_busy();step(direction) else menu() end
     end)
     return true
+end
+function M.open_notes(host,variant)
+    if variant~='marks' and variant~='bookmarks' and variant~='thoughts' then return false end
+    return M.start(host,nil,variant)
 end
 return M

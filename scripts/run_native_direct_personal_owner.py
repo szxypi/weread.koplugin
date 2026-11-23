@@ -74,7 +74,9 @@ def main(argv=None):
                     match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
                     if match:report['probe_line']=int(match.group(1))
                 stage=frame(out,b'WEREAD_DIRECT_PERSONAL_OWNER=')
-                if (code or repaint or not isinstance(stage,dict) or set(stage)!={'ok','offline','rows'} or stage['ok'] is not True
+                fields={'ok','offline','rows','navigation'}
+                if (code or repaint or not isinstance(stage,dict) or set(stage)!=fields or stage['ok'] is not True
+                        or 'navigation' in stage and stage['navigation'] is not True
                         or stage['offline'] is not offline or not isinstance(stage['rows'],list) or not 1<=len(stage['rows'])<=100):
                     raise ValueError('stage')
                 for row in stage['rows']:
@@ -97,6 +99,7 @@ def main(argv=None):
                 for item in archive.infolist():
                     if not item.is_dir() and archive.read(item)!=(profile/'plugins'/item.filename).read_bytes():raise ValueError('installed')
             report.update(result='PASS',rows=stages[0]['rows'],offline_reopen=True,credential_file_audit=True,installed_bytes_match=True)
+            report['navigation']=True
     except (Exception,KeyboardInterrupt):report['phase']=phase
     finally:report['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(FRAME+json.dumps(report,ensure_ascii=False).encode()+b'\n')

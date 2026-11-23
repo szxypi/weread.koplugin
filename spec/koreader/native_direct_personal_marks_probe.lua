@@ -80,6 +80,18 @@ local state
 if input.expect_missing then
     wait(function() state=host._personal_marks;return state and state.loaded and not state.loading and not state.job and not state.task end)
     assert(#state.records==0 and #state.bookmarks==0,'corrupt cached source displayed')
+    reader.rolling:onGotoPage(3);UI:forceRePaint();local before=reader.document:getCurrentPage()
+    local tr=require('weread.lib.plugin_util').tr;local action
+    for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr('My cloud highlights') then action=item.callback end end
+    assert(action);action();wait(function() return host._my_marks_owner~=nil end)
+    local owner=host._my_marks_owner;local target
+    for _,item in ipairs(owner.menu.item_table) do if item.my_note_id=='synthetic-direct-mark' then target=item end end
+    assert(target);target.callback();UI:forceRePaint()
+    local failed=false;host.showInfo=function() failed=true end
+    assert(owner.menu._shelf_popup.button_table:getButtonById('open_highlight')):onTapSelectButton()
+    wait(function() return failed end)
+    assert(reader.document:getCurrentPage()==before and host._my_marks_owner==owner,'corrupt source changed the reading position')
+    require('weread.ui.my_cloud_marks').cancel(host)
 else
     wait(function() state=host._personal_marks;return state and state.complete end)
     assert(state.direct and #state.records==2,'direct mark and thought did not both appear')
@@ -119,6 +131,28 @@ else
         local expected=id=='synthetic-direct-point' and 'Unique paragraph 0001' or 'nique paragraph 0001'
         assert(owner.menu._shelf_popup.text:find(expected,1,true),'wrong bookmark opened')
         require('weread.ui.my_cloud_marks').cancel(host);UI:forceRePaint()
+    end
+    local first_bookmark
+    for _,item in ipairs(state.bookmarks) do if item.bookmarkId=='synthetic-direct-point' then first_bookmark=item end end
+    assert(first_bookmark)
+    local notes_cases={
+        {label='My cloud highlights',id='synthetic-direct-mark',button='open_highlight',target=mark.pos0},
+        {label='My cloud thoughts',id='synthetic-direct-thought',button='open_thought_quote',target=thought.pos0},
+        {label='My cloud bookmarks',id='synthetic-direct-point',button='open_bookmark',target=first_bookmark.pos0},
+    }
+    for _,case in ipairs(notes_cases) do
+        reader.rolling:onGotoPage(3);UI:forceRePaint()
+        local menu_action;local tr=require('weread.lib.plugin_util').tr
+        for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr(case.label) then menu_action=item.callback end end
+        assert(menu_action,'direct cloud notes entry missing');menu_action()
+        wait(function() return host._my_marks_owner~=nil end)
+        local owner=host._my_marks_owner;local item
+        for _,candidate in ipairs(owner.menu.item_table) do if candidate.my_note_id==case.id then item=candidate end end
+        assert(item,'direct cloud note missing');item.callback();UI:forceRePaint()
+        local popup=assert(owner.menu._shelf_popup)
+        assert(popup.button_table:getButtonById(case.button),'direct note navigation action missing'):onTapSelectButton()
+        wait(function() return not host._my_marks_owner end)
+        assert(reader.document:isXPointerInCurrentPage(case.target),'direct cloud note did not navigate to its original page')
     end
     Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)
     Display.wake(host);wait(function() return state.complete end);UI:forceRePaint()

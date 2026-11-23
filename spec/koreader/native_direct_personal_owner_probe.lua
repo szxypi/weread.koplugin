@@ -178,9 +178,27 @@ for _,row in ipairs(state.records) do
         result.content_sha256=require('weread.lib.crypto').sha256_hex(original.content)
         require('weread.ui.my_cloud_marks').cancel(host)
     end
+    -- Reopen through this native chapter's menu from a different page.
+    local target_page=reader.document:getCurrentPage();local pages=reader.document:getPageCount()
+    assert(pages>=2,'personal note chapter is too short for navigation check')
+    reader.rolling:onGotoPage(target_page==1 and 2 or 1);UI:forceRePaint()
+    assert(not reader.document:isXPointerInCurrentPage(row.pos0),'personal note origin did not move')
+    local tr=require('weread.lib.i18n').tr;local action
+    for _,item in ipairs(host:getMainMenuItems()) do
+        if item.text==tr(input.expect_thoughts and 'My cloud thoughts' or 'My cloud highlights') then action=item.callback end
+    end
+    assert(action,'personal note menu entry missing');action()
+    wait(function() return host._my_marks_owner~=nil end)
+    local note_owner=host._my_marks_owner;local target
+    for _,item in ipairs(note_owner.menu.item_table) do if item.my_note_id==(row.thoughtId or row.bookmarkId) then target=item end end
+    assert(target,'personal note list entry missing');target.callback();UI:forceRePaint()
+    local viewer=assert(note_owner.menu._shelf_popup)
+    assert(viewer.button_table:getButtonById(input.expect_thoughts and 'open_thought_quote' or 'open_highlight')):onTapSelectButton()
+    wait(function() return not host._my_marks_owner end)
+    assert(reader.document:isXPointerInCurrentPage(row.pos0),'personal note navigation missed its quote')
     rows[#rows+1]=result;reader.document:clearSelection()
     end
 end
 assert(#rows>0,'personal owner requested mark kind missing')
 assert(host.client:json_encode(reader.annotation.annotations)==notes)
-print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows=rows})
+print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows=rows,navigation=true})

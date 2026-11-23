@@ -132,7 +132,8 @@ def main(argv=None):
                 report['runner_reason']=result['reason']
             if type(result.get('profile_removed')) is bool:report['temporary_profile_removed']=result['profile_removed']
             raise ValueError('reader')
-        if (set(result)!={'result','rows','offline_reopen','credential_file_audit','installed_bytes_match','profile_removed'}
+        fields={'result','rows','offline_reopen','credential_file_audit','installed_bytes_match','profile_removed','navigation'}
+        if (set(result)!=fields or result['navigation'] is not True
                 or not all(result[key] is True for key in ('offline_reopen','credential_file_audit','installed_bytes_match','profile_removed'))
                 or not verify_rows(source['source'],before,uid,result['rows'],args.thoughts)):raise ValueError('row_mismatch')
         phase='final';web.verify_account()
@@ -145,10 +146,11 @@ def main(argv=None):
         if args.thoughts:
             report.update(visible_thoughts=len(result['rows']),chapter_thoughts=len(rows),
                 all_chapter_thoughts_displayed={row['id'] for row in result['rows']}=={row['reviewId'] for row in rows},
-                popup_contents_independently_matched=True)
+                popup_contents_independently_matched=True,navigation_from_other_page=True)
         else:
             report.update(visible_marks=len(result['rows']),chapter_highlights=len(rows),
-                all_chapter_highlights_displayed={row['id'] for row in result['rows']}=={row['bookmarkId'] for row in rows})
+                all_chapter_highlights_displayed={row['id'] for row in result['rows']}=={row['bookmarkId'] for row in rows},
+                navigation_from_other_page=True)
     except (Exception,KeyboardInterrupt) as error:
         report.update(result='UNVERIFIED',phase=phase)
         if str(error) in {'no_eligible_marked_chapter','source_changed','baseline_changed','row_mismatch','account_changed'}:report['reason']=str(error)
