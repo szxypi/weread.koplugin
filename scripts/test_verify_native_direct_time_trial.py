@@ -14,7 +14,7 @@ import verify_native_direct_time_trial as task
 
 
 class DirectTimeSupervisorTests(unittest.TestCase):
-    def exercise(self,mode):
+    def exercise(self,mode,predecessor=None):
         now,grant,expected,selection,reference,baseline,event=fixture()
         raw=b'Synthetic direct book content';source_hash=hashlib.sha256(raw).hexdigest()
         reference['source_sha256']=source_hash;event['record']['metadata']['source']['source_sha256']=source_hash
@@ -65,7 +65,7 @@ class DirectTimeSupervisorTests(unittest.TestCase):
              patch.object(task,'Frames',FakeFrames),patch.object(task,'write_initial'),\
              patch.object(task,'reply',side_effect=lambda _stream,value:answers.append(value)),patch.object(task,'stop'),\
              patch.object(task,'time',SimpleNamespace(time=lambda:now,sleep=lambda _n:None)):
-            report=task.run(apply=armed)
+            report=task.run(apply=armed,predecessor=predecessor)
         self.assertNotIn('private-web-cookie',str(report));self.assertNotIn('synthetic-access',str(report))
         return report,intent,answers
 
@@ -90,6 +90,17 @@ class DirectTimeSupervisorTests(unittest.TestCase):
         report,intent,answers=self.exercise('changed')
         self.assertEqual(report['result'],'UNVERIFIED');self.assertEqual(intent.read(),(None,None))
         self.assertEqual(report['account_data_posts'],0);self.assertFalse(answers[-1]['ok'])
+
+    def test_predecessor_is_checked_again_before_dispatch(self):
+        class Guard:
+            def __init__(self):self.calls=[]
+            def check(self,grant,selection=None,record=None):
+                self.calls.append((selection is not None,record is not None))
+                if record is not None:raise ValueError('direct_time/prior')
+        guard=Guard();report,intent,answers=self.exercise('success',guard)
+        self.assertEqual(guard.calls,[(False,False),(True,False),(True,True)])
+        self.assertEqual(report['account_data_posts'],0);self.assertEqual(intent.read(),(None,None))
+        self.assertFalse(answers[-1]['ok'])
 
     def test_only_bounded_new_zero_days_can_be_ignored(self):
         _now,_grant,_expected,selection,_reference,baseline,_event=fixture()

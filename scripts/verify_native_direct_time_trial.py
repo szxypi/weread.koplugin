@@ -83,17 +83,19 @@ def matching_target(before,after,seconds,start,*,allow_added_zero=False):
     return False
 
 
-def run(*,apply=False):
+def run(*,apply=False,intent=None,predecessor=None):
     if type(apply) is not bool:raise ValueError('direct_time/mode')
     report=dict(result='UNVERIFIED',phase='start',account_data_posts=0,authentication_posts=0,
         dispatch_may_have_occurred=False,private_data_in_report=False)
-    child=web=saved=grant=None;intent=Intent();receipt=None;awaiting=None
+    child=web=saved=grant=None;receipt=None;awaiting=None
     try:
+        intent=Intent() if intent is None else intent
         if intent.read()!=(None,None) or other_pending():raise ValueError('direct_time/pending')
         command=trusted_command(apply)
         saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
         def current():return SessionStore().load()==saved and NativeSessionStore().load(saved['vid'])==grant
         if grant['vid']!=saved['vid'] or not current():raise ValueError('direct_time/session')
+        if predecessor is not None:predecessor.check(grant)
         report['phase']='sample';probe=ChapterProbe();sample,chapter,source=probe.inspect(grant,1)
         book=sample['book_id'];uid=str(chapter['uid']);version=sample['expected']['version']
         if sample['expected']['format']!='epub' or not source['html'] or type(version) is not int or version<=0:
@@ -129,6 +131,7 @@ def run(*,apply=False):
             elif name=='selection' and sequence==['ready']:
                 selection,reference=event.get('selection'),event.get('reference')
                 validate_selection(selection,reference,expected,seconds,now=int(time.time()))
+                if predecessor is not None:predecessor.check(grant,selection)
                 start=selection['protocol_rows'][0]['start_time'];permitted=current()
             elif name=='claim' and sequence==['ready','selection']:
                 validate_selection(selection,reference,expected,seconds,now=int(time.time()))
@@ -136,6 +139,7 @@ def run(*,apply=False):
                 if not current() or web_cookies(web,saved['vid'])!=cookies or snapshot(grant,book,web)!=initial:
                     raise ValueError('direct_time/changed')
                 validate_claim(event,selection,reference,expected,baseline,grant,now=int(time.time()))
+                if predecessor is not None:predecessor.check(grant,selection,event['record'])
                 if apply:
                     plan=dict(selection=deepcopy(selection),record=deepcopy(event['record']),body=deepcopy(event['body']),
                         baseline=deepcopy(initial))

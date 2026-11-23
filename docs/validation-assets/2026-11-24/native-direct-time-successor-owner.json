@@ -1,0 +1,27 @@
+{
+  "scope": "new nonoverlapping current-day native chapter interval following the acknowledged prior trial",
+  "environment": "KOReader emulator, 1264x1680, isolated temporary profile",
+  "dry_run": {
+    "result": "DIRECT_NATIVE_TIME_DRY_VERIFIED",
+    "account_data_posts": 0,
+    "prior_record_unchanged": true,
+    "profile_removed": true
+  },
+  "live_trial": {
+    "result": "DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED",
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "seconds": 6,
+    "native_menu": true,
+    "background_service": true,
+    "plugin_local_settlement": true,
+    "independent_readbacks": 2,
+    "position_unchanged": true,
+    "shelf_unchanged": true,
+    "prior_record_unchanged": true,
+    "successor_one_shot_record_retained": true,
+    "profile_removed": true
+  },
+  "zero_bucket_scope": "The previous trial's added zero bucket was separately verified against the updated native accounting logic; the successor validates complete real-account settlement, not necessarily a newly added zero bucket.",
+  "physical_kindle_tested": false
+}
