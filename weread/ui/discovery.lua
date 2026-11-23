@@ -93,7 +93,7 @@ function M:showDiscoveryPage(tab, books, options)
                 if resume then
                     if resume.can_resume(self,stored,id) then resume.open(self,stored,id,view,current)
                     else self:showBookRecord(book) end
-                elseif stored and book._cached and self:isBookDownloaded(book,saved_books) then self:startBookReading(stored)
+                elseif stored and book._cached and self:bookRecordHasDownload(stored) then self:startBookReading(stored)
                 else self:showBookRecord(book) end
             else self:showBookRecord(book) end
         end),

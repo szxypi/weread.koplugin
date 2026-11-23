@@ -86,9 +86,15 @@ local page=math.floor((position-1)/shelf.page_size)+1
 if page~=shelf.page then shelf.on_page_changed(page);shelf=assert(host.shelf_view) end
 local target
 for _,book in ipairs(shelf:getVisibleBooks()) do if tostring(book.bookId or book.book_id)==book_id then target=book end end
-assert(target);shelf.on_select(target,'books')
+assert(target)
+if input.mode~='online' then assert(host:isBookDownloaded(target),'saved native chapters missing downloaded status') end
+shelf.on_select(target,'books')
 pump(function() return host._book_detail_view~=nil end)
 local detail=assert(host._book_detail_view);local action
+if input.mode~='online' then
+    assert(detail.data.status_line:find(require('weread.lib.plugin_util').tr('E-Ink chapters saved'),1,true),
+        'saved native chapter status missing from details')
+end
 local label=input.mode=='offline' and 'Read saved E-Ink chapter' or 'Download E-Ink chapters'
 for _,button in ipairs(detail._action_buttons) do
     if button.text==require('weread.lib.plugin_util').tr(label) then action=button end
@@ -148,6 +154,32 @@ for _,entry in ipairs(rows) do
     if entry.missing_images>0 then missing=missing+1 end
 end
 assert(missing==result.missing and not host._native_direct_reading and not host.busy_message)
+assert(host:isBookDownloaded(target),'completed native batch missing downloaded status')
+local shelf_settings=host.settings:get('shelf');local previous_filter=shelf_settings.filter_download
+shelf_settings.filter_download='downloaded';host.settings:set('shelf',shelf_settings);host.settings:flush()
+host:closeWeReadUI();host:showBookshelf()
+local filtered=assert(host.shelf_view)
+assert(#filtered.books==1 and tostring(filtered.books[1].bookId or filtered.books[1].book_id)==book_id,
+    'downloaded filter did not find the native batch')
+shelf_settings=host.settings:get('shelf');shelf_settings.filter_download='not_downloaded'
+host.settings:set('shelf',shelf_settings);host.settings:flush();host:closeWeReadUI();host:showBookshelf()
+filtered=assert(host.shelf_view)
+assert(#filtered.books==#input.shelf_books-1,'not-downloaded filter included the native batch')
+for _,book in ipairs(filtered.books) do assert(tostring(book.bookId or book.book_id)~=book_id) end
+shelf_settings=host.settings:get('shelf');shelf_settings.filter_download=previous_filter
+host.settings:set('shelf',shelf_settings);host.settings:flush();host:closeWeReadUI()
+-- A local recent event with only native chapters must not dispatch the
+-- ordinary Web-backed reader merely because the downloaded badge is true.
+local owner=assert(host.library_db:accountKey())
+assert(host.settings:patch_reading_state(book_id,{home_recent_at=os.time(),home_recent_account=owner}))
+local wrong_reader=false;host.startBookReading=function() wrong_reader=true end
+host:showHome();local home_view=assert(host.shelf_view);local recent
+for _,book in ipairs(home_view.books) do if tostring(book.bookId or book.book_id)==book_id then recent=book end end
+assert(recent and recent._cached);home_view.on_select(recent,'books')
+pump(function() return wrong_reader or host._book_detail_view~=nil end)
+assert(not wrong_reader and host._book_detail_view,'native-only home item opened the ordinary reader')
+host:closeWeReadUI()
 local ledger=assert(io.open(home..'/request-count','rb'));local requests=#assert(ledger:read('*a'));assert(ledger:close())
 print('WEREAD_BATCH_SHELF='..json.encode{ok=true,mode=input.mode,chapters=count,unavailable=input.total-count,
-    missing=missing,requests=requests,source_matches=true,full_plugin=true,shelf_count=#input.shelf_books})
+    missing=missing,requests=requests,source_matches=true,full_plugin=true,shelf_count=#input.shelf_books,
+    downloaded_filter=true,home_native_only_safe=true})

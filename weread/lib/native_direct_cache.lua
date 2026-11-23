@@ -230,6 +230,65 @@ local function filename(book_id,uid)
     return 'wr-chapter-'..Crypto.sha256_hex(book_id..'\0'..uid)..'.epub'
 end
 
+-- A bounded, account-scoped hint for shelf badges and filters. It is not an
+-- opening receipt: selected chapters still pass the complete Cache.open check.
+local function presence_path(book_dir)
+    local parent,book_hash=book_dir:match('^(.*)/([^/]+)$')
+    return parent and hash(book_hash) and parent..'/.native-presence-'..book_hash or nil,parent
+end
+local function candidate_present(lfs,book_dir,entry)
+    local dir=book_dir..'/'..name_of(entry)
+    local attr=mode(lfs,dir)
+    if not attr or attr.mode~='directory' then return false end
+    local file=mode(lfs,dir..'/'..filename(entry.book_id,entry.chapter_uid))
+    local receipt=read_file(lfs,dir..'/receipt.txt',256)
+    local key,size,digest
+    if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
+    return file~=nil and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE
+        and key==entry.key and size==tostring(file.size) and hash(digest) or false
+end
+function M.present(settings,account,book_id)
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return false end
+    local marker=presence_path(book_dir)
+    local raw=marker and read_file(lfs,marker,256)
+    local key,copy
+    if raw then key,copy=raw:match('^native%-presence%-v1\nkey=([a-f0-9]+)\ncopy=(%d+)\n$') end
+    local numeric=copy and tonumber(copy)
+    if not hash(key) or not NativeProtocol.integer(numeric,0,M.MAX_COPIES-1) or tostring(numeric)~=copy then return false end
+    copy=numeric
+    local dir=book_dir..'/'..key..(copy==0 and '' or '-'..tostring(copy))
+    local attr=mode(lfs,dir)
+    local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
+    return entry and candidate_present(lfs,book_dir,entry) or false
+end
+local function save_presence_unsafe(settings,account,book_id,entry,current)
+    if type(current)~='function' or current()~=true or not valid_entry(entry,book_id,account) then return false end
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return false end
+    local marker,parent=presence_path(book_dir)
+    local owner=parent and mode(lfs,parent)
+    if not marker or not owner or owner.mode~='directory' then return false end
+    local ok,output=pcall(function() return require('weread.lib.notes_export_file').create(parent,'native-presence','json') end)
+    if not ok or not output then return false end
+    local raw='native-presence-v1\nkey='..entry.key..'\ncopy='..tostring(entry.copy)..'\n'
+    local complete=false
+    local wrote,result=pcall(function()
+        local written=output:write(raw) and output:accept(#raw)
+        local fresh=mode(lfs,parent)
+        if not written or current()~=true or not fresh or fresh.mode~='directory'
+            or fresh.dev~=owner.dev or fresh.ino~=owner.ino or not output:owns() then return false end
+        complete=os.rename(output.path,marker)==true
+        return complete
+    end)
+    if not complete then pcall(output.abort,output) end
+    return wrote and result==true
+end
+local function save_presence(...)
+    local ok,result=pcall(save_presence_unsafe,...)
+    return ok and result==true
+end
+
 -- List bounded metadata only; a selected file is fully checked by open().
 -- Missing/corrupt sidecars and old pre-index files are left untouched.
 function M.list(settings,account,book_id,current)
@@ -264,6 +323,11 @@ function M.list(settings,account,book_id,current)
         end)
         return rows
     end)
+    if ok and result and not M.present(settings,account,book_id) then
+        for _,entry in ipairs(result) do
+            if candidate_present(lfs,book_dir,entry) then save_presence(settings,account,book_id,entry,current);break end
+        end
+    end
     return ok and result or nil
 end
 
@@ -306,6 +370,7 @@ function M.open(settings,account,book_id,entry,current)
     if not actual_size or tostring(actual_size)~=size or actual_digest~=digest then return nil end
     local identity=archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
     if not identity or current()~=true then return nil end
+    if not M.present(settings,account,book_id) then save_presence(settings,account,book_id,entry,current) end
     return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
         missing_images=entry.missing_images,file_id=identity.file_id}
 end
@@ -421,6 +486,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
         if not created then
             if verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
                 and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
+                save_presence(settings,account,book.book_id,entry,live)
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                     missing_images=prepared.missing_images}
             end
@@ -447,6 +513,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
                 or not publish_entry(lfs,dir,entry,account) or not publish_ref(lfs,dir,entry) or not live() then
                 return nil,live() and 'storage' or 'session_changed'
             end
+            save_presence(settings,account,book.book_id,entry,live)
             return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                 missing_images=prepared.missing_images}
         end

@@ -124,6 +124,8 @@ def main():
                     'credential_file_audit','installed_bytes_match'))):
             raise ValueError('runner_result')
         if args.full_shelf and (result.get('full_plugin') is not True or result.get('offline_reader') is not True
+                                or result.get('downloaded_filter') is not True or result.get('detail_offline_status') is not True
+                                or result.get('home_native_only_safe') is not True
                                 or result.get('shelf_count')!=len(projected)):
             raise ValueError('shelf_result')
         phase = 'final_check'
@@ -143,7 +145,8 @@ def main():
             report.pop('rendered_tokens')
             report.update(full_plugin=True, numeric_shelf_books=len(projected), offline_reader_opened=True,
                 offline_reader_chapters=1, other_cached_chapters_verified=len(available)-1,
-                reader_text_checked_by_size=[row['reader_text_checked'] for row in result['samples']])
+                reader_text_checked_by_size=[row['reader_text_checked'] for row in result['samples']],
+                downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True)
     except (Exception, KeyboardInterrupt) as error:
         report['phase'] = phase
         if 'HTTP 401' in str(error): report['reason'] = 'auth_expired'

@@ -1469,7 +1469,11 @@ function M:showBookMenu(book)
     if book.progress and book.progress > 0 then
         statuses[#statuses + 1] = T(_("Progress %1%"), tostring(book.progress))
     end
-    statuses[#statuses + 1] = chapter_status
+    local direct_cached=self.nativeChapterCachePresent and self:nativeChapterCachePresent(book_id)
+    if not direct_cached or any_cached_chapter or is_full_cached then statuses[#statuses + 1] = chapter_status end
+    if direct_cached then
+        statuses[#statuses+1]=_('E-Ink chapters saved')
+    end
 
     local metadata = {}
     local function format_field(label, value)

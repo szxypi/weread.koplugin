@@ -32,4 +32,21 @@ assert(downloaded({bookId=huge},saved),'exact large string identity rejected')
 local cache={}
 assert(downloaded({bookId=42},{[42]={cached_file='/synthetic/book.epub'}},cache))
 assert(not downloaded({bookId='42',book_id='43'},{},cache),'cache bypassed conflicting shelf identifiers')
+local owner=require('weread.lib.crypto').sha256_hex('weread-library:123'):sub(1,20)
+local scope={vid='123',epoch=1};local calls=0
+host.settings.get_auth_scope=function() return scope end
+host.settings.auth_scope_matches=function(_,value) return value==scope end
+host.library_db={accountKey=function() return owner end}
+package.loaded['weread.lib.native_direct_cache']={present=function(_,vid,id)
+    calls=calls+1;return vid=='123' and id=='42' end}
+assert(downloaded({bookId='42'},{}),'native cached chapter was not recognized')
+assert(not downloaded({bookId='43'},{}),'another book acquired native cache status')
+local before=calls
+assert(not downloaded({bookId='42'},{['42']={book_id='43'}}),'native hint bypassed conflicting saved identity')
+assert(calls==before,'conflicting record consulted native cache hint')
+host.library_db.accountKey=function() return 'other-account' end
+assert(not downloaded({bookId='42'},{}),'different library account inherited native cache status')
+host.library_db.accountKey=function() return owner end
+host.settings.auth_scope_matches=function() return false end
+assert(not downloaded({bookId='42'},{}),'stale authorization inherited native cache status')
 print('PASS: shelf downloaded state uses exact book identities')

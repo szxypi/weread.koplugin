@@ -120,6 +120,9 @@ def main():
                     if full_shelf and (result.get('full_plugin') is not True
                             or result.get('shelf_count') != len(payload['shelf_books'])):
                         raise ValueError('shelf')
+                    if full_shelf and mode!='offline' and (result.get('downloaded_filter') is not True
+                                                           or result.get('home_native_only_safe') is not True):
+                        raise ValueError('shelf_filter')
                     if mode == 'offline':
                         if (result.get('network_blocked') is not True
                                 or full_shelf and result.get('reader_opened') is not True
@@ -136,7 +139,7 @@ def main():
                                 or type(result.get('requests')) is not int or not 1 <= result['requests'] <= 200):
                             raise ValueError('online')
                         if mode == 'online': size_result = dict(requests=result['requests'], missing=result['missing'])
-                        elif (result['requests']-size_result['requests'] not in ((2,3) if full_shelf else (2,))
+                        elif (result['requests']-size_result['requests'] not in ((2,3,4) if full_shelf else (2,))
                               or result['missing'] != size_result['missing']):
                             raise ValueError('repeat')
                 phase = 'audit'
@@ -157,7 +160,8 @@ def main():
                           repeat_skipped=True, offline_render=True, network_blocked=True,
                           credential_file_audit=True, installed_bytes_match=True, samples=results)
             if payload.get('full_shelf'):
-                report.update(full_plugin=True, shelf_count=len(payload['shelf_books']), offline_reader=True)
+                report.update(full_plugin=True, shelf_count=len(payload['shelf_books']), offline_reader=True,
+                              downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True)
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

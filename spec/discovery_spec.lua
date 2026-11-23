@@ -184,6 +184,7 @@ plugin.settings = { get = function() return { a = { book_id = "a", cached_chapte
 plugin.getShelfCoverCache = function() return { pathFor = function() return nil end } end
 plugin.cancelShelfCovers = function(self) self.shelf_cover_generation=(self.shelf_cover_generation or 0)+1 end
 plugin.isBookDownloaded = function() return true end
+plugin.bookRecordHasDownload = function(_self,book) return book.cached_chapters~=nil end
 plugin.fetchVisibleShelfCovers = function(_self, _view, _books, options) fetched = options end
 plugin.startBookReading = function(_self, book) opened = book end
 plugin.closeWeReadUI = function(self) self.shelf_view = nil self.discovery_epoch = self.discovery_epoch + 1 end
@@ -193,6 +194,11 @@ shown.callbacks.on_select({ bookId = "a", _cached = true })
 expect(opened and opened.cached_chapters, "offline continue did not use saved chapter cache")
 local selected_detail
 plugin.showBookRecord=function(_self,book) selected_detail=book end
+local native_only={book_id='42'}
+plugin.settings.get=function() return {['42']=native_only} end
+opened=nil;shown.callbacks.on_select({bookId='42',_cached=true})
+expect(not opened and selected_detail and selected_detail.bookId=='42',
+    'native-only downloaded badge incorrectly started the ordinary reader')
 local home_saved={[42]={book_id='42',cached_chapters={['1']='/synthetic/book.epub'}}}
 plugin.settings.get=function() return home_saved end
 opened=nil;shown.callbacks.on_select({bookId='42',_cached=true})

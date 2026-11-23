@@ -430,6 +430,7 @@ local zh = {
     ["Continue saved E-Ink chapter"] = "继续阅读上次墨水屏章节",
     ["▤ Continue reading"] = "▤ 继续阅读",
     ["Download E-Ink chapters"] = "下载墨水屏章节",
+    ["E-Ink chapters saved"] = "已保存墨水屏章节",
     ["Save %1 available E-Ink chapters for offline reading? %2 unavailable chapters will be skipped. Previously saved chapters are kept."] = "为离线阅读保存 %1 个可读的墨水屏章节？%2 个不可读章节将跳过，已保存章节会保留。",
     ["Readable chapters are saved individually. Cancel to keep completed chapters."] = "可读章节逐章保存；取消后已完成章节会保留。",
     ["No readable E-Ink chapters are available for this book."] = "这本书没有可读的墨水屏章节。",

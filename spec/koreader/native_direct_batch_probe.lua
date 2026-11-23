@@ -21,11 +21,31 @@ local function pump(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
+if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
+    assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+    local cache=require('weread.lib.native_direct_cache')
+    assert(not cache.present(settings,scope.vid,'42'),'invalid presence marker was accepted')
+    local old_output
+    if input.mode=='presence_unwritable' then
+        old_output=package.loaded['weread.lib.notes_export_file']
+        package.loaded['weread.lib.notes_export_file']={create=function() return nil end}
+    end
+    local rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==(input.expected_rows or 3))
+    if input.mode=='presence_unwritable' then
+        assert(not cache.present(settings,scope.vid,'42'),'failed index write claimed success')
+        package.loaded['weread.lib.notes_export_file']=old_output
+        rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==3)
+    end
+    assert(cache.present(settings,scope.vid,'42'),'saved chapters did not repair the presence marker')
+    assert(not cache.present(settings,'87654321','42'),'presence escaped its account')
+    print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
+end
 if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local cache=require('weread.lib.native_direct_cache')
     local rows=assert(cache.list(settings,scope.vid,'42',function() return true end))
     assert(#rows==(input.mode=='offline_partial' and 1 or input.mode=='offline_locked' and 2 or 3))
+    assert(cache.present(settings,scope.vid,'42'),'verified chapters missing shelf presence')
     local seen={};local cache_dir
     for _,row in ipairs(rows) do
         local saved=assert(cache.open(settings,scope.vid,'42',row,function() return true end))

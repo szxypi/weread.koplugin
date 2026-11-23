@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise offline chapter batches through packaged KOReader detail widgets."""
 import argparse
+import hashlib
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -90,6 +91,59 @@ def run(runtime):
                         assert json.loads(frames[0][len(marker):]) == expected
                         expected_chapters = [] if mode in ('cancel', 'stale') else ['37', '38'] if mode == 'fail' else ['37', '38', '38', '39']
                         assert server.chapters == expected_chapters and server.valid and not server.leaked
+                    account = hashlib.sha256(b'native-direct-account\0' + b'12345678').hexdigest()
+                    book = hashlib.sha256(b'native-direct-book\0' + b'42').hexdigest()
+                    marker_path = root/'native-reader-v1'/account/('.native-presence-'+book)
+                    assert marker_path.is_file()
+                    for mode in ('missing', 'corrupt'):
+                        if mode == 'missing': marker_path.unlink()
+                        else: marker_path.write_bytes(b'invalid')
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode='presence_repair')), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        frames = [line for line in child.stdout.splitlines() if line.startswith('WEREAD_DIRECT_BATCH=')]
+                        assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(
+                            ok=True, mode='presence_repair', network_blocked=True)
+                        assert marker_path.is_file()
+                    pointer = dict(line.split('=', 1) for line in marker_path.read_text().splitlines()[1:])
+                    folder = pointer['key'] + ('' if pointer['copy']=='0' else '-'+pointer['copy'])
+                    receipt = root/'native-reader-v1'/account/book/folder/'receipt.txt'
+                    original_receipt = receipt.read_bytes()
+                    receipt.write_bytes(original_receipt+b'corrupt')
+                    child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                            str(REPO)], input=json.dumps(dict(payload, mode='presence_repair')), text=True,
+                                           env=env, cwd=runtime, capture_output=True, timeout=150)
+                    if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                    frames = [line for line in child.stdout.splitlines() if line.startswith('WEREAD_DIRECT_BATCH=')]
+                    assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(
+                        ok=True, mode='presence_repair', network_blocked=True)
+                    assert marker_path.read_text().splitlines()[1:]!=[f"key={pointer['key']}", f"copy={pointer['copy']}"]
+                    assert receipt.read_bytes()==original_receipt+b'corrupt'
+                    receipt.write_bytes(original_receipt)
+                    marker_path.unlink()
+                    child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                            str(REPO)], input=json.dumps(dict(payload, mode='presence_unwritable')), text=True,
+                                           env=env, cwd=runtime, capture_output=True, timeout=150)
+                    if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                    frames = [line for line in child.stdout.splitlines() if line.startswith('WEREAD_DIRECT_BATCH=')]
+                    assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(
+                        ok=True, mode='presence_unwritable', network_blocked=True)
+                    pointer = dict(line.split('=', 1) for line in marker_path.read_text().splitlines()[1:])
+                    folder = pointer['key'] + ('' if pointer['copy']=='0' else '-'+pointer['copy'])
+                    chapter_dir = root/'native-reader-v1'/account/book/folder
+                    chapter, = chapter_dir.glob('*.epub')
+                    held = chapter.with_suffix('.held')
+                    chapter.rename(held)
+                    child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                            str(REPO)], input=json.dumps(dict(payload, mode='presence_repair', expected_rows=2)), text=True,
+                                           env=env, cwd=runtime, capture_output=True, timeout=150)
+                    if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                    frames = [line for line in child.stdout.splitlines() if line.startswith('WEREAD_DIRECT_BATCH=')]
+                    assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==dict(
+                        ok=True, mode='presence_repair', network_blocked=True)
+                    assert held.is_file() and not chapter.exists()
+                    held.rename(chapter)
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-locked-', dir='/dev/shm') as directory:
                     root = Path(directory)
                     for name in ('plugins', 'xdg'):

@@ -410,6 +410,16 @@ function M:bookRecordHasDownload(record)
     return false
 end
 
+function M:nativeChapterCachePresent(book_id)
+    if not self.settings.get_auth_scope or not self.settings.auth_scope_matches
+        or not self.library_db or not self.library_db.accountKey then return false end
+    local scope=self.settings:get_auth_scope()
+    if not scope or type(scope.vid)~='string' or not self.settings:auth_scope_matches(scope) then return false end
+    local owner=require('weread.lib.crypto').sha256_hex('weread-library:'..scope.vid):sub(1,20)
+    if self.library_db:accountKey()~=owner then return false end
+    return require('weread.lib.native_direct_cache').present(self.settings,scope.vid,book_id)
+end
+
 function M:isBookDownloaded(book, saved_books, downloaded_cache)
     local book_id = ShelfSnapshot.persisted_id(book)
     if not book_id then
@@ -418,8 +428,13 @@ function M:isBookDownloaded(book, saved_books, downloaded_cache)
     if downloaded_cache and downloaded_cache[book_id] ~= nil then
         return downloaded_cache[book_id]
     end
-    local record = ReadAccess.cached_book(saved_books or self.settings:get("books", {}),book_id)
+    local record,conflict = ReadAccess.cached_book(saved_books or self.settings:get("books", {}),book_id)
+    if conflict then
+        if downloaded_cache then downloaded_cache[book_id]=false end
+        return false
+    end
     local is_downloaded = self:bookRecordHasDownload(record)
+    if not is_downloaded then is_downloaded=self:nativeChapterCachePresent(book_id) end
     if downloaded_cache then
         downloaded_cache[book_id] = is_downloaded
     end
