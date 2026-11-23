@@ -27,11 +27,13 @@ def main(argv=None):
     parser.add_argument('--neighbor',action='store_true',help='Verify adjacent native chapters through the reader menu')
     parser.add_argument('--offline-search',action='store_true',help='Search real cached chapters in the installed reader')
     parser.add_argument('--online-search',action='store_true',help='Search online from both native chapters')
+    parser.add_argument('--online-missing',action='store_true',help='Also test cancel and download in a clean profile')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
     if args.offline_search and not args.neighbor:parser.error('--offline-search requires --neighbor')
     if args.online_search and (not args.neighbor or args.offline_search):parser.error('--online-search requires --neighbor only')
+    if args.online_missing and not args.online_search:parser.error('--online-missing requires --online-search')
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1
             or not any(row.split()[1:3]==['/dev/shm','tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
         parser.error('Linux, KOReader and tmpfs are required')
@@ -151,22 +153,60 @@ def main(argv=None):
                                 or online['independent_text'] is not True or online['blocked_requests']!=0
                                 or type(online['search_requests']) is not int or not 1<=online['search_requests']<=len(private['allowed'])):
                             raise ValueError('online_search')
+                    if args.online_missing:
+                        phase='online_missing_prepare'
+                        missing_profile=root/'missing-profile';(missing_profile/'plugins').mkdir(parents=True)
+                        (missing_profile/'settings').mkdir();extract_candidate(args.candidate,missing_profile/'plugins')
+                        missing_plugin=missing_profile/'plugins/weread.koplugin';missing_env=dict(env,KO_HOME=str(missing_profile))
+                        only_source=dict(payload,uid=payload['neighbor']['uid'],source_sha256=payload['neighbor']['source_sha256'],
+                            search_token=payload['neighbor']['search_token'],plugin_home=True)
+                        only_source.pop('neighbor')
+                        code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_error_guard.lua'),
+                            str(missing_plugin),str(repo/'spec/koreader/native_direct_owner_ui_probe.lua')],missing_env,
+                            json.dumps(only_source,ensure_ascii=False).encode(),runtime,timeout=180)
+                        prepared=line(out,b'WEREAD_DIRECT_OWNER=');source=Path(prepared.get('path',''))
+                        if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
+                                or not source.is_file() or missing_profile not in source.parents):raise ValueError('missing_source')
+                        phase='online_missing_search'
+                        private=dict(path=str(source),book_id=payload['book_id'],uid=payload['uid'],credentials=payload['credentials'],
+                            web_cookies=payload['web_cookies'],cross=True,missing=True,target_sha256=payload['source_sha256'],
+                            keyword=payload['online_search']['keyword'],start=payload['online_search']['start'],
+                            finish=payload['online_search']['finish'],allowed=payload['online_search']['allowed'])
+                        if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
+                        code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_error_guard.lua'),
+                            str(repo),str(repo/'spec/koreader/native_direct_owner_search_online.lua')],missing_env,
+                            json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=300)
+                        if code:
+                            match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                            if match:report['probe_line']=int(match.group(1))
+                            stage=re.search(rb'(?m)^WEREAD_DIRECT_ONLINE_STAGE=(reader|quick|input|results|confirm|switch|locate)$',out)
+                            if stage:report['probe_stage']=stage.group(1).decode()
+                        online=line(out,b'WEREAD_DIRECT_OWNER_ONLINE_SEARCH=')
+                        if (code or repaint or set(online)!={'ok','cross','installed_plugin','independent_text','blocked_requests',
+                                'search_requests','cancel_without_download','downloaded_source_matches'}
+                                or any(online[key] is not True for key in ('ok','cross','installed_plugin','independent_text',
+                                    'cancel_without_download','downloaded_source_matches')) or online['blocked_requests']!=0
+                                or type(online['search_requests']) is not int or not 1<=online['search_requests']<=len(private['allowed'])):
+                            raise ValueError('online_missing')
             phase='audit';credentials=payload['credentials']
             secrets=[credentials[key] for key in ('accessToken','refreshToken','deviceId')]
             if args.online_search:
                 secrets.extend(value for key,value in payload['web_cookies'].items()
                     if key!='wr_vid' and isinstance(value,str) and len(value)>=8)
-            for path in profile.rglob('*'):
-                if path.is_symlink():raise ValueError('link')
-                if path.is_file() and plugin not in path.parents:
-                    if path.stat().st_size>128*1024*1024:raise ValueError('file_limit')
-                    data=path.read_bytes()
-                    if any(secret.encode() in data for secret in secrets):
-                        raise ValueError('credential_file')
+            profiles=[(profile,plugin)]
+            if args.online_missing:profiles.append((missing_profile,missing_plugin))
+            for checked_profile,checked_plugin in profiles:
+                for path in checked_profile.rglob('*'):
+                    if path.is_symlink():raise ValueError('link')
+                    if path.is_file() and checked_plugin not in path.parents:
+                        if path.stat().st_size>128*1024*1024:raise ValueError('file_limit')
+                        data=path.read_bytes()
+                        if any(secret.encode() in data for secret in secrets):raise ValueError('credential_file')
             with zipfile.ZipFile(args.candidate) as archive:
-                for item in archive.infolist():
-                    if not item.is_dir() and archive.read(item)!=(profile/'plugins'/item.filename).read_bytes():
-                        raise ValueError('installed_bytes')
+                for checked_profile,_ in profiles:
+                    for item in archive.infolist():
+                        if not item.is_dir() and archive.read(item)!=(checked_profile/'plugins'/item.filename).read_bytes():
+                            raise ValueError('installed_bytes')
             report.update(result='PASS',native_requests=result['requests'],source_matches=True,offline_reopen=True,
                 offline_network_guard=True,web_coordinates=False,manual_time_blocked=True,credential_file_audit=True,
                 installed_bytes_match=True,missing_images=result['missing_images'],warning_verified=True)
@@ -174,6 +214,7 @@ def main(argv=None):
                 neighbor_missing_images=result['neighbor_missing_images'])
             if args.offline_search:report['offline_search']=True
             if args.online_search:report['online_search']=True
+            if args.online_missing:report['online_missing']=True
     except (Exception,KeyboardInterrupt):report['phase']=phase
     finally:report['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(FRAME+json.dumps(report).encode()+b'\n')

@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-23",
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "scope": "one real account; each screen uses one book, two adjacent readable chapters and one online search query",
+  "screens": ["600x800", "1264x1680"],
+  "preparation": "fresh isolated profile contains the starting chapter but not the selected target",
+  "cancel_without_target_download": true,
+  "confirmed_download_source_matches_independent_preflight": true,
+  "independent_reader_text_visible": true,
+  "request_allowlist_enforced": true,
+  "native_shelf_observed_state_unchanged": true,
+  "native_progress_observation_unchanged": true,
+  "web_progress_observation_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_verification": 0,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "physical_kindle_tested": false,
+  "limitations": ["one book and one query per run", "target explicitly readable", "physical Kindle untested"]
+}

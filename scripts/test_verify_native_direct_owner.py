@@ -233,8 +233,11 @@ class NativeDirectOwnerTests(unittest.TestCase):
             offline_network_guard=True,web_coordinates=False,manual_time_blocked=True,credential_file_audit=True,
             installed_bytes_match=True,missing_images=0,warning_verified=True,neighbor_matches=True,
             neighbor_offline_roundtrip=True,neighbor_missing_images=0)
-        for checked,changed in ((False,False),(True,False),(True,True)):
+        for checked,changed,missing,missing_checked in ((False,False,False,False),(True,False,False,False),
+                (True,True,False,False),(True,False,True,False),(True,False,True,True)):
+            result.pop('online_search',None);result.pop('online_missing',None)
             if checked:result['online_search']=True
+            if missing_checked:result['online_missing']=True
             child=SimpleNamespace(returncode=0,stdout=task.FRAME+json.dumps(result).encode()+b'\n')
             cookies=[SimpleNamespace(name='wr_vid',value='123'),SimpleNamespace(name='wr_skey',value='private-cookie')]
             web=SimpleNamespace(cookies=cookies,set_cookie=lambda *_args:None,verify_account=lambda:None,
@@ -254,11 +257,15 @@ class NativeDirectOwnerTests(unittest.TestCase):
                     redirect_stdout(io.StringIO()) as output:
                 saved.return_value.load.return_value={'vid':'123','cookies':{'wr_skey':'private-token'}}
                 native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
-                code=task.main(['--saved-session','--neighbor','--online-search','--compare-web-progress','--lua-command','runner'])
-            self.assertEqual(code,0 if checked and not changed else 1)
-            self.assertEqual(len(progress_calls),2 if checked else 1)
+                flags=['--saved-session','--neighbor','--online-search','--compare-web-progress']
+                if missing:flags.append('--online-missing')
+                code=task.main(flags+['--lua-command','runner'])
+            passed=checked and not changed and (not missing or missing_checked)
+            self.assertEqual(code,0 if passed else 1)
+            self.assertEqual(len(progress_calls),2 if checked and (not missing or missing_checked) else 1)
             report=json.loads(output.getvalue())
-            self.assertEqual(report.get('online_search_verified'),True if checked and not changed else None)
+            self.assertEqual(report.get('online_search_verified'),True if passed else None)
+            self.assertEqual(report.get('missing_download_verified'),True if passed and missing else None)
             self.assertNotIn('private',output.getvalue())
 
 

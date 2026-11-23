@@ -58,6 +58,7 @@ function Client:request(options)
         accepted=method=='GET' and url:find('bookId='..input.book_id..'&',1,true)~=nil
             and url:find('chapters=0%2C'..input.uid..'&',1,true)~=nil
             and url:find('stopAutoPayWhenBNE=1',1,true)~=nil and url:find('preview=0',1,true)~=nil
+        if accepted then counters[3]=counters[3]+1 end
     elseif url==web..'/api/userInfo?userVid='..input.credentials.vid then accepted=method=='GET'
     elseif url==web..'/web/book/chapterInfos' then
         local body=json.decode(options.body);accepted=method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -91,6 +92,11 @@ local function wait(predicate)
 end
 Reader:showReader(input.path);wait(function() return Reader.instance and Reader.instance.weread end)
 local reader=Reader.instance;local host=reader.weread
+if input.missing then
+    local rows=assert(require('weread.lib.native_direct_cache').list(host.settings,input.credentials.vid,input.book_id,
+        function() return true end))
+    for _,entry in ipairs(rows) do assert(entry.chapter_uid~=input.uid,'target chapter already cached') end
+end
 local function configure(active)
     active.isNetworkOnline=function() return true end;active.isNetworkConnected=active.isNetworkOnline
     active.showInfo=function(self) self.failed=true end
@@ -122,6 +128,16 @@ end
 assert(chosen)
 local target=owner.menu.item_table[#owner.menu.item_table-#owner.value+chosen_index]
 assert(target and target.select_enabled~=false and target.text:find(input.keyword,1,true));owner.menu:onMenuSelect(target)
+if input.missing then
+    stage='confirm';wait(function() return host.failed or owner.navigation and owner.navigation.confirm end)
+    assert(not host.failed and owner.navigation and owner.navigation.confirm and counters[3]==0)
+    local confirm=owner.navigation.confirm;confirm.cancel_callback();UI:close(confirm)
+    assert(not owner.navigation and Reader.instance==reader and counters[3]==0,'cancel initiated download')
+    owner.menu:onMenuSelect(target)
+    wait(function() return host.failed or owner.navigation and owner.navigation.confirm end)
+    assert(not host.failed and owner.navigation and owner.navigation.confirm and counters[3]==0)
+    owner.navigation.confirm.ok_callback()
+end
 local destination
 if input.cross then stage='switch';wait(function() return host.failed or Reader.instance and Reader.instance~=reader end)
     assert(not host.failed);destination=Reader.instance
@@ -130,8 +146,16 @@ local next_host=assert(destination.weread)
 stage='locate';wait(function() return host.failed or next_host.failed
     or not owner.navigation and not next_host._native_online_search_incoming and not next_host._native_online_search_open end)
 assert(not host.failed and not next_host.failed)
+if input.missing then
+    local saved=assert(require('weread.lib.native_direct_cache').identify(next_host.settings,input.credentials.vid,
+        destination.document.file,function() return true end))
+    assert(saved.chapter_uid==input.uid and saved.source_sha256==input.target_sha256 and counters[3]>0,
+        'downloaded target source did not match preflight')
+end
 local matches=assert(destination.document:findAllText(input.keyword,false,0,64,false,0));local visible=false
 for _,match in ipairs(matches) do if match.start and destination.document:isXPointerInCurrentPage(match.start) then visible=true end end
 assert(visible and counters[1]>=1 and counters[2]==0)
-print('WEREAD_DIRECT_OWNER_ONLINE_SEARCH='..json.encode{ok=true,cross=input.cross,installed_plugin=true,
-    independent_text=true,blocked_requests=0,search_requests=tonumber(counters[1])})
+local result={ok=true,cross=input.cross,installed_plugin=true,independent_text=true,
+    blocked_requests=0,search_requests=tonumber(counters[1])}
+if input.missing then result.cancel_without_download=true;result.downloaded_source_matches=true end
+print('WEREAD_DIRECT_OWNER_ONLINE_SEARCH='..json.encode(result))

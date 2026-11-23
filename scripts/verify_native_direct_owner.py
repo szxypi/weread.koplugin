@@ -58,6 +58,7 @@ def main(argv=None):
     parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
     parser.add_argument('--offline-search',action='store_true',help='Verify installed offline search across the two chapters')
     parser.add_argument('--online-search',action='store_true',help='Verify installed online search in both native chapters')
+    parser.add_argument('--online-missing',action='store_true',help='Also verify cancel and confirmed missing-chapter download')
     parser.add_argument('--home',action='store_true',help='Verify native home resume in a fresh offline process')
     parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
@@ -70,6 +71,7 @@ def main(argv=None):
     if args.offline_search and not args.neighbor:parser.error('offline search requires neighbor')
     if args.online_search and (not args.neighbor or args.offline_search or not args.compare_web_progress):
         parser.error('online search requires neighbor and Web progress comparison')
+    if args.online_missing and not args.online_search:parser.error('online missing requires online search')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
     if args.compare_web_progress and not (args.home or args.offline_search or args.online_search):
         parser.error('Web comparison requires home or chapter search')
@@ -158,9 +160,10 @@ def main(argv=None):
             result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','record','reopen','audit','prepare','offline_first',
-                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search'}:report['runner_phase']=result['phase']
+                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search',
+                    'online_missing_prepare','online_missing_search'}:report['runner_phase']=result['phase']
                 if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record',
-                                                 'quick_menu','quick_input','quick_results','reader','quick','input','results','switch','locate'}:
+                                                 'quick_menu','quick_input','quick_results','reader','quick','input','results','confirm','switch','locate'}:
                     report['runner_stage']=result['probe_stage']
                 if type(result.get('probe_line')) is int and 0<=result['probe_line']<=10000:report['runner_line']=result['probe_line']
                 if result.get('archive_status') in {'ok','filename','entry_limit','password','checksum','manifest_chapter',
@@ -213,6 +216,7 @@ def main(argv=None):
                 if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
                 if args.offline_search:required.add('offline_search')
                 if args.online_search:required.add('online_search')
+                if args.online_missing:required.add('online_missing')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or type(result['missing_images']) is not int or not 0<=result['missing_images']<=64
                         or args.neighbor and (type(result['neighbor_missing_images']) is not int or not 0<=result['neighbor_missing_images']<=64)
@@ -241,6 +245,7 @@ def main(argv=None):
                     neighbor_missing_images=result['neighbor_missing_images'])
                 if args.offline_search:report['offline_search_verified']=True
                 if args.online_search:report.update(online_search_verified=True,native_progress_unchanged=True)
+                if args.online_missing:report.update(missing_cancel_verified=True,missing_download_verified=True)
                 if args.compare_web_progress:report['web_position_unchanged']=True
     except (Exception,KeyboardInterrupt) as error:
         report['result']='UNVERIFIED';report['phase']=phase

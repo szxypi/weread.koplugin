@@ -35,17 +35,17 @@ def main():
                     online_search=dict(keyword=server.keyword,start=begin,finish=begin+len(server.keyword),
                                        allowed=[dict(chapter='37',start=0,finish=0)]))
                 command=[sys.executable,str(REPO/'scripts/run_native_direct_owner.py'),'--koreader',str(args.koreader),
-                    '--candidate',str(candidate),'--ui','--neighbor','--online-search','--width',str(width),
+                    '--candidate',str(candidate),'--ui','--neighbor','--online-search','--online-missing','--width',str(width),
                     '--height',str(height),'--dpi',str(dpi)]
                 child=subprocess.run(command,input=json.dumps(payload).encode(),capture_output=True,timeout=900)
                 marker=b'\nWEREAD_DIRECT_OWNER_RUN=';assert child.stdout.count(marker)==1
                 result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
                 assert child.returncode==0 and result['result']=='PASS',result
-                assert all(result[key] is True for key in ('online_search','offline_network_guard','profile_removed',
+                assert all(result[key] is True for key in ('online_search','online_missing','offline_network_guard','profile_removed',
                     'credential_file_audit','installed_bytes_match','neighbor_offline_roundtrip'))
                 assert server.valid and not server.leaked
                 assert not any(path in ('/book/read','/web/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)
-        print('PASS: native online owner runner at both screen sizes using loopback services')
+        print('PASS: native online and missing-target owner runner at both screen sizes using loopback services')
     finally:server.shutdown();server.server_close();thread.join()
 
 
