@@ -20,6 +20,13 @@ local malformed=page(3,20);malformed.items[2]=nil;malformed.has_more=false
 assert(not cache:write('42',malformed,1099),'sparse review list was accepted')
 assert(cache:write('42',longer,1100) and cache:write('42',first,1200))
 local saved=assert(cache:read('42'));assert(#saved.items==40 and saved.saved_at==1100)
+local image_url='https://weread-picture-1258476243.file.myqcloud.com/fixture.png'
+first.items[1].attachment_state='available';first.items[1].attachment_urls=image_url
+assert(cache:write('42',first,1250));saved=assert(cache:read('42'))
+assert(#saved.items==20 and saved.items[1].attachment_urls==image_url,'changed attachments reused older prefix')
+first.items[1].attachment_urls='https://evil.test/x'
+assert(not cache:write('42',first,1260),'unsafe attachment was cached')
+first.items[1].attachment_urls=image_url
 first.items[1].content='updated';assert(cache:write('42',first,1300))
 saved=assert(cache:read('42'));assert(#saved.items==20 and saved.items[1].content=='updated')
 first.items[1].rating=0/0;assert(not cache:write('42',first,1400));first.items[1].rating=4

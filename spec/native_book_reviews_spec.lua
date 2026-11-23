@@ -16,6 +16,10 @@ local function sample(count)
     return { reviews = rows, hasMore = 0, totalCount = 1000 }
 end
 local first = Data.project(client, sample(21), '42', 20)
+local image_url='https://weread-picture-1258476243.file.myqcloud.com/fixture.png'
+local with_image=sample(1);with_image.reviews[1].review.pictures={{url=image_url,width=42,height=50},{url='https://evil.test/x'}}
+local image_item=Data.project(client,with_image,'42',20).items[1]
+expect(image_item.attachment_state=='partial' and image_item.attachment_urls==image_url,'attachment projection failed')
 expect(#first.items == 20 and first.has_more and first.items[1].rating == 5, 'first page or extra row lost')
 expect(first.items[1].author == '合成读者' and first.items[1].content == '合成书评 1', 'display projection failed')
 expect(not first.items[1].book and not first.items[1].token and not first.items[1].userVid, 'extraneous data escaped')

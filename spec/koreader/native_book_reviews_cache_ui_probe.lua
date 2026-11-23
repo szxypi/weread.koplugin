@@ -6,6 +6,8 @@ G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'
 G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
 local Device=require('device');require('document/canvascontext'):init(Device)
 local UI=require('ui/uimanager');local socket=require('socket');local json=require('json');local ffi=require('ffi')
+local public=os.getenv('WEREAD_PUBLIC_REVIEW_IMAGE')=='1'
+local input=public and assert(json.decode(io.read('*a'))) or nil
 pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
 local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
 local calls=ffi.cast('int *',memory);calls[0]=0;calls[1]=0
@@ -15,6 +17,14 @@ local settings={data_dir=home,get=function(_self,key,default)
     return default
 end,is_api_configured=function() return false end}
 local client={json_encode=function(_self,v) return json.encode(v) end,json_decode=function(_self,v) return json.decode(v) end}
+local image_url=public and input.url or 'https://weread-picture-1258476243.file.myqcloud.com/synthetic-review.png'
+client.request=function(_self,options)
+    assert(mode=='online' and options.url==image_url and options.skip_cookie and options.sensitive
+        and not options.persist_response_cookies and not options.headers.Cookie and not options.headers.Authorization)
+    calls[2]=calls[2]+1
+    if public then return require('weread.lib.client'):new(settings):request(options) end
+    assert(options.sink(require('weread.lib.native_missing_image')));options.sink(nil);return nil,200
+end
 local library=require('weread.lib.library_db'):new(settings)
 local Source=require('weread.lib.native_book_reviews_source')
 local selected={native={scope={vid=account}}}
@@ -28,6 +38,8 @@ Source.fetch=function(c,id,limit,previous)
         local key='synthetic-'..i
         raw.reviews[i]={reviewId=key,review={reviewId=key,bookId=id,type=4,createTime=1700001000-i,
             author={name='合成读者'},content='合成书评 '..i,star=100}}
+        if i==1 then raw.reviews[i].review.pictures={{url=image_url,width=32,height=32}} end
+        if i==2 then raw.reviews[i].review.pictures={{url='https://untrusted.invalid/image'}} end
     end
     return require('weread.lib.native_book_reviews').project(c,raw,id,limit,previous)
 end
@@ -68,6 +80,22 @@ end
 view._review_buttons[1].callback()
 local detail=assert(host._native_reviews_owner.detail)
 assert(detail.text:find('合成书评 1',1,true) and detail.buttons_table)
+if mode=='online' and not public then
+    detail.buttons_table[2][1].callback();assert(host.busy_message)
+    detail:onClose();assert(not host.busy_message and not host._native_reviews_owner.review_image_owner)
+    calls[2]=0;view._review_buttons[1].callback();detail=assert(host._native_reviews_owner.detail)
+end
+assert(detail.buttons_table[2][1].id=='review_image_1');detail.buttons_table[2][1].callback()
+wait(function() local own=host._native_reviews_owner.review_image_owner;return own and own.widget end)
+local image_owner=host._native_reviews_owner.review_image_owner
+assert(image_owner.widget.title_text=='书评图片' and image_owner.widget.image)
+assert(calls[2]==(mode=='online' and 1 or 0));UI:forceRePaint();UI:close(image_owner.widget)
+if public then
+    local Cache=require('weread.lib.thought_image_store');local key=assert(Cache.key('42','synthetic-1',image_url))
+    local bytes=assert(Cache:new(library):read(library:accountKey(),key))
+    assert(require('weread.lib.crypto').sha256_hex(bytes)==input.sha256)
+end
+assert(not host._native_reviews_owner.review_image_owner and host._native_reviews_owner.detail==detail)
 detail.buttons_table[1][1].callback()
 wait(function() return host._native_review_replies_owner and host._native_review_replies_owner.view end)
 local replies=host._native_review_replies_owner.view
@@ -85,6 +113,8 @@ replies._review_buttons[1].callback()
 local reply_viewer=assert(host._native_review_replies_owner.viewer)
 assert(reply_viewer.text:find('合成回复 1',1,true));reply_viewer:onClose()
 replies:onClose();detail:onClose()
+view._review_buttons[2].callback();detail=assert(host._native_reviews_owner.detail)
+assert(detail.text:find('部分书评附件暂无法显示',1,true));detail:onClose()
 if mode=='online' then
     view._review_buttons[#view._review_buttons].callback()
     wait(function() return host._native_reviews_owner.view~=view end)

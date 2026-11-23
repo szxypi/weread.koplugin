@@ -94,7 +94,7 @@ function BookReviews.normalize_item(entry)
     if rating > 0 then
         rating = rating / 20
     end
-    return {
+    local item = {
         review_id = review.reviewId,
         author = author_name(review.author),
         content = content,
@@ -103,6 +103,9 @@ function BookReviews.normalize_item(entry)
         is_finish = review.isFinish == true or tonumber(review.isFinish) == 1,
         idx = tonumber(type(entry) == "table" and entry.idx) or 0,
     }
+    local attachment = require('weread.lib.thought_attachments').cached(review)
+    if attachment then item.attachment_state, item.attachment_urls = attachment.state, attachment.urls end
+    return item
 end
 
 function BookReviews.normalize_list(data)

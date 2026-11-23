@@ -33,8 +33,11 @@ function M.validate(codec,value,id)
             and (not last or row.create_time<=last) and type(row.is_finish)=='boolean'
             and integer(row.idx,9007199254740991),'reviews_cache/item')
         seen[row.review_id]=true;last=row.create_time;ids[#ids+1]=row.review_id
-        items[#items+1]={review_id=row.review_id,author=row.author,content=row.content,rating=row.rating,
+        local item={review_id=row.review_id,author=row.author,content=row.content,rating=row.rating,
             create_time=row.create_time,is_finish=row.is_finish,idx=row.idx}
+        local attachment=require('weread.lib.thought_attachments').cached(row)
+        if attachment then item.attachment_state,item.attachment_urls=attachment.state,attachment.urls end
+        items[#items+1]=item
     end
     return {schema=1,book_id=id,saved_at=value.saved_at,items=items,ids=ids,limit=value.limit,
         has_more=value.has_more,limited=value.limited}
@@ -47,7 +50,8 @@ local function same_prefix(previous,current_page)
     if not current_page.has_more or #previous.items<=#current_page.items then return false end
     for index,item in ipairs(current_page.items) do
         local old=previous.items[index]
-        for _,field in ipairs({'review_id','author','content','rating','create_time','is_finish','idx'}) do
+        for _,field in ipairs({'review_id','author','content','rating','create_time','is_finish','idx',
+            'attachment_state','attachment_urls'}) do
             if not old or old[field]~=item[field] then return false end
         end
     end

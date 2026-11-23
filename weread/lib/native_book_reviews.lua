@@ -55,13 +55,16 @@ function M.project(client, raw, book_id, limit, previous)
         seen[review.reviewId], ids[index] = true, review.reviewId
         if previous and index <= #previous and previous[index] ~= review.reviewId then fail('changed') end
         if index <= limit then
-            items[#items + 1] = Reviews.normalize_item({ review = {
+            local item = Reviews.normalize_item({ review = {
                 reviewId = review.reviewId, author = name,
                 content = present(review.content) and review.content or '',
                 htmlContent = present(review.htmlContent) and review.htmlContent or '',
                 star = present(review.star) and review.star or 0, createTime = review.createTime,
                 isFinish = present(review.isFinish) and review.isFinish or false,
             } })
+            local attachment = require('weread.lib.thought_attachments').project(review,present)
+            if attachment then item.attachment_state, item.attachment_urls = attachment.state, attachment.urls end
+            items[#items + 1] = item
         end
     end
     if previous and #ids < #previous then fail('changed') end

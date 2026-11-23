@@ -36,9 +36,12 @@ class Handler(BaseHTTPRequestHandler):
             rows = []
             for index in range(start, start + 20):
                 rid = prefix + str(index)
-                rows.append({'idx': index, 'review': {'reviewId': rid, 'review': {
+                review = {
                     'reviewId': rid, 'bookId': '42', 'author': {'name': '合成读者'},
-                    'content': '合成书评 ' + str(index), 'star': 100, 'createTime': 1700001000 - index}}})
+                    'content': '合成书评 ' + str(index), 'star': 100, 'createTime': 1700001000 - index}
+                if index == 1:
+                    review['pictures'] = [{'url': 'https://weread-picture-1258476243.file.myqcloud.com/gateway-fixture.png'}]
+                rows.append({'idx': index, 'review': {'reviewId': rid, 'review': review}})
             data = json.dumps({'reviews': rows, 'reviewsHasMore': 0 if cursor else 1, 'synckey': 123},
                               ensure_ascii=False).encode()
             self.send_response(200)
@@ -60,6 +63,7 @@ def main():
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--key-only', action='store_true')
     args = parser.parse_args()
     runtime = args.koreader.resolve()
     repo = Path(__file__).resolve().parent.parent
@@ -76,6 +80,7 @@ def main():
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                        LD_LIBRARY_PATH=str(runtime / 'libs'), WEREAD_SOURCE=str(repo),
                        WEREAD_GATEWAY_MOCK_PORT=str(server.server_port))
+            if args.key_only:env['WEREAD_GATEWAY_KEY_ONLY']='1'
             child = subprocess.run([str(runtime / 'luajit'), str(repo / 'spec/koreader/gateway_book_reviews_smoke.lua')],
                                    cwd=runtime, env=env, capture_output=True, timeout=90)
         expected = [(1, None), (1, 20), (3, None)]

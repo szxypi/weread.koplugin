@@ -8,13 +8,22 @@ local Device = require('device'); require('document/canvascontext'):init(Device)
 local UI, json, socket, ffi = require('ui/uimanager'), require('json'), require('socket'), require('ffi')
 local pid = tonumber(ffi.C.getpid())
 local scope = {vid = '123', epoch = 1}
-local settings = {data_dir = '/unused', get = function(_, key, fallback) if key == 'api_key' then return 'synthetic-key' end return fallback end,
+local key_only=os.getenv('WEREAD_GATEWAY_KEY_ONLY')=='1'
+local settings = {data_dir = assert(os.getenv('KO_HOME')), get = function(_, key, fallback)
+    if key == 'api_key' then return 'synthetic-key' end
+    if key == 'account' then return key_only and {} or {user_vid='123'} end
+    return fallback end,
     get_auth_scope = function() return scope end, auth_scope_matches = function(_, value) return value == scope end}
+if key_only then
+    settings.get_auth_scope=function() return nil end;settings.auth_scope_matches=function() return false end
+    settings.settings_file=settings.data_dir..'/gateway-fixture.lua'
+    local file=assert(io.open(settings.settings_file,'w'));assert(file:write("return { api_key='synthetic-key' }"));assert(file:close())
+end
 local grant = {vid = '123', accessToken = 'synthetic-token'}
 local store = {read = function() return grant, 1, nil, false end}
 local Source = require('weread.lib.gateway_book_reviews_source')
-local selected = assert(Source.capture(settings, store))
-assert(selected.native and selected.api_key)
+local selected = assert(Source.capture(settings, key_only and nil or store))
+assert(selected.api_key and (key_only and selected.key_only or not key_only and selected.native))
 local mock_port = tonumber(os.getenv('WEREAD_GATEWAY_MOCK_PORT'))
 local client
 if mock_port then
@@ -24,6 +33,18 @@ if mock_port then
 else
     client = {settings = settings, json_encode = function(_, value) return json.encode(value) end,
         json_decode = function(_, value) return json.decode(value) end}
+end
+local image_url='https://weread-picture-1258476243.file.myqcloud.com/gateway-fixture.png'
+if mock_port then
+    local request=client.request
+    function client:request(options)
+        if options.url==image_url then
+            assert(options.method=='GET' and options.skip_cookie and options.sensitive and not options.persist_response_cookies
+                and not options.headers.Cookie and not options.headers.Authorization)
+            assert(options.sink(require('weread.lib.native_missing_image')));options.sink(nil);return nil,200
+        end
+        return request(self,options)
+    end
 end
 local function synthetic_gateway(self, book, mode, cursor, sync, key)
     assert(tonumber(ffi.C.getpid()) ~= pid and book == '42' and key == 'synthetic-key')
@@ -52,11 +73,12 @@ ReplySource.fetch_replies = function(codec, book, review, limit, previous)
         {reviewId = review, review = {reviewId = review, bookId = book, type = 4}, comments = rows},
         book, review, limit, previous)
 end
-local host = {settings = settings, client = client, library_db = {accountKey = function() return 'synthetic-account' end},
+local host = {settings = settings, client = client, library_db = require('weread.lib.library_db'):new(settings),
     _book_detail_view = {}, discovery_epoch = 1, _reader_session_gen = 1, ui = {document = {}}}
 function host:showBusy(_, cancel) self.busy_message = {}; self.cancel_busy = cancel end
 function host:closeBusy() self.busy_message = nil end
 function host:showInfo() error('unexpected failure') end
+function host:isNetworkOnline() return true end
 function host:runOnlineTask(_, fn) UI:scheduleIn(0.01, fn); return true end
 host.showBookReviewDetail = require('weread.ui.library').showBookReviewDetail
 local Gateway = require('weread.ui.gateway_book_reviews')
@@ -77,11 +99,22 @@ assert(view.mode == 'recommended' and #view.result.items == 20 and #view._tab_bu
 UI:forceRePaint()
 view._review_buttons[1].callback()
 local detail = assert(host._gateway_reviews_owner.detail)
-detail.buttons_table[1][1].callback()
-wait(function() return host._native_review_replies_owner and host._native_review_replies_owner.view end)
-local replies = host._native_review_replies_owner.view
-assert(#replies.result.items == 20 and replies.title_text == 'Review replies')
-UI:forceRePaint(); replies:onClose(); detail:onClose()
+if mock_port then
+    local image_button=detail.buttons_table[key_only and 1 or 2][1]
+    assert(image_button.id=='review_image_1');image_button.callback()
+    wait(function() local own=host._gateway_reviews_owner.review_image_owner;return own and own.widget end)
+    local image=host._gateway_reviews_owner.review_image_owner.widget
+    assert(image.title_text=='书评图片' and image.image);UI:forceRePaint();UI:close(image)
+    assert(not host._gateway_reviews_owner.review_image_owner and host._gateway_reviews_owner.detail==detail)
+end
+if not key_only then
+    detail.buttons_table[1][1].callback()
+    wait(function() return host._native_review_replies_owner and host._native_review_replies_owner.view end)
+    local replies = host._native_review_replies_owner.view
+    assert(#replies.result.items == 20 and replies.title_text == 'Review replies')
+    UI:forceRePaint();replies:onClose()
+end
+detail:onClose()
 assert(not host._native_review_replies_owner and not host._gateway_reviews_owner.detail)
 view._review_scroll:setScrolledOffset({x = 0, y = 500})
 view._review_buttons[21].callback()

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read-only public-picture test. Identifiers and URLs stay in memory."""
+import argparse
 import hashlib
 import json
 import resource
@@ -15,6 +16,7 @@ from verify_eink_login import BASE, NativeProbe, NoRedirect
 
 
 def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--review',action='store_true');args=parser.parse_args()
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     saved=credentials=None
     try:
@@ -43,10 +45,15 @@ def main():
             data=response.read(3*1024*1024+1)
             if response.status!=200 or len(data)>3*1024*1024:raise ValueError('image')
         payload=json.dumps({'url':sample,'sha256':hashlib.sha256(data).hexdigest()}).encode()
-        command=['docker','exec','-i','-w','/source','weread-validation','python3','scripts/test_thought_images_runtime.py',
+        command=['docker','exec','-i','-e','SDL_VIDEODRIVER=dummy',
+            '-e','LD_LIBRARY_PATH=/validation/runtime/lib/koreader/libs','-w','/source','weread-validation','python3',
+            'scripts/test_native_book_reviews_cache_runtime.py' if args.review else 'scripts/test_thought_images_runtime.py',
             '--koreader','/validation/runtime/lib/koreader','--public-stdin']
-        result=subprocess.run(command,input=payload,capture_output=True,timeout=240)
-        if result.returncode:raise ValueError('native_public_image_unverified')
+        sizes=[['--width','600','--height','800','--dpi','167'],
+            ['--width','1264','--height','1680','--dpi','300']] if args.review else [[]]
+        for size in sizes:
+            result=subprocess.run(command+size,input=payload,capture_output=True,timeout=240)
+            if result.returncode:raise ValueError('native_public_image_unverified')
         print(json.dumps({'result':'PUBLIC_NATIVE_IMAGE_PASS','sizes':2,'anonymous':True,'offline_reopen':True,
             'account_data_writes':0,'authentication_posts':0,'profile_removed':True}))
         return 0

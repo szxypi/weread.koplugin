@@ -10,7 +10,9 @@ function M.load(client,library,owner,book,review,url,online,current)
         or not library or library:accountKey()~=owner then return nil,'changed' end
     if not Attachment.allowed(url) then return nil,'invalid' end
     local key=Store.key(book,review,url);if not key then return nil,'invalid' end
-    local store=Store:new(library);local data=store:read(owner,key)
+    -- Skill-only installations may have no WeRead account database. Public
+    -- pictures still work online there, without creating an unscoped cache.
+    local store=owner and Store:new(library);local data=store and store:read(owner,key)
     if not current() or library:accountKey()~=owner then return nil,'changed' end
     if not data then
         if not online then return nil,'offline' end
@@ -31,7 +33,7 @@ function M.load(client,library,owner,book,review,url,online,current)
         if not ok or exceeded or tonumber(code)~=200 then return nil,tonumber(code)==429 and 'rate_limited' or 'unavailable' end
         data=type(raw)=='string' and raw or table.concat(chunks)
         if not Image.dimensions(data) then return nil,'invalid_image' end
-        if not store:write(owner,key,data) then return nil,'storage' end
+        if store and not store:write(owner,key,data) then return nil,'storage' end
     end
     if not Attachment.allowed(url) or not Image.dimensions(data) or not current() or library:accountKey()~=owner then return nil,'changed' end
     return {bytes=require('mime').b64(data),sha256=Crypto.sha256_hex(data)}

@@ -15,6 +15,7 @@ function M.cancel(host)
     host._gateway_reviews_owner = nil
     if not owner then return end
     owner.closed = true
+    require('weread.ui.review_images').cancel(host,owner)
     local replies = package.loaded['weread.ui.native_review_replies']
     if replies and host._native_review_replies_owner and host._native_review_replies_owner.parent == owner then
         replies.cancel(host)
@@ -62,13 +63,20 @@ function M.open(host, book, selected)
                     and require('weread.lib.native_review_replies').review_id(review.review_id)
                 local detail
                 detail = host:showBookReviewDetail(book, review, selected_mode, {
+                    on_image = function(index)
+                        if current_view() and owner.detail == detail then
+                            require('weread.ui.review_images').open(host,owner,book,review,index,detail,current)
+                        end
+                    end,
                     on_replies = can_reply and function()
                         if current_view() and owner.detail == detail then
+                            require('weread.ui.review_images').cancel(host,owner)
                             require('weread.ui.native_review_replies').open(host, owner, book, review, detail, current_view)
                         end
                     end or nil,
                     on_close = function()
                         if owner.detail == detail then
+                            require('weread.ui.review_images').cancel(host,owner)
                             local replies = package.loaded['weread.ui.native_review_replies']
                             if replies and host._native_review_replies_owner and host._native_review_replies_owner.parent == owner then
                                 replies.cancel(host)

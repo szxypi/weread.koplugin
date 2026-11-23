@@ -100,10 +100,13 @@ function M.project(client, raw, book_id, previous)
         local finished = review.isFinish
         if present(finished) and finished ~= true and finished ~= false and finished ~= 0 and finished ~= 1
             and finished ~= '0' and finished ~= '1' then fail('finished') end
-        clean.reviews[#clean.reviews + 1] = {idx = idx, review = {
+        local clean_review = {
             reviewId = rid, author = author, content = present(review.content) and review.content or '',
             htmlContent = present(review.htmlContent) and review.htmlContent or '', star = rating,
-            createTime = created, isFinish = finished == true or finished == 1 or finished == '1'}}
+            createTime = created, isFinish = finished == true or finished == 1 or finished == '1'}
+        local attachment = require('weread.lib.thought_attachments').project(review,present)
+        if attachment then clean_review.attachment_state, clean_review.attachment_urls = attachment.state, attachment.urls end
+        clean.reviews[#clean.reviews + 1] = {idx = idx, review = clean_review}
     end
     local page = Reviews.append_page(previous, clean)
     if #page.items > M.MAX_ITEMS then

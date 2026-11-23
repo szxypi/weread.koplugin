@@ -13,6 +13,7 @@ function M.cancel(host)
     host._native_reviews_owner = nil
     if not owner then return end
     owner.closed = true
+    require('weread.ui.review_images').cancel(host,owner)
     local replies = package.loaded['weread.ui.native_review_replies']
     if replies then replies.cancel(host) end
     if owner.worker then owner.worker:cancel() end
@@ -86,13 +87,20 @@ function M.open(host, book, selected)
                 if not current_view() or owner.context or owner.detail then return end
                 local detail
                 detail = host:showBookReviewDetail(book, review, 'latest', {
+                    on_image = function(index)
+                        if current_view() and owner.detail == detail then
+                            require('weread.ui.review_images').open(host,owner,book,review,index,detail,current_view)
+                        end
+                    end,
                     on_replies = function()
                         if current_view() and owner.detail == detail then
+                            require('weread.ui.review_images').cancel(host,owner)
                             require('weread.ui.native_review_replies').open(host, owner, book, review, detail, current_view)
                         end
                     end,
                     on_close = function()
                         if owner.detail == detail then
+                            require('weread.ui.review_images').cancel(host,owner)
                             local replies = package.loaded['weread.ui.native_review_replies']
                             if replies then replies.cancel(host) end
                             owner.detail = nil

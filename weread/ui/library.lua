@@ -1772,14 +1772,28 @@ function M:showBookReviewDetail(book, review, mode, options)
     end
     text[#text + 1] = ""
     text[#text + 1] = review.content ~= "" and review.content or _("No review content.")
+    if review.attachment_state == 'partial' then
+        text[#text + 1] = _('Some review attachments could not be displayed.')
+    end
+
+    local buttons = {}
+    if options.on_replies then buttons[#buttons+1]={{text = _("View replies"), callback = options.on_replies}} end
+    if options.on_image and review.attachment_state then
+        local urls = require('weread.lib.thought_attachments').decode(review.attachment_urls) or {}
+        for index in ipairs(urls) do
+            local selected=index
+            buttons[#buttons+1]={{id='review_image_'..index,text=T(_('View review image %1'),tostring(index)),
+                callback=function() options.on_image(selected) end}}
+        end
+    end
 
     local viewer = TextViewer:new{
         title = mode == "latest" and _("Latest review") or _("Recommended review"),
         text = table.concat(text, "\n"),
         text_type = "general",
         auto_para_direction = true,
-        buttons_table = options.on_replies and {{{text = _("View replies"), callback = options.on_replies}}} or nil,
-        add_default_buttons = options.on_replies and true or nil,
+        buttons_table = #buttons>0 and buttons or nil,
+        add_default_buttons = #buttons>0 and true or nil,
         close_callback = options.on_close,
     }
     UIManager:show(viewer)

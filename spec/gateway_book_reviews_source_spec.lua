@@ -15,6 +15,10 @@ local function sample(start, count, more)
     return {reviews = rows, reviewsCnt = 50, reviewsHasMore = more and 1 or 0, synckey = 1234}
 end
 local first = Data.project(codec, sample(1, 20, true), '42')
+local image_url='https://weread-picture-1258476243.file.myqcloud.com/fixture.png'
+local with_image=sample(1,1,false);with_image.reviews[1].review.review.pictures={{url=image_url}}
+local image_item=Data.project(codec,with_image,'42').items[1]
+expect(image_item.attachment_state=='available' and image_item.attachment_urls==image_url,'Skill image projection failed')
 expect(#first.items == 20 and first.items[1].rating == 5 and first.items[1].author == '合成读者'
     and first.max_idx == 20 and first.synckey == 1234 and first.has_more, 'first Skill page failed')
 expect(not first.items[1].book and not first.items[1].secret, 'non-display data escaped projection')
