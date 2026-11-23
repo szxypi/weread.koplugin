@@ -54,11 +54,12 @@ local function visible(host,ctx,point)
     end)
     return ok and value==true
 end
-function M.checkpoint(host)
+function M.checkpoint(host,replace_conflict)
     local ctx=host._native_direct_reconnect
     if not ctx then return nil end
     local required=ctx.offline and ctx.dirty or ctx.pending_dirty
     if not required then return nil end
+    if ctx.conflict and not replace_conflict then return false end
     local point=location(ctx)
     if not point or not ctx.entry or not current(host,ctx)
         or ctx.pending_dirty and not Context.same_location(ctx.unsaved,point) then return false end
@@ -69,14 +70,14 @@ function M.checkpoint(host)
     if not lease then return false end
     local function guard() return lease:owns() and current(host,ctx) and Context.same_location(point,location(ctx)) end
     local ok,saved=pcall(require('weread.lib.native_direct_pending').save,host.library_db,host.settings,ctx.scope,
-        ctx.entry,point.xpointer,guard)
+        ctx.entry,point.xpointer,guard,ctx.record)
     lease:release()
     if not ok then return false end
     if not saved then return false end
     ctx.record={file_id=ctx.entry.file_id,book_id=ctx.entry.book_id,chapter_uid=ctx.entry.chapter_uid,
         version=ctx.entry.book_version,source_sha256=ctx.entry.source_sha256,key=ctx.entry.key,
         copy=ctx.entry.copy,xpointer=point.xpointer}
-    ctx.pending_dirty=false;ctx.unsaved=nil
+    ctx.pending_dirty=false;ctx.unsaved=nil;ctx.conflict=nil
     if ctx.offline then ctx.baseline=point;ctx.dirty=false end
     return true
 end
@@ -92,8 +93,32 @@ function M.open_manual(host,entry,record)
     ctx.entry=entry;ctx.record=record
     if ctx.pending_dirty or ctx.offline and ctx.dirty then
         if ctx.record then
-            if host.showInfo then host:showInfo(_('Save or sync the current offline page before reviewing the earlier reminder.')) end
-            return false
+            local point=location(ctx)
+            if not point or ctx.pending_dirty and not Context.same_location(ctx.unsaved,point) then warn(host);return false end
+            dismiss(ctx)
+            local previous=ctx.record;local conflict={point=point,record=previous}
+            ctx.conflict=conflict
+            local dialog
+            local function valid()
+                return current(host,ctx) and not host._weread_suspended and ctx.entry==entry
+                    and ctx.record==previous and ctx.conflict==conflict and Context.same_location(point,location(ctx))
+            end
+            local function close()
+                if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;UI:close(dialog) end
+            end
+            dialog=require('ui/widget/confirmbox'):new{
+                text=_('This chapter already has an offline reminder. Save the current page and replace that reminder? The cloud position will not change.'),
+                ok_text=_('Save current page'),cancel_text=_('Keep previous reminder'),keep_dialog_open=true,
+                cancel_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil end end,
+                ok_callback=function()
+                    if ctx.dialog~=dialog or not valid() then close();return end
+                    local saved=M.checkpoint(host,true);close()
+                    if not saved then warn(host);return end
+                    ctx.dismissed=nil;ctx.pending=location(ctx);M.connected(host,true)
+                end,
+            }
+            ctx.pending=point;ctx.dialog=dialog;UI:show(dialog)
+            return true
         end
         if M.checkpoint(host)~=true then warn(host);return false end
     end
@@ -101,6 +126,7 @@ function M.open_manual(host,entry,record)
         if host.showInfo then host:showInfo(_('No verified offline position reminder is available for this chapter.')) end
         return false
     end
+    ctx.conflict=nil
     dismiss(ctx);ctx.dismissed=nil;ctx.pending=location(ctx)
     if not ctx.pending then return false end
     return M.connected(host,true)
@@ -118,7 +144,11 @@ end
 function M.synced(host,entry,point)
     local ctx=host._native_direct_reconnect
     if not ctx or not same_entry(entry,ctx.record) or not current(host,ctx)
-        or not Context.same_location(point,location(ctx)) or not visible(host,ctx,ctx.record.xpointer) then return end
+        or not Context.same_location(point,location(ctx)) then return end
+    if ctx.conflict then
+        ctx.conflict=nil;ctx.pending_dirty=false;ctx.unsaved=nil;ctx.dirty=false;ctx.baseline=point
+    end
+    if not visible(host,ctx,ctx.record.xpointer) then return end
     local record=ctx.record
     local function guard() return current(host,ctx) and Context.same_location(point,location(ctx)) end
     if require('weread.lib.native_direct_pending').remove(host.library_db,host.settings,ctx.scope,entry,record,guard) then
@@ -157,6 +187,7 @@ function M.view_changed(host)
     if ctx.offline or not online(host) then
         if not ctx.offline then ctx.offline=true end
         ctx.dirty=not Context.same_location(ctx.baseline,now)
+        if not ctx.dirty and not ctx.pending_dirty then ctx.conflict=nil end
     else
         ctx.baseline=now
         local config=host.settings:get('sync',{})
@@ -237,7 +268,7 @@ function M.connected(host,manual)
                         local called,removed=pcall(require('weread.lib.native_direct_pending').remove,
                             host.library_db,host.settings,ctx.scope,entry,record,guard)
                         close_confirm()
-                        if called and removed then ctx.record=nil end
+                        if called and removed then ctx.record=nil;ctx.conflict=nil end
                         if host.showInfo then host:showInfo(_(called and removed and 'Offline reminder removed.'
                             or 'Could not remove the offline reminder. It was kept.')) end
                     end,

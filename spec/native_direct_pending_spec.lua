@@ -24,11 +24,19 @@ entry.pending_offline=nil;cache.open=function() return {file_id=string.rep('e',6
 assert(Store.mark(library,settings,scope,'42',listed,live) and not entry.pending_offline,
     'changed saved file was given a reminder')
 cache.open=original_open
-assert(Store.save(library,settings,scope,entry,'/body/p.5',live))
+assert(Store.save(library,settings,scope,entry,'/body/p.5',live,first))
+assert(not Store.save(library,settings,scope,entry,'/body/stale',live,first),
+    'stale reminder overwrote a newer position')
+assert(not Store.save(library,settings,scope,entry,'/body/unobserved',live),
+    'unobserved existing reminder was overwritten')
+local mismatched={};for key,value in pairs(first) do mismatched[key]=value end;mismatched.book_id='43';mismatched.xpointer='/body/p.5'
+assert(not Store.save(library,settings,scope,entry,'/body/wrong-book',live,mismatched),
+    'snapshot from another book overwrote the reminder')
 assert(not Store.remove(library,settings,scope,entry,first,live),'old reminder deleted a newer one')
 assert(assert(Store.read(library,settings,scope,entry,live)).xpointer=='/body/p.5')
 local calls=0
-assert(not Store.save(library,settings,scope,entry,'/body/p.6',function() calls=calls+1;return calls<3 end),
+local latest=assert(Store.read(library,settings,scope,entry,live))
+assert(not Store.save(library,settings,scope,entry,'/body/p.6',function() calls=calls+1;return calls<3 end,latest),
     'changed session committed a reminder')
 assert(assert(Store.read(library,settings,scope,entry,live)).xpointer=='/body/p.5')
 active={vid='456',epoch=2}
@@ -36,7 +44,7 @@ assert(not Store.read(library,settings,scope,entry,live) and not Store.save(libr
     'changed account accessed a reminder')
 active=scope
 local db=helper.connect(path);db:exec('BEGIN IMMEDIATE')
-assert(not Store.save(library,settings,scope,entry,'x',live),'concurrent writer was ignored')
+assert(not Store.save(library,settings,scope,entry,'x',live,latest),'concurrent writer was ignored')
 db:exec('ROLLBACK');db:close()
 local new=assert(Store.read(library,settings,scope,entry,live));assert(Store.remove(library,settings,scope,entry,new,live))
 assert(not Store.read(library,settings,scope,entry,live),'confirmed reminder not removed')
@@ -50,7 +58,8 @@ end
 insert:close();db:close()
 local another={};for key,value in pairs(entry) do another[key]=value end;another.file_id=string.rep('e',64)
 assert(not Store.save(library,settings,scope,another,'/new',live),'full quota silently evicted an offline reminder')
-assert(Store.save(library,settings,scope,entry,'/updated',live),'full quota prevented updating the same reminder')
+latest=assert(Store.read(library,settings,scope,entry,live))
+assert(Store.save(library,settings,scope,entry,'/updated',live,latest),'full quota prevented updating the same reminder')
 db=helper.connect(path);db:exec("UPDATE native_direct_offline_pending SET chapter_uid='99'");db:close()
 assert(not Store.read(library,settings,scope,entry,live) and not Store.save(library,settings,scope,entry,'/other',live),
     'different identity was accepted or overwritten')

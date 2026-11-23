@@ -44,6 +44,13 @@ local function read_row(db,entry)
     return {file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,
         version=entry.book_version,source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer=row[7]}
 end
+local function same_record(a,b)
+    if type(a)~='table' or type(b)~='table' then return false end
+    for _,field in ipairs({'file_id','book_id','chapter_uid','version','source_sha256','key','copy','xpointer'}) do
+        if a[field]~=b[field] then return false end
+    end
+    return true
+end
 function M.read(library,settings,scope,entry,guard)
     if not valid_entry(entry,scope) or not current(library,settings,scope,guard)
         or type(library.openRead)~='function' then return nil end
@@ -94,7 +101,9 @@ function M.mark(library,settings,scope,book,entries,guard)
     for index in pairs(result) do entries[index].pending_offline=true end
     return true
 end
-function M.save(library,settings,scope,entry,xpointer,guard)
+-- expected=nil means the caller observed no prior reminder. An existing row
+-- may only be replaced if it still matches the caller's full snapshot.
+function M.save(library,settings,scope,entry,xpointer,guard,expected)
     if not valid_entry(entry,scope) or not pointer(xpointer) or not current(library,settings,scope,guard)
         or type(library.open)~='function' then return false end
     local opened,db=pcall(library.open,library);if not opened or not db then return false end
@@ -110,7 +119,9 @@ function M.save(library,settings,scope,entry,xpointer,guard)
         local count=query(db,'SELECT COUNT(*) FROM native_direct_offline_pending')
         assert(#existing<=1 and #count==1 and P.integer(tonumber(count[1][1]),0,M.MAX_RECORDS))
         assert(#existing==1 or tonumber(count[1][1])<M.MAX_RECORDS)
-        if #existing==1 then assert(read_row(db,entry),'existing reminder has a different identity') end
+        local previous=#existing==1 and read_row(db,entry) or nil
+        assert(#existing==0 and expected==nil or #existing==1 and same_record(previous,expected),
+            'existing reminder changed')
         query(db,[[INSERT INTO native_direct_offline_pending(file_id,book_id,chapter_uid,version,source_sha256,cache_key,copy,xpointer)
             VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(file_id) DO UPDATE SET xpointer=excluded.xpointer]],
             entry.file_id,entry.book_id,entry.chapter_uid,entry.book_version,entry.source_sha256,entry.key,entry.copy,xpointer)

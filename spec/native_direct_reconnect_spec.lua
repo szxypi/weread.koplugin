@@ -25,8 +25,9 @@ package.preload['weread.ui.native_direct_navigation']=function() return {open_po
 local saved;local save_fails=false;local lease_allowed=true
 package.preload['weread.lib.native_direct_pending']=function() return {
     read=function(_,_,_,_,guard) return guard() and saved or nil end,
-    save=function(_,_,_,entry,point,guard)
+    save=function(_,_,_,entry,point,guard,expected)
         if save_fails or not guard() then return false end
+        if saved and (not expected or saved.xpointer~=expected.xpointer) or not saved and expected then return false end
         saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
             source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer=point};return true
     end,
@@ -193,12 +194,44 @@ expect(not saved and Reconnect.checkpoint(host)==nil,'manual removal recreated t
 saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
     source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer='xp2'}
 Reconnect.cancel(host)
-host,s=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
 host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
 Reconnect.ready(host);page=3;Reconnect.view_changed(host)
-expect(not Reconnect.open_manual(host,entry,saved) and saved.xpointer=='xp2'
-    and s.message=='Save or sync the current offline page before reviewing the earlier reminder.',
-    'manual review overwrote an earlier reminder or moved an unsaved page')
+expect(Reconnect.open_manual(host,entry,saved) and shown and shown.ok_callback
+    and shown.cancel_text=='Keep previous reminder' and saved.xpointer=='xp2',
+    'manual review did not ask before replacing the earlier reminder')
+shown.cancel_callback()
+expect(saved.xpointer=='xp2' and page==3 and Reconnect.checkpoint(host)==false,
+    'cancelled conflict silently replaced the earlier reminder')
+Reconnect.synced(host,entry,{xpointer='xp3'})
+expect(saved.xpointer=='xp2' and Reconnect.checkpoint(host)==nil,
+    'confirmed current-page sync did not preserve the earlier reminder or resolve the conflict')
+Reconnect.cancel(host)
+host=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=3;Reconnect.view_changed(host);assert(Reconnect.open_manual(host,entry,saved));shown.ok_callback();pump()
+expect(saved.xpointer=='xp3' and page==3 and shown.buttons[1][1].id=='reconnect_discard',
+    'confirmed conflict did not replace the reminder with the current page')
+Reconnect.cancel(host);saved.xpointer='xp2'
+host=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=3;Reconnect.view_changed(host);assert(Reconnect.open_manual(host,entry,saved))
+local conflict_old=shown.ok_callback;local competing={};for key,value in pairs(saved) do competing[key]=value end
+competing.xpointer='xp4';saved=competing;conflict_old()
+expect(saved.xpointer=='xp4' and page==3,'stale conflict overwrote a competing reminder')
+Reconnect.cancel(host);saved.xpointer='xp2'
+host=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=3;Reconnect.view_changed(host);assert(Reconnect.open_manual(host,entry,saved))
+local stale_conflict=shown.ok_callback;page=4;Reconnect.view_changed(host);stale_conflict()
+expect(saved.xpointer=='xp2' and page==4,'page change accepted an obsolete conflict confirmation')
+Reconnect.cancel(host)
+host,s=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);page=3;Reconnect.view_changed(host);assert(Reconnect.open_manual(host,entry,saved))
+stale_conflict=shown.ok_callback;s.account='other';stale_conflict()
+expect(saved.xpointer=='xp2' and page==3,'account change accepted an obsolete conflict confirmation')
+Reconnect.cancel(host)
 host,s=fixture(true,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
 host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
 host.ui.document.isXPointerInDocument=function(_,point) return point=='xp2' end

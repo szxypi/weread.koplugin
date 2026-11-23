@@ -19,6 +19,7 @@ else
     assert(scope and scope.vid==input.vid and settings:auth_scope_matches(scope))
 end
 local manual=input.stage=='manual_offline' or input.stage=='manual_restore' or input.stage=='manual_discard'
+    or input.stage=='manual_conflict'
 local sync=settings:get('sync',{});sync.pull_on_open=not manual;sync.upload_on_close=false;sync.upload_interval_minutes=0
 settings:set('sync',sync);settings:flush()
 local Common=require('weread.ui.common')
@@ -64,8 +65,11 @@ if input.stage=='save' then
     assert(found,'saved chapter did not show its pending-position hint')
 elseif manual then
     local record=assert(read())
+    if input.stage=='manual_conflict' then reader.rolling:onGotoPage(1);host:onPageUpdate() end
     if input.stage=='manual_restore' then
         assert(not reader.document:isXPointerInCurrentPage(record.xpointer),'manual restore did not start on another page')
+    elseif input.stage=='manual_conflict' then
+        assert(not reader.document:isXPointerInCurrentPage(record.xpointer) and owner.dirty,'offline conflict was not established')
     else assert(reader.document:isXPointerInCurrentPage(record.xpointer),'offline chapter did not reopen at its saved page') end
     assert(host:onShowWeReadQuickMenu())
     pump(function()
@@ -76,6 +80,23 @@ elseif manual then
     UI:forceRePaint();assert(quick:getContentSize().h<=Device.screen:getHeight(),'quick menu exceeded the screen')
     assert(quick:getButtonById('native_offline_reminder')):onTapSelectButton()
     pump(function() return owner.dialog~=nil end)
+    if input.stage=='manual_conflict' then
+        assert(owner.dialog.ok_callback and owner.dialog.cancel_callback,'offline conflict did not request confirmation')
+        owner.dialog:onClose();assert(read().xpointer==record.xpointer and owner.conflict,'cancel changed the prior reminder')
+        assert(require('weread.ui.native_direct_reconnect').checkpoint(host)==false,'cancelled conflict was overwritten')
+        assert(host:onShowWeReadQuickMenu())
+        pump(function()
+            local top=UI:getTopmostVisibleWidget()
+            return top and type(top.getButtonById)=='function' and top:getButtonById('native_offline_reminder')~=nil
+        end)
+        assert(UI:getTopmostVisibleWidget():getButtonById('native_offline_reminder')):onTapSelectButton()
+        pump(function() return owner.dialog and owner.dialog.ok_callback end)
+        owner.dialog.ok_callback()
+        pump(function() return owner.dialog and owner.dialog.getButtonById and owner.dialog:getButtonById('reconnect_later') end)
+        local updated=assert(read());assert(updated.xpointer~=record.xpointer and reader.document:isXPointerInCurrentPage(updated.xpointer),
+            'confirmed conflict did not save the current page')
+        record=updated
+    end
     if input.stage=='manual_restore' then
         assert(owner.dialog:getButtonById('reconnect_restore')):onTapSelectButton()
         pump(function() return owner.dialog and owner.dialog:getButtonById('reconnect_later') end)
