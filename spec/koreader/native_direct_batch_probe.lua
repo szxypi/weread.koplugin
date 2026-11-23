@@ -57,6 +57,68 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     end
     assert(seen['37'] and (seen['38']~=nil)==(input.mode~='offline_partial')
         and (seen['39']~=nil)==(input.mode=='offline'))
+    if input.mode=='offline' then
+        -- A future cache cleanup and chapter publishing must never overlap.
+        local held=assert(cache.acquire(settings,scope.vid,'42'))
+        local blocked,reason=cache.acquire(settings,scope.vid,'42')
+        assert(not blocked and reason=='busy','concurrent cache operation was not excluded')
+        local digest=string.rep('a',64)
+        local saved,why=cache.publish(settings,scope.vid,{book_id='42',title='Synthetic',author='Fixture'},
+            {chapterUid='51',title='Fixture'},{book_id='42',chapter_uid='51',book_version=1,missing_images=0,
+                catalog_sha256=digest,reading_catalog_sha256=digest,source_sha256=digest,source_channel='eink',
+                coordinate_source_authoritative=false,xhtml='<p>synthetic</p>',css='',assets={}},function() return true end)
+        assert(not saved and why=='storage','publishing ignored an existing cache operation')
+        assert(#assert(cache.list(settings,scope.vid,'42',function() return true end))==3,'blocked publisher changed chapters')
+        held:release();local resumed=assert(cache.acquire(settings,scope.vid,'42'));resumed:release()
+
+        -- The cleanup planner must retain sources referenced by all local time
+        -- windows, including unknown legacy records, without creating a DB.
+        local Ledger=require('weread.lib.offline_time_store')
+        local ledger=Ledger:new(home);local owner=string.rep('a',20);local path=assert(ledger:path(owner))
+        local absent=assert(ledger:source_references(owner,'42'))
+        assert(not absent.unverified and not next(absent.files) and not io.open(path,'rb'))
+        assert(not ledger:source_references(owner,'042'),'invalid book id was accepted')
+        local file_id=string.rep('b',64)
+        assert(ledger:begin(owner,{book_id='42',stats_book=1,start_time=100,time_zone='+08:00',
+            book_version=1,file_id=file_id,version_source='native_direct'}))
+        assert(ledger:begin(owner,{book_id='43',stats_book=2,start_time=100,time_zone='+08:00'}))
+        local references=assert(ledger:source_references(owner,'42'))
+        assert(references.files[file_id] and not references.unverified,'verified source was not protected')
+        references=assert(ledger:source_references(owner,'43'))
+        assert(references.unverified,'unverified legacy source was treated as safe')
+        local invalid=Ledger:new(home..'/missing-parent')
+        assert(not invalid:source_references(owner,'42'),'missing storage was treated as an empty ledger')
+        local lfs=require('libs/libkoreader-lfs')
+        local linked=assert(ledger:path(string.rep('c',20)))
+        assert(lfs.link(path,linked,true))
+        assert(not ledger:source_references(string.rep('c',20),'42'),'linked ledger was treated as safe')
+        assert(os.remove(linked))
+        local broken=assert(ledger:path(string.rep('d',20)))
+        local old=assert(io.open(broken,'wb'));assert(old:write('not a database'));assert(old:close())
+        assert(not ledger:source_references(string.rep('d',20),'42'),'unreadable ledger was treated as safe')
+
+        local protection=require('weread.lib.native_direct_protection')
+        local saved_chapter=assert(cache.open(settings,scope.vid,'42',rows[1],function() return true end)).path
+        assert(protection.no_sidecars(saved_chapter),'unused chapter incorrectly protected')
+        local short_path=home..'/protection.epub'
+        local fixture=assert(io.open(short_path,'wb'));assert(fixture:write('synthetic'));assert(fixture:close())
+        local docsettings=require('docsettings')
+        for _,location in ipairs({'doc','dir','hash'}) do
+            local sidecar=docsettings:getSidecarDir(short_path,location)
+            assert(require('util').makePath(sidecar))
+            assert(protection.no_sidecars(short_path)==false,'sidecar was missed: '..location)
+            assert(lfs.rmdir(sidecar))
+        end
+        local history=docsettings:getHistoryPath(short_path)
+        assert(require('util').makePath(assert(history:match('^(.*)/[^/]+$'))))
+        for _,sidecar in ipairs({history,history..'.old',short_path..'.kpdfview.lua'}) do
+            local file=assert(io.open(sidecar,'wb'));assert(file:write('synthetic'));assert(file:close())
+            assert(protection.no_sidecars(short_path)==false,'legacy sidecar was missed')
+            assert(os.remove(sidecar))
+        end
+        assert(protection.no_sidecars(short_path),'removed fixture sidecars were not cleared')
+        assert(not protection.no_sidecars(home..'/missing.epub'),'missing chapter was treated as safe')
+    end
     cache.MAX_ENTRIES=3
     local lfs=require('libs/libkoreader-lfs')
     local added={}

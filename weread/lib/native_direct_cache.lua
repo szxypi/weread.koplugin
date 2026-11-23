@@ -7,6 +7,7 @@ local NativeProtocol=require('weread.lib.native_position_protocol')
 local Path=require('weread.lib.native_direct_path')
 local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000}
 local CHUNK=65536
+local OPERATION='.native-operation'
 
 local function fs()
     local ok,lfs=pcall(require,'libs/libkoreader-lfs')
@@ -223,6 +224,15 @@ local function existing_book_dir(settings,account,book_id)
     end
     return lfs,book_dir
 end
+function M.book_directory(settings,account,book_id)
+    local _,path=existing_book_dir(settings,account,book_id)
+    return path
+end
+function M.acquire(settings,account,book_id)
+    local _,path=existing_book_dir(settings,account,book_id)
+    if not path then return nil,'absent' end
+    return require('weread.lib.file_lease').open(path..'/'..OPERATION,{create=true,empty=true})
+end
 local function name_of(entry)
     return entry.key..(entry.copy==0 and '' or '-'..tostring(entry.copy))
 end
@@ -297,7 +307,7 @@ function M.list(settings,account,book_id,current)
     local ok,result=pcall(function()
         local rows,count={},0
         for name in lfs.dir(book_dir) do
-            if name~='.' and name~='..' then
+            if name~='.' and name~='..' and name~=OPERATION then
                 count=count+1;if count>M.MAX_ENTRIES then return nil end
                 if type(current)~='function' or current()~=true then return nil end
                 local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
@@ -341,7 +351,7 @@ function M.remaining(settings,account,book_id,current)
     local ok,count=pcall(function()
         local total=0
         for name in lfs.dir(book_dir) do
-            if name~='.' and name~='..' then total=total+1 end
+            if name~='.' and name~='..' and name~=OPERATION then total=total+1 end
             if total>M.MAX_ENTRIES or current()~=true then return nil end
         end
         return total
@@ -465,6 +475,9 @@ function M.publish(settings,account,book,chapter,prepared,current)
     local account_dir=root and directory(lfs,root,Crypto.sha256_hex('native-direct-account\0'..account))
     local book_dir=account_dir and directory(lfs,account_dir,Crypto.sha256_hex('native-direct-book\0'..book.book_id))
     if not book_dir then return nil,'storage' end
+    local lease,reason=M.acquire(settings,account,book.book_id)
+    if not lease and reason~='unsupported' then return nil,live() and 'storage' or 'session_changed' end
+    local ok,first,second=pcall(function()
     local chapter_file=filename(book.book_id,chapter.chapterUid)
     local text_digest=Crypto.sha256_hex(prepared.xhtml)
     for index=0,M.MAX_COPIES-1 do
@@ -519,5 +532,9 @@ function M.publish(settings,account,book,chapter,prepared,current)
         end
     end
     return nil,'storage'
+    end)
+    if lease then lease:release() end
+    if not ok then return nil,live() and 'storage' or 'session_changed' end
+    return first,second
 end
 return M

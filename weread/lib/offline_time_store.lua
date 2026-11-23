@@ -36,6 +36,50 @@ function Store:path(account)
     return self.data_dir .. "/offline-time-" .. account .. ".db"
 end
 
+-- Read-only source references for cache cleanup. Unknown legacy sources make
+-- the result uncertain: callers must keep the book's cached copies in that case.
+function Store:source_references(account,book_id)
+    local path=self:path(account)
+    if not path or type(book_id)~='string' or require('weread.lib.native_position_protocol').id(book_id)~=book_id then
+        return nil,'invalid'
+    end
+    local lfs=require('libs/libkoreader-lfs')
+    local parent=lfs.symlinkattributes(self.data_dir)
+    if not parent or parent.mode~='directory' then return nil,'storage' end
+    local info,_,errno=lfs.symlinkattributes(path)
+    if not info then
+        if errno==2 then return {files={},unverified=false} end
+        return nil,'storage'
+    end
+    if info.mode~='file' then return nil,'storage' end
+    local loaded,SQ3=pcall(require,'lua-ljsqlite3/init')
+    if not loaded then return nil,'storage' end
+    local opened,db=pcall(SQ3.open,path,'ro')
+    if not opened or not db then return nil,'storage' end
+    local ok,result=pcall(function()
+        db:exec('PRAGMA busy_timeout=200')
+        local rows=query(db,'SELECT file_id,version_source FROM windows WHERE book_id=? LIMIT 50001',book_id)
+        assert(#rows<=50000,'capacity')
+        local value={files={},unverified=false}
+        for _,row in ipairs(rows) do
+            local id,source=row[1],row[2]
+            if type(id)=='string' and #id==64 and id:match('^[a-f0-9]+$') and type(source)=='string' and source~='' then
+                value.files[id]=true
+                if source~='native_direct' and source~='epub_snapshot' and source~='epub_unknown' then
+                    value.unverified=true
+                end
+            else value.unverified=true end
+        end
+        return value
+    end)
+    pcall(db.close,db)
+    local after=lfs.symlinkattributes(path)
+    local owner=lfs.symlinkattributes(self.data_dir)
+    if not ok or not after or after.mode~='file' or after.dev~=info.dev or after.ino~=info.ino
+        or not owner or owner.mode~='directory' or owner.dev~=parent.dev or owner.ino~=parent.ino then return nil,'storage' end
+    return result
+end
+
 function Store:_access(account, change)
     local path = self:path(account)
     if not path then return nil, "account_unavailable" end
