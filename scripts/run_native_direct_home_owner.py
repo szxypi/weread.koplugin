@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Read-only native chapter and offline home resume in a disposable tmpfs profile."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import resource
+import sys
+import tempfile
+import zipfile
+
+from run_native_direct_position_owner import frame, synthetic_endpoint_allowed
+from run_persistent_ui_probe import extract_candidate, run_child
+
+REPO = Path(__file__).resolve().parent.parent
+FRAME = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--koreader', type=Path, required=True)
+    parser.add_argument('--candidate', type=Path, required=True)
+    parser.add_argument('--width', type=int, default=600)
+    parser.add_argument('--height', type=int, default=800)
+    parser.add_argument('--dpi', type=int, default=167)
+    args = parser.parse_args(argv)
+    runtime = args.koreader.resolve()
+    if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
+            or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
+            or not any(row.split()[1:3] == ['/dev/shm', 'tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
+        parser.error('Linux, KOReader and tmpfs required')
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    report = dict(result='UNVERIFIED', profile_removed=False)
+    root = None
+    phase = 'input'
+    try:
+        raw = sys.stdin.buffer.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('input_limit')
+        payload = json.loads(raw)
+        if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
+            raise ValueError('endpoint')
+        with tempfile.TemporaryDirectory(prefix='weread-native-home-owner-', dir='/dev/shm') as directory:
+            root = Path(directory)
+            profile, xdg = root/'profile', root/'xdg'
+            (profile/'plugins').mkdir(parents=True)
+            xdg.mkdir(mode=0o700)
+            extract_candidate(args.candidate, profile/'plugins')
+            plugin = profile/'plugins/weread.koplugin'
+            env = dict(os.environ, KO_HOME=str(profile), XDG_RUNTIME_DIR=str(xdg), LD_LIBRARY_PATH=str(runtime/'libs'),
+                       SDL_VIDEODRIVER='dummy', EMULATE_READER='1', EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8',
+                       EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
+                       EMULATE_READER_DPI=str(args.dpi), WEREAD_DIRECT_OWNER_TMPFS='1')
+            phase = 'native_chapter'
+            prepare = dict(payload, plugin_home=True)
+            code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                                            str(plugin), str(REPO/'spec/koreader/native_direct_owner_ui_probe.lua')], env,
+                                           json.dumps(prepare, ensure_ascii=False).encode(), runtime, timeout=180)
+            if code:
+                match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                if match:
+                    report['probe_line'] = int(match.group(1))
+            prepared = frame(out, b'WEREAD_DIRECT_OWNER=')
+            if prepared.get('reason') in {'not_entitled', 'auth_expired', 'rate_limited', 'service_rejected',
+                                         'session_changed', 'catalog_changed', 'unavailable', 'invalid_source',
+                                         'invalid_image', 'remote_unsupported', 'storage'}:
+                report['reason'] = prepared['reason']
+            path = Path(prepared.get('path', ''))
+            if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
+                    or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
+                    or not path.is_file() or profile/'weread' not in path.parents):
+                raise ValueError('prepare')
+            for mode in ('record', 'reopen'):
+                phase = mode
+                private = dict(mode=mode, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                                                str(REPO), str(REPO/'spec/koreader/native_home_resume_probe.lua')], env,
+                                               json.dumps(private).encode(), runtime, timeout=150)
+                if code:
+                    match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                    if match:
+                        report['probe_line'] = int(match.group(1))
+                if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != dict(ok=True, mode=mode, network_blocked=True):
+                    raise ValueError('home')
+            phase = 'audit'
+            credentials = payload['credentials']
+            secrets = [credentials[key].encode() for key in ('accessToken', 'refreshToken', 'deviceId')]
+            for item in profile.rglob('*'):
+                if item.is_symlink():
+                    raise ValueError('symlink')
+                if item.is_file() and plugin not in item.parents:
+                    if item.stat().st_size > 128*1024*1024:
+                        raise ValueError('file_limit')
+                    content = item.read_bytes()
+                    if any(secret in content for secret in secrets):
+                        raise ValueError('credential_file')
+            with zipfile.ZipFile(args.candidate) as archive:
+                for item in archive.infolist():
+                    if not item.is_dir() and archive.read(item) != (profile/'plugins'/item.filename).read_bytes():
+                        raise ValueError('installed_bytes')
+            report.update(result='PASS', native_requests=prepared['requests'], source_matches=True,
+                          home_record=True, offline_home_resume=True, page_restored=True, network_blocked=True,
+                          credential_file_audit=True, installed_bytes_match=True)
+    except (Exception, KeyboardInterrupt):
+        report['phase'] = phase
+    finally:
+        report['profile_removed'] = root is not None and not root.exists()
+    sys.stdout.buffer.write(FRAME + json.dumps(report).encode() + b'\n')
+    return int(report['result'] != 'PASS' or not report['profile_removed'])
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

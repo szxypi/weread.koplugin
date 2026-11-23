@@ -1,21 +1,25 @@
--- Installed plugin, synthetic chapter, separate offline processes.
+-- Installed plugin and chapter in isolated, separate offline processes.
 require('jit').off();require('ffi').log=function() end;require('setupkoenv')
-assert(os.getenv('WEREAD_SYNTHETIC')=='1')
+assert(os.getenv('WEREAD_SYNTHETIC')=='1' or os.getenv('WEREAD_DIRECT_OWNER_TMPFS')=='1')
 local home=assert(os.getenv('KO_HOME'));local plugin=home..'/plugins/weread.koplugin'
+if os.getenv('WEREAD_DIRECT_OWNER_TMPFS')=='1' then assert(home:match('^/dev/shm/')) end
 package.path=plugin..'/?.lua;'..package.path
 assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua');G_defaults=require('luadefaults'):open()
 G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
+local id=input.book_id or '42';local vid=input.vid or '12345678'
+assert(type(id)=='string' and type(vid)=='string')
 local settings=require('weread.lib.settings'):new()
 if input.mode=='record' then
-    settings:set('account',{user_vid='12345678',name='Synthetic',login_method='qr'})
-    settings:set('cookies',{wr_vid='12345678',wr_skey='synthetic'})
+    settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
+    settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
     local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report)
-    settings:set('books',{['42']={book_id='42',title='Synthetic book',author='Fixture'}});settings:flush()
+    settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}});settings:flush()
 elseif input.mode=='switch' then
+    assert(vid=='12345678' and id=='42')
     settings:update_auth({account={user_vid='87654321',name='Other'},cookies={wr_vid='87654321',wr_skey='synthetic-other'}},
         {replace_cookies=true});settings:flush()
 end
@@ -35,17 +39,24 @@ if input.mode=='record' then
     Reader:showReader(input.path)
     pump(function() return Reader.instance and Reader.instance.weread end)
     local reader=Reader.instance
-    pump(function() local b=reader.weread.settings:get_book('42');return b and b.native_home_resume end)
+    pump(function() local b=reader.weread.settings:get_book(id);return b and b.native_home_resume end)
     assert(not reader.weread:detectWeReadBook())
-    reader.rolling:onGotoPage(3);UI:forceRePaint()
-    local file=assert(io.open(home..'/anchor','wb'));assert(file:write(assert(reader.document:getXPointer())));file:close()
+    if reader.document:getPageCount()<2 then
+        assert(reader.font:onSetFontSize(48));UI:forceRePaint()
+    end
+    assert(reader.document:getPageCount()>=2,'sample does not cover page navigation')
+    local first=assert(reader.document:getXPointer())
+    reader.rolling:onGotoPage(2);UI:forceRePaint()
+    local anchor=assert(reader.document:getXPointer())
+    assert(anchor~=first,'page navigation did not advance')
+    local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));file:close()
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
     reader.weread:onFlushSettings();reader:onClose(false)
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
     host:showHome();local view=assert(host.shelf_view);local selected
-    for _,book in ipairs(view.books) do if book.bookId=='42' then selected=book end end
+    for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
     if input.mode=='switch' then
         assert(not selected,'other account saw native home history')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})

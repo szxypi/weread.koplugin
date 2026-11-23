@@ -4,7 +4,7 @@ if not ok then
     local line=type(value)=='string' and (value:match('native_direct_owner_ui_probe%.lua:(%d+)')
         or value:match('native_direct_owner_position_probe%.lua:(%d+)') or value:match('native_direct_ui_trial_probe%.lua:(%d+)')
         or value:match('native_direct_selection_trial_probe%.lua:(%d+)') or value:match('native_direct_highlight_trial_probe%.lua:(%d+)')
-        or value:match('native_direct_personal_owner_probe%.lua:(%d+)')
+        or value:match('native_direct_personal_owner_probe%.lua:(%d+)') or value:match('native_home_resume_probe%.lua:(%d+)')
         or value:match('native_direct_cross_owner_probe%.lua:(%d+)'))
     if type(_G._direct_trial_error_token)=='string' then
         print('WEREAD_NATIVE_THOUGHT_'.._G._direct_trial_error_token..'_RESULT='..

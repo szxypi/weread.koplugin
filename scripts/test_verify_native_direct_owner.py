@@ -42,5 +42,27 @@ class NativeDirectOwnerTests(unittest.TestCase):
     def test_explicit_session_requires_private_command(self):
         with self.assertRaises(SystemExit),redirect_stdout(io.StringIO()):task.main(['--saved-session'])
 
+    def test_home_requires_every_private_verification(self):
+        sample={'book_id':'42','expected':{'format':'epub','version':1}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,{'uid':37},{'html':True,'source':b'<p>private text</p>'}))
+        result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,installed_bytes_match=True)
+        marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+        for valid in (True,False):
+            result['page_restored']=valid
+            child=SimpleNamespace(returncode=0,stdout=marker+json.dumps(result).encode()+b'\n')
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123'}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                self.assertEqual(task.main(['--saved-session','--home','--lua-command','runner']),0 if valid else 1)
+            report=json.loads(output.getvalue())
+            self.assertEqual(report['result'],'NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED' if valid else 'UNVERIFIED')
+            self.assertNotIn('private text',output.getvalue())
+            self.assertNotIn('private-token',output.getvalue())
+
 
 if __name__=='__main__':unittest.main()
