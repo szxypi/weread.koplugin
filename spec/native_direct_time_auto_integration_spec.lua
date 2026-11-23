@@ -42,7 +42,7 @@ local function fixture(mode)
                     return gate
                 end,acquire=function() return function() end end}
         end}
-    f.host,f.jobs=host,jobs
+    f.host,f.jobs,f.auto_options=host,jobs,auto_options
     function f.tick(seconds)
         f.clock=f.clock+seconds;local due={}
         for task,at in pairs(f.tasks or {}) do if at<=f.clock then due[#due+1]=task end end
@@ -64,6 +64,10 @@ f=fixture('lost');f.tick(1);f.deliver(1);f.deliver(2);f.deliver(3)
 expect(f.posts==1 and f.host._native_auto_time_blocked and f.journal:pending(f.account),
     'lost acknowledgment did not block automatic sync')
 expect(not Auto.start(f.host) and f.posts==1,'lost acknowledgment was retried')
+expect(Auto.start(f.host,true,f.auto_options),'explicit retry could not rearm the controller')
+f.tick(1);f.deliver(4)
+expect(f.posts==1 and f.host._native_auto_time_blocked and f.journal:pending(f.account),
+    'explicit retry bypassed the unfinished journal record')
 f=fixture();f.tick(1);f.deliver(1);f.state.valid=false;f.deliver(2)
 expect(f.posts==0 and not f.host._native_auto_time,'account change did not cancel pending source scan')
 Signing.time_zone=original_zone

@@ -166,6 +166,15 @@ assert(Auto.start(host,true,{interval=1,service_factory=function() return {
 pump(function() return host._native_auto_time_blocked==true end)
 assert(auto_calls==1 and messages==1 and not host._native_auto_time,'uncertain automatic result did not stop')
 assert(not Auto.start(host) and auto_calls==1,'uncertain automatic result was retried')
+host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
+local retry
+for _,row in ipairs(host._offline_time_menu.item_table) do
+    if row.text==tr('Retry automatic E-Ink time sync') then retry=row end
+end
+assert(retry and retry.callback,'automatic retry action missing');retry.callback()
+pump(function() return host._offline_time_menu~=nil end)
+assert(not host._native_auto_time_blocked and host._native_auto_time and auto_calls==1,'automatic retry did not rearm')
+host:closeOfflineTimeUI();Auto.cancel(host)
 host.showTransientInfo=old_notice
 host.isNetworkConnected=function() return false end
 local previous=collector:status().pending
@@ -177,5 +186,5 @@ assert(not collector.active and collector:status().pending==0,'foreign account r
 assert(collector.store:summary(account).pending==previous,'old account records changed')
 print('WEREAD_DIRECT_OFFLINE_TIME='..json.encode{ok=true,network_blocked=true,real_statistics=true,
     pause_resume=true,deduplicated=true,chapter_change=true,online_capture=true,source_discovery=true,source_ui=true,current_day_ui=true,
-    automatic_dry_run=true,auto_toggle=true,
+    automatic_dry_run=true,auto_toggle=true,auto_retry_ui=true,
     account_isolated=true,ordinary_path_isolated=true})

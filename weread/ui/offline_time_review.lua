@@ -140,7 +140,27 @@ local function render(host,context,kind,value,args)
             {text=_('Refresh local records'),callback=function() M.show(host) end},
             {text=_('Historical and today’s E-Ink batches are checked separately.')},
         }
-        if value.record then table.insert(items,6,{text=_('Review unfinished transfer'),callback=function()
+        local options=host.settings.get and host.settings:get('offline_time',{})
+        local auto_enabled=type(options)=='table' and options.auto_native==true
+        if auto_enabled then
+            local auto_item
+            if options.enabled~=true then
+                auto_item={text=_('Automatic E-Ink time sync is paused while local recording is off.')}
+            elseif value.record then
+                auto_item={text=_('Automatic E-Ink time sync is waiting for transfer review.')}
+            elseif host._native_auto_time_blocked then
+                auto_item={text=_('Retry automatic E-Ink time sync'),callback=function()
+                    require('weread.lib.native_direct_time_auto').start(host,true)
+                    load(host,context,'summary',{})
+                end}
+            elseif host._native_auto_time then
+                auto_item={text=_('Automatic E-Ink time sync is enabled.')}
+            else
+                auto_item={text=_('Automatic E-Ink time sync is waiting for a connected reader.')}
+            end
+            table.insert(items,2,auto_item)
+        end
+        if value.record then table.insert(items,auto_enabled and 7 or 6,{text=_('Review unfinished transfer'),callback=function()
             load(host,context,'transfer_record',{})
         end}) end
         menu(host,context,_('Local reading time'),items)

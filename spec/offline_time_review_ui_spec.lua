@@ -40,6 +40,29 @@ local function choose(label)
     for _i,item in ipairs(assert(host._offline_time_menu).item_table) do if item.text==label then return item.callback() end end
     error('missing menu row: '..label)
 end
+-- Automatic time sync reports its state and only offers a manual restart when
+-- the summary has no unfinished transfer. Restart still uses the journal gate.
+local saved_auto=package.loaded['weread.lib.native_direct_time_auto']
+local auto_starts=0
+package.loaded['weread.lib.native_direct_time_auto']={start=function(actual_host,reset)
+    eq(actual_host,host);eq(reset,true);auto_starts=auto_starts+1;host._native_auto_time_blocked=nil;host._native_auto_time={} end}
+local time_options={enabled=true,auto_native=true}
+host.settings.get=function(_self,key,default) if key=='offline_time' then return time_options end return default end
+host._native_auto_time_blocked=true
+Review.show(host);deliver();choose('Retry automatic E-Ink time sync');eq(auto_starts,1);deliver()
+eq(host._offline_time_menu.item_table[2].text,'Automatic E-Ink time sync is enabled.')
+host._native_auto_time=nil;host._native_auto_time_blocked=true
+Review.show(host);jobs[#jobs].callback({summary=ledger:summary(account),record={phase='unknown'}})
+eq(host._offline_time_menu.item_table[2].text,'Automatic E-Ink time sync is waiting for transfer review.')
+eq(host._offline_time_menu.item_table[2].callback,nil);eq(auto_starts,1)
+Review.show(host);deliver();local stale_retry=host._offline_time_menu.item_table[2].callback
+owner=string.rep('b',20);stale_retry();eq(auto_starts,1);owner=account
+time_options.enabled=false;Review.show(host);deliver()
+eq(host._offline_time_menu.item_table[2].text,'Automatic E-Ink time sync is paused while local recording is off.')
+time_options.enabled=true;host._native_auto_time_blocked=nil;Review.show(host);deliver()
+eq(host._offline_time_menu.item_table[2].text,'Automatic E-Ink time sync is waiting for a connected reader.')
+host.settings.get=nil;host._native_auto_time=nil;host._native_auto_time_blocked=nil
+package.loaded['weread.lib.native_direct_time_auto']=saved_auto
 Review.show(host);eq(host._offline_time_menu,nil);eq(host.busy_message~=nil,true);deliver()
 eq(host._offline_time_menu.title,'Local reading time');choose('Pending local records');deliver()
 eq(#host._offline_time_menu.item_table,22);choose('Next batch');deliver()
