@@ -52,7 +52,8 @@ local function fixture()
         decode_http_json=function(_self,value)
             if value=='account' then return {vid=state.foreign and '900099' or '900000',errcode=state.account_error} end
             if value=='progress' then return {bookId='900001',chapterUid=11,chapterIdx=0,chapterOffset=7,progress=5} end
-            assert(value=='catalog');return catalog
+            assert(value=='catalog');state.catalog_reads=(state.catalog_reads or 0)+1
+            return state.catalog_reads==1 and (state.first_catalog or catalog) or (state.after_catalog or catalog)
         end}
     function client:request(options)
         self.settings:get('cookies');state.requests[#state.requests+1]=options
@@ -75,6 +76,18 @@ end
 local client,state=fixture()
 local result=Check.fetch(client,expected)
 expect(Check.packet(result,expected) and #state.requests==8,'fixed eight reads did not bind selected source')
+local unknown=copy(expected);unknown.chapter_idx=nil
+client,state=fixture();local resolved=Check.fetch_resolving_index(client,unknown)
+expect(Check.packet(resolved,expected) and resolved.chapter_idx==0 and #state.requests==8,'unique catalog index was not resolved')
+for _i,mode in ipairs({'missing','duplicate','changed','bad_source','extra_key'}) do
+    client,state=fixture();local input=copy(unknown)
+    if mode=='missing' then state.first_catalog=copy(catalog);state.first_catalog[1].updated[1].chapterIdx=nil end
+    if mode=='duplicate' then state.first_catalog=copy(catalog);state.first_catalog[1].updated[2]=copy(state.first_catalog[1].updated[1]) end
+    if mode=='changed' then state.after_catalog=copy(catalog);state.after_catalog[1].updated[1].chapterIdx=1 end
+    if mode=='bad_source' then input.raw_sha256=string.rep('a',64) end
+    if mode=='extra_key' then input.chapter_idx=0 end
+    expect(not pcall(Check.fetch_resolving_index,client,input),'unsafe index resolution accepted: '..mode)
+end
 local normal_state=state
 local rotated='synthetic-rotated-cookie'
 local function set_cookie(value) return 'wr_skey'..'='..value..'; Path=/; Secure' end

@@ -3,7 +3,7 @@ local Crypto=require('weread.lib.crypto')
 local body='synthetic source';local stamp=string.rep('c',64)
 local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,file_id=string.rep('a',64),
     source_sha256=Crypto.sha256_hex(body)}
-local live=true;local account=string.rep('d',20);local fetches=0;local version=7;local replaced=false
+local live=true;local account=string.rep('d',20);local fetches=0;local version=7;local replaced=false;local resolved_index=2
 package.preload['weread.lib.native_position_contract']=function() return {account_key=function(vid)
     return vid=='123' and account or nil
 end} end
@@ -15,7 +15,7 @@ package.preload['weread.lib.native_direct_position']=function() return {verified
     if not current() then return nil,'invalid' end
     local ok=pcall(function() options.verify_catalog({bookId='42',bookVersion=version}) end)
     if not ok then return nil,'source_changed' end
-    return e==entry and body or nil,nil,stamp
+    return e==entry and body or nil,nil,stamp,e.chapter_idx or resolved_index
 end} end
 local TimeSource=require('weread.lib.native_direct_readtime_source')
 local selection={book_id='42',file_id=entry.file_id,book_version=7}
@@ -27,6 +27,11 @@ local result=assert(observe())
 assert(result.source_sha256==entry.source_sha256 and result.catalog_stamp==stamp and result.account==account)
 assert(result.body==nil and result.file_id==selection.file_id and result.chapter_uid=='37')
 assert(observe(result),'stable independent source was rejected')
+entry.chapter_idx=nil;local resolved=assert(observe())
+assert(resolved.chapter_idx==2 and entry.chapter_idx==nil,'resolved index modified the cached chapter')
+resolved_index=3;local moved,why=observe(resolved)
+assert(not moved and why=='source_changed','changed resolved index was accepted');resolved_index=2
+entry.chapter_idx=2
 version=8;local bad,reason=observe();assert(not bad and reason=='source_changed');version=7
 selection.file_id=string.rep('b',64);bad,reason=observe();assert(not bad and reason=='file_changed')
 selection.file_id=entry.file_id;selection.book_version=0;bad,reason=observe();assert(not bad and reason=='invalid')
@@ -54,11 +59,14 @@ local page=scan(1);assert(page.kind=='more' and page.cursor==33 and opened==0)
 local final=scan(page.cursor,page.prior);assert(final.kind=='found' and final.reference.chapter_uid=='33' and opened==1)
 inventory[34].text_digest=digest
 page=scan(1);final=scan(page.cursor,page.prior);assert(final.kind=='ambiguous','identical chapter fingerprint was guessed')
+inventory[34].chapter_uid=inventory[33].chapter_uid
+page=scan(1);final=scan(page.cursor,page.prior);assert(final.kind=='ambiguous','conflicting saved chapter indices were accepted')
+inventory[34].chapter_uid='34'
 inventory[34].text_digest=string.rep('e',64);page=scan(1)
 inventory[1].chapter_uid='999';final=scan(page.cursor,page.prior)
 assert(final.kind=='unavailable','changed inventory was accepted across pages')
 inventory[33].chapter_idx=nil;page=scan(1);final=scan(page.cursor,page.prior)
-assert(final.kind=='unavailable','chapter without verified index was selected')
+assert(final.kind=='found','index-free chapter was not made available for online verification')
 inventory[33].chapter_idx=33
 cache.open=function() return nil end;page=scan(1);final=scan(page.cursor,page.prior)
 assert(final.kind=='unavailable','corrupt matching chapter was skipped')

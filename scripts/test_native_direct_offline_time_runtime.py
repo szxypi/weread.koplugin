@@ -24,7 +24,8 @@ class IndexedHandler(fixture.Handler):
             server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
             incoming = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
             server.valid &= incoming == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
-            rows = [dict(chapterUid=int(uid), chapterIdx=index, wordCount=250, price=0)
+            rows = [dict(chapterUid=int(uid), wordCount=250, price=0,
+                         **({'chapterIdx': index} if server.indexed else {}))
                     for index, uid in enumerate(('37', '38', '39'), 1)]
             data = json.dumps({'data': [dict(bookId='42', updated=rows)]}).encode()
             self.send_response(200)
@@ -44,7 +45,7 @@ def run(runtime):
             candidate = Path(package_dir) / 'candidate.zip'
             subprocess.run(['bash', str(REPO / 'scripts/package_release.sh'), str(candidate)],
                            cwd=REPO, check=True, capture_output=True)
-            for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
+            for width, height, dpi, indexed in ((600, 800, 167, True), (1264, 1680, 300, False)):
                 with tempfile.TemporaryDirectory(prefix='weread-direct-time-', dir='/dev/shm') as root:
                     xdg = Path(root) / 'xdg'
                     xdg.mkdir(mode=0o700)
@@ -62,6 +63,7 @@ def run(runtime):
                     server.chapters = []
                     server.valid = True
                     server.leaked = False
+                    server.indexed = indexed
                     server.image_requests = server.tar_requests = 0
                     payload = dict(credentials=credentials, mock_endpoint='http://127.0.0.1:'+str(server.server_port),
                                    mode='full', plugin_profile=True)
@@ -69,7 +71,7 @@ def run(runtime):
                                               input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=150)
                     saved = frame(prepared, 'WEREAD_DIRECT_NAV_PREPARED=')
                     probe = subprocess.run([str(runtime / 'luajit'), str(REPO / 'spec/koreader/native_direct_offline_time_probe.lua'), str(REPO)],
-                                           input=json.dumps({'first': saved['37'], 'second': saved['38']}), text=True, env=env, cwd=runtime,
+                                           input=json.dumps({'first': saved['37'], 'second': saved['38'], 'indexed': indexed}), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     assert frame(probe, 'WEREAD_DIRECT_OFFLINE_TIME=') == dict(ok=True, network_blocked=True,
                         real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, source_discovery=True, source_ui=True,

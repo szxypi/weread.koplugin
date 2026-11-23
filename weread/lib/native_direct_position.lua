@@ -27,14 +27,21 @@ local function source_map(client,settings,entry,file,native,web,active,options)
         or source.reading_catalog_sha256~=entry.catalog_sha256 and entry.catalog_sha256~=nil
         or type(source.body)~='string' or #source.body<1 or #source.body>Coordinates.MAX_BYTES
         or Crypto.sha256_hex(source.body)~=entry.source_sha256 then return nil,'source_changed' end
-    local expected=Currentness.expected{book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
+    local expected={book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
         raw_sha256=entry.source_sha256,raw_bytes=#source.body}
-    if not expected then return nil,'invalid' end
-    local checked=Currentness.fetch(client,expected,web,'web_xhtml',options)
+    local checked
+    if entry.chapter_idx==nil and options and options.resolve_index==true then
+        checked=Currentness.fetch_resolving_index(client,expected,web,options)
+        expected.chapter_idx=checked and checked.chapter_idx
+    else
+        expected=Currentness.expected(expected)
+        if not expected then return nil,'invalid' end
+        checked=Currentness.fetch(client,expected,web,'web_xhtml',options)
+    end
     if not Currentness.packet(checked,expected) or not active() then return nil,'source_changed' end
     local map=Coordinates.build(source.body,{format='web_xhtml',allow_multiple_bodies=true})
     if not map then return nil,'source_unsupported' end
-    return map,nil,source.body,checked.catalog_stamp
+    return map,nil,source.body,checked.catalog_stamp,checked.chapter_idx
 end
 -- Worker-only, read-only source proof for native chapter selections. The
 -- caller must still bind endpoints to its live ReaderUI and recheck at send.
@@ -46,8 +53,10 @@ function M.verified_source(client,settings,entry,file,native,web,current,options
     if type(current)~='function' or type(native)~='table' or type(native.scope)~='table' or native.renewal_pending
         or type(web)~='table' or type(web.web)~='table' or type(web.web.cookies)~='table'
         or web.web.cookies.wr_vid~=native.scope.vid or not Cache.valid_entry(entry,entry and entry.book_id,native.scope.vid)
-        or not hash(entry.file_id) or not Protocol.integer(entry.chapter_idx,0,1000000) or not active() then return nil,'invalid' end
-    local ok,map,reason,raw,stamp=pcall(source_map,client,settings,entry,file,native,web,active,options)
+        or not hash(entry.file_id) or not (Protocol.integer(entry.chapter_idx,0,1000000)
+            or entry.chapter_idx==nil and type(options)=='table' and options.resolve_index==true)
+        or not active() then return nil,'invalid' end
+    local ok,map,reason,raw,stamp,index=pcall(source_map,client,settings,entry,file,native,web,active,options)
     if not ok then
         if not active() then return nil,'session_changed' end
         if map=='source_currentness/web_expired' then return nil,'web_expired' end
@@ -57,7 +66,7 @@ function M.verified_source(client,settings,entry,file,native,web,current,options
     if not map or type(raw)~='string' then return nil,reason or 'unavailable' end
     local checked,later=pcall(Cache.identify,settings,native.scope.vid,file,active)
     if not checked or not same(entry,later) or not active() then return nil,'file_changed' end
-    return raw,nil,stamp
+    return raw,nil,stamp,index
 end
 local function target_anchor(map,offset)
     local anchor=map:anchor(offset,{segment_only=true}) or map:anchor(offset)

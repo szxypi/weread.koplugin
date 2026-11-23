@@ -193,11 +193,21 @@ local function account_cookie(headers,cookies)
     end
     if access then cookies.wr_skey=access end
 end
-local function fetch(client,expected_value,selected,format,options,cb)
+local function fetch(client,expected_value,selected,format,options,cb,resolve_index)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
     local expected
-    if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
+    if resolve_index then
+        if cb or format~='web_xhtml' or type(expected_value)~='table' then fail('expected') end
+        local count,copy=0,{}
+        for key,value in pairs(expected_value) do
+            if key~='book_id' and key~='chapter_uid' and key~='raw_sha256' and key~='raw_bytes' then fail('expected') end
+            count=count+1;copy[key]=value
+        end
+        if count~=4 then fail('expected') end
+        copy.chapter_idx=0;expected=M.expected(copy)
+        if expected then expected.chapter_idx=nil end
+    elseif cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
     local txt_guarded=options and options.cb_txt_guarded==true
         and (options.cb_initial~=nil)~=(options.cb_remote~=nil)
     local txt_readonly=options and options.cb_txt_readonly==true
@@ -292,7 +302,8 @@ local function fetch(client,expected_value,selected,format,options,cb)
     local before=request(url,body,4*1024*1024,true)
     if options and options.verify_catalog then options.verify_catalog(before) end
     local index=catalog(before,expected.book_id,expected.chapter_uid,cb)
-    if index~=expected.chapter_idx then fail('catalog_changed') end
+    if resolve_index then expected.chapter_idx=index
+    elseif index~=expected.chapter_idx then fail('catalog_changed') end
     local html=request(referer,nil,4*1024*1024,false)
     local parsed,reader=pcall(Reader.project,{book_id=expected.book_id},html,function(text) return client:json_decode(text) end)
     if not parsed then fail('reader') end
@@ -326,6 +337,11 @@ end
 -- CB_ upload proof is isolated from the ordinary source-only check and binds
 -- the exact previously verified Web position before and after source reads.
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
+-- This is only a source proof: a unique index from the first catalog must
+-- survive the independent second catalog and the exact raw-content check.
+function M.fetch_resolving_index(client,value,selected,options)
+    return fetch(client,value,selected,'web_xhtml',options,false,true)
+end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
 -- Read-only: this proof alone cannot create a position or authorize an upload.
 function M.fetch_cb_txt(client,value,selected)

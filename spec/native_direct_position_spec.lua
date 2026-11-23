@@ -29,7 +29,17 @@ package.preload['weread.lib.source_currentness']=function() return {
         if options and options.verify_catalog then options.verify_catalog({version=7});options.verify_catalog({version=7}) end
         return expected
     end,
-    packet=function(actual,expected) return actual==expected end,
+    fetch_resolving_index=function(_,expected,_selected,options)
+        assert(expected.chapter_idx==nil and options.resolve_index)
+        if options.verify_catalog then options.verify_catalog({version=7});options.verify_catalog({version=7}) end
+        local result={};for key,value in pairs(expected) do result[key]=value end
+        result.chapter_idx=2;result.catalog_stamp=string.rep('e',64);return result
+    end,
+    packet=function(actual,expected)
+        if not actual or not expected then return nil end
+        for key,value in pairs(expected) do if actual[key]~=value then return nil end end
+        return actual
+    end,
 } end
 package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {
     anchor=function(_,co) return {co=co,text=anchor_text,point_offset=anchor_offset} end,
@@ -74,6 +84,15 @@ local catalog_checks=0
 verified=Position.verified_source({}, {},entry,context.file,native,web,function() return live end,
     {verify_catalog=function(catalog) expect(catalog.version==7,'wrong catalog');catalog_checks=catalog_checks+1 end})
 expect(verified==body and catalog_checks==2,'source proof did not check both catalog reads')
+entry.chapter_idx=nil
+expect(not Position.verified_source({}, {},entry,context.file,native,web,function() return live end),
+    'index resolution bypassed the explicit time-only path')
+local source_stamp,source_index
+verified,_,source_stamp,source_index=Position.verified_source({}, {},entry,context.file,native,web,function() return live end,
+    {resolve_index=true})
+expect(verified==body and source_index==2 and source_stamp==string.rep('e',64) and entry.chapter_idx==nil,
+    'read-only catalog index resolution failed or modified the cached entry')
+entry.chapter_idx=2
 source_changed=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
 expect(not verified and reason=='source_changed','changed direct source was exposed');source_changed=false
 web_error='source_currentness/web_expired';verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)

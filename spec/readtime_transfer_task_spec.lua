@@ -301,7 +301,7 @@ do
     local Cache=require('weread.lib.native_direct_cache')
     local NativeSource=require('weread.lib.native_chapter_source')
     local DirectCurrent=require('weread.lib.source_currentness')
-    local old_identify,old_fetch,old_web_fetch=Cache.identify,NativeSource.fetch,DirectCurrent.fetch
+    local old_identify,old_fetch,old_web_fetch,old_resolve=Cache.identify,NativeSource.fetch,DirectCurrent.fetch,DirectCurrent.fetch_resolving_index
     local direct_body='<html><body><p>Synthetic native chapter text.</p></body></html>'
     f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,false,{version_source='native_direct'})
     f.options.observe_source=nil
@@ -323,7 +323,18 @@ do
     record=assert(f.journal:get(f.account,result.attempt))
     expect(record.metadata.source.source_sha256==reference.source_sha256 and record.metadata.source.ref.file==reference.file,
         'native source proof was not bound to journal')
-    Cache.identify,NativeSource.fetch,DirectCurrent.fetch=old_identify,old_fetch,old_web_fetch
+    f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,false,{version_source='native_direct'})
+    f.options.observe_source=nil;direct_entry.chapter_idx=nil;direct_entry.file_id=f.file_id
+    DirectCurrent.fetch_resolving_index=function(client,expected,web,options)
+        expect(expected.chapter_idx==nil and options.resolve_index==true,'index resolution was not scoped to time')
+        local copy={};for key,value in pairs(expected) do copy[key]=value end;copy.chapter_idx=0
+        return DirectCurrent.fetch(client,copy,web,'web_xhtml',options)
+    end
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(result.kind=='confirmed' and f.posts==1 and direct_entry.chapter_idx==nil,'index-free chapter time did not settle')
+    record=assert(f.journal:get(f.account,result.attempt))
+    expect(record.metadata.source.chapter_idx==0,'resolved index not bound to time proof')
+    Cache.identify,NativeSource.fetch,DirectCurrent.fetch,DirectCurrent.fetch_resolving_index=old_identify,old_fetch,old_web_fetch,old_resolve
 end
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end

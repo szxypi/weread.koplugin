@@ -115,6 +115,7 @@ local reference=sent.references[1]
 assert(reference and reference.kind=='native_direct' and reference.file and reference.chapter_uid)
 local saved=assert(require('weread.lib.native_direct_cache').identify(host.settings,scope.vid,reference.file,function() return true end))
 assert(saved.file_id==first_row.file_id,'UI sent a different chapter source')
+assert((saved.chapter_idx~=nil)==input.indexed,'fixture did not exercise the expected cached chapter index')
 sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
 collector.store,host.readtime_coverage=actual_store,actual_coverage
 host.isNetworkConnected=function() return false end

@@ -1,4 +1,4 @@
--- Worker-only source proof for a future native-chapter time transfer. This
+-- Worker-only source proof for native-chapter time transfer. This
 -- does not select, collect, reserve, or send time. The caller must still bind
 -- any eventual request to its independently checked ledger and cloud state.
 local Cache=require('weread.lib.native_direct_cache')
@@ -24,6 +24,7 @@ function M.scan_page(settings,account,scope,selection,cursor,prior,current,optio
     local stamp=Contract.digest(rows)
     if prior and (type(prior)~='table' or prior.stamp~=stamp) then return {kind='unavailable'} end
     local chosen=prior and prior.chosen or nil
+    local known_index=prior and prior.known_index or nil
     local last=math.min(cursor+31,#rows)
     for index=cursor,last do
         local entry=rows[index]
@@ -32,12 +33,17 @@ function M.scan_page(settings,account,scope,selection,cursor,prior,current,optio
             local raw=Identity.encode(book,{{}},Identity.capture(book),entry.text_digest,selection.book_version)
             local identity=Identity.decode(raw)
             if identity and identity.file_id==selection.file_id then
-                if not Contract.integer(entry.chapter_idx,0,1000000) then return {kind='unavailable'} end
                 local opened=cache.open(settings,scope.vid,selection.book_id,entry,current)
                 if not opened or opened.file_id~=selection.file_id or opened.book_version~=selection.book_version
                     or opened.source_sha256~=entry.source_sha256 then return {kind='unavailable'} end
                 if chosen and (chosen.chapter_uid~=entry.chapter_uid or chosen.source_sha256~=entry.source_sha256) then
                     return {kind='ambiguous'}
+                end
+                if entry.chapter_idx~=nil then
+                    if not Contract.integer(entry.chapter_idx,0,1000000) or known_index and known_index~=entry.chapter_idx then
+                        return {kind='ambiguous'}
+                    end
+                    known_index=entry.chapter_idx
                 end
                 chosen=chosen or {kind='native_direct',file=opened.path,chapter_uid=entry.chapter_uid,
                     source_sha256=entry.source_sha256}
@@ -45,7 +51,7 @@ function M.scan_page(settings,account,scope,selection,cursor,prior,current,optio
         end
     end
     if current()~=true then return {kind='unavailable'} end
-    if last<#rows then return {kind='more',cursor=last+1,prior={stamp=stamp,chosen=chosen}} end
+    if last<#rows then return {kind='more',cursor=last+1,prior={stamp=stamp,chosen=chosen,known_index=known_index}} end
     return chosen and {kind='found',reference=chosen} or {kind='unavailable'}
 end
 
@@ -61,12 +67,14 @@ function M.observe(client,settings,account,selection,file,native,web,current,pre
     local function verify_catalog(payload)
         assert(Source.version(payload,selection.book_id)==selection.book_version,'native_direct_time/version')
     end
-    local raw,why,stamp=Position.verified_source(client,settings,entry,file,native,web,current,
-        {verify_catalog=verify_catalog})
+    local raw,why,stamp,index=Position.verified_source(client,settings,entry,file,native,web,current,
+        {verify_catalog=verify_catalog,resolve_index=true})
     if not raw then return nil,why end
-    if not Contract.hash(stamp) or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil,'source_changed' end
+    if not Contract.hash(stamp) or not Contract.integer(index,0,1000000)
+        or entry.chapter_idx~=nil and entry.chapter_idx~=index
+        or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil,'source_changed' end
     local result={kind='native_direct',ref={kind='native_direct',file=file,chapter_uid=entry.chapter_uid,
-        source_sha256=entry.source_sha256},book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
+        source_sha256=entry.source_sha256},book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=index,
         file_id=entry.file_id,book_version=entry.book_version,source_sha256=entry.source_sha256,
         catalog_stamp=stamp,account=account}
     if previous and Contract.digest(previous)~=Contract.digest(result) then return nil,'source_changed' end
