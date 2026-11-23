@@ -9,6 +9,7 @@ import sys
 import tempfile
 import zipfile
 from run_persistent_ui_probe import extract_candidate,run_child
+from run_native_direct_position_owner import synthetic_endpoint_allowed
 
 FRAME=b'\nWEREAD_DIRECT_OWNER_RUN='
 
@@ -25,10 +26,12 @@ def main(argv=None):
     parser.add_argument('--ui',action='store_true',help='Exercise the native chapter selection menu')
     parser.add_argument('--neighbor',action='store_true',help='Verify adjacent native chapters through the reader menu')
     parser.add_argument('--offline-search',action='store_true',help='Search real cached chapters in the installed reader')
+    parser.add_argument('--online-search',action='store_true',help='Search online from both native chapters')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
     if args.offline_search and not args.neighbor:parser.error('--offline-search requires --neighbor')
+    if args.online_search and (not args.neighbor or args.offline_search):parser.error('--online-search requires --neighbor only')
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1
             or not any(row.split()[1:3]==['/dev/shm','tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
         parser.error('Linux, KOReader and tmpfs are required')
@@ -37,17 +40,20 @@ def main(argv=None):
         raw=sys.stdin.buffer.read(65537)
         if len(raw)>65536:raise ValueError('input_limit')
         payload=json.loads(raw);repo=Path(__file__).resolve().parent.parent
+        if args.online_search and not synthetic_endpoint_allowed(payload,payload.get('mock_endpoint')):
+            raise ValueError('synthetic_endpoint')
         with tempfile.TemporaryDirectory(prefix='weread-native-direct-owner-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';xdg=root/'xdg'
             (profile/'plugins').mkdir(parents=True);xdg.mkdir(mode=0o700)
-            if args.offline_search:(profile/'settings').mkdir()
+            plugin_home=args.offline_search or args.online_search
+            if plugin_home:(profile/'settings').mkdir()
             extract_candidate(args.candidate,profile/'plugins');plugin=profile/'plugins/weread.koplugin'
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
                 SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
                 WEREAD_DIRECT_OWNER_TMPFS='1')
             probe='native_direct_owner_ui_probe.lua' if args.ui else 'native_direct_owner_probe.lua'
-            prepare=dict(payload,plugin_home=args.offline_search)
+            prepare=dict(payload,plugin_home=plugin_home)
             phase='prepare'
             code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader'/probe),str(plugin)],
                                        env,json.dumps(prepare,ensure_ascii=False).encode(),runtime,timeout=180)
@@ -75,7 +81,7 @@ def main(argv=None):
                         or not 0<=result['neighbor_missing_images']<=64):raise ValueError('neighbor_path')
             phase='offline_first'
             offline=json.dumps(dict(path=str(path),token=payload['search_token'],uid=payload['uid'],book_id=payload['book_id'],
-                                    missing_images=result['missing_images'],plugin_home=args.offline_search),
+                                    missing_images=result['missing_images'],plugin_home=plugin_home),
                                ensure_ascii=False).encode()
             code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
                                         str(plugin),str(repo)],env,offline,runtime,timeout=90)
@@ -85,7 +91,7 @@ def main(argv=None):
             if args.ui:
                 phase='cached_ui'
                 cached_input=json.dumps(dict(path=str(path),book_id=payload['book_id'],vid=payload['credentials']['vid'],
-                                             plugin_home=args.offline_search)).encode()
+                                             plugin_home=plugin_home)).encode()
                 code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_cached_ui_probe.lua'),
                     str(plugin),str(repo)],env,cached_input,runtime,timeout=120)
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_CACHED_UI=')!=dict(
@@ -95,7 +101,7 @@ def main(argv=None):
                 neighbor=payload['neighbor']
                 neighbor_input=json.dumps(dict(path=str(neighbor_path),token=neighbor['search_token'],uid=neighbor['uid'],
                     book_id=payload['book_id'],missing_images=result['neighbor_missing_images'],
-                    plugin_home=args.offline_search),ensure_ascii=False).encode()
+                    plugin_home=plugin_home),ensure_ascii=False).encode()
                 code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
                     str(plugin),str(repo)],env,neighbor_input,runtime,timeout=90)
                 neighbor_expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
@@ -103,7 +109,7 @@ def main(argv=None):
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=neighbor_expected:raise ValueError('neighbor_offline')
                 phase='neighbor_navigation'
                 nav_input=json.dumps(dict(first=str(path),second=str(neighbor_path),vid=payload['credentials']['vid'],
-                                          plugin_home=args.offline_search)).encode()
+                                          plugin_home=plugin_home)).encode()
                 code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_neighbor_offline.lua'),
                     str(plugin),str(repo)],env,nav_input,runtime,timeout=120)
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_NEIGHBOR_OFFLINE=')!=dict(
@@ -123,13 +129,39 @@ def main(argv=None):
                     if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_SEARCH=')!=dict(ok=True,network_blocked=True,
                             credentials_not_required=True,installed_plugin=True,cross_chapter=True,independent_text=True):
                         raise ValueError('offline_search')
+                if args.online_search:
+                    phase='online_search'
+                    for cross in (False,True):
+                        private=dict(path=str(neighbor_path if cross else path),book_id=payload['book_id'],uid=payload['uid'],
+                            credentials=payload['credentials'],web_cookies=payload['web_cookies'],cross=cross,
+                            keyword=payload['online_search']['keyword'],start=payload['online_search']['start'],
+                            finish=payload['online_search']['finish'],allowed=payload['online_search']['allowed'])
+                        if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
+                        code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_error_guard.lua'),
+                            str(repo),str(repo/'spec/koreader/native_direct_owner_search_online.lua')],env,
+                            json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=300)
+                        if code:
+                            match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                            if match:report['probe_line']=int(match.group(1))
+                            stage=re.search(rb'(?m)^WEREAD_DIRECT_ONLINE_STAGE=(reader|quick|input|results|switch|locate)$',out)
+                            if stage:report['probe_stage']=stage.group(1).decode()
+                        online=line(out,b'WEREAD_DIRECT_OWNER_ONLINE_SEARCH=')
+                        if (code or repaint or set(online)!={'ok','cross','installed_plugin','independent_text','blocked_requests','search_requests'}
+                                or online['ok'] is not True or online['cross'] is not cross or online['installed_plugin'] is not True
+                                or online['independent_text'] is not True or online['blocked_requests']!=0
+                                or type(online['search_requests']) is not int or not 1<=online['search_requests']<=len(private['allowed'])):
+                            raise ValueError('online_search')
             phase='audit';credentials=payload['credentials']
+            secrets=[credentials[key] for key in ('accessToken','refreshToken','deviceId')]
+            if args.online_search:
+                secrets.extend(value for key,value in payload['web_cookies'].items()
+                    if key!='wr_vid' and isinstance(value,str) and len(value)>=8)
             for path in profile.rglob('*'):
                 if path.is_symlink():raise ValueError('link')
                 if path.is_file() and plugin not in path.parents:
                     if path.stat().st_size>128*1024*1024:raise ValueError('file_limit')
                     data=path.read_bytes()
-                    if any(credentials[key].encode() in data for key in ('accessToken','refreshToken','deviceId')):
+                    if any(secret.encode() in data for secret in secrets):
                         raise ValueError('credential_file')
             with zipfile.ZipFile(args.candidate) as archive:
                 for item in archive.infolist():
@@ -141,6 +173,7 @@ def main(argv=None):
             if args.neighbor:report.update(neighbor_matches=True,neighbor_offline_roundtrip=True,
                 neighbor_missing_images=result['neighbor_missing_images'])
             if args.offline_search:report['offline_search']=True
+            if args.online_search:report['online_search']=True
     except (Exception,KeyboardInterrupt):report['phase']=phase
     finally:report['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(FRAME+json.dumps(report).encode()+b'\n')

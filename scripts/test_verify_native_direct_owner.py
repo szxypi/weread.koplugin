@@ -223,5 +223,43 @@ class NativeDirectOwnerTests(unittest.TestCase):
             self.assertEqual(report.get('offline_search_verified'),True if checked and not changed else None)
             self.assertNotIn('private',output.getvalue())
 
+    def test_online_search_requires_proof_and_unchanged_native_progress(self):
+        rows=[dict(uid=37,wordCount=900,free_or_owned=True),dict(uid=38,wordCount=900,free_or_owned=True)]
+        sample={'book_id':'42','expected':{'format':'epub','version':1,'chapters':rows}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,rows[0],{'html':True,'source':b'private first'}),
+            download=lambda *_args:(b'archive','envelope'))
+        result=dict(result='PASS',profile_removed=True,native_requests=7,source_matches=True,offline_reopen=True,
+            offline_network_guard=True,web_coordinates=False,manual_time_blocked=True,credential_file_audit=True,
+            installed_bytes_match=True,missing_images=0,warning_verified=True,neighbor_matches=True,
+            neighbor_offline_roundtrip=True,neighbor_missing_images=0)
+        for checked,changed in ((False,False),(True,False),(True,True)):
+            if checked:result['online_search']=True
+            child=SimpleNamespace(returncode=0,stdout=task.FRAME+json.dumps(result).encode()+b'\n')
+            cookies=[SimpleNamespace(name='wr_vid',value='123'),SimpleNamespace(name='wr_skey',value='private-cookie')]
+            web=SimpleNamespace(cookies=cookies,set_cookie=lambda *_args:None,verify_account=lambda:None,
+                request=lambda *_args:{})
+            progress_calls=[]
+            native_probe=SimpleNamespace(request=lambda *_args,**_kwargs:progress_calls.append('read') or {'count':len(progress_calls)})
+            def native_point(value,*_args):
+                return {'chapter_offset':2 if changed and value['count']==2 else 1}
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'SearchProbe',return_value=web),patch.object(task,'reading_position',return_value={'offset':1}),\
+                    patch.object(task,'password',return_value='password'),patch.object(task,'read',return_value={'source':b'private second'}),\
+                    patch.object(task,'Native',return_value=native_probe),patch.object(task,'project',side_effect=native_point),\
+                    patch.object(task,'find_node',return_value=dict(readingTime=1,recordReadingTime=1,ttsTime=0)),\
+                    patch.object(task,'prepare_online_search',return_value={'keyword':'private text','allowed':[{}]}),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123','cookies':{'wr_skey':'private-token'}}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                code=task.main(['--saved-session','--neighbor','--online-search','--compare-web-progress','--lua-command','runner'])
+            self.assertEqual(code,0 if checked and not changed else 1)
+            self.assertEqual(len(progress_calls),2 if checked else 1)
+            report=json.loads(output.getvalue())
+            self.assertEqual(report.get('online_search_verified'),True if checked and not changed else None)
+            self.assertNotIn('private',output.getvalue())
+
 
 if __name__=='__main__':unittest.main()

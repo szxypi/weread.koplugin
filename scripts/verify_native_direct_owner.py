@@ -9,6 +9,7 @@ import subprocess
 from urllib.parse import urlencode
 from native_chapter_package import password, read
 from native_chapter_remote_reference import search_token
+from native_direct_online_search_preflight import prepare as prepare_online_search
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from shelf_flag_change_contract import state_hash
@@ -17,6 +18,9 @@ from verify_native_chapter_package import ChapterProbe
 from verify_owner_reading import reading_position
 from verify_owner_home_recent import ids as shelf_ids
 from verify_translation_preflight import PUBLIC_QUERIES, TranslationError, TranslationProbe
+from verify_cloud_book_search import Probe as SearchProbe
+from verify_native_txt_position import Native
+from verify_reader_progress import find_node,project
 from translation_observation import observation
 from verify_web_source_progress import BASE as WEB_BASE, WebSourceProbe
 
@@ -53,6 +57,7 @@ def main(argv=None):
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
     parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
     parser.add_argument('--offline-search',action='store_true',help='Verify installed offline search across the two chapters')
+    parser.add_argument('--online-search',action='store_true',help='Verify installed online search in both native chapters')
     parser.add_argument('--home',action='store_true',help='Verify native home resume in a fresh offline process')
     parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
@@ -63,13 +68,16 @@ def main(argv=None):
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
     if args.home and args.neighbor:parser.error('home and neighbor use separate checks')
     if args.offline_search and not args.neighbor:parser.error('offline search requires neighbor')
+    if args.online_search and (not args.neighbor or args.offline_search or not args.compare_web_progress):
+        parser.error('online search requires neighbor and Web progress comparison')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
-    if args.compare_web_progress and not (args.home or args.offline_search):parser.error('Web comparison requires --home or --offline-search')
+    if args.compare_web_progress and not (args.home or args.offline_search or args.online_search):
+        parser.error('Web comparison requires home or chapter search')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
         parser.error('store search requires full home UI and Web comparison')
     if args.quick_search and not args.store_search:parser.error('quick search requires store search')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
-    saved=credentials=web=None
+    saved=credentials=web=native_api=None
     phase='start'
     try:
         if args.saved_session:
@@ -93,7 +101,7 @@ def main(argv=None):
             if args.compare_web_progress:
                 phase='web_baseline'
                 if web is None:
-                    web=WebSourceProbe();web.vid=saved['vid']
+                    web=SearchProbe() if args.online_search else WebSourceProbe();web.vid=saved['vid']
                     for key,value in saved['cookies'].items():web.set_cookie(key,value)
                 web.book_id=sample['book_id']
                 web.verify_account()
@@ -125,17 +133,32 @@ def main(argv=None):
                 second=read(data,password(envelope,credentials['vid']),uid)
                 payload['neighbor']=dict(uid=uid,source_sha256=hashlib.sha256(second['source']).hexdigest(),
                     search_token=search_token(second['source']))
+            if args.online_search:
+                phase='online_search_preflight'
+                payload['online_search']=prepare_online_search(web,sample['book_id'],str(chapter['uid']),native['source'])
+                payload['web_cookies']={cookie.name:cookie.value for cookie in web.cookies
+                    if cookie.name in {'wr_vid','wr_skey','wr_rt','wr_ql','wr_pf'}}
+                if payload['web_cookies'].get('wr_vid')!=saved['vid'] or not payload['web_cookies'].get('wr_skey'):
+                    raise ValueError('web_cookie')
+                native_api=Native(credentials,sample['book_id'])
+                native_progress_url=BASE+'/book/getProgress?'+urlencode(dict(bookId=sample['book_id']))
+                native_before_raw=native_api.request('progress',native_progress_url,credentials=credentials)
+                native_before=project(native_before_raw,sample['book_id'],'native')
+                native_before_node=find_node(native_before_raw,sample['book_id'])
+                counters=('readingTime','recordReadingTime','ttsTime')
+                native_before_counts={key:native_before_node.get(key) for key in counters}
+                if any(type(value) is not int or value<0 for value in native_before_counts.values()):raise ValueError('counts')
             raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(raw)>65536:raise ValueError('input_limit')
             phase='native_worker'
             child=subprocess.run(args.lua_command,input=raw,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
-                                 timeout=600 if args.offline_search else 480 if args.home else 240)
+                                 timeout=900 if args.online_search else 600 if args.offline_search else 480 if args.home else 240)
             marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN=' if args.home else FRAME
             if len(child.stdout)>65536 or child.stdout.count(marker)!=1:raise ValueError('child')
             result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','record','reopen','audit','prepare','offline_first',
-                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search'}:report['runner_phase']=result['phase']
+                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search'}:report['runner_phase']=result['phase']
                 if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record',
                                                  'quick_menu','quick_input','quick_results','reader','quick','input','results','switch','locate'}:
                     report['runner_stage']=result['probe_stage']
@@ -189,6 +212,7 @@ def main(argv=None):
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
                 if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
                 if args.offline_search:required.add('offline_search')
+                if args.online_search:required.add('online_search')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or type(result['missing_images']) is not int or not 0<=result['missing_images']<=64
                         or args.neighbor and (type(result['neighbor_missing_images']) is not int or not 0<=result['neighbor_missing_images']<=64)
@@ -201,6 +225,14 @@ def main(argv=None):
                     phase='web_final';web.verify_account()
                     raw_progress=web.request('progress_after',WEB_BASE+'/web/book/getProgress?bookId='+sample['book_id'])
                     if reading_position(raw_progress,sample['book_id'],allow_unstarted=True)!=before_web:raise ValueError('web_changed')
+                if args.online_search:
+                    phase='native_progress_final'
+                    native_after_raw=native_api.request('progress',native_progress_url,credentials=credentials)
+                    native_after=project(native_after_raw,sample['book_id'],'native')
+                    native_after_node=find_node(native_after_raw,sample['book_id'])
+                    fields=('chapter_uid','chapter_idx','chapter_offset','raw_percent','summary','has_chapter_offset')
+                    if any(native_before.get(key)!=native_after.get(key) for key in fields) or any(
+                            native_before_counts[key]!=native_after_node.get(key) for key in counters):raise ValueError('native_changed')
                 report.update(result='NATIVE_DIRECT_OWNER_READONLY_VERIFIED',chapters=1,native_requests=result['native_requests'],
                     source_matches=True,offline_reopen=True,offline_network_guard=True,web_coordinates=False,
                     manual_time_blocked=True,credential_file_audit=True,installed_bytes_match=True,
@@ -208,6 +240,7 @@ def main(argv=None):
                 if args.neighbor:report.update(chapters=2,neighbor_matches=True,neighbor_offline_roundtrip=True,
                     neighbor_missing_images=result['neighbor_missing_images'])
                 if args.offline_search:report['offline_search_verified']=True
+                if args.online_search:report.update(online_search_verified=True,native_progress_unchanged=True)
                 if args.compare_web_progress:report['web_position_unchanged']=True
     except (Exception,KeyboardInterrupt) as error:
         report['result']='UNVERIFIED';report['phase']=phase
