@@ -1,0 +1,12 @@
+{
+  "result": "READ_ONLY_OBSERVED",
+  "sampled": 30,
+  "combinations": {
+    "started=0;chapter=nonzero;time=zero;finished=0": 6,
+    "started=0;chapter=zero;time=zero;finished=0": 11,
+    "started=1;chapter=nonzero;time=nonzero;finished=0": 9,
+    "started=1;chapter=nonzero;time=nonzero;finished=1": 4
+  },
+  "shelf_unchanged": true,
+  "account_writes_attempted": 0
+}
