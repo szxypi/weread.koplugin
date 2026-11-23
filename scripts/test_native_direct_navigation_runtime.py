@@ -68,7 +68,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                         assert frame(child,'WEREAD_DIRECT_FULL_READER=')==dict(ok=True,network_blocked=True,plugin_loaded=True,
                             roundtrip=True,native_page_restored=True,end_of_book=True,web_coordinates=False,offline_search=True,
                             search_cancel=True,same_chapter=True)
-                        for stage in ('save','different','restore','cleared'):
+                        for stage in ('save','discard_cancel','different','restore','discard','cleared'):
                             child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_pending_reader_probe.lua'),str(REPO)],
                                 input=json.dumps(dict(payload,stage=stage)),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_PENDING_READER=')==dict(ok=True,stage=stage,network_blocked=True)

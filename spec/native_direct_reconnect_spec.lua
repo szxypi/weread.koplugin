@@ -9,6 +9,7 @@ package.preload['ui/uimanager']=function() return {
     close=function(_,dialog) closed=closed+1;if shown==dialog then shown=nil end end,
 } end
 package.preload['ui/widget/buttondialog']=function() return {new=function(_,options) return options end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_,options) return options end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,file) return file=='/native.epub' end} end
 package.preload['weread.lib.native_position_contract']=function() return {account_key=function(vid) return vid=='123' and 'owner' end} end
@@ -95,7 +96,7 @@ host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..p
 Reconnect.ready(host);Reconnect.bind(host,entry,saved);pump()
 expect(shown~=nil,'reopened matching page did not offer the saved reminder')
 Reconnect.view_changed(host);expect(shown~=nil,'unchanged page event closed the saved reminder')
-shown.buttons[3][1].callback();expect(saved~=nil,'later deleted the saved reminder')
+shown.buttons[4][1].callback();expect(saved~=nil,'later deleted the saved reminder')
 Reconnect.synced(host,entry,{xpointer='xp2'});expect(saved==nil,'confirmed sync did not clear the matching reminder')
 host,s=fixture(false,false);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
 Reconnect.ready(host);Reconnect.bind(host,entry);page=2;Reconnect.view_changed(host);s.online=true;Reconnect.connected(host)
@@ -130,4 +131,41 @@ host=fixture(false,true);host.ui.document.identity={book_id='42',file_id='file',
 Reconnect.ready(host);Reconnect.bind(host,entry,saved);page=3;Reconnect.view_changed(host);lease_allowed=false
 expect(Reconnect.checkpoint(host)==false and saved.xpointer=='xp2','cache lease conflict overwrote an offline reminder')
 lease_allowed=true
+local function saved_fixture()
+    local h,state=fixture(true,true);page=2
+    h.ui.document.identity={book_id='42',file_id='file',book_version=1}
+    h.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+    state.messages={};h.showInfo=function(_,message) state.messages[#state.messages+1]=message end
+    Reconnect.ready(h);Reconnect.bind(h,entry,saved);pump()
+    return h,state
+end
+host,s=saved_fixture();expect(shown.buttons[3][1].id=='reconnect_discard','saved reminder had no discard action')
+shown.buttons[3][1].callback();expect(saved and shown.ok_callback and shown.cancel_callback,'discard skipped confirmation')
+shown.cancel_callback();expect(saved and #s.messages==0,'cancel removed the reminder')
+Reconnect.cancel(host)
+host,s=saved_fixture();shown.buttons[3][1].callback();callback=shown.ok_callback;page=3;Reconnect.view_changed(host);callback()
+expect(saved and #s.messages==0,'stale page removed a reminder')
+Reconnect.cancel(host)
+host,s=saved_fixture();shown.buttons[3][1].callback();callback=shown.ok_callback;s.account='other';callback()
+expect(saved and #s.messages==0,'changed account removed a reminder')
+Reconnect.cancel(host)
+host,s=saved_fixture();shown.buttons[3][1].callback();host._native_direct_reconnect.pending_dirty=true;shown.ok_callback()
+expect(saved and #s.messages==0,'new unsaved position allowed the old reminder to be removed')
+Reconnect.cancel(host)
+host,s=saved_fixture();shown.buttons[3][1].callback();local newer={};for key,value in pairs(saved) do newer[key]=value end
+newer.xpointer='xp3';saved=newer;shown.ok_callback()
+expect(saved and saved.xpointer=='xp3' and s.messages[1]=='Could not remove the offline reminder. It was kept.',
+    'changed reminder was removed or reported successful')
+saved.xpointer='xp2';Reconnect.cancel(host)
+host,s=saved_fixture();shown.buttons[3][1].callback();shown.ok_callback()
+expect(not saved and not host._native_direct_reconnect.record and s.messages[1]=='Offline reminder removed.' and page==2 and not invoked,
+    'confirmed removal changed page or failed to remove the reminder')
+saved={file_id=entry.file_id,book_id=entry.book_id,chapter_uid=entry.chapter_uid,version=entry.book_version,
+    source_sha256=entry.source_sha256,key=entry.key,copy=entry.copy,xpointer='xp2'}
+host=fixture(true,true);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);Reconnect.bind(host,entry,saved);pump()
+expect(shown.buttons[2][1].id=='reconnect_discard','different page omitted the discard action')
+shown.buttons[2][1].callback();shown.ok_callback()
+expect(not saved and page==1 and not invoked,'discarding another page moved the reader or contacted the cloud')
 print('PASS: native offline reconnect choices and session guards ('..checks..' checks)')

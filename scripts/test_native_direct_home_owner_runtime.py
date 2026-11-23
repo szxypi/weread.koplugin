@@ -39,6 +39,7 @@ def main():
     parser.add_argument('--store-only', action='store_true')
     parser.add_argument('--quick-only', action='store_true')
     parser.add_argument('--progress-only', action='store_true')
+    parser.add_argument('--reminder-only', action='store_true')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', 0), StoreHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -59,6 +60,8 @@ def main():
                     continue
                 if args.progress_only and (not full_ui or store_search):
                     continue
+                if args.reminder_only and (not full_ui or store_search):
+                    continue
                 server.mode = 'selection_direct_overlay'
                 server.calls, server.leaked, server.valid, server.review = [], False, True, None
                 fixture.BODY = BODY.replace('<body>','<head><style>/* synthetic */ p{margin-left:7px}</style></head><body>') if store_search else BODY
@@ -75,6 +78,8 @@ def main():
                 if args.progress_only:
                     command.append('--progress-estimate')
                     payload['progress_estimate']=dict(order=1,count=2,before=0,words=500,total=1000)
+                if args.reminder_only:
+                    command.append('--offline-reminder')
                 if store_search:
                     command.append('--store-search')
                     payload['store_search_keyword']='Synthetic'
@@ -82,7 +87,7 @@ def main():
                 if quick_search:
                     command.append('--quick-search')
                 child = subprocess.run(command, input=json.dumps(payload).encode(),
-                    capture_output=True, timeout=480)
+                    capture_output=True, timeout=900 if args.reminder_only else 480)
                 marker = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
                 assert child.stdout.count(marker) == 1
                 result = json.loads(child.stdout.split(marker, 1)[1].splitlines()[0])
@@ -94,6 +99,7 @@ def main():
                 assert result.get('inline_style_verified', False) is store_search
                 assert result.get('quick_search', False) is quick_search
                 assert result.get('progress_estimate_verified',False) is args.progress_only
+                assert result.get('offline_reminder_verified',False) is args.reminder_only
                 assert server.valid and not server.leaked
                 assert all(path in ('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
                 assert any(path=='/store/search' for _,_,path in server.calls) is store_search

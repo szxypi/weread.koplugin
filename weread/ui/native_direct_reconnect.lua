@@ -188,7 +188,34 @@ function M.connected(host)
         local function choose(action)
             if ctx.dialog~=dialog then return end
             local allowed=valid();ctx.dialog=nil;ctx.pending=nil;ctx.dismissed=true;UI:close(dialog)
-            if allowed and action=='restore' and ctx.record and ctx.entry then
+            if allowed and action=='discard' and ctx.record and ctx.entry and not ctx.pending_dirty then
+                local record,entry=ctx.record,ctx.entry
+                local confirm
+                local function close_confirm()
+                    if ctx.dialog==confirm then ctx.dialog=nil;ctx.pending=nil;UI:close(confirm) end
+                end
+                local function cancel_confirm()
+                    if ctx.dialog==confirm then ctx.dialog=nil;ctx.pending=nil end
+                end
+                confirm=require('ui/widget/confirmbox'):new{
+                    text=_('Remove this offline position reminder? The local reading page and cloud position will not change.'),
+                    ok_text=_('Remove reminder'),cancel_text=_('Keep reminder'),keep_dialog_open=true,
+                    cancel_callback=cancel_confirm,
+                    ok_callback=function()
+                        if ctx.dialog~=confirm or ctx.record~=record or ctx.pending_dirty or not valid() then close_confirm();return end
+                        local function guard()
+                            return ctx.dialog==confirm and ctx.record==record and not ctx.pending_dirty and valid()
+                        end
+                        local called,removed=pcall(require('weread.lib.native_direct_pending').remove,
+                            host.library_db,host.settings,ctx.scope,entry,record,guard)
+                        close_confirm()
+                        if called and removed then ctx.record=nil end
+                        if host.showInfo then host:showInfo(_(called and removed and 'Offline reminder removed.'
+                            or 'Could not remove the offline reminder. It was kept.')) end
+                    end,
+                }
+                ctx.pending=snapshot;ctx.dialog=confirm;UI:show(confirm)
+            elseif allowed and action=='restore' and ctx.record and ctx.entry then
                 local identity=require('weread.lib.book_file_identity').read_document(ctx.document,ctx.entry.book_id)
                 local ok,found=pcall(ctx.document.isXPointerInDocument,ctx.document,ctx.record.xpointer)
                 if identity.file_id==ctx.entry.file_id and identity.book_id==ctx.entry.book_id
@@ -204,11 +231,13 @@ function M.connected(host)
             end
         end
         local restore=ctx.record and not ctx.pending_dirty and not visible(host,ctx,ctx.record.xpointer)
-        local buttons=restore and {{{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}},
-            {{text=_('Later'),id='reconnect_later',callback=function() choose() end}}}
+        local buttons=restore and {{{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}}}
             or {{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
-                {{text=_('Sync this page'),id='reconnect_upload',callback=function() choose('upload') end}},
-                {{text=_('Later'),id='reconnect_later',callback=function() choose() end}}}
+                {{text=_('Sync this page'),id='reconnect_upload',callback=function() choose('upload') end}}}
+        if ctx.record and not ctx.pending_dirty then
+            buttons[#buttons+1]={{text=_('Remove offline reminder'),id='reconnect_discard',callback=function() choose('discard') end}}
+        end
+        buttons[#buttons+1]={{text=_('Later'),id='reconnect_later',callback=function() choose() end}}
         dialog=require('ui/widget/buttondialog'):new{
             title=restore and _('This chapter has a saved offline position. Open that position?')
                 or _('You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?'),

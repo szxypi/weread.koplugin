@@ -64,6 +64,7 @@ def main(argv=None):
     parser.add_argument('--home',action='store_true',help='Verify native home resume in a fresh offline process')
     parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
     parser.add_argument('--progress-estimate',action='store_true',help='Check the native chapter progress panel offline')
+    parser.add_argument('--offline-reminder',action='store_true',help='Verify local offline reminder across fresh processes')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--store-search',action='store_true',help='Select an off-shelf book through a public search')
     parser.add_argument('--quick-search',action='store_true',help='Search the bookstore from the native reader')
@@ -81,6 +82,7 @@ def main(argv=None):
     if args.online_missing and not args.online_search:parser.error('online missing requires online search')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
     if args.progress_estimate and not args.home_full_ui:parser.error('progress estimate requires full home UI')
+    if args.offline_reminder and not args.home_full_ui:parser.error('offline reminder requires full home UI')
     if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies or args.image_refresh):
         parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
@@ -171,13 +173,13 @@ def main(argv=None):
             if len(raw)>65536:raise ValueError('input_limit')
             phase='native_worker'
             child=subprocess.run(args.lua_command,input=raw,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
-                                 timeout=900 if args.online_search else 600 if args.offline_search else 480 if args.home else 240)
+                                 timeout=900 if args.online_search or args.offline_reminder else 600 if args.offline_search else 480 if args.home else 240)
             marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN=' if args.home else FRAME
             if len(child.stdout)>65536 or child.stdout.count(marker)!=1:raise ValueError('child')
             result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','record','reopen','audit','prepare','offline_first',
-                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search',
+                    'cached_ui','offline_neighbor','neighbor_navigation','offline_search','online_search','offline_reminder',
                     'online_missing_prepare','online_missing_search'}:report['runner_phase']=result['phase']
                 if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record',
                                                  'quick_menu','quick_input','quick_results','reader','quick','input','results','confirm','switch','locate'}:
@@ -206,6 +208,7 @@ def main(argv=None):
                 if args.store_search:required|={'store_search','inline_style_verified'}
                 if args.quick_search:required.add('quick_search')
                 if args.progress_estimate:required.add('progress_estimate_verified')
+                if args.offline_reminder:required.add('offline_reminder_verified')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
@@ -229,6 +232,7 @@ def main(argv=None):
                 if args.store_search:report.update(store_search=True,off_shelf=True,web_shelf_unchanged=True,inline_style_verified=True)
                 if args.quick_search:report['quick_search_verified']=True
                 if args.progress_estimate:report['progress_estimate_verified']=True
+                if args.offline_reminder:report['offline_reminder_verified']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}

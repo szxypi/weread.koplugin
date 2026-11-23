@@ -28,6 +28,7 @@ def main(argv=None):
     parser.add_argument('--store-search', action='store_true')
     parser.add_argument('--quick-search', action='store_true')
     parser.add_argument('--progress-estimate', action='store_true')
+    parser.add_argument('--offline-reminder', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
@@ -35,6 +36,8 @@ def main(argv=None):
         parser.error('quick search requires store search')
     if args.progress_estimate and not args.full_ui:
         parser.error('progress estimate requires full UI')
+    if args.offline_reminder and not args.full_ui:
+        parser.error('offline reminder requires full UI')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -143,6 +146,18 @@ def main(argv=None):
                 if args.progress_estimate: expected['progress_estimate']=True
                 if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != expected:
                     raise ValueError('home')
+            if args.offline_reminder:
+                phase='offline_reminder'
+                for stage in ('save','discard_cancel','different','restore','discard','cleared'):
+                    private=dict(stage=stage,path=str(path),book_id=payload['book_id'],vid=payload['credentials']['vid'])
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO),str(REPO/'spec/koreader/native_direct_pending_reader_probe.lua')],env,
+                        json.dumps(private).encode(),runtime,timeout=150)
+                    if code:
+                        match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                        if match: report['probe_line']=int(match.group(1))
+                    if code or repaint or frame(out,b'WEREAD_DIRECT_PENDING_READER=')!=dict(ok=True,stage=stage,network_blocked=True):
+                        raise ValueError('offline_reminder')
             phase = 'audit'
             credentials = payload['credentials']
             secrets = [credentials[key].encode() for key in ('accessToken', 'refreshToken', 'deviceId')]
@@ -171,6 +186,8 @@ def main(argv=None):
                 report['quick_search'] = True
             if args.progress_estimate:
                 report['progress_estimate_verified'] = True
+            if args.offline_reminder:
+                report['offline_reminder_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:
