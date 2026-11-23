@@ -226,4 +226,13 @@ Reconnect.ready(host);page=2;Reconnect.view_changed(host);s.online=true;Reconnec
 shown.buttons[3][1].callback();page=3;Reconnect.view_changed(host);Reconnect.bind(host,entry,nil)
 expect(not saved,'late source verification saved a page that was no longer current')
 Reconnect.cancel(host)
+host,s=fixture(false,true);host.ui.document.identity={book_id='42',file_id='file',book_version=1}
+host.ui.document.isXPointerInCurrentPage=function(_,point) return point=='xp'..page end
+Reconnect.ready(host);Reconnect.bind(host,entry,nil);page=2;Reconnect.view_changed(host);Reconnect.suspend(host)
+expect(saved and saved.xpointer=='xp2' and not host._native_direct_reconnect.dirty,
+    'suspend did not checkpoint the offline page')
+host._weread_suspended=true;s.online=true;Reconnect.connected(host);expect(#tasks==0,'suspended reconnect showed a prompt')
+host._weread_suspended=nil;Reconnect.connected(host);pump()
+expect(shown and shown.buttons[1][1].id=='reconnect_cloud','checkpointed offline page was not offered after resume')
+Reconnect.cancel(host)
 print('PASS: native offline reconnect choices and session guards ('..checks..' checks)')
