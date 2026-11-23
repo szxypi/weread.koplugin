@@ -22,13 +22,14 @@ function M.new(mode,expect,roots,cb,config)
     local grant={vid='900000',deviceId='eink334691225'..string.rep('1',19),accessToken='synthetic-access',refreshToken='synthetic-refresh'}
     function credentials_store:read() return grant,state.revision,nil,state.pending end
     f.native,f.web=Native.capture(settings,credentials_store),Web.capture(settings)
-    f.account=Account(grant.vid);local start=f.clock-86400;local day=A.day(start);local month=Dates.period_start('monthly',start)
+    f.account=Account(grant.vid);local start=f.clock-(config.current_day and 20 or 86400)
+    local day=A.day(start);local month=Dates.period_start('monthly',start)
     f.ledger=Ledger:new(f.root);f.coverage=Coverage:new(f.root,function() return start-100 end);assert(f.coverage:initialize())
     local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=f.book_version,
         file_id=f.file_id,version_source=config.version_source or 'epub_snapshot'}))
     assert(f.ledger:collect(f.account,window,{{page='1',start_time=start,duration=2}},start+2,true))
     f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,
-        {allow_cb=cb,allow_native=config.version_source=='native_direct'})).selection
+        {allow_cb=cb,allow_native=config.version_source=='native_direct',current_day=config.current_day})).selection
     f.client={settings=settings,json_encode=function(_s,x) return Json.encode(x) end,json_decode=function(_s,x) return Json.decode(x) end}
     f.journal=Journal:new{coverage=f.coverage,ledger=f.ledger,codec=f.client,now=function() return f.clock end,nonce=function() return string.rep('1',32) end}
     local function progress(web)
@@ -85,7 +86,8 @@ function M.new(mode,expect,roots,cb,config)
         else error('unexpected native route') end
         return Json.encode(data),200
     end
-    f.options={account=f.account,experimental_cb=cb==true,is_current=function() return f.current end,now=function() return f.clock end,random=function() return 123 end,
+    f.options={account=f.account,experimental_cb=cb==true,allow_current_native=config.current_day==true,
+        is_current=function() return f.current end,now=function() return f.clock end,random=function() return 123 end,
         sleep=function(s) f.clock=f.clock+s end,observe_source=function(_client,_web,selection,_refs,previous)
             f.source_reads=f.source_reads+1;expect(selection.file_id==f.file_id)
             if f.mode=='source_changed' and previous then error('source changed') end

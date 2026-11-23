@@ -136,8 +136,9 @@ local function render(host,context,kind,value,args)
             {text=_('Covered time records'),mandatory=seconds(summary.covered),callback=function() load(host,context,'page',{category='covered',cursors={0},index=1}) end},
             {text=_('Confirmed transferred time'),mandatory=seconds(summary.confirmed)},
             {text=_('Check saved time'),callback=function() load(host,context,'selection',{}) end},
+            {text=_('Check today’s E-Ink chapter time'),callback=function() load(host,context,'selection',{current_day=true}) end},
             {text=_('Refresh local records'),callback=function() M.show(host) end},
-            {text=_('Transfer past days in batches. Today’s records stay on this device.')},
+            {text=_('Historical and today’s E-Ink batches are checked separately.')},
         }
         if value.record then table.insert(items,6,{text=_('Review unfinished transfer'),callback=function()
             load(host,context,'transfer_record',{})
@@ -176,19 +177,22 @@ local function render(host,context,kind,value,args)
         dialog(host,context,text,function() load(host,context,'page',args.back) end)
     elseif kind=='selection' then
         local chosen=value.selection
+        local selection_args=args.current_day and {current_day=true} or {}
         local text=chosen and value.title..'\n'..T(_('Local duplicate check: %1'),seconds(chosen.seconds))
             ..'\n'..time_label(chosen.protocol_rows[1]) or _('No locally verified time is available in this check.')
         local actions=chosen and {
             {text='Transfer this batch',callback=function() transfer(host,context,'send',chosen) end},
             {text='Skip this book for now',callback=function()
-                context.excluded[chosen.book_id]=true;load(host,context,'selection',{})
+                context.excluded[chosen.book_id]=true;load(host,context,'selection',selection_args)
             end},
         } or {}
         local details=selection_diagnostics(value)
         actions[#actions+1]={text='Why some time was not selected',callback=function()
-            dialog(host,context,details,function() load(host,context,'selection',{}) end)
+            dialog(host,context,details,function() load(host,context,'selection',selection_args) end)
         end}
-        dialog(host,context,text..'\n\n'.._('Only the displayed historical batch is sent. Uncertain requests are kept and never resent.'),
+        dialog(host,context,text..'\n\n'.._(args.current_day
+            and 'Only the displayed current-day batch is sent. Uncertain requests are kept and never resent.'
+            or 'Only the displayed historical batch is sent. Uncertain requests are kept and never resent.'),
             function() load(host,context,'summary',{}) end,actions)
     elseif kind=='transfer_record' then
         local record=value.record
@@ -224,7 +228,7 @@ transfer=function(host,context,mode,input)
         local journal=require('weread.lib.readtime_transfer_store'):new{ledger=host.offline_time.store,
             coverage=host.readtime_coverage or Coverage:new(host.settings.data_dir),codec=host.client}
         host.offline_time_transfer_service=require('weread.lib.readtime_transfer_service'):new{settings=host.settings,client=host.client,
-            scheduler=UI,journal=journal,task_options={experimental_cb=true},acquire=function(book)
+            scheduler=UI,journal=journal,task_options={experimental_cb=true,allow_current_native=true},acquire=function(book)
                 return require('weread.lib.readtime_transfer_lease').acquire(host,book,current)
             end}
     else
@@ -351,7 +355,7 @@ load=function(host,context,kind,args)
             return {entry=entry,coverage=assert(coverage:preview_individual(context.account,{entry.source}))}
         end
         local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account,nil,
-            {historical=true,allow_cb=true,allow_native=true,exclude_book_ids=context.excluded}))
+            {historical=not args.current_day,current_day=args.current_day==true,allow_cb=true,allow_native=true,exclude_book_ids=context.excluded}))
         result.title=result.selection and title(host,result.selection.book_id) or nil;return result
     end,function(value)
         if not owns(host,context) or context.operation~=operation then

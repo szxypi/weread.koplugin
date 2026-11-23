@@ -124,7 +124,7 @@ end}
 host.offline_time_transfer_service=nil
 Review.show(host);deliver();choose('Check saved time');deliver()
 host._offline_time_detail.buttons[2][1].callback()
-eq(service_options.task_options.experimental_cb,true);eq(dispatched.mode,'send')
+eq(service_options.task_options.experimental_cb,true);eq(service_options.task_options.allow_current_native,true);eq(dispatched.mode,'send')
 dispatched.callback({kind='unconfirmed'});Review.close(host)
 host.offline_time_transfer_service=nil
 package.loaded['weread.lib.readtime_transfer_service']=saved_service_module
@@ -236,6 +236,21 @@ dispatched=nil;Review.show(host);deliver();choose('Check saved time');deliver()
 host._offline_time_detail.buttons[2][1].callback();eq(dispatched,nil);deliver();eq(dispatched,nil);deliver()
 eq(direct_scans,2);eq(dispatched.mode,'send');eq(dispatched.input.native_direct,true);eq(dispatched.refs[1].file,direct_ref.file)
 dispatched.callback({kind='unconfirmed'});eq(direct_ledger:summary(account).pending,2)
+-- Today's explicit native path is separate from historical selection.
+local old_time=os.time;local fake_now=1700007200;rawset(os,'time',function() return fake_now end)
+local today_dir=root..'/today';assert(os.execute('mkdir -p '..string.format('%q',today_dir))==0)
+local today_ledger=Ledger:new(today_dir);local today_coverage=Coverage:new(today_dir,function() return fake_now-100 end)
+assert(today_coverage:initialize())
+local today_window=assert(today_ledger:begin(account,{book_id='42',stats_book=1,start_time=fake_now-20,time_zone='+08:00',
+    book_version=7,file_id=string.rep('e',64),version_source='native_direct'}))
+assert(today_ledger:collect(account,today_window,{{page='1',start_time=fake_now-20,duration=2}},fake_now-18,true))
+host.offline_time.store=today_ledger;host.readtime_coverage=today_coverage;dispatched=nil
+Review.show(host);deliver();choose('Check today’s E-Ink chapter time');deliver()
+eq(host._offline_time_detail.title:find('Only the displayed current-day batch',1,true)~=nil,true)
+host._offline_time_detail.buttons[2][1].callback();deliver();deliver()
+eq(dispatched.mode,'send');eq(dispatched.input.current_day,true);eq(dispatched.input.native_direct,true)
+dispatched.callback({kind='unconfirmed'});eq(today_ledger:summary(account).pending,2)
+rawset(os,'time',old_time)
 direct.scan_page=saved_direct_scan
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))
 print('offline_time_review_ui_spec: '..checks..' checks')

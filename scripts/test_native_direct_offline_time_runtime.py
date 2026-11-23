@@ -53,6 +53,7 @@ def run(runtime):
                     (Path(root) / 'plugins').mkdir()
                     extract_candidate(candidate, Path(root) / 'plugins')
                     env = dict(os.environ, KO_HOME=root, XDG_RUNTIME_DIR=str(xdg), LD_LIBRARY_PATH=str(runtime / 'libs'),
+                               TZ='Asia/Shanghai',
                                SDL_VIDEODRIVER='dummy', EMULATE_READER='1', EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8',
                                EMULATE_READER_W=str(width), EMULATE_READER_H=str(height), EMULATE_READER_DPI=str(dpi),
                                WEREAD_SYNTHETIC='1')
@@ -75,7 +76,7 @@ def run(runtime):
                                            capture_output=True, timeout=150)
                     assert frame(probe, 'WEREAD_DIRECT_OFFLINE_TIME=') == dict(ok=True, network_blocked=True,
                         real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, online_capture=True,
-                        source_discovery=True, source_ui=True,
+                        source_discovery=True, source_ui=True, current_day_ui=True,
                         account_isolated=True, ordinary_path_isolated=True)
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native chapter offline time capture at both KOReader sizes')

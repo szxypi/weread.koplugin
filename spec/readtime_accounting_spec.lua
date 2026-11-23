@@ -22,5 +22,11 @@ for _i,kind in ipairs({'today','zone','cross_day'}) do
     if kind=='cross_day' then v[1].start_time=day+86399 end
     expect(not pcall(M.window,v,'42',now))
 end
+local today={{start_time=now-2,duration=2,time_zone='+08:00',book_version=7}}
+expect(M.window(today,'42',now,true).day==M.day(now))
+expect(not pcall(M.window,rows,'42',now,true))
+expect(not pcall(M.window,today,'CB_Synthetic',now,true))
+local wrong_zone=F.clone(today);wrong_zone[1].time_zone='+00:00'
+expect(not pcall(M.window,wrong_zone,'42',now,true))
 expect(meta.months[month].readTimes[month]==0 and meta.months[month].totalReadTime==5)
 print('readtime_accounting_spec: '..n..' checks')

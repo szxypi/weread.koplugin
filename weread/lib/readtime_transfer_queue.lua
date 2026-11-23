@@ -15,6 +15,8 @@ function M:select(account,book_id,options)
     options=options or {}
     local allow_cb=options.allow_cb==true
     local allow_native=options.allow_native==true
+    local current_day=options.current_day==true
+    if current_day and (not allow_native or options.historical) then return nil,'invalid_selection' end
     if not C.account(account) or book_id~=nil and not (C.id(book_id) or allow_cb and C.cb_id(book_id)) then return nil,'invalid_selection' end
     local excluded=options.exclude_book_ids or {};local excluded_count=0
     if type(excluded)~='table' then return nil,'invalid_selection' end
@@ -44,7 +46,8 @@ function M:select(account,book_id,options)
                 if not C.array(range,2,2) or not C.integer(range[1],row.start_time,row.start_time+row.duration-1)
                     or not C.integer(range[2],range[1]+1,row.start_time+row.duration) then return nil,'invalid_page' end
             end
-            if not C.verified(row,now,allow_cb,allow_native) then report.unsupported=report.unsupported+row.duration
+            if not C.verified(row,now,allow_cb,allow_native) or current_day and row.version_source~='native_direct' then
+                report.unsupported=report.unsupported+row.duration
             elseif excluded[row.book_id] then report.skipped=report.skipped+row.duration
             elseif (not book_id or row.book_id==book_id) and same(row,selected) then
                 candidates[#candidates+1]=row;blocked[row.id]=entry.blocked
@@ -61,13 +64,14 @@ function M:select(account,book_id,options)
                 if not split then return nil,'invalid_page' end
                 report.conflicting=report.conflicting+split.covered
                 for _j,item in ipairs(split.parts) do
-                    if not options.historical then
+                    if not options.historical and not current_day then
                         item.row_id=part.row_id;available.parts[#available.parts+1]=item
                     else
                         local first,last=item.start_time,item.start_time+item.duration
                         while first<last do
                             local day=Day(first);local finish=math.min(last,day+86400)
-                            if by_row[part.row_id].time_zone=='+08:00' and day<Day(now) and (not historical_day or day==historical_day) then
+                            local allowed_day=current_day and day==Day(now) or not current_day and day<Day(now)
+                            if by_row[part.row_id].time_zone=='+08:00' and allowed_day and (not historical_day or day==historical_day) then
                                 historical_day=day
                                 available.parts[#available.parts+1]={row_id=part.row_id,start_time=first,duration=finish-first}
                             else
@@ -103,6 +107,7 @@ function M:select(account,book_id,options)
             if selected.seconds==0 then return {selection=false,report=report} end
             table.sort(selected.parts,function(a,b) return a.start_time<b.start_time end)
             local complete=C.select(selected.rows,{parts=selected.parts},now,selected.book_id,allow_cb,allow_native)
+            if complete and current_day then complete.current_day=true end
             return {selection=assert(complete),report=report}
         end
         if #page.rows==0 or page.last_id~=cursor then return nil,'invalid_page' end

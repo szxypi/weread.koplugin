@@ -257,8 +257,9 @@ expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.co
 -- the source verifier is substituted with a deterministic read-only proof.
 local Direct=require('weread.lib.native_direct_readtime_source');local direct_observe=Direct.observe
 local direct_ref={kind='native_direct',file='/synthetic-direct.epub',chapter_uid='7',source_sha256=string.rep('b',64)}
-local function direct_fixture(mode)
-    local item=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,false,{version_source='native_direct'})
+local function direct_fixture(mode,current_day)
+    local item=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,false,
+        {version_source='native_direct',current_day=current_day})
     item.options.observe_source=nil
     Direct.observe=function(_client,_settings,account,selection,file,_native,_web,current,previous)
         item.source_reads=item.source_reads+1
@@ -293,6 +294,46 @@ record=f.journal:pending(f.account);expect(result.kind=='unconfirmed' and record
 f.applied=true;f.mode=nil;local direct_configs=f.configs
 result=Task.resolve(f.client,f.settings,f.native,f.web,record,{direct_ref},f.journal,f.options)
 expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==direct_configs,'native read-only resolution')
+f=direct_fixture(nil,true)
+expect(f.selection.current_day==true,'current native time was not selected')
+f.options.allow_current_native=false
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==0,'current time bypassed explicit gate')
+f.options.allow_current_native=true
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==2,'current native time did not settle')
+record=assert(f.journal:get(f.account,result.attempt))
+expect(record.metadata.protocol=='native-current-time-cst-v1','current time protocol not distinguished')
+f=direct_fixture('no_ack',true)
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='unconfirmed' and f.posts==1,'current missing acknowledgment not retained')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==1,'current uncertain time was resent')
+f=direct_fixture('no_delta',true)
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+record=f.journal:pending(f.account);expect(result.kind=='unconfirmed' and record.phase=='acknowledged')
+f.applied=true;f.mode=nil;direct_configs=f.configs
+result=Task.resolve(f.client,f.settings,f.native,f.web,record,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==direct_configs,'current read-only resolution')
+f=direct_fixture(nil,true)
+local original_request=f.client.request
+f.client.request=function(self,options)
+    local value,code=original_request(self,options)
+    if options.url:find('/config?',1,true) then f.clock=require('weread.lib.readtime_accounting').day(f.clock)+86401 end
+    return value,code
+end
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==0,'current batch crossed midnight before dispatch')
+f=direct_fixture(nil,true);original_request=f.client.request
+f.client.request=function(self,options)
+    local value,code=original_request(self,options)
+    if options.method=='POST' then f.clock=require('weread.lib.readtime_accounting').day(f.clock)+86401 end
+    return value,code
+end
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='unconfirmed' and result.attempted and f.posts==1,'midnight after dispatch was not retained')
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(not result.attempted and f.posts==1,'midnight uncertainty was resent')
 Direct.observe=direct_observe
 -- Exercise the real native source proof and transfer adapter together. Only
 -- the chapter fetches and archive lookup are synthetic; verification,

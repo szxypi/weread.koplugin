@@ -143,6 +143,21 @@ result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.s
 result=assert(queue:select(account,nil,{historical=true,allow_native=true}))
 eq(result.selection.seconds,2);eq(result.selection.native_direct,true);eq(#result.selection.rows,1)
 eq(result.selection.rows[1].version_source,'native_direct');eq(ledger:summary(account).pending,5)
+local current=require('weread.lib.readtime_accounting').day(200000)
+ledger,_,queue=fixture({{start_time=current-60,duration=2,origin='native_direct'},
+    {start_time=current+10,duration=3,origin='native_direct'},
+    {start_time=current+20,duration=4,origin='epub_snapshot'}})
+result=assert(queue:select(account,nil,{allow_native=true,current_day=true}))
+eq(result.selection.current_day,true);eq(result.selection.native_direct,true);eq(result.selection.seconds,3)
+eq(result.selection.parts[1].start_time,current+10);eq(ledger:summary(account).pending,9)
+eq(queue:select(account,nil,{current_day=true}),nil)
+eq(queue:select(account,nil,{current_day=true,allow_native=true,historical=true}),nil)
+ledger,_,queue=fixture({{start_time=current-1,duration=3,origin='native_direct'}})
+result=assert(queue:select(account,nil,{current_day=true,allow_native=true}))
+eq(result.selection.seconds,2);eq(result.selection.parts[1].start_time,current)
+result=assert(queue:select(account,nil,{historical=true,allow_native=true}))
+eq(result.selection.seconds,1);eq(result.selection.parts[1].start_time,current-1)
+eq(ledger:summary(account).pending,3)
 -- Skipping one book is a read-only view filter and cannot starve another book.
 ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2},
                         {book_id='42',start_time=100010,duration=3}})

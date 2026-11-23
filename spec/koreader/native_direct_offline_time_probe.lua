@@ -125,8 +125,22 @@ assert(reference and reference.kind=='native_direct' and reference.file and refe
 local saved=assert(require('weread.lib.native_direct_cache').identify(host.settings,scope.vid,reference.file,function() return true end))
 assert(saved.file_id==first_row.file_id,'UI sent a different chapter source')
 assert((saved.chapter_idx~=nil)==input.indexed,'fixture did not exercise the expected cached chapter index')
+sent.callback({kind='unavailable'});host:closeOfflineTimeUI()
+collector.store,host.readtime_coverage=actual_store,actual_coverage;sent=nil
+host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
+item=nil
+for _,row in ipairs(host._offline_time_menu.item_table) do
+    if row.text==tr('Check today’s E-Ink chapter time') then item=row end
+end
+assert(item,'current-day time action missing');item.callback()
+pump(function() return host._offline_time_detail~=nil end);submit=nil
+for _,row in ipairs(host._offline_time_detail.buttons) do for _,button in ipairs(row) do
+    if button.text==tr('Transfer this batch') then submit=button end
+end end
+assert(submit,'current-day native batch was not offered');submit.callback();pump(function() return sent~=nil end)
+assert(sent.mode=='send' and sent.owner==account and sent.selection.native_direct==true
+    and sent.selection.current_day==true and sent.guard(),'current-day batch was not sent to the service')
 sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
-collector.store,host.readtime_coverage=actual_store,actual_coverage
 host.isNetworkConnected=function() return false end
 local previous=collector:status().pending
 host.settings:set('account',{user_vid='87654321',name='Other',login_method='qr'})
@@ -136,5 +150,5 @@ pump(function() return host._native_offline_time and host._native_offline_time.s
 assert(not collector.active and collector:status().pending==0,'foreign account recorded or saw previous time')
 assert(collector.store:summary(account).pending==previous,'old account records changed')
 print('WEREAD_DIRECT_OFFLINE_TIME='..json.encode{ok=true,network_blocked=true,real_statistics=true,
-    pause_resume=true,deduplicated=true,chapter_change=true,online_capture=true,source_discovery=true,source_ui=true,
+    pause_resume=true,deduplicated=true,chapter_change=true,online_capture=true,source_discovery=true,source_ui=true,current_day_ui=true,
     account_isolated=true,ordinary_path_isolated=true})

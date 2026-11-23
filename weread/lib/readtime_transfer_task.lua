@@ -123,6 +123,9 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         assert(type(selection)=='table' and selection.rows_hash==C.digest(selection.rows) and selection.parts_hash==C.digest(selection.parts),'readtime_transfer/selection')
         local cb=C.cb_id(selection.book_id)
         assert(not cb or options.experimental_cb==true,'readtime_transfer/cb_disabled')
+        local current_day=selection.current_day==true
+        assert(selection.current_day==nil or current_day and selection.native_direct==true
+            and options.allow_current_native==true,'readtime_transfer/current_disabled')
         local account=Account(selected.scope.vid);assert(C.account(account),'readtime_transfer/account')
         assert(options.account==account,'readtime_transfer/account')
         local pending,why=journal:pending(account);assert(not pending and not why,'readtime_transfer/pending')
@@ -134,7 +137,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         end
         assert(C.digest(rebuilt.protocol_rows)==C.digest(selection.protocol_rows),'readtime_transfer/intervals')
         local selection_hash=C.digest(selection)
-        local window=Accounting.window(selection.protocol_rows,selection.book_id,now())
+        local window=Accounting.window(selection.protocol_rows,selection.book_id,now(),current_day)
         assert(window.seconds==selection.seconds and window.version==selection.book_version and C.hash(selection.file_id),'readtime_transfer/source')
         local source=observe(client,web,selection,references)
         assert(window.version~=0 or cb and type(source)=='table' and source.format=='web_txt','readtime_transfer/source')
@@ -159,7 +162,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         local inner_random=random();local envelope={timestamp=stamp*1000,random=random(),current_zone='+08:00'}
         if cb then body=Signing.cb_batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,inner_random,envelope,summary)
         else body=Signing.batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,inner_random,envelope) end
-        metadata={protocol=cb and 'native-historical-time-cst-cb-v1' or 'native-historical-time-cst-v1',position_contract=Point.CONTRACT,book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
+        metadata={protocol=current_day and 'native-current-time-cst-v1' or cb and 'native-historical-time-cst-cb-v1' or 'native-historical-time-cst-v1',position_contract=Point.CONTRACT,book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
             seconds=window.seconds,day=window.day,created_at=stamp,device_hash=C.digest(selected.credentials.deviceId),source=source,native_hash=before.native_hash,web_hash=before.web_hash,
             counts=before.counts,shelf_hash=before.shelf_hash,months=before.months,request_hash=C.digest(body)}
         Accounting.validate(metadata)
@@ -206,8 +209,10 @@ function M.resolve(client,settings,selected,web,record,references,journal,option
     local ok=pcall(function()
         local m=record.metadata
         assert(options.account==Account(selected.scope.vid) and record.account==options.account,'readtime_transfer/account')
-        local identity=m.protocol=='native-historical-time-cst-v1' and C.id(m.book_id)
+        local identity=(m.protocol=='native-historical-time-cst-v1' or m.protocol=='native-current-time-cst-v1') and C.id(m.book_id)
             or m.protocol=='native-historical-time-cst-cb-v1' and C.cb_id(m.book_id)
+        assert(m.protocol~='native-current-time-cst-v1' or type(m.source)=='table' and m.source.kind=='native_direct',
+            'readtime_transfer/metadata')
         local zero= C.cb_id(m.book_id) and m.book_version==0 and type(m.source)=='table' and m.source.format=='web_txt'
         assert(identity and C.hash(m.file_id)
             and (zero or C.integer(m.book_version,1,2147483647)) and C.integer(m.created_at,1,now())
