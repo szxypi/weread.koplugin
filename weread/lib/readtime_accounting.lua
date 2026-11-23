@@ -40,10 +40,11 @@ function M.check(metadata,counts,months)
     local expected=copy(metadata.counts);expected.readingTime=expected.readingTime+metadata.seconds
     local target=P.same_counts(expected,counts)
     if not base and not target then return nil end
-    local unchanged=Stats.compare(metadata.months,months)
+    local allow_added_zero=metadata.protocol=='native-current-time-cst-v1'
+    local unchanged=Stats.compare(metadata.months,months,allow_added_zero)
     local matched
     for _i,candidate in ipairs(M.expected(metadata)) do
-        local result=Stats.compare(candidate,months)
+        local result=Stats.compare(candidate,months,allow_added_zero)
         if result then matched=result;matched.read_days_delta=months[month].readDays-metadata.months[month].readDays end
     end
     if target and matched then matched.kind='target';return matched end

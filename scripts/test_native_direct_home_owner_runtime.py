@@ -21,9 +21,16 @@ class StoreHandler(Handler):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
         if getattr(self.server,'time_preflight',False):
             value=None
+            if getattr(self.server,'live_time',False) and target.hostname=='i.weread.qq.com' \
+                    and target.path=='/book/batchUploadProgress' and self.command=='POST':
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                self.server.valid &= len(request.get('books',[]))==1 and request['books'][0].get('bookId')=='42'
+                if self.server.time_ack:
+                    self.server.time_delta+=request['books'][0]['readingTime'];value={'succ':1}
+                else:value={'succ':0}
             if target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
                 value=dict(timestamp=int(time.time()),bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,
-                    summary='Synthetic point',readingTime=100,recordReadingTime=0,ttsTime=0)
+                    summary='Synthetic point',readingTime=100+getattr(self.server,'time_delta',0),recordReadingTime=0,ttsTime=0)
                 if self.server.no_position:
                     value.update(chapterUid=0,chapterOffset=0,progress=0,readingTime=0)
                     value.pop('chapterIdx');value.pop('summary')
@@ -37,7 +44,11 @@ class StoreHandler(Handler):
                 value=dict(data=[dict(bookId='42',book=dict(bookId='42',bookVersion=1),
                     updated=[dict(chapterUid=37,chapterIdx=1),dict(chapterUid=38,chapterIdx=2)])])
             elif target.hostname=='i.weread.qq.com' and target.path=='/readdata/detail' and self.command=='GET':
-                month=int(parse_qs(target.query)['baseTime'][0]);value=dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0)
+                month=int(parse_qs(target.query)['baseTime'][0]);delta=getattr(self.server,'time_delta',0)
+                day=(int(time.time())+28800)//86400*86400-28800
+                value=dict(baseTime=month,readTimes={str(day):delta} if delta else {},totalReadTime=delta,readDays=int(delta>0))
+                if delta and getattr(self.server,'time_add_zero',False):
+                    value['readTimes'][str(month if month!=day else month+86400)]=0
             elif target.hostname=='i.weread.qq.com' and target.path=='/config' and self.command=='GET':
                 value=dict(token='synthetic-config')
             elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET':

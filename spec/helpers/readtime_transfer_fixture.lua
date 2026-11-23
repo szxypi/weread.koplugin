@@ -85,6 +85,7 @@ function M.new(mode,expect,roots,cb,config)
             if f.applied then
                 data.totalReadTime=7
                 if f.mode=='current_day' then data.readTimes[tostring(A.day(f.clock))]=2 else data.readTimes[tostring(day)]=7 end
+                if f.mode=='added_zero' then data.readTimes[tostring(month+2*86400)]=0 end
             else data.readTimes[tostring(month)]=0;data.readTimes[tostring(month+86400)]=0 end
         elseif options.url:find('/config?',1,true) then f.configs=(f.configs or 0)+1;data={token='synthetic-config'}
         elseif options.url:find('/feature?',1,true) then data={feature={}};if f.mode=='cancel_pre' then f.current=false end

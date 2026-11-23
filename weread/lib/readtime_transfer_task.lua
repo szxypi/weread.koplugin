@@ -102,6 +102,7 @@ local function verify(client,web,selection,references,journal,record,metadata,sn
                 assert(current(),'readtime_transfer/stale')
                 local audit={readbacks=2,seconds=metadata.seconds,observations_hash=hash,removed_zero_buckets=checked.removed_zero_buckets,
                     read_days_delta=checked.read_days_delta,checked_at=now(),source_unchanged=true,positions_unchanged=true}
+                if checked.added_zero_buckets~=nil then audit.added_zero_buckets=checked.added_zero_buckets end
                 assert(journal:outcome(record,true,audit),'readtime_transfer/confirm_save')
                 out.removed_zero_buckets=checked.removed_zero_buckets
                 out.kind=journal:settle(record) and 'confirmed' or 'saved_confirmation';return

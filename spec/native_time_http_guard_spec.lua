@@ -15,10 +15,14 @@ local function fixture(options)
         state.calls=state.calls+1
         if options.throw then error('synthetic transport') end
         if options.oversized then request.sink(string.rep('x',65537));return reply,200,{} end
-        request.sink(reply);request.sink(nil)
-        return options.mismatch and self:json_encode({succ=1}) or nil,options.code or 200,{}
+        local account=request.url:find('/api/userInfo?',1,true) and options.account_response
+        local text=account and self:json_encode({vid=options.wrong_owner and '900001' or grant.vid}) or reply
+        local response_headers=account and {['set-cookie']=options.account_response} or {}
+        request.sink(text);request.sink(nil)
+        return options.mismatch and self:json_encode({succ=1}) or nil,options.code or 200,response_headers
     end
     local guard=Guard.install(client,{grant=grant,book_id=options.book or (options.imported and 'CB_Synthetic' or '900001'),imported=options.imported,
+        native_direct=options.direct,book_version=options.version,
         chapter_uid='11',cookies=cookies,months={1698796800},now=function() return 1700000000 end,
         current=function() return state.current end,selection=function() return {synthetic=true} end,
         record=function() return {phase='claimed',synthetic=true} end,rpc=function(kind,value)
@@ -37,6 +41,48 @@ local function fixture(options)
             persist_response_cookies=false,sensitive=true,sink=function() return 1 end}
     end
     return client,guard,state,native,web,grant,cookies
+end
+
+do
+    expect(not pcall(fixture,{direct=true}))
+    expect(not pcall(fixture,{direct=true,version=1,imported=true}))
+    local client,guard,state,native=fixture({direct=true,version=7})
+    local body={bookIds={'900001'},synckeys={0},updateTimes={0},maxfreeIdx={0}}
+    local download='https://i.weread.qq.com/book/chapterdownload?bookId=900001&chapters=0%2C11&bookType=epub&bookVersion=7'
+        ..'&pf=wechat_wx-2001-android-100-weread&pfkey=pfKey&zoneId=1&quote=&release=1&stopAutoPayWhenBNE=1&preload=2&preview=0&offline=1'
+    local reads={native('https://i.weread.qq.com/book/info?bookId=900001','GET','native_chapter_info'),
+        native('https://i.weread.qq.com/book/chapterInfos','POST','native_chapter_catalog',client:json_encode(body)),
+        native(download,'GET','native_chapter_download')}
+    for _,request in ipairs(reads) do expect(select(2,client:request(request))==200) end
+    local invalid={native(download:gsub('preview=0','preview=1'),'GET','native_chapter_download'),
+        native(download:gsub('chapters=0%%2C11','chapters=0%%2C12'),'GET','native_chapter_download'),
+        native(download:gsub('bookVersion=7','bookVersion=8'),'GET','native_chapter_download'),
+        native('https://i.weread.qq.com/book/chapterInfos','POST','native_chapter_catalog',
+            client:json_encode({bookIds={'900002'},synckeys={0},updateTimes={0},maxfreeIdx={0}}))}
+    for _,request in ipairs(invalid) do expect(not pcall(client.request,client,request)) end
+    expect(state.calls==#reads and not guard.write_attempted)
+    local old,_,oldstate,oldnative=fixture()
+    expect(not pcall(old.request,old,oldnative(download,'GET','native_chapter_download')) and oldstate.calls==0)
+end
+
+do
+    local client,guard,state,_,web,grant,cookies=fixture({direct=true,version=7,account_response='wr_skey'..'=synthetic-rotated; Path=/'})
+    local account=web('https://weread.qq.com/api/userInfo?userVid=900000','GET',nil,'source_currentness',true)
+    expect(select(2,client:request(account))==200)
+    local rotated=F.clone(cookies);rotated.wr_skey='synthetic-rotated'
+    local reader=web(Protocol.reader_url('900001','11'),'GET',nil,'source_currentness')
+    reader.headers.Cookie=Cookie.to_header(rotated)
+    expect(select(2,client:request(reader))==200 and state.calls==2 and not guard.write_attempted)
+    reader.headers.Cookie=reader.headers.Cookie..'; injected=1'
+    expect(not pcall(client.request,client,reader) and state.calls==2)
+    local bad,badguard,badstate,_,badweb=fixture({direct=true,version=7,wrong_owner=true,account_response='wr_skey'..'=synthetic-rotated; Path=/'})
+    expect(not pcall(bad.request,bad,badweb('https://weread.qq.com/api/userInfo?userVid=900000','GET',nil,'source_currentness',true))
+        and badstate.calls==1 and not badguard.write_attempted)
+    local duplicate,_,duplicate_state,_,duplicate_web=fixture({direct=true,version=7,
+        account_response={'wr_skey'..'=synthetic-one; Path=/','wr_skey'..'=synthetic-two; Path=/'}})
+    expect(not pcall(duplicate.request,duplicate,duplicate_web('https://weread.qq.com/api/userInfo?userVid=900000','GET',nil,'source_currentness',true))
+        and duplicate_state.calls==1)
+    expect(grant.vid==cookies.wr_vid and cookies.wr_skey=='synthetic-cookie','rotation changed captured session')
 end
 
 do

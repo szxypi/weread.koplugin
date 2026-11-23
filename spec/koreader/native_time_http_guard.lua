@@ -36,10 +36,13 @@ local OPTION_KEYS={url=true,method=true,body=true,headers=true,skip_cookie=true,
 
 function M.install(client,config)
     local imported=type(config)=='table' and config.imported==true
+    local direct=type(config)=='table' and config.native_direct==true
     local book_valid=type(config)=='table' and (imported and Contract.cb_id(config.book_id)
         or not imported and Position.id(config.book_id) and Position.id(config.book_id)==config.book_id)
     if type(client)~='table' or type(client.request)~='function' or type(client.json_decode)~='function'
         or type(config)~='table' or config.imported~=nil and type(config.imported)~='boolean'
+        or config.native_direct~=nil and type(config.native_direct)~='boolean' or direct and imported
+        or direct and not Contract.integer(config.book_version,1,2147483647)
         or not Position.credentials(config.grant) or not book_valid
         or not Position.id(config.chapter_uid)
         or config.chapter_uid~=Position.id(config.chapter_uid) or type(config.cookies)~='table'
@@ -51,7 +54,7 @@ function M.install(client,config)
         if type(name)~='string' or not name:match('^[%w_]+$') or type(value)~='string'
             or #value<1 or #value>4096 or value:find('[^!-~]') or value:find('[;"\\]') then fail('config') end
     end
-    local cookie=Cookie.to_header(config.cookies)
+    local cookie=Cookie.to_header(config.cookies);local rotated_cookie,rotated_key
     if cookie=='' then fail('config') end
     local allowed_months,count={},0
     for _,month in ipairs(config.months) do
@@ -62,7 +65,7 @@ function M.install(client,config)
     local function binding()
         return Contract.digest({vid=config.grant.vid,accessToken=config.grant.accessToken,refreshToken=config.grant.refreshToken,
             deviceId=config.grant.deviceId,cookies=config.cookies,book_id=config.book_id,chapter_uid=config.chapter_uid,months=config.months,
-            imported=config.imported==true})
+            imported=config.imported==true,native_direct=direct,book_version=config.book_version})
     end
     local bound=binding()
     local original=client.request
@@ -73,13 +76,51 @@ function M.install(client,config)
         if not ok or value~=true or binding()~=bound then fail('session') end
     end
     local function web_headers(h,account)
-        if h.cookie~=cookie or h.vid or h.accesstoken or h.authorization then fail('headers') end
+        local key=h.cookie==cookie and config.cookies.wr_skey
+            or direct and rotated_cookie and h.cookie==rotated_cookie and rotated_key
+        if not key or h.vid or h.accesstoken or h.authorization then fail('headers') end
         local allowed={cookie=true,origin=true,referer=true,accept=true,['content-type']=true,['x-vid']=true,['x-skey']=true}
-        for key in pairs(h) do if not allowed[key] then fail('headers') end end
+        for header in pairs(h) do if not allowed[header] then fail('headers') end end
         if h.origin~=WEB then fail('headers') end
         if account then
-            if h['x-vid']~=config.grant.vid or h['x-skey']~=config.cookies.wr_skey then fail('headers') end
+            if h['x-vid']~=config.grant.vid or h['x-skey']~=key then fail('headers') end
         elseif h['x-vid'] or h['x-skey'] then fail('headers') end
+    end
+    local function capture_rotation(raw,code,response_headers)
+        if not direct or tonumber(code)~=200 then return end
+        local ok,value=pcall(client.json_decode,client,raw)
+        if not ok or type(value)~='table' or Position.id(value.vid or value.userVid)~=config.grant.vid
+            or value.vid and value.userVid and Position.id(value.vid)~=Position.id(value.userVid)
+            or value.errcode and value.errcode~=0 and value.errcode~='0'
+            or value.errCode and value.errCode~=0 and value.errCode~='0' then fail('session') end
+        local cookies
+        for key,item in pairs(response_headers or {}) do
+            if type(key)=='string' and key:lower()=='set-cookie' then
+                if cookies~=nil then fail('headers') end;cookies=item
+            end
+        end
+        rotated_cookie,rotated_key=nil,nil
+        if cookies==nil then return end
+        if type(cookies)=='string' then cookies={cookies} end
+        if type(cookies)~='table' or #cookies>32 then fail('headers') end
+        local access,key_count,vid_count=nil,0,0
+        for index,line in pairs(cookies) do
+            if type(index)~='number' or index%1~=0 or index<1 or index>#cookies
+                or type(line)~='string' or #line>16384 then fail('headers') end
+            for name,item in line:gmatch('([%w_]+)=([^;,\r\n]*)') do
+                if name=='wr_vid' then
+                    vid_count=vid_count+1;if vid_count>1 or item~=config.grant.vid then fail('headers') end
+                elseif name=='wr_skey' then
+                    key_count=key_count+1
+                    if key_count>1 or #item<8 or #item>4096 or item:find('[%z%c%s;"\\]') or item:find('[\128-\255]') then fail('headers') end
+                    access=item
+                end
+            end
+        end
+        if access then
+            local copy={};for key,item in pairs(config.cookies) do copy[key]=item end
+            copy.wr_skey=access;rotated_key=access;rotated_cookie=Cookie.to_header(copy)
+        end
     end
     local function native_headers(h)
         if h.vid~=config.grant.vid or h.accesstoken~=config.grant.accessToken
@@ -107,6 +148,17 @@ function M.install(client,config)
             native_headers(h);return 'write'
         end
         if method=='GET' and options.body==nil then
+            if direct and api=='native_chapter_info' and url==NATIVE..'/book/info?bookId='..book then
+                native_headers(h);return 'read'
+            end
+            if direct and api=='native_chapter_download' then
+                local fields={{'bookId',book},{'chapters','0,'..config.chapter_uid},{'bookType','epub'},
+                    {'bookVersion',config.book_version},{'pf','wechat_wx-2001-android-100-weread'},{'pfkey','pfKey'},
+                    {'zoneId',1},{'quote',''},{'release',1},{'stopAutoPayWhenBNE',1},{'preload',2},{'preview',0},{'offline',1}}
+                local encoded={};for _,field in ipairs(fields) do encoded[#encoded+1]=field[1]..'='..Protocol.urlencode(tostring(field[2])) end
+                if url~=NATIVE..'/book/chapterdownload?'..table.concat(encoded,'&') then fail('route') end
+                native_headers(h);return 'read'
+            end
             if api=='native_time_metadata' and url==NATIVE..'/book/info?bookId='..book
                 or api=='native_time_progress' and url==NATIVE..'/book/getProgress?bookId='..book
                 or api=='native_shelf' and url==NATIVE..'/shelf/sync'
@@ -128,6 +180,17 @@ function M.install(client,config)
                 if #stamp<10 or #stamp>16 or not stamp:match('^%d+$') or math.abs(tonumber(stamp)/1000-config.now())>60 then fail('route') end
                 web_headers(h,false);return 'read'
             end
+        end
+        if direct and method=='POST' and api=='native_chapter_catalog' and url==NATIVE..'/book/chapterInfos' then
+            native_headers(h);local value=decoded(client,options.body)
+            local keys={bookIds=true,synckeys=true,updateTimes=true,maxfreeIdx=true}
+            if not exact(value,keys) then fail('body') end
+            for key in pairs(keys) do
+                local array=value[key]
+                if type(array)~='table' or #array~=1 or array[1]~=(key=='bookIds' and book or 0) then fail('body') end
+                for index in pairs(array) do if index~=1 then fail('body') end end
+            end
+            return 'read'
         end
         if method=='POST' and api=='source_currentness' then
             web_headers(h,false)
@@ -153,7 +216,18 @@ function M.install(client,config)
         state.requests=state.requests+1;if state.requests>100 then fail('limit') end
         if kind~='write' then
             local safe={};for key,value in pairs(options) do safe[key]=value end;safe.redirect=false
+            local account_response=direct and options.diagnostic_api=='source_currentness'
+                and options.url==WEB..'/api/userInfo?userVid='..config.grant.vid
+            local captured,size={},0
+            if account_response then
+                local sink=options.sink
+                safe.sink=function(chunk,...)
+                    if chunk then size=size+#chunk;if size>65536 then return nil,'native_time_http/response' end;captured[#captured+1]=chunk end
+                    return sink(chunk,...)
+                end
+            end
             local raw,code,response_headers,status=original(self,safe)
+            if account_response then capture_rotation(type(raw)=='string' and raw or table.concat(captured),code,response_headers) end
             current();return raw,code,response_headers,status
         end
         if state.write_attempted then fail('replay') end

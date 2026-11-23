@@ -1,4 +1,4 @@
--- Exact monthly duration comparison; audit removal of existing zero buckets.
+-- Exact monthly duration comparison; audit sparse zero bucket changes.
 -- This pure helper grants no network, queue or receipt authority.
 local Data=require('weread.lib.statistics_data')
 local Stats=require('weread.lib.read_stats')
@@ -26,14 +26,19 @@ function M.validate(months)
     end
     assert(count>=1 and count<=2,'time_statistics/months');return months
 end
-function M.compare(expected,observed)
+function M.compare(expected,observed,allow_added_zero)
     M.validate(expected);M.validate(observed)
-    local removed=0
+    local removed,added=0,0
     for month,left in pairs(expected) do
         local right=observed[month]
         if not right then return nil end
         for key in pairs(FIELDS) do if key~='readTimes' and left[key]~=right[key] then return nil end end
-        for key,value in pairs(right.readTimes) do if left.readTimes[key]==nil or left.readTimes[key]~=value then return nil end end
+        for key,value in pairs(right.readTimes) do
+            if left.readTimes[key]==nil then
+                if not allow_added_zero or value~=0 then return nil end
+                added=added+1;if added>2 then return nil end
+            elseif left.readTimes[key]~=value then return nil end
+        end
         for key,value in pairs(left.readTimes) do
             if right.readTimes[key]==nil then
                 if value~=0 then return nil end
@@ -42,6 +47,8 @@ function M.compare(expected,observed)
         end
     end
     for month in pairs(observed) do if not expected[month] then return nil end end
-    return {removed_zero_buckets=removed}
+    local result={removed_zero_buckets=removed}
+    if allow_added_zero then result.added_zero_buckets=added end
+    return result
 end
 return M

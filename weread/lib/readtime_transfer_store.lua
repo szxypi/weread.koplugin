@@ -6,11 +6,12 @@ local PHASES={prepared=true,claimed=true,acknowledged=true,unknown=true,confirme
 local function audit_valid(audit,seconds)
     if type(audit)~='table' then return false end
     local fields={readbacks=true,seconds=true,observations_hash=true,removed_zero_buckets=true,read_days_delta=true,
-        checked_at=true,source_unchanged=true,positions_unchanged=true}
+        checked_at=true,source_unchanged=true,positions_unchanged=true,added_zero_buckets=true}
     for key in pairs(audit) do if not fields[key] then return false end end
-    for key in pairs(fields) do if audit[key]==nil then return false end end
+    for key in pairs(fields) do if key~='added_zero_buckets' and audit[key]==nil then return false end end
     return audit.readbacks==2 and audit.seconds==seconds and C.integer(seconds,1,600) and C.hash(audit.observations_hash)
         and C.integer(audit.removed_zero_buckets,0,62) and C.integer(audit.read_days_delta,0,1)
+        and (audit.added_zero_buckets==nil or C.integer(audit.added_zero_buckets,0,2))
         and C.integer(audit.checked_at,1,4102444800) and audit.source_unchanged==true and audit.positions_unchanged==true
 end
 local function query(db,sql,...)

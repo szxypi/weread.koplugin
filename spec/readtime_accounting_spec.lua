@@ -14,6 +14,10 @@ expect(M.check(meta,counts,target).kind=='target' and M.check(meta,counts,target
 expect(M.check(meta,meta.counts,target).kind=='lagging');expect(M.check(meta,counts,meta.months).kind=='lagging')
 local wrong=F.clone(target);wrong[month].readTimes[tostring(day)]=5;wrong[month].readTimes[tostring(M.day(now))]=2
 expect(M.check(meta,counts,wrong)==nil)
+wrong=F.clone(target);wrong[month].readTimes[tostring(tonumber(month)+3*86400)]=0
+expect(M.check(meta,counts,wrong)==nil)
+local current_meta=F.clone(meta);current_meta.protocol='native-current-time-cst-v1'
+expect(M.check(current_meta,counts,wrong).kind=='target' and M.check(current_meta,counts,wrong).added_zero_buckets==1)
 wrong=F.clone(counts);wrong.ttsTime=1;expect(M.check(meta,wrong,target)==nil)
 for _i,kind in ipairs({'today','zone','cross_day'}) do
     local v=F.clone(rows)

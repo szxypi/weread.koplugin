@@ -8,6 +8,15 @@ local before=clone(expected);expect(M.compare(expected,before).removed_zero_buck
 before[month].readTimes[a]=nil;expect(M.compare(expected,before).removed_zero_buckets==1)
 before[month].readTimes[b]=nil;expect(M.compare(expected,before).removed_zero_buckets==2)
 expect(expected[month].readTimes[a]==0 and expected[month].readTimes[b]==0)
+local extra=clone(expected);extra[month].readTimes[tostring(first+3*86400)]=0
+expect(M.compare(expected,extra)==nil)
+expect(M.compare(expected,extra,true).added_zero_buckets==1)
+extra[month].readTimes[tostring(first+4*86400)]=0
+expect(M.compare(expected,extra,true).added_zero_buckets==2)
+extra[month].readTimes[tostring(first+5*86400)]=0
+expect(M.compare(expected,extra,true)==nil)
+extra=clone(expected);extra[month].readTimes[tostring(first+3*86400)]=1
+expect(M.compare(expected,extra,true)==nil)
 for _i,change in ipairs({function(v) v[month].readTimes[tostring(first+3*86400)]=0 end,
     function(v) v[month].readTimes[month]=nil end,function(v) v[month].readTimes[month]=10 end,
     function(v) v[month].readTimes[a]=1 end,function(v) v[month].totalReadTime=11 end,
