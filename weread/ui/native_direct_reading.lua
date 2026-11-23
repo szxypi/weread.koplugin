@@ -169,7 +169,7 @@ function M.start(host,book,view,options)
         local items={};local labels=require('weread.ui.native_direct_copies').labels(rows)
         for index,row in ipairs(rows) do
             local entry=row
-            items[#items+1]={text=labels[index],callback=function()
+            items[#items+1]={text=labels[index]..(entry.pending_offline and '  ·  '.._('Offline position to review') or ''),callback=function()
                 if not current() or not ctx.menu then return end
                 local menu=ctx.menu;ctx.menu=nil;UIManager:close(menu)
                 ctx.entry=entry;ctx.phase='offline_open'
@@ -203,6 +203,9 @@ function M.start(host,book,view,options)
             end
             if phase=='offline_list' then
                 local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
+                if rows and host.library_db then
+                    pcall(require('weread.lib.native_direct_pending').mark,host.library_db,host.settings,scope,id,rows,current)
+                end
                 return rows and {rows=rows} or {error='storage'}
             elseif phase=='offline_open' then
                 local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,ctx.entry,current)
@@ -267,7 +270,8 @@ function M.start(host,book,view,options)
                     count=count+1
                 end
                 for _,entry in ipairs(rows) do
-                    if not cache.valid_entry(entry,id,scope.vid) then fail();return end
+                    if not cache.valid_entry(entry,id,scope.vid)
+                        or entry.pending_offline~=nil and entry.pending_offline~=true then fail();return end
                     local identity=entry.key..':'..tostring(entry.copy)
                     if seen[identity] then fail();return end
                     seen[identity]=true

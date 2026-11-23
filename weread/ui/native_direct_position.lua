@@ -256,8 +256,13 @@ function M.start(host,entry,options)
                 if not State.none(metadata.before) and metadata.before.chapter_uid==metadata.desired.chapter_uid
                     and metadata.before.chapter_idx==metadata.desired.chapter_idx
                     and metadata.before.chapter_offset==metadata.desired.chapter_offset then
-                    if automatic then ctx.auto_status,ctx.auto_metadata='same',metadata;M.cancel(host);return end
-                    M.cancel(host);require('weread.lib.native_direct_interval').arm_session(host,entry,ctx,metadata,'before')
+                    if automatic then
+                        local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.synced(host,entry,ctx.location) end
+                        ctx.auto_status,ctx.auto_metadata='same',metadata;M.cancel(host);return
+                    end
+                    M.cancel(host)
+                    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.synced(host,entry,ctx.location) end
+                    require('weread.lib.native_direct_interval').arm_session(host,entry,ctx,metadata,'before')
                     host:showInfo(_('The current page matches the cloud reading position.'));return
                 end
                 if not ctx.confirmed_metadata then
@@ -284,10 +289,14 @@ function M.start(host,entry,options)
                     if not ctx.is_current() then M.cancel(host);return end
                     local confirmed=out.kind=='confirmed' and token and ctx.service:accept(token)
                     if automatic then
+                        local reconnect=package.loaded['weread.ui.native_direct_reconnect']
+                        if confirmed and reconnect then reconnect.synced(host,entry,ctx.location) end
                         ctx.auto_status=confirmed and 'confirmed' or out.attempted and 'unconfirmed' or 'failed'
                         ctx.auto_metadata=confirmed and metadata or nil;M.cancel(host);return
                     end
                     M.cancel(host)
+                    local reconnect=package.loaded['weread.ui.native_direct_reconnect']
+                    if confirmed and reconnect then reconnect.synced(host,entry,ctx.location) end
                     if confirmed then require('weread.lib.native_direct_interval').arm_session(host,entry,ctx,metadata,'desired') end
                     host:showInfo(_(confirmed and 'Cloud reading position synced and checked.'
                         or out.attempted and 'The sync result could not be confirmed. Choose sync again to review it.'
@@ -302,7 +311,12 @@ function M.start(host,entry,options)
                 local messages={same='The current page matches the cloud reading position.',
                     no_chapter='There is no cloud reading position yet. Your current page is kept.',
                     target_unavailable='The cloud position could not be located in this chapter. Your current page is kept.'}
-                if messages[relation] then M.cancel(host);host:showInfo(_(messages[relation]));return end
+                if messages[relation] then
+                    M.cancel(host)
+                    local reconnect=package.loaded['weread.ui.native_direct_reconnect']
+                    if relation=='same' and reconnect then reconnect.synced(host,entry,ctx.location) end
+                    host:showInfo(_(messages[relation]));return
+                end
                 if relation=='other_chapter' then
                     local cloud=require('weread.lib.native_direct_cloud');local wanted=comparison.target
                     if not cloud.valid_target(wanted) or wanted.book_id~=entry.book_id

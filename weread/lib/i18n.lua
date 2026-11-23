@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["This chapter has a saved offline position. Open that position?"] = "本章有保存的离线阅读位置，要打开该位置吗？",
+    ["Open offline position"] = "打开离线位置",
+    ["Could not confirm the saved offline position. Please check the current page."] = "无法确认已保存的离线位置，请检查当前页面。",
+    ["Offline position to review"] = "离线进度待核对",
+    ["Could not save the offline sync reminder. Your local reading page is kept."] = "无法保存离线同步提醒，本机阅读位置仍会保留。",
     ["You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?"] = "离线期间翻过页，本机阅读位置会保留。要比较云端位置，还是同步本页？",
     ["Compare cloud position"] = "比较云端位置",
     ["Could not save this draft. It may have changed elsewhere, or storage is full."] = "无法保存草稿，可能已在其他位置修改，或存储空间不足。",

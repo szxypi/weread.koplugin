@@ -202,16 +202,24 @@ expect(upload_started==0 and s.message=='The cloud position changed during the c
     'changed cloud baseline was uploaded')
 host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);page=2;shown.ok_callback()
 expect(upload_started==0 and not host._native_direct_position,'changed page dispatched upload')
+local synced=0
+package.loaded['weread.ui.native_direct_reconnect']={synced=function(_,target,point)
+    assert(target==entry and point and point.xpointer);synced=synced+1 end}
 host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();s.result(2)
 upload_callback({kind='unconfirmed',attempted=true},nil)
 expect(not upload_accepted and s.message=='The sync result could not be confirmed. Choose sync again to review it.',
     'unconfirmed write was reported successful')
+expect(synced==0,'uncertain upload cleared an offline reminder')
 host,s=fixture();Position.start(host,entry,{upload=true});s.capture();s.result(1);shown.ok_callback();s.result(2)
 page=2;Position.on_view_changed(host);upload_callback({kind='confirmed',attempted=true},'valid')
 expect(upload_cancelled and not upload_accepted and s.infos==0 and not host._native_direct_position,
     'changed page accepted a late upload receipt')
 host,s=fixture();upload_offset=123;Position.start(host,entry,{upload=true});s.capture();s.result(1)
 expect(upload_started==0 and s.message=='The current page matches the cloud reading position.','matching position was rewritten')
+expect(synced==1,'matching cloud position did not resolve its offline reminder')
+host,s=fixture();cloud_relation='same';Position.start(host,entry,{cloud=true});s.capture();s.result(1)
+expect(synced==2 and s.message=='The current page matches the cloud reading position.',
+    'matching comparison did not resolve its offline reminder')
 host,s=fixture();review_pending={phase='pending'};upload_pending=review_pending
 Position.start(host,entry,{upload=true});expect(shown and upload_started==0,'pending write skipped review')
 shown.ok_callback();expect(shown and shown.ok_callback and not review_archived,'review skipped archival choice')
@@ -234,6 +242,7 @@ s.result(2);expect(upload_started==1,'automatic check did not dispatch')
 upload_callback({kind='confirmed',attempted=true},'valid')
 expect(auto.status=='confirmed' and auto.metadata.desired.chapter_offset==123 and upload_accepted and s.infos==0,
     'automatic success was not handed to its owner silently')
+expect(synced==3,'confirmed automatic sync did not resolve its offline reminder')
 host,s=fixture();auto=automatic();Position.start(host,entry,{upload=true,automatic=auto});s.capture();upload_offset=201;s.result(1)
 expect(auto.status=='conflict' and upload_started==0 and s.infos==0,'changed cloud baseline was automatically overwritten')
 host=fixture();auto=automatic();upload_pending={phase='pending'};Position.start(host,entry,{upload=true,automatic=auto})

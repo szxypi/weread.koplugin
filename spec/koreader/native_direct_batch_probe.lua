@@ -166,6 +166,14 @@ if input.mode=='cleanup_start' or input.mode=='cleanup_recover' or input.mode=='
         assert(not cleanup.step(settings,codec,plan,lease,1,current),'new cached mark source did not invalidate cleanup')
         database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
         database:exec('DELETE FROM native_direct_mark_source');database:close()
+        local library={accountKey=function() return owner end,
+            open=function() return require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db') end}
+        assert(require('weread.lib.native_direct_pending').save(library,settings,scope,pinned,'/synthetic.1',current))
+        local pending_plan=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#pending_plan.items==0 and pending_plan.protected==3,'pending offline page was selected')
+        assert(not cleanup.step(settings,codec,plan,lease,1,current),'new offline reminder did not invalidate cleanup')
+        database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec('DELETE FROM native_direct_offline_pending');database:close()
         settings.get_book=function() return {native_home_resume={entry=pinned}} end
         local referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
         assert(#referenced.items==0 and referenced.protected==3,'home resume chapter was selected')

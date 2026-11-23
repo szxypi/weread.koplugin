@@ -1,11 +1,17 @@
--- This reminder covers only the current reader session. KOReader remains
--- responsible for saving the local page, and no position is sent here.
+-- KOReader saves the local page; this account-bound reminder never grants
+-- authority to send a cloud position.
 local UI=require('ui/uimanager')
 local Context=require('weread.lib.source_context')
 local Path=require('weread.lib.native_direct_path')
 local Contract=require('weread.lib.native_position_contract')
 local _=require('weread.lib.plugin_util').tr
 local M={}
+local function same_entry(entry,record)
+    return type(entry)=='table' and type(record)=='table' and record.file_id==entry.file_id
+        and record.book_id==entry.book_id and record.chapter_uid==entry.chapter_uid
+        and record.version==entry.book_version and record.source_sha256==entry.source_sha256
+        and record.key==entry.key and record.copy==entry.copy
+end
 
 local function online(host)
     local method=host.isNetworkConnected or host.isNetworkOnline
@@ -29,6 +35,69 @@ end
 local function dismiss(ctx)
     if ctx.task then UI:unschedule(ctx.task);ctx.task=nil end
     if ctx.dialog then local dialog=ctx.dialog;ctx.dialog=nil;UI:close(dialog) end
+end
+local function warn(host)
+    if host.showTransientInfo then
+        host:showTransientInfo(_('Could not save the offline sync reminder. Your local reading page is kept.'),3)
+    end
+end
+local function visible(host,ctx,point)
+    local ok,value=pcall(function()
+        if ctx.reader.view and ctx.reader.view.view_mode=='scroll' then
+            local get_height=host.progress_sync and host.progress_sync.get_viewport_height
+            local height=get_height and get_height() or ctx.reader.view.dimen and ctx.reader.view.dimen.h
+            local geometry=require('weread.lib.reader_position')
+            local frame=geometry.snapshot(ctx.document,'scroll',height)
+            return geometry.contains_anchor(ctx.document,frame,point)
+        end
+        return ctx.document:isXPointerInCurrentPage(point)
+    end)
+    return ok and value==true
+end
+function M.checkpoint(host)
+    local ctx=host._native_direct_reconnect
+    if not ctx then return nil end
+    local required=ctx.offline and ctx.dirty or ctx.pending_dirty
+    if not required then return nil end
+    local point=location(ctx)
+    if not point or not ctx.entry or not current(host,ctx)
+        or ctx.pending_dirty and not Context.same_location(ctx.pending,point) then return false end
+    local identity=require('weread.lib.book_file_identity').read_document(ctx.document,ctx.entry.book_id)
+    if identity.file_id~=ctx.entry.file_id or identity.book_id~=ctx.entry.book_id
+        or identity.book_version~=ctx.entry.book_version then return false end
+    local lease=require('weread.lib.native_direct_cache').acquire(host.settings,ctx.scope.vid,ctx.entry.book_id)
+    if not lease then return false end
+    local function guard() return lease:owns() and current(host,ctx) and Context.same_location(point,location(ctx)) end
+    local ok,saved=pcall(require('weread.lib.native_direct_pending').save,host.library_db,host.settings,ctx.scope,
+        ctx.entry,point.xpointer,guard)
+    lease:release()
+    if not ok then return false end
+    if not saved then return false end
+    ctx.record={file_id=ctx.entry.file_id,book_id=ctx.entry.book_id,chapter_uid=ctx.entry.chapter_uid,
+        version=ctx.entry.book_version,source_sha256=ctx.entry.source_sha256,key=ctx.entry.key,
+        copy=ctx.entry.copy,xpointer=point.xpointer}
+    ctx.pending_dirty=false
+    return true
+end
+function M.bind(host,entry,record)
+    local ctx=host._native_direct_reconnect
+    if not ctx or not current(host,ctx) then return end
+    ctx.entry=entry
+    if same_entry(entry,record) then ctx.record=record end
+    if ctx.pending_dirty and M.checkpoint(host)==false then warn(host) end
+    if ctx.record and online(host) and not ctx.offline then
+        ctx.pending=location(ctx);M.connected(host)
+    end
+end
+function M.synced(host,entry,point)
+    local ctx=host._native_direct_reconnect
+    if not ctx or not same_entry(entry,ctx.record) or not current(host,ctx)
+        or not Context.same_location(point,location(ctx)) or not visible(host,ctx,ctx.record.xpointer) then return end
+    local record=ctx.record
+    local function guard() return current(host,ctx) and Context.same_location(point,location(ctx)) end
+    if require('weread.lib.native_direct_pending').remove(host.library_db,host.settings,ctx.scope,entry,record,guard) then
+        ctx.record=nil;ctx.dismissed=nil
+    end
 end
 function M.cancel(host)
     local ctx=host._native_direct_reconnect
@@ -56,13 +125,18 @@ function M.view_changed(host)
     if not same_reader(host,ctx) then M.cancel(host);return end
     local now=location(ctx)
     if not now then M.cancel(host);return end
-    if ctx.dialog or ctx.task then dismiss(ctx) end
-    if ctx.pending and not Context.same_location(ctx.pending,now) then ctx.pending=nil end
+    if ctx.pending and not Context.same_location(ctx.pending,now) then
+        dismiss(ctx);ctx.pending=nil;if ctx.record then ctx.dismissed=true end
+    end
     if ctx.offline or not online(host) then
         if not ctx.offline then ctx.offline=true end
         ctx.dirty=not Context.same_location(ctx.baseline,now)
     else
         ctx.baseline=now
+        local config=host.settings:get('sync',{})
+        if ctx.record and not ctx.dismissed and type(config)=='table' and config.pull_on_open==true then
+            ctx.pending=now;M.connected(host)
+        end
     end
 end
 function M.disconnected(host)
@@ -76,7 +150,10 @@ function M.disconnected(host)
 end
 function M.suspend(host)
     local ctx=host._native_direct_reconnect
-    if ctx then dismiss(ctx) end
+    if ctx then
+        if M.checkpoint(host)==false then warn(host) end
+        dismiss(ctx)
+    end
 end
 function M.connected(host)
     local ctx=host._native_direct_reconnect
@@ -88,8 +165,13 @@ function M.connected(host)
     local changed=ctx.offline and ctx.dirty and not Context.same_location(ctx.baseline,now)
     ctx.offline=false;ctx.baseline=now;ctx.dirty=false
     local settings=host.settings:get('sync',{})
-    if type(settings)~='table' or settings.pull_on_open~=true then ctx.pending=nil;return end
-    if changed then ctx.pending=now end
+    if changed then ctx.pending=now;ctx.pending_dirty=true end
+    if ctx.pending_dirty and ctx.entry and M.checkpoint(host)==false then warn(host) end
+    if type(settings)~='table' or settings.pull_on_open~=true then
+        if not ctx.pending_dirty then ctx.pending=nil end
+        return
+    end
+    if not ctx.pending and ctx.record and not ctx.dismissed then ctx.pending=now end
     if not ctx.pending or not Context.same_location(ctx.pending,now) then ctx.pending=nil;return end
     if ctx.dialog or ctx.task then return end
     local snapshot=ctx.pending
@@ -105,15 +187,33 @@ function M.connected(host)
         local dialog
         local function choose(action)
             if ctx.dialog~=dialog then return end
-            local allowed=valid();ctx.dialog=nil;ctx.pending=nil;UI:close(dialog)
-            if allowed and action then require('weread.ui.native_direct_navigation').open_position(host,action) end
+            local allowed=valid();ctx.dialog=nil;ctx.pending=nil;ctx.dismissed=true;UI:close(dialog)
+            if allowed and action=='restore' and ctx.record and ctx.entry then
+                local identity=require('weread.lib.book_file_identity').read_document(ctx.document,ctx.entry.book_id)
+                local ok,found=pcall(ctx.document.isXPointerInDocument,ctx.document,ctx.record.xpointer)
+                if identity.file_id==ctx.entry.file_id and identity.book_id==ctx.entry.book_id
+                    and identity.book_version==ctx.entry.book_version and ok and found then
+                    local moved=require('weread.lib.reader_position').goto_xpointer(ctx.reader,ctx.record.xpointer)
+                    if moved and current(host,ctx) and visible(host,ctx,ctx.record.xpointer) then
+                        ctx.dismissed=nil;ctx.pending=location(ctx);M.connected(host);return
+                    end
+                end
+                if host.showInfo then host:showInfo(_('Could not confirm the saved offline position. Please check the current page.')) end
+            elseif allowed and action then
+                require('weread.ui.native_direct_navigation').open_position(host,action)
+            end
         end
-        dialog=require('ui/widget/buttondialog'):new{
-            title=_('You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?'),
-            buttons={{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
+        local restore=ctx.record and not ctx.pending_dirty and not visible(host,ctx,ctx.record.xpointer)
+        local buttons=restore and {{{text=_('Open offline position'),id='reconnect_restore',callback=function() choose('restore') end}},
+            {{text=_('Later'),id='reconnect_later',callback=function() choose() end}}}
+            or {{{text=_('Compare cloud position'),id='reconnect_cloud',callback=function() choose('cloud') end}},
                 {{text=_('Sync this page'),id='reconnect_upload',callback=function() choose('upload') end}},
-                {{text=_('Later'),id='reconnect_later',callback=function() choose() end}}},
-            close_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil end end,
+                {{text=_('Later'),id='reconnect_later',callback=function() choose() end}}}
+        dialog=require('ui/widget/buttondialog'):new{
+            title=restore and _('This chapter has a saved offline position. Open that position?')
+                or _('You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?'),
+            buttons=buttons,
+            close_callback=function() if ctx.dialog==dialog then ctx.dialog=nil;ctx.pending=nil;ctx.dismissed=true end end,
         }
         ctx.dialog=dialog;UI:show(dialog)
     end

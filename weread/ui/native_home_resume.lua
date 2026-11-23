@@ -76,7 +76,10 @@ function M.record(host)
     local w=worker(host)
     if not w then M.cancel(host);return false end
     local ok,started=pcall(w.start,w,function()
-        return {entry=Cache.identify(host.settings,scope.vid,path,current)}
+        local entry=Cache.identify(host.settings,scope.vid,path,current)
+        local pending=entry and host._native_direct_reconnect and require('weread.lib.native_direct_pending').read(
+            host.library_db,host.settings,scope,entry,current)
+        return {entry=entry,pending=pending}
     end,function(value)
         if not current() then if host._native_home_resume==ctx then M.cancel(host) end;return end
         local entry=type(value)=='table' and value.entry
@@ -84,6 +87,8 @@ function M.record(host)
         local identity=Identity.read_document(document,entry.book_id)
         if identity.book_id~=entry.book_id or identity.file_id~=entry.file_id
             or identity.book_version~=entry.book_version then M.cancel(host);return end
+        local reconnect=package.loaded['weread.ui.native_direct_reconnect']
+        if reconnect and host._native_direct_reconnect then reconnect.bind(host,entry,value.pending) end
         local book=host.settings:get_book(entry.book_id)
         if owned(book,entry.book_id,owner)
             and (type(book.home_recent_at)~='number' or book.home_recent_at<=ctx.at) then

@@ -122,4 +122,15 @@ host,s=fixture();local stale_target={};for key,value in pairs(target) do stale_t
 stale_target.catalog_sha256=string.rep('d',64)
 UI.start(host,{book_id='456'},s.view,{target=stale_target});s.finish(1)
 expect(#s.jobs==1 and s.message=='The chapter list changed. Please open it again.','changed catalog was used for adjacent download')
+local cache=require('weread.lib.native_direct_cache');local pending=require('weread.lib.native_direct_pending')
+local old_list,old_valid,old_mark=cache.list,cache.valid_entry,pending.mark
+local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0}
+cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
+pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end
+host,s=fixture();host.isNetworkConnected=function() return false end
+expect(UI.start(host,{book_id='456'},s.view,{cached=true}),'saved chapter list did not start')
+s.finish(1)
+expect(s.items and s.items[1].text:find('Offline position to review',1,true),
+    'saved chapter list did not expose the pending position')
+cache.list,cache.valid_entry,pending.mark=old_list,old_valid,old_mark
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')

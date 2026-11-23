@@ -118,14 +118,19 @@ local function mark_references(settings,owner,book)
     end
     local ok,result=pcall(function()
         db:exec('PRAGMA busy_timeout=200')
-        local schema=query('SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE','native_direct_mark_source')
-        if #schema==0 then return {files={},unverified=false} end
-        assert(#schema==1 and schema[1][1]=='table')
-        local rows=query('SELECT file_id FROM native_direct_mark_source WHERE book_id=? LIMIT 129',book)
-        assert(#rows<=128)
         local value={files={},unverified=false}
-        for _,row in ipairs(rows) do
-            if hash(row[1],64) then value.files[row[1]]=true else value.unverified=true end
+        for _,item in ipairs({
+            {name='native_direct_mark_source',sql='SELECT file_id FROM native_direct_mark_source WHERE book_id=? LIMIT 129',max=128},
+            {name='native_direct_offline_pending',sql='SELECT file_id FROM native_direct_offline_pending WHERE book_id=? LIMIT 257',max=256},
+        }) do
+            local schema=query('SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE',item.name)
+            if #schema>0 then
+                assert(#schema==1 and schema[1][1]=='table')
+                local rows=query(item.sql,book);assert(#rows<=item.max)
+                for _,row in ipairs(rows) do
+                    if hash(row[1],64) then value.files[row[1]]=true else value.unverified=true end
+                end
+            end
         end
         return value
     end)
