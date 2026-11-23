@@ -125,6 +125,15 @@ for _,row in ipairs(shown.buttons) do for _,button in ipairs(row) do
     if button.text=='Sync progress now' then sync_found=true end
 end end
 expect(not sync_found,'local native navigation exposed the cloud sync row')
+local image_retry=0
+Dialog.show({show_sync_row=false},{on_native_refresh_images=function() image_retry=image_retry+1 end})
+local image_action
+for _,row in ipairs(shown.buttons) do for _,button in ipairs(row) do
+    if button.id=='native_refresh_images' then image_action=button end
+end end
+expect(image_action~=nil,'chapter image retry action was not shown')
+if image_action then image_action.callback() end
+expect(image_retry==1,'chapter image retry did not delegate')
 
 print(string.format(
     "end_of_book_dialog_spec: %d checks, %d failure(s)", checks, failures))

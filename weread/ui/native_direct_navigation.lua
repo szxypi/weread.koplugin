@@ -219,6 +219,11 @@ function M.start(host,direction,notes)
                 M.cancel(host)
                 require('weread.ui.selection_thought').open_bookmark(host)
             end,
+            on_native_refresh_images=ctx.entry.missing_images>0 and function()
+                if not current() then return end
+                local entry=ctx.entry;M.cancel(host)
+                require('weread.ui.native_direct_image_refresh').start(host,entry)
+            end or nil,
             on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
             on_search=function() if current() then M.cancel(host);host:showSearch() end end,
             on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,

@@ -136,6 +136,7 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local time_source=package.loaded['weread.lib.native_direct_offline_time'];if time_source then time_source.cancel(self) end
@@ -335,6 +336,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
@@ -446,6 +448,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
@@ -625,6 +628,7 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
@@ -742,6 +746,7 @@ function M:onNetworkConnected()
 end
 
 function M:onNetworkDisconnected()
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end

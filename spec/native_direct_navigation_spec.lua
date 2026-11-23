@@ -5,7 +5,7 @@ package.preload['ui/uimanager']=function() return {close=function(_,widget) if w
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(pattern,value) return (pattern:gsub('%%1',value)) end} end
 local source={book_id='42',chapter_uid='37',book_version=1,source_sha256=string.rep('c',64),key=string.rep('a',64),copy=0,
-    file_id=string.rep('f',64),catalog_sha256=string.rep('b',64),catalog_order=2,catalog_count=3,catalog_prev='36',catalog_next='38'}
+    file_id=string.rep('f',64),missing_images=0,catalog_sha256=string.rep('b',64),catalog_order=2,catalog_count=3,catalog_prev='36',catalog_next='38'}
 local next_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('e',64),copy=0,
     title='Next',missing_images=2,catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
 local full_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('f',64),copy=0,
@@ -25,6 +25,8 @@ package.preload['weread.lib.book_file_identity']=function() return {read_documen
 local shown
 package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(opts,callbacks) shown={opts=opts,callbacks=callbacks} end} end
 local search_entry
+local refresh_entry
+package.preload['weread.ui.native_direct_image_refresh']=function() return {start=function(_,entry) refresh_entry=entry end} end
 package.preload['weread.ui.native_direct_search']=function() return {open=function(_,entry) search_entry=entry;return true end} end
 local online_search
 package.preload['weread.ui.book_search']=function() return {open=function(_,id,chapters,uid,entry)
@@ -34,7 +36,7 @@ package.preload['weread.ui.native_direct_reading']=function() return {start=func
     auto_target={book=book,view=view,options=options};return true end} end
 local Nav=require('weread.ui.native_direct_navigation')
 local function fixture()
-    shown=nil;auto_target=nil;rows={next_entry};source_ok=true;can_open=true
+    shown=nil;auto_target=nil;refresh_entry=nil;rows={next_entry};source_ok=true;can_open=true
     local s={jobs={},opened=0,online=false,account='owner',scope={vid='123',epoch=1}}
     local document={file='/tmp/x/native-reader-v1/current.epub',identity={book_id='42',file_id=source.file_id,book_version=1}}
     local host={ui={document=document},client={},_reader_session_gen=1,
@@ -61,6 +63,12 @@ expect(shown and shown.opts.show_previous_chapter and shown.opts.show_next_chapt
     'native quick menu did not show chapter navigation or hid sync')
 shown.callbacks.on_next();s.finish(2)
 expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub'),'adjacent saved chapter not opened')
+host,s=fixture();Nav.start(host);s.finish(1)
+expect(not shown.callbacks.on_native_refresh_images,'complete chapter offered image retry')
+source.missing_images=2;host,s=fixture();Nav.start(host);s.finish(1)
+expect(type(shown.callbacks.on_native_refresh_images)=='function','missing image retry was not offered')
+shown.callbacks.on_native_refresh_images();expect(refresh_entry==source and not host._native_direct_navigation,'image retry lost its chapter')
+source.missing_images=0
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
 expect(s.opened==0 and s.title=='Choose a saved chapter copy' and #s.items==2,'multiple copies were silently opened')
 expect(s.items[1].text:find('2 images unavailable',1,true) and s.items[2].text:find('No missing images',1,true),

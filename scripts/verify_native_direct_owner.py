@@ -57,6 +57,7 @@ def main(argv=None):
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
     parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
     parser.add_argument('--copies',action='store_true',help='Check an isolated incomplete comparison copy offline')
+    parser.add_argument('--image-refresh',action='store_true',help='Check controlled image recovery in an isolated reader')
     parser.add_argument('--offline-search',action='store_true',help='Verify installed offline search across the two chapters')
     parser.add_argument('--online-search',action='store_true',help='Verify installed online search in both native chapters')
     parser.add_argument('--online-missing',action='store_true',help='Also verify cancel and confirmed missing-chapter download')
@@ -71,12 +72,14 @@ def main(argv=None):
     if args.home and args.neighbor:parser.error('home and neighbor use separate checks')
     if args.copies and (not args.neighbor or args.online_search or args.offline_search):
         parser.error('copies requires neighbor and excludes search modes')
+    if args.image_refresh and (args.neighbor or args.offline_search or args.online_search or args.home):
+        parser.error('image refresh excludes home, neighbor and search modes')
     if args.offline_search and not args.neighbor:parser.error('offline search requires neighbor')
     if args.online_search and (not args.neighbor or args.offline_search or not args.compare_web_progress):
         parser.error('online search requires neighbor and Web progress comparison')
     if args.online_missing and not args.online_search:parser.error('online missing requires online search')
     if args.home_full_ui and not args.home:parser.error('full UI requires --home')
-    if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies):
+    if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies or args.image_refresh):
         parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
         parser.error('store search requires full home UI and Web comparison')
@@ -218,14 +221,19 @@ def main(argv=None):
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
                 if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
                 if args.copies:required|={'copies_offline_verified','copies_reader_positions'}
+                if args.image_refresh:required|={'image_refresh_verified','image_refresh_missing_before','image_refresh_missing_after'}
                 if args.offline_search:required.add('offline_search')
                 if args.online_search:required.add('online_search')
                 if args.online_missing:required.add('online_missing')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or type(result['missing_images']) is not int or not 0<=result['missing_images']<=64
                         or args.neighbor and (type(result['neighbor_missing_images']) is not int or not 0<=result['neighbor_missing_images']<=64)
+                        or args.image_refresh and (type(result['image_refresh_missing_before']) is not int
+                            or not 1<=result['image_refresh_missing_before']<=64 or result['image_refresh_missing_before']!=result['missing_images']
+                            or type(result['image_refresh_missing_after']) is not int or result['image_refresh_missing_after']!=0)
                         or result['web_coordinates'] is not False or any(result[key] is not True for key in required-
-                            {'result','native_requests','web_coordinates','missing_images','neighbor_missing_images'})):
+                            {'result','native_requests','web_coordinates','missing_images','neighbor_missing_images',
+                             'image_refresh_missing_before','image_refresh_missing_after'})):
                     raise ValueError('result')
                 phase='final_shelf'
                 if state_hash(probe.request('shelf',BASE+'/shelf/sync',credentials=credentials))!=baseline:raise ValueError('shelf_changed')
@@ -248,6 +256,8 @@ def main(argv=None):
                 if args.neighbor:report.update(chapters=2,neighbor_matches=True,neighbor_offline_roundtrip=True,
                     neighbor_missing_images=result['neighbor_missing_images'])
                 if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
+                if args.image_refresh:report.update(image_refresh_verified=True,image_refresh_missing_before=result['image_refresh_missing_before'],
+                    image_refresh_missing_after=result['image_refresh_missing_after'])
                 if args.offline_search:report['offline_search_verified']=True
                 if args.online_search:report.update(online_search_verified=True,native_progress_unchanged=True)
                 if args.online_missing:report.update(missing_cancel_verified=True,missing_download_verified=True)

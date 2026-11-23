@@ -283,6 +283,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     self._native_auto_time_blocked=nil

@@ -26,6 +26,7 @@ def main(argv=None):
     parser.add_argument('--ui',action='store_true',help='Exercise the native chapter selection menu')
     parser.add_argument('--neighbor',action='store_true',help='Verify adjacent native chapters through the reader menu')
     parser.add_argument('--copies',action='store_true',help='Test a deliberately incomplete comparison copy offline')
+    parser.add_argument('--image-refresh',action='store_true',help='Retry images after a controlled read-only missing-image fixture')
     parser.add_argument('--offline-search',action='store_true',help='Search real cached chapters in the installed reader')
     parser.add_argument('--online-search',action='store_true',help='Search online from both native chapters')
     parser.add_argument('--online-missing',action='store_true',help='Also test cancel and download in a clean profile')
@@ -35,6 +36,8 @@ def main(argv=None):
     if args.neighbor and not args.ui:parser.error('--neighbor requires --ui')
     if args.copies and (not args.neighbor or args.online_search or args.offline_search):
         parser.error('--copies requires --neighbor and excludes search modes')
+    if args.image_refresh and (not args.ui or args.neighbor or args.offline_search or args.online_search):
+        parser.error('--image-refresh requires --ui and excludes neighbor and search modes')
     if args.offline_search and not args.neighbor:parser.error('--offline-search requires --neighbor')
     if args.online_search and (not args.neighbor or args.offline_search):parser.error('--online-search requires --neighbor only')
     if args.online_missing and not args.online_search:parser.error('--online-missing requires --online-search')
@@ -52,7 +55,7 @@ def main(argv=None):
         with tempfile.TemporaryDirectory(prefix='weread-native-direct-owner-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';xdg=root/'xdg'
             (profile/'plugins').mkdir(parents=True);xdg.mkdir(mode=0o700)
-            plugin_home=args.offline_search or args.online_search or args.copies
+            plugin_home=args.offline_search or args.online_search or args.copies or args.image_refresh
             if plugin_home:(profile/'settings').mkdir()
             extract_candidate(args.candidate,profile/'plugins');plugin=profile/'plugins/weread.koplugin'
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
@@ -60,7 +63,7 @@ def main(argv=None):
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
                 WEREAD_DIRECT_OWNER_TMPFS='1')
             probe='native_direct_owner_ui_probe.lua' if args.ui else 'native_direct_owner_probe.lua'
-            prepare=dict(payload,plugin_home=plugin_home)
+            prepare=dict(payload,plugin_home=plugin_home,simulate_missing_images=args.image_refresh)
             phase='prepare'
             code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader'/probe),str(plugin)],
                                        env,json.dumps(prepare,ensure_ascii=False).encode(),runtime,timeout=180)
@@ -103,6 +106,28 @@ def main(argv=None):
                     str(plugin),str(repo)],env,cached_input,runtime,timeout=120)
                 if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_CACHED_UI=')!=dict(
                         ok=True,network_blocked=True,credentials_not_required=True):raise ValueError('offline_ui')
+            if args.image_refresh:
+                phase='image_refresh'
+                if not 1<=result['missing_images']<=64:raise ValueError('missing_fixture')
+                private=dict(path=str(path),credentials=payload['credentials'],book_id=payload['book_id'],uid=payload['uid'],
+                    initial_missing=result['missing_images'],owner=True)
+                if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
+                code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_image_refresh_probe.lua')],
+                    env,json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=300)
+                refreshed=line(out,b'WEREAD_DIRECT_IMAGE_REFRESH=');improved=Path(refreshed.get('path',''))
+                if (code or repaint or set(refreshed)!={'ok','path','original_kept','page_unchanged','source_equal','missing_before','missing_after'}
+                        or any(refreshed[key] is not True for key in ('ok','original_kept','page_unchanged','source_equal'))
+                        or refreshed['missing_before']!=result['missing_images'] or refreshed['missing_after']!=0
+                        or not improved.is_file() or profile not in improved.parents or improved==path):raise ValueError('refresh_result')
+                phase='image_refresh_offline'
+                improved_input=json.dumps(dict(path=str(improved),token=payload['search_token'],uid=payload['uid'],
+                    book_id=payload['book_id'],missing_images=0,required_images=result['missing_images'],plugin_home=True),
+                    ensure_ascii=False).encode()
+                code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_owner_offline_probe.lua'),
+                    str(plugin),str(repo)],env,improved_input,runtime,timeout=90)
+                improved_expected=dict(ok=True,network_blocked=True,web_coordinates=False,manual_time_blocked=True,
+                    missing_images=0,warning_verified=True)
+                if code or repaint or line(out,b'WEREAD_DIRECT_OWNER_OFFLINE=')!=improved_expected:raise ValueError('refresh_offline')
             if args.neighbor:
                 phase='offline_neighbor'
                 neighbor=payload['neighbor']
@@ -249,6 +274,8 @@ def main(argv=None):
             if args.neighbor:report.update(neighbor_matches=True,neighbor_offline_roundtrip=True,
                 neighbor_missing_images=result['neighbor_missing_images'])
             if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
+            if args.image_refresh:report.update(image_refresh_verified=True,image_refresh_missing_before=result['missing_images'],
+                image_refresh_missing_after=0)
             if args.offline_search:report['offline_search']=True
             if args.online_search:report['online_search']=True
             if args.online_missing:report['online_missing']=True

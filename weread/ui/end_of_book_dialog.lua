@@ -131,6 +131,10 @@ function M.show(opts, callbacks)
         table.insert(buttons, {{id='native_cloud_position',text=_('Open cloud reading position'),
             callback=function() dismiss_then(callbacks.on_native_cloud_position) end}})
     end
+    if callbacks.on_native_refresh_images then
+        table.insert(buttons, {{id='native_refresh_images',text=_('Retry missing chapter images'),
+            callback=function() dismiss_then(callbacks.on_native_refresh_images) end}})
+    end
     if callbacks.on_native_upload_position or callbacks.on_native_bookmark then
         local row={}
         if callbacks.on_native_upload_position then row[#row+1]={id='native_upload_position',text=_('Sync this page to cloud'),
@@ -189,6 +193,7 @@ function M.show(opts, callbacks)
             callback = function() UIManager:close(dialog) end,
         },
         {
+            id = 'close_book',
             text = _("Close book"),
             callback = function() dismiss_then(callbacks.on_close_book) end,
         },

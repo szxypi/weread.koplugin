@@ -6,8 +6,10 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
+local data=input.plugin_home and home..'/weread' or home
+if input.plugin_home then require('libs/libkoreader-lfs').mkdir(data) end
 local scope={vid=input.credentials.vid,epoch=1}
-local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,
+local settings={data_dir=data,cache_dir=data,mock_endpoint=input.mock_endpoint,
     get=function(_,_,default) return default end,get_auth_scope=function() return scope end,
     auth_scope_matches=function(_,value) return value==scope end}
 local store={read=function() return input.credentials,1,nil,false end}

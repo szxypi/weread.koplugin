@@ -34,6 +34,7 @@ client.request=function(self,options)
     else
         assert(options.method=='GET' and require('weread.lib.native_chapter_remote').allowed(url)==url
             and not headers.vid and not headers.accessToken and not headers.Cookie)
+        if input.simulate_missing_images then return nil,404,{} end
     end
     if url:find(base,1,true)==1 then assert(headers.vid==input.credentials.vid and headers.accessToken==input.credentials.accessToken) end
     local count=assert(io.open(home..'/request-count','ab'));assert(count:write('1'));assert(count:close())
