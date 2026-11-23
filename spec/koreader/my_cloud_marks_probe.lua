@@ -200,8 +200,23 @@ local ok,reason=pcall(function()
             if candidate.my_note_id==(thoughts and row.reviewId or row.bookmarkId) then item,position=candidate,index end
         end
         assert(item and item.callback and item.select_enabled~=false)
+        local image_row
+        if synthetic and thoughts and row.reviewId=='synthetic-thought-1' then
+            for _,record in ipairs(owner.value.reviews) do if record.reviewId==row.reviewId then image_row=record end end
+            assert(image_row and image_row.isPrivate==1 and image_row.abstract)
+            image_row.range='12-24';image_row.attachment_state='available'
+            image_row.attachment_urls='https://weread-picture-1258476243.file.myqcloud.com/synthetic.png'
+            assert(require('weread.lib.my_thought_target').can_locate(image_row))
+        end
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(item)
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
+        if image_row then
+            local buttons=assert(popup.button_table)
+            assert(buttons:getButtonById('thought_image_1') and buttons:getButtonById('open_thought_quote'),
+                'image and quote actions must both remain available')
+            assert(not buttons:getButtonById('thought_edit'),'attachment thought editing must be guarded')
+            image_row.range=nil;image_row.attachment_state=nil;image_row.attachment_urls=nil
+        end
         if imported then
             local buttons=popup.button_table
             if thoughts and row.isPrivate~=1 and buttons then

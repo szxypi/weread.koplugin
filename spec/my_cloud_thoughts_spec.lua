@@ -16,6 +16,19 @@ expect(not page.has_more and #page.reviews==3,'complete own thoughts lost')
 local snapshot=Data.project(client,full,'900001','900000',1000)
 expect(snapshot.reviews[1].content=='合成想法 1' and not snapshot.reviews[1].author and not snapshot.reviews[1].userVid
     and not snapshot.synckey and not snapshot.reviews[1].token,'source fields escaped display projection')
+local image='https://weread-picture-1258476243.file.myqcloud.com/synthetic.png'
+local with_image=source();with_image.reviews[1].review.pictures={{url=image,width=100,height=200}}
+with_image.reviews[2].review.pencilNote={imageUrl=image}
+with_image.reviews[3].review.pictures={{url='https://untrusted.example/image.png'}}
+local image_snapshot=Data.project(client,with_image,'900001','900000',1000)
+expect(image_snapshot.reviews[1].attachment_state=='available' and image_snapshot.reviews[1].attachment_urls==image,
+    'picture attachment was not retained')
+expect(image_snapshot.reviews[2].attachment_urls==image,'handwriting image was not retained')
+expect(image_snapshot.reviews[3].attachment_state=='partial' and image_snapshot.reviews[3].attachment_urls=='',
+    'untrusted picture was accepted or silently discarded')
+expect(Data.validate(client,image_snapshot,'900001').reviews[1].attachment_urls==image,'offline attachment snapshot changed')
+image_snapshot.reviews[1].attachment_urls='https://untrusted.example/image.png'
+expect(not pcall(Data.validate,client,image_snapshot,'900001'),'untrusted cached attachment accepted')
 expect(Data.page(client,source(1,3),'900001','900000').has_more,'false hasMore truncated the personal list')
 expect(not pcall(Data.project,client,source(1,3),'900001','900000',1000),'partial prefix became complete cache')
 expect(#Data.project(client,source(0,0),'900001','900000',1000).reviews==0,'empty personal list rejected')

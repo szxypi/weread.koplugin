@@ -104,7 +104,9 @@ local function submit(ctx)
         if not plan then failure(ctx,why);return end
         local title=ctx.operation=='create' and 'Create private thought?' or ctx.operation=='edit' and 'Save changes to this thought?' or 'Delete this thought?'
         local privacy=ctx.operation=='create' or ctx.reference.isPrivate==1
-        local text=ctx.operation=='delete' and _('This deletes only the selected thought from WeRead. This cannot be undone.')
+        local text=ctx.operation=='delete' and _(ctx.reference.attachment_state
+                and 'This deletes the selected thought and its attachments from WeRead. This cannot be undone.'
+                or 'This deletes only the selected thought from WeRead. This cannot be undone.')
             or privacy and _('This thought is private. Only the text shown below will be saved.')
             or _('This thought is public. Editing keeps it public. Only the text shown below will be saved.')
         if ctx.operation~='delete' then

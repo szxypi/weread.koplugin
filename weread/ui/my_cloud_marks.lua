@@ -18,6 +18,7 @@ local function current(host,owner)
         and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.thought_images').cancel(host,owner)
     local card=package.loaded['weread.ui.excerpt_card']
     if card then card.close_owner(host,owner) end
     require('weread.ui.cloud_notes_export').cancel(host,owner)
@@ -161,6 +162,8 @@ render=function(host,owner)
                             if has_quote then parts[#parts+1]=_('Quoted text')..'\n'..row.abstract end
                             if row.content~='' then parts[#parts+1]=_('Thought')..'\n'..row.content
                             else parts[#parts+1]=_('No thought text was returned.') end
+                            if row.attachment_state=='partial' then parts[#parts+1]=_('Some thought attachments could not be displayed.') end
+                            if row.attachment_state then parts[#parts+1]=_('Editing thoughts with attachments is not available yet.') end
                         else
                             if row.markText and row.markText~='' then parts[#parts+1]=row.markText end
                             if row.abstract and row.abstract~='' and row.abstract~=row.markText then parts[#parts+1]=row.abstract end
@@ -168,14 +171,24 @@ render=function(host,owner)
                         if #parts==1 then parts[#parts+1]=_(owner.thoughts and 'No thought text was returned.' or 'No saved quote text.') end
                         local viewer
                         local buttons
+                        if owner.thoughts and row.attachment_state then
+                            local urls=require('weread.lib.thought_attachments').decode(row.attachment_urls) or {}
+                            for index in ipairs(urls) do
+                                local selected=index
+                                buttons=buttons or {};buttons[#buttons+1]={{id='thought_image_'..index,
+                                    text=require('weread.lib.plugin_util').T(_('View thought image %1'),tostring(index)),callback=function()
+                                    require('weread.ui.thought_images').open(host,owner,row,selected,viewer,current,generation)
+                                end}}
+                            end
+                        end
                         local target=require(owner.thoughts and 'weread.lib.my_thought_target' or row.type==0 and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
                         if target.can_locate(row,not owner.writable and row.type==0) then
-                            buttons={{{id=owner.thoughts and 'open_thought_quote' or row.type==0 and 'open_bookmark' or 'open_highlight',
+                            buttons=buttons or {};buttons[#buttons+1]={{id=owner.thoughts and 'open_thought_quote' or row.type==0 and 'open_bookmark' or 'open_highlight',
                                 text=_(owner.thoughts and 'Open thought quoted text' or row.type==0 and 'Open bookmark position' or 'Open highlighted text'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner)
                                 require('weread.ui.my_mark_navigation').start(host,owner,row,current)
-                            end}}}
+                            end}}
                         end
                         local editor=require('weread.ui.thought_editor')
                         if owner.mark_writable and not owner.thoughts and row.type==0 and target.can_locate(row) then
@@ -222,7 +235,8 @@ render=function(host,owner)
                                 end}}
                             end
                         end
-                        local operations=owner.mark_writable and (owner.thoughts and editor.can_edit(row) and (owner.writable or row.isPrivate==1) and {'edit','delete'}
+                        local operations=owner.mark_writable and (owner.thoughts and editor.can_edit(row) and (owner.writable or row.isPrivate==1)
+                            and (row.attachment_state and {'delete'} or {'edit','delete'})
                             or not owner.thoughts and editor.can_create(row) and {'create'}) or {}
                         for _j,operation in ipairs(operations) do
                             buttons=buttons or {};buttons[#buttons+1]={{id='thought_'..operation,

@@ -24,7 +24,7 @@ local function codec_info(client)
     end
     return present,array,scope
 end
-local function entry(value,present)
+local function entry(value,present,cached)
     local id=value.reviewId
     if not text(id,256) or id:find('%s') then fail('identity') end
     local out={reviewId=id}
@@ -32,6 +32,9 @@ local function entry(value,present)
         if present(value[name]) then if not text(value[name],max,true) then fail('text') end;out[name]=value[name] end
     end
     if out.content==nil then fail('text') end
+    local attachments=cached and require('weread.lib.thought_attachments').cached(value)
+        or not cached and require('weread.lib.thought_attachments').project(value,present)
+    if attachments then out.attachment_state,out.attachment_urls=attachments.state,attachments.urls end
     for _i,name in ipairs({'chapterUid','chapterIdx','type','createTime','isPrivate','isFinish'}) do
         if present(value[name]) then
             local observed=value[name]
@@ -64,7 +67,7 @@ function M.page(client,source,id,owner)
         end
         if not explicit then fail('owner') end
         if present(review.book) then scope(review.book,id,owner) end
-        local item=entry(review,present)
+        local item=entry(review,present,false)
         if present(row.reviewId) and row.reviewId~=item.reviewId then fail('identity') end
         if seen[item.reviewId] then fail('duplicate') end
         seen[item.reviewId]=true;out[#out+1]=item
@@ -83,7 +86,7 @@ function M.validate(client,value,id)
     local present,array,scope=codec_info(client);scope(value,id);array(value.reviews)
     local out={schema=1,book_id=id,fetched_at=value.fetched_at,reviews=client:json_decode('[]')};local seen={}
     for _i,row in ipairs(value.reviews) do
-        scope(row,id);local item=entry(row,present)
+        scope(row,id);local item=entry(row,present,true)
         if seen[item.reviewId] then fail('duplicate') end
         seen[item.reviewId]=true;out.reviews[#out.reviews+1]=item
     end
