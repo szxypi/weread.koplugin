@@ -29,14 +29,21 @@ class CrossBookmarkTrialTests(unittest.TestCase):
         self.assertEqual(payload['origin_uid'],'38');self.assertTrue(payload['expect_bookmarks'])
         row=dict(id='new-bookmark',range=self.row['range'],text=self.row['markText'])
         result=dict(result='PASS',rows=[row],offline_reopen=True,credential_file_audit=True,installed_bytes_match=True,
-            profile_removed=True,navigation=True)
+            profile_removed=True,navigation=True,indicator=True)
         return SimpleNamespace(returncode=0,stdout=FRAME+json.dumps(result).encode()+b'\n')
 
     def test_both_sizes_and_independent_point_are_required(self):
         result=verify(self.probe,{},self.source,self.origin,self.target,['runner'],run=self.runner)
-        self.assertEqual(result['screens'],2);self.assertEqual(len(self.calls),2)
+        self.assertEqual(result['screens'],2);self.assertTrue(result['indicator_tap_verified']);self.assertEqual(len(self.calls),2)
         self.assertEqual(self.calls[0][-6:],['--width','600','--height','800','--dpi','167'])
         self.assertEqual(self.calls[1][-6:],['--width','1264','--height','1680','--dpi','300'])
+
+    def test_indicator_proof_is_required(self):
+        def without_indicator(command,**kwargs):
+            result=self.runner(command,**kwargs)
+            value=json.loads(result.stdout.split(FRAME,1)[1]);value.pop('indicator')
+            return SimpleNamespace(returncode=0,stdout=FRAME+json.dumps(value).encode()+b'\n')
+        with self.assertRaises(ValueError):verify(self.probe,{},self.source,self.origin,self.target,['runner'],run=without_indicator)
 
     def test_bad_point_changed_source_or_changed_snapshot_is_rejected(self):
         self.row['range']='0'

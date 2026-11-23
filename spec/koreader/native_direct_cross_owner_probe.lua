@@ -122,4 +122,41 @@ assert(record and second.document:isXPointerInCurrentPage(record.pos0))
 local text=input.expect_bookmarks and assert(input.expected_preview) or assert(second.document:getTextFromXPointers(record.pos0,record.pos1))
 local result={id=input.expected_id,range=record.range,text=text}
 if input.expect_thoughts then result.content_sha256=thought_hash end
-print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows={result},navigation=true})
+local indicator
+if input.expect_bookmarks then
+    local target_host=second.weread;local state=target_host._personal_marks
+    local annotations=target_host.client:json_encode(second.annotation.annotations)
+    UI:forceRePaint()
+    local corner=assert(state.indicator.rect,'bookmark corner missing');local visible=false
+    for _,item in ipairs(state.indicator.visible) do if item.bookmarkId==input.expected_id then visible=true end end
+    assert(visible,'bookmark corner not visible')
+    local selected;local open=target_host.showMyCloudBookmarks
+    target_host.showMyCloudBookmarks=function(current,...)
+        local opened=open(current,...);local list=current._my_marks_owner
+        for _,item in ipairs(list and list.menu.item_table or {}) do
+            local callback,id=item.callback,item.my_note_id
+            if callback and id then item.callback=function(...) selected=id;return callback(...) end end
+        end
+        return opened
+    end
+    local position={x=corner.x+1,y=corner.y+1}
+    assert(Display.tap(target_host,{pos=position},true),'bookmark corner tap failed')
+    if state.picker then
+        local wanted
+        for _,item in ipairs(state.picker.item_table) do if item.my_note_id==input.expected_id then wanted=item end end
+        assert(wanted,'bookmark corner choice missing');wanted.callback()
+    end
+    local bookmark_owner=assert(target_host._my_marks_owner)
+    local viewer=assert(bookmark_owner.menu._shelf_popup,'bookmark corner popup missing')
+    assert(bookmark_owner.bookmarks and selected==input.expected_id and viewer.button_table:getButtonById('open_bookmark'),
+        'bookmark corner opened a different record')
+    for _,row in ipairs(bookmark_owner.value.updated or {}) do
+        if row.bookmarkId==input.expected_id and row.markText and row.markText~='' then
+            assert(viewer.text:find(row.markText,1,true),'bookmark corner preview mismatch')
+        end
+    end
+    require('weread.ui.my_cloud_marks').cancel(target_host)
+    assert(target_host.client:json_encode(second.annotation.annotations)==annotations,'bookmark tap changed local annotations')
+    indicator=true
+end
+print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows={result},navigation=true,indicator=indicator})

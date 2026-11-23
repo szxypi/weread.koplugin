@@ -54,6 +54,7 @@ def main():
                         text=point['markText'] if bookmarks else quote)
                     if thoughts:expected['content_sha256']=hashlib.sha256(b'Synthetic private thought').hexdigest()
                     assert result['rows']==[expected] and result['navigation'] is True
+                    if bookmarks:assert result['indicator'] is True
                     assert all(result[key] is True for key in ('offline_reopen','credential_file_audit','installed_bytes_match','profile_removed'))
                     assert server.valid and not server.leaked and not any(path in ('/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)
         print('PASS: private cross-note runner, marks, thoughts and bookmarks, online/offline at both sizes')

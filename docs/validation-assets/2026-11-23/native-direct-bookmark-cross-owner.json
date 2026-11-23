@@ -16,5 +16,6 @@
   "credential_file_audit_passed": true,
   "installed_bytes_match": true,
   "no_automatic_replay": true,
+  "subsequent_corner_validation": "native-direct-bookmark-indicator-owner.json",
   "limitations": ["one account and one new bookmark", "real bookmark corner tap not tested", "physical Kindle untested"]
 }

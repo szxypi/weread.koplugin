@@ -67,10 +67,10 @@ def verify(probe,credentials,source,origin,target,runner,*,run=subprocess.run):
             input=json.dumps(payload,ensure_ascii=False).encode(),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=240)
         if child.returncode or len(child.stdout)>131072 or child.stdout.count(FRAME)!=1:raise ValueError('cross_bookmark/runner')
         result=json.loads(child.stdout.split(FRAME,1)[1].splitlines()[0])
-        fields={'result','rows','offline_reopen','credential_file_audit','installed_bytes_match','profile_removed','navigation'}
+        fields={'result','rows','offline_reopen','credential_file_audit','installed_bytes_match','profile_removed','navigation','indicator'}
         if (set(result)!=fields or result['result']!='PASS' or result['rows']!=[expected]
                 or not all(result[key] is True for key in fields-{'result','rows'})):
             raise ValueError('cross_bookmark/reader')
         current,after=probe.read(credentials)
         if current!=target or after!=before:raise ValueError('cross_bookmark/state_changed')
-    return {'result':'PASS','screens':2,'offline_reopen':True,'source_point_verified':True}
+    return {'result':'PASS','screens':2,'offline_reopen':True,'source_point_verified':True,'indicator_tap_verified':True}
