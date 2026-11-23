@@ -23,7 +23,11 @@ if input.expect_cancel then
         local result=start(host,...)
         if host.ui and host.ui.document and host.ui.document.file~=input.path and host._native_direct_note_incoming then
             cancel_page=host.ui.document:getCurrentPage()
-            host:safeCallback('synthetic new action',function() cancelled=true end)()
+            if input.cancel_mode=='gesture' then
+                assert(host:onShowWeReadQuickMenu());cancelled=true
+            else
+                host:safeCallback('synthetic new action',function() cancelled=true end)()
+            end
             assert(not host._native_direct_note_incoming,'new action did not cancel pending navigation')
         end
         return result

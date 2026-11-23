@@ -6,11 +6,16 @@ local WeRead = require("weread.lib.protocol")
 local _ = PluginUtil.tr
 
 local M = {}
+local function cancel_pending_note(host)
+    local navigation=package.loaded['weread.ui.my_mark_navigation']
+    if navigation and navigation.cancel_incoming then navigation.cancel_incoming(host) end
+end
 
 -- Dispatcher entry point used by KOReader gesture/profile actions. The quick
 -- menu is a global WeRead entry point; actions that need a current WeRead book
 -- explain why they are unavailable when invoked from another document.
 function M:onShowWeReadQuickMenu()
+    cancel_pending_note(self)
     local file=self.ui and self.ui.document and self.ui.document.file
     if require('weread.lib.native_direct_path').contains(self.settings,file) then
         return require('weread.ui.native_direct_navigation').start(self)
@@ -20,6 +25,7 @@ end
 
 -- General gesture action works from the file manager and reader.
 function M:onShowWeReadDelayedScreenshot()
+    cancel_pending_note(self)
     require('weread.ui.delayed_screenshot').show(self)
     return true
 end
@@ -27,21 +33,25 @@ end
 -- Dispatcher entry point for a gesture that opens the WeRead bookshelf from
 -- any document currently open in KOReader.
 function M:onShowWeReadBookshelf()
+    cancel_pending_note(self)
     self:showBookshelf()
     return true
 end
 
 function M:onShowWeReadLocalBookshelf()
+    cancel_pending_note(self)
     self:showWereadCollection()
     return true
 end
 
 function M:onShowWeReadReadingStatistics()
+    cancel_pending_note(self)
     self:showReadStats()
     return true
 end
 
 function M:onShowWeReadSearch()
+    cancel_pending_note(self)
     self:showSearch()
     return true
 end

@@ -50,6 +50,11 @@ local host = {
 for key, value in pairs(Navigation) do
     if host[key] == nil then host[key] = value end
 end
+local old_navigation=package.loaded['weread.ui.my_mark_navigation']
+local cancellations=0
+package.loaded['weread.ui.my_mark_navigation']={cancel_incoming=function(current)
+    assert(current==host);cancellations=cancellations+1
+end}
 
 expect(host:onShowWeReadQuickMenu(), "quick menu opens for a WeRead document")
 expect(shown_book_id == "book-1", "quick menu uses the detected WeRead book")
@@ -75,6 +80,10 @@ expect(host:onShowWeReadSearch() and search_opened,
     "search action opens WeRead search")
 expect(host:onShowWeReadReadingStatistics() and action_stats_opened,
     "reading-statistics action opens WeRead statistics")
+package.loaded['weread.ui.delayed_screenshot']={show=function(current) assert(current==host) end}
+expect(host:onShowWeReadDelayedScreenshot() and cancellations==7,
+    "all gesture actions cancel pending cross-chapter note navigation")
+package.loaded['weread.ui.my_mark_navigation']=old_navigation
 
 local stats_opened = false
 local context_books = {}

@@ -65,11 +65,12 @@ def run(runtime, only_cancel=False):
                             if not offline and kind=='mark':
                                 assert any(path=='/book/chapterdownload' for _,_,path in server.calls)
                             if offline: assert not server.calls
-                    payload.update(offline=False,kind='mark',expect_cancel=True);server.calls=[]
-                    child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
-                        input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
-                    assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=False,kind='mark',cancelled=True)
-                    payload.pop('expect_cancel')
+                    for mode in ('callback','gesture'):
+                        payload.update(offline=False,kind='mark',expect_cancel=True,cancel_mode=mode);server.calls=[]
+                        child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
+                            input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
+                        assert frame(child,'WEREAD_CROSS_NOTE=')==dict(ok=True,offline=False,kind='mark',cancelled=True)
+                    payload.pop('expect_cancel');payload.pop('cancel_mode')
                     if only_cancel: continue
                     databases=list((root/'weread').glob('library-*.db'));assert len(databases)==1
                     with sqlite3.connect(databases[0]) as db:
