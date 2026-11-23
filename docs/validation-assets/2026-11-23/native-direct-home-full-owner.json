@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-23",
+  "scope": "one real account, one readable native chapter",
+  "screens": ["600x800", "1264x1680"],
+  "installed_plugin_book_details_and_catalog": true,
+  "selected_chapter_opened_in_reader": true,
+  "source_independently_matched": true,
+  "native_page_advanced": true,
+  "home_recent_recorded": true,
+  "fresh_process_offline_home_resume": true,
+  "same_page_restored": true,
+  "offline_network_blocked": true,
+  "native_shelf_observed_state_unchanged": true,
+  "web_chapter_offset_and_percentage_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credential_file_audit_passed": true,
+  "installed_bytes_match": true,
+  "temporary_profiles_removed": true,
+  "limitations": ["one account and one chapter", "book details opened with preselected fixture metadata", "Web comparison limited to chapter, offset and percentage", "physical Kindle untested"]
+}

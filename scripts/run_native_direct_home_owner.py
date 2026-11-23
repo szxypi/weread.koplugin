@@ -24,6 +24,7 @@ def main(argv=None):
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--full-ui', action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
@@ -54,14 +55,16 @@ def main(argv=None):
                        EMULATE_READER_DPI=str(args.dpi), WEREAD_DIRECT_OWNER_TMPFS='1')
             phase = 'native_chapter'
             prepare = dict(payload, plugin_home=True)
+            probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
+            probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
             code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
-                                            str(plugin), str(REPO/'spec/koreader/native_direct_owner_ui_probe.lua')], env,
+                                            str(plugin), str(REPO/'spec/koreader'/probe)], env,
                                            json.dumps(prepare, ensure_ascii=False).encode(), runtime, timeout=180)
             if code:
                 match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                 if match:
                     report['probe_line'] = int(match.group(1))
-            prepared = frame(out, b'WEREAD_DIRECT_OWNER=')
+            prepared = frame(out, probe_marker)
             if prepared.get('reason') in {'not_entitled', 'auth_expired', 'rate_limited', 'service_rejected',
                                          'session_changed', 'catalog_changed', 'unavailable', 'invalid_source',
                                          'invalid_image', 'remote_unsupported', 'storage'}:
@@ -71,7 +74,7 @@ def main(argv=None):
                     or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
-            for mode in ('record', 'reopen'):
+            for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
                 phase = mode
                 private = dict(mode=mode, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
                 code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -102,6 +105,8 @@ def main(argv=None):
             report.update(result='PASS', native_requests=prepared['requests'], source_matches=True,
                           home_record=True, offline_home_resume=True, page_restored=True, network_blocked=True,
                           credential_file_audit=True, installed_bytes_match=True)
+            if args.full_ui:
+                report['full_ui'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

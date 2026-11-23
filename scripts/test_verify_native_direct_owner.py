@@ -64,5 +64,55 @@ class NativeDirectOwnerTests(unittest.TestCase):
             self.assertNotIn('private text',output.getvalue())
             self.assertNotIn('private-token',output.getvalue())
 
+    def test_full_ui_cannot_be_claimed_by_fixture_only_runner(self):
+        sample={'book_id':'42','expected':{'format':'epub','version':1}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,{'uid':37},{'html':True,'source':b'<p>private text</p>'}))
+        result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,installed_bytes_match=True)
+        marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+        for full in (False,True):
+            if full:result['full_ui']=True
+            child=SimpleNamespace(returncode=0,stdout=marker+json.dumps(result).encode()+b'\n')
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123'}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                self.assertEqual(task.main(['--saved-session','--home','--home-full-ui','--lua-command','runner']),0 if full else 1)
+            self.assertEqual(json.loads(output.getvalue())['result'],
+                'NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED' if full else 'UNVERIFIED')
+
+    def test_home_web_progress_is_independently_compared(self):
+        sample={'book_id':'42','expected':{'format':'epub','version':1}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]},
+            inspect=lambda *_args:(sample,{'uid':37},{'html':True,'source':b'<p>private text</p>'}))
+        result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,installed_bytes_match=True,
+            full_ui=True)
+        marker=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+        child=SimpleNamespace(returncode=0,stdout=marker+json.dumps(result).encode()+b'\n')
+        for changed in (False,True):
+            calls=[]
+            web=SimpleNamespace(cookies=SimpleNamespace(clear=lambda:None),set_cookie=lambda *_args:None,
+                verify_account=lambda:None,request=lambda stage,*_args: calls.append(stage) or {'stage':stage})
+            def project(value,*_args,**_kwargs):
+                return 2 if changed and value['stage']=='progress_after' else 1
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'WebSourceProbe',return_value=web),patch.object(task,'reading_position',side_effect=project),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123','cookies':{'wr_skey':'private-token'}}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                code=task.main(['--saved-session','--home','--home-full-ui','--compare-web-progress','--lua-command','runner'])
+            self.assertEqual(code,1 if changed else 0)
+            self.assertEqual(calls,['progress_before','progress_after'])
+            report=json.loads(output.getvalue())
+            self.assertEqual(report['result'],'UNVERIFIED' if changed else 'NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED')
+            self.assertEqual(report.get('web_position_unchanged'),None if changed else True)
+            self.assertNotIn('private-token',output.getvalue())
+
 
 if __name__=='__main__':unittest.main()

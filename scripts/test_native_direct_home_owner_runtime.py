@@ -25,7 +25,8 @@ def main():
             candidate = Path(directory)/'candidate.zip'
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
-            for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
+            for width, height, dpi, full_ui in ((600, 800, 167, False), (1264, 1680, 300, False),
+                                                 (600, 800, 167, True), (1264, 1680, 300, True)):
                 server.mode = 'selection_direct_overlay'
                 server.calls, server.leaked, server.valid, server.review = [], False, True, None
                 payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
@@ -33,9 +34,12 @@ def main():
                     web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},
                     book_id='42', uid='37', book_version=1, source_sha256=hashlib.sha256(BODY.encode()).hexdigest(),
                     mock_endpoint='http://127.0.0.1:'+str(server.server_port))
-                child = subprocess.run([sys.executable, str(REPO/'scripts/run_native_direct_home_owner.py'),
+                command = [sys.executable, str(REPO/'scripts/run_native_direct_home_owner.py'),
                     '--koreader', str(args.koreader), '--candidate', str(candidate), '--width', str(width),
-                    '--height', str(height), '--dpi', str(dpi)], input=json.dumps(payload).encode(),
+                    '--height', str(height), '--dpi', str(dpi)]
+                if full_ui:
+                    command.append('--full-ui')
+                child = subprocess.run(command, input=json.dumps(payload).encode(),
                     capture_output=True, timeout=480)
                 marker = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
                 assert child.stdout.count(marker) == 1
@@ -43,6 +47,7 @@ def main():
                 assert child.returncode == 0 and result['result'] == 'PASS', result
                 assert all(result[key] is True for key in ('profile_removed','source_matches','home_record',
                     'offline_home_resume','page_restored','network_blocked','credential_file_audit','installed_bytes_match'))
+                assert result.get('full_ui', False) is full_ui
                 assert server.valid and not server.leaked
                 assert all(path in ('/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
         print('PASS: owner home runner against synthetic service at both screen sizes')

@@ -13,6 +13,8 @@ from secure_weread_session import SessionStore
 from shelf_flag_change_contract import state_hash
 from verify_eink_login import BASE
 from verify_native_chapter_package import ChapterProbe
+from verify_owner_reading import reading_position
+from verify_web_source_progress import BASE as WEB_BASE, WebSourceProbe
 
 FRAME=b'\nWEREAD_DIRECT_OWNER_RUN='
 
@@ -23,12 +25,16 @@ def main(argv=None):
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
     parser.add_argument('--neighbor',action='store_true',help='Also verify the next explicitly readable chapter')
     parser.add_argument('--home',action='store_true',help='Verify native home resume in a fresh offline process')
+    parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
+    parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
     if args.home and args.neighbor:parser.error('home and neighbor use separate checks')
+    if args.home_full_ui and not args.home:parser.error('full UI requires --home')
+    if args.compare_web_progress and not args.home:parser.error('Web comparison requires --home')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
-    saved=credentials=None
+    saved=credentials=web=None
     phase='start'
     try:
         if args.saved_session:
@@ -41,6 +47,12 @@ def main(argv=None):
             sample,chapter,native=probe.inspect(credentials,args.book_offset)
             if sample['expected']['format']!='epub' or sample['expected']['version'] is None or not native['html']:
                 raise ValueError('unsupported_sample')
+            if args.compare_web_progress:
+                phase='web_baseline';web=WebSourceProbe();web.vid=saved['vid'];web.book_id=sample['book_id']
+                for key,value in saved['cookies'].items():web.set_cookie(key,value)
+                web.verify_account()
+                before_web=reading_position(web.request('progress_before',WEB_BASE+'/web/book/getProgress?bookId='+sample['book_id']),
+                                            sample['book_id'],allow_unstarted=True)
             payload=dict(credentials=credentials,book_id=sample['book_id'],uid=str(chapter['uid']),
                 book_version=sample['expected']['version'],source_sha256=hashlib.sha256(native['source']).hexdigest(),
                 search_token=search_token(native['source']))
@@ -77,15 +89,22 @@ def main(argv=None):
             if args.home:
                 required={'result','profile_removed','native_requests','source_matches','home_record','offline_home_resume',
                           'page_restored','network_blocked','credential_file_audit','installed_bytes_match'}
+                if args.home_full_ui:required.add('full_ui')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
                 phase='final_shelf'
                 if state_hash(probe.request('shelf',BASE+'/shelf/sync',credentials=credentials))!=baseline:raise ValueError('shelf_changed')
+                if args.compare_web_progress:
+                    phase='web_final';web.verify_account()
+                    if reading_position(web.request('progress_after',WEB_BASE+'/web/book/getProgress?bookId='+sample['book_id']),
+                                        sample['book_id'],allow_unstarted=True)!=before_web:raise ValueError('web_changed')
                 report.update(result='NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED',chapters=1,
                     native_requests=result['native_requests'],source_matches=True,home_record=True,offline_home_resume=True,
                     page_restored=True,offline_network_guard=True,credential_file_audit=True,installed_bytes_match=True,
                     temporary_profile_removed=True,shelf_unchanged=True)
+                if args.home_full_ui:report['full_ui']=True
+                if args.compare_web_progress:report['web_position_unchanged']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
@@ -109,6 +128,7 @@ def main(argv=None):
         if 'HTTP 401' in str(error):report['reason']='auth_expired'
         elif 'HTTP 429' in str(error):report['reason']='rate_limited'
     finally:
+        if web:web.cookies.clear()
         if saved:saved.clear()
         if credentials:credentials.clear()
     print(json.dumps(report))
