@@ -16,5 +16,6 @@
   "temporary_profiles_removed": true,
   "installed_bytes_match": true,
   "normal_navigation_retested_after_cancellation_guard": "1264x1680, one highlight and one thought, online and offline",
+  "subsequent_bookmark_validation": "native-direct-bookmark-cross-owner.json",
   "limitations": ["one account and one note per variant", "real bookmark cross-chapter navigation not validated", "physical Kindle untested"]
 }

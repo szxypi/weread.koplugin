@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import resource
+import signal
 import sys
 import tempfile
 import zipfile
@@ -31,6 +32,9 @@ def main(argv=None):
         if len(raw)>65536:raise ValueError('input')
         payload=json.loads(raw)
         if not synthetic_endpoint_allowed(payload,payload.get('mock_endpoint')):raise ValueError('endpoint')
+        if payload.get('expect_bookmarks') is True:
+            def expired(_signal,_frame):raise RuntimeError('cross_bookmark/runner_timeout')
+            signal.signal(signal.SIGALRM,expired);signal.alarm(200)
         with tempfile.TemporaryDirectory(prefix='weread-direct-personal-owner-',dir='/dev/shm') as directory:
             root=Path(directory);profile=root/'profile';xdg=root/'xdg'
             (profile/'plugins').mkdir(parents=True);xdg.mkdir(mode=0o700);extract_candidate(args.candidate,profile/'plugins')
@@ -105,7 +109,8 @@ def main(argv=None):
             report.update(result='PASS',rows=stages[0]['rows'],offline_reopen=True,credential_file_audit=True,installed_bytes_match=True)
             report['navigation']=True
     except (Exception,KeyboardInterrupt):report['phase']=phase
-    finally:report['profile_removed']=root is not None and not root.exists()
+    finally:
+        signal.alarm(0);report['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(FRAME+json.dumps(report,ensure_ascii=False).encode()+b'\n')
     return int(report['result']!='PASS' or not report['profile_removed'])
 

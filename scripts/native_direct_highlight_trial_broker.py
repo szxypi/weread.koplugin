@@ -10,9 +10,11 @@ from verify_owner_reading import reading_position
 from verify_web_source_progress import BASE
 
 
-def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,bookmark=False):
+def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,bookmark=False,on_created=None):
     if type(armed) is not bool or type(bookmark) is not bool or not command or not store.native or store.read()!=(None,None):
         raise ValueError('direct_highlight_trial/intent')
+    if on_created is not None and (not bookmark or not callable(on_created)):
+        raise ValueError('direct_highlight_trial/callback')
     probe.current();selection=probe.source;p=selection.plan
     if (source['book_id']!=p.bound['book_id'] or source['uid']!=p.bound['chapter_uid']
             or source['source_sha256']!=selection.payload['source_raw_sha256']):raise ValueError('direct_highlight_trial/source')
@@ -26,12 +28,13 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
         source_sha256=source['source_sha256'],web_cookies=selection.payload['cookies'],selection_preview=deepcopy(selection.payload['selection_preview']),
         trial=dict(armed=armed,rpc_token=token,original_ids=sorted(p.baseline['marks']['updated']),create_body=deepcopy(probe.body)))
     if bookmark:payload['trial']['bookmark']=True
+    if armed and on_created is not None:payload['trial']['cross_check']=True
     if source.get('mock_endpoint') is not None:payload['mock_endpoint']=source['mock_endpoint']
     receipt=store.reserve(bound) if armed else None
-    child=frames=None;waiting=None;claims=steps=0;target=runner=None
+    child=frames=None;waiting=None;claims=steps=0;target=runner=None;cross_verified=None
     try:
         child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
-        write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=600)
+        write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=1200 if on_created else 600)
         while True:
             kind,value=frames.next()
             if kind=='RESULT':runner=value;break
@@ -57,6 +60,11 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
                     probe.target=target;receipt=store.advance(receipt,'created',target=target)
                     latest,_=probe.read(credentials)
                     if latest!=target:raise ValueError('direct_highlight_trial/target')
+                    if on_created is not None:
+                        try:cross_verified=on_created(target) is True
+                        except Exception:cross_verified=False
+                        latest,_=probe.read(credentials)
+                        if latest!=target:raise ValueError('direct_highlight_trial/target')
                     receipt=store.advance(receipt,'delete_pending')
                 else:
                     if target is None or value['created_id']!=target['id'] or not store.owns(receipt,'delete_pending'):
@@ -89,6 +97,9 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
             original_records_unchanged=True,web_position_unchanged=True,derived_chapter_metadata_changed=changed,
             original_state_unchanged=not changed,temporary_profile_removed=True,credential_file_audit=True,
             installed_bytes_match=True,no_automatic_replay=True)
+        if armed and on_created is not None:
+            report.update(cross_chapter_verified=cross_verified is True,cleanup_completed=True)
+            if cross_verified is not True:report['result']='UNVERIFIED'
     except (Exception,KeyboardInterrupt):
         if armed:report.pop('account_data_posts',None)
         report.update(result='UNVERIFIED',claims=claims,independent_steps=steps,no_automatic_replay=True,

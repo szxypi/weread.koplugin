@@ -43,6 +43,7 @@ def main(argv=None):
         match=re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})',endpoint) if isinstance(endpoint,str) else None
         if (not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token) or type(trial['armed']) is not bool
                 or (trial.get('bookmark') is True)!=args.bookmark or 'bookmark' in trial and trial['bookmark'] is not True
+                or 'cross_check' in trial and (trial['cross_check'] is not True or not args.bookmark or not trial['armed'])
                 or endpoint is not None and (not match or int(match.group(1))>65535)
                 or not synthetic_endpoint_allowed(payload,endpoint)):
             raise ValueError('direct_ui_trial/input')
@@ -68,7 +69,7 @@ def main(argv=None):
                 str(REPO/'spec/koreader'/('native_highlight_trial_gate.lua' if args.highlight or args.bookmark else 'native_thought_trial_gate.lua'))],cwd=runtime,env=env,
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
             try:
-                write_initial(child.stdin,private);frames=Frames(child.stdout,token,timeout=360)
+                write_initial(child.stdin,private);frames=Frames(child.stdout,token,timeout=900 if trial.get('cross_check') else 360)
                 while True:
                     kind,value=frames.next()
                     if kind=='RESULT':
@@ -86,7 +87,7 @@ def main(argv=None):
                             raise ValueError('direct_ui_trial/stage')
                         result.update({key:value[key] for key in ('steps','posts','blocked')});break
                     sys.stdout.buffer.write(b'\n'+frames.prefix+b'STEP='+json.dumps(value,separators=(',',':')).encode()+b'\n')
-                    sys.stdout.buffer.flush();reply(child.stdin,read_reply(sys.stdin.buffer))
+                    sys.stdout.buffer.flush();reply(child.stdin,read_reply(sys.stdin.buffer,timeout=720 if trial.get('cross_check') else 100))
                 if child.wait(timeout=15):raise ValueError('direct_ui_trial/child')
             finally:stop_reader(child);child=None
             result['phase']='audit';grant=payload['credentials'];secrets=[grant[key] for key in ('accessToken','refreshToken','deviceId')]

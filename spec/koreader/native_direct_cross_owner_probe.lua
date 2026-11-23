@@ -76,7 +76,9 @@ Display.attach=function(host)
     return attach(host)
 end
 Reader:showReader(input.path);wait(function() return Reader.instance and Reader.instance.document and Reader.instance.weread end)
-local first=Reader.instance;local host=first.weread;local label=input.expect_thoughts and 'My cloud thoughts' or 'My cloud highlights'
+assert(not (input.expect_thoughts and input.expect_bookmarks),'cross owner variant')
+local first=Reader.instance;local host=first.weread
+local label=input.expect_thoughts and 'My cloud thoughts' or input.expect_bookmarks and 'My cloud bookmarks' or 'My cloud highlights'
 local tr=require('weread.lib.i18n').tr;local action
 for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr(label) then action=item.callback end end
 assert(action,'cross owner entry');action()
@@ -97,7 +99,8 @@ if input.expect_thoughts then
     assert(thought_hash,'cross owner thought missing')
 end
 choice.callback();UI:forceRePaint();local popup=assert(owner.menu._shelf_popup)
-assert(popup.button_table:getButtonById(input.expect_thoughts and 'open_thought_quote' or 'open_highlight')):onTapSelectButton()
+assert(popup.button_table:getButtonById(input.expect_thoughts and 'open_thought_quote'
+    or input.expect_bookmarks and 'open_bookmark' or 'open_highlight')):onTapSelectButton()
 wait(function() return Reader.instance~=first or host.test_failure~=nil end)
 assert(not host.test_failure,'cross owner prepare failed')
 local second=Reader.instance;wait(function()
@@ -105,18 +108,18 @@ local second=Reader.instance;wait(function()
     local active=second.weread._personal_marks
     if second.weread.test_failure then return true end
     if not active or not active.complete then return false end
-    for _,row in ipairs(active.records) do
+    for _,row in ipairs(input.expect_bookmarks and active.bookmarks or active.records) do
         if (row.thoughtId or row.bookmarkId)==input.expected_id and second.document:isXPointerInCurrentPage(row.pos0) then return true end
     end
     return false
 end)
 assert(not second.weread.test_failure and second.document.file~=input.path,'cross owner target failed')
 local record
-for _,row in ipairs(second.weread._personal_marks.records) do
+for _,row in ipairs(input.expect_bookmarks and second.weread._personal_marks.bookmarks or second.weread._personal_marks.records) do
     if (row.thoughtId or row.bookmarkId)==input.expected_id then record=row end
 end
 assert(record and second.document:isXPointerInCurrentPage(record.pos0))
-local text=assert(second.document:getTextFromXPointers(record.pos0,record.pos1))
+local text=input.expect_bookmarks and assert(input.expected_preview) or assert(second.document:getTextFromXPointers(record.pos0,record.pos1))
 local result={id=input.expected_id,range=record.range,text=text}
 if input.expect_thoughts then result.content_sha256=thought_hash end
 print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows={result},navigation=true})

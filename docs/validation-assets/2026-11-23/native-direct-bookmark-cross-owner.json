@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-23",
+  "scope": "one real account, one newly created test bookmark, two chapters",
+  "screens": ["600x800", "1264x1680"],
+  "source_point_independently_verified": true,
+  "online_cross_chapter_and_offline_reopen": true,
+  "account_data_posts": 2,
+  "authentication_posts": 0,
+  "create_and_delete_independently_read_back": true,
+  "test_bookmark_removed": true,
+  "original_records_unchanged": true,
+  "chapter_metadata_unchanged": true,
+  "web_position_unchanged": true,
+  "original_observed_state_unchanged": true,
+  "temporary_profiles_removed": true,
+  "credential_file_audit_passed": true,
+  "installed_bytes_match": true,
+  "no_automatic_replay": true,
+  "limitations": ["one account and one new bookmark", "real bookmark corner tap not tested", "physical Kindle untested"]
+}
