@@ -50,7 +50,7 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         end end
         if version~=entry.book_version then return {error='source_changed'} end
         local before=snapshot()
-        if State.none(before.position) and not State.zero(before.counts) then return {error='baseline_unavailable'} end
+        if State.none(before.position) and not State.initial_counts(before.counts) then return {error='baseline_unavailable'} end
         local shelf=Shelf.state_hash(auth:read_shelf(native.credentials))
         local progress_checks=0
         local position,why,_,summary=Position.prepare(client,settings,entry,file,context,native,web,active,nil,{

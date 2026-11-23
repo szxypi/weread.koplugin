@@ -288,7 +288,12 @@ for _i,current_day in ipairs({false,true}) do
         and f.ledger:summary(f.account).pending==2 and f.journal:pending(f.account)==nil,
         'unstarted book did not preserve its pending time and explain the next step')
 end
-for _i,mode in ipairs({'no_position_nonzero','no_position_mixed'}) do
+f=direct_fixture('no_position_nonzero',true)
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='position_required' and not result.attempted and f.posts==0
+    and f.ledger:summary(f.account).pending==2 and f.journal:pending(f.account)==nil,
+    'first-position guidance was not shown when ordinary time existed')
+for _i,mode in ipairs({'no_position_audio','no_position_mixed'}) do
     f=direct_fixture(mode,true)
     result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
     expect(result.kind=='unavailable' and not result.attempted and f.posts==0

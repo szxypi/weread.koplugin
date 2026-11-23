@@ -83,7 +83,7 @@ class Handler(BaseHTTPRequestHandler):
                 and type(request.get('chapterOffset')) is int and bool(request.get('summary')) and request.get('readingTime')==0)
             server.cloud_offset=request['chapterOffset'];server.cloud_summary=request['summary']
             posts=sum(path=='/book/read' for _,_,path in server.calls)
-            data=json.dumps({} if server.mode=='upload_lost_ack' or server.mode in ('interval_noack','interval_close_noack') and posts==2 else dict(succ=1)).encode()
+            data=json.dumps({} if server.mode in ('upload_lost_ack','upload_initial_noack') or server.mode in ('interval_noack','interval_close_noack') and posts==2 else dict(succ=1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'bookId':['42']}
             if server.mode=='cloud_move':time.sleep(0.8)
@@ -103,8 +103,15 @@ class Handler(BaseHTTPRequestHandler):
             if server.mode=='cross_unlocatable':offset=0
             if server.mode=='cloud_empty':uid,index,offset,progress,summary=0,0,0,0,''
             if server.mode=='preview_changed' and count==2:offset+=1
+            if server.mode.startswith('upload_initial'):
+                if not any(path=='/book/read' for _,_,path in server.calls):uid,index,offset,summary=0,0,0,''
+                progress=0
             response=dict(bookId='42',chapterUid=uid,chapterIdx=index,chapterOffset=offset,progress=progress,
                 summary=summary,readingTime=100,recordReadingTime=0,ttsTime=0)
+            if server.mode.startswith('upload_initial'):
+                response['readingTime']=3 if server.mode=='upload_initial_changed' and any(path=='/book/read' for _,_,path in server.calls) else 2
+                if server.mode=='upload_initial_recorded':response['recordReadingTime']=1
+                if server.mode=='upload_initial_tts':response['ttsTime']=1
             if server.mode=='preview_missing' or server.mode=='upload_missing_before' and not any(path=='/book/read' for _,_,path in server.calls) \
                 or server.mode=='upload_missing_after' and any(path=='/book/read' for _,_,path in server.calls):response.pop('summary')
             data=json.dumps(response).encode()
@@ -134,6 +141,10 @@ class Handler(BaseHTTPRequestHandler):
             offset=(server.cloud_offset if server.mode.startswith(('upload','interval')) else CLOUD_OFFSET)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
             response=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=offset,progress=50,
                 summary=server.cloud_summary if server.mode.startswith(('upload','interval')) else 'Synthetic cloud point')
+            if server.mode.startswith('upload_initial'):
+                response['progress']=0
+                if not any(path=='/book/read' for _,_,path in server.calls):
+                    response.update(chapterUid=0,chapterIdx=0,chapterOffset=0,summary='')
             if server.mode in ('preview_missing','upload_missing_before'):response.pop('summary')
             data=json.dumps(response).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
@@ -178,6 +189,7 @@ def compare_offset(result):
 MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_changed','cloud_after','cloud_other','cloud_empty',
        'preview','preview_changed','preview_web_changed','preview_missing',
        'upload','upload_cancel','upload_changed','upload_lost_ack','upload_missing_before','upload_missing_after',
+       'upload_initial_time','upload_initial_noack','upload_initial_changed','upload_initial_recorded','upload_initial_tts',
        'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable',
        'interval','interval_conflict','interval_noack','interval_move','interval_offline',
        'interval_close','interval_close_conflict','interval_close_noack','interval_close_offline','interval_close_reopen',
@@ -217,10 +229,10 @@ def run(runtime,modes=MODES):
                         if mode=='selection_direct':
                             from annotation_source_quotes import SourceQuotes
                             assert SourceQuotes(BODY,body_only=True).quote(result['range'])==result['quote']=='Unique paragraph 0001'
-                        if mode in ('match','preview','preview_missing','upload','upload_missing_before','interval'):compare_offset(result)
+                        if mode in ('match','preview','preview_missing','upload','upload_missing_before','upload_initial_time','interval'):compare_offset(result)
                         assert server.valid and not server.leaked
                         writes=[path for _,_,path in server.calls if path in ('/web/book/read','/book/read')]
-                        write_count=2 if mode in ('interval','interval_noack','interval_close','interval_close_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after') else 0
+                        write_count=2 if mode in ('interval','interval_noack','interval_close','interval_close_noack') else 1 if mode.startswith('interval') or mode in ('upload','upload_lost_ack','upload_missing_before','upload_missing_after','upload_initial_time','upload_initial_noack','upload_initial_changed') else 0
                         assert writes==['/book/read']*write_count, (mode,writes)
                         mark_posts=sum(path=='/book/addBookmark' for _,_,path in server.calls)
                         thought_posts=sum(path=='/review/add' for _,_,path in server.calls)

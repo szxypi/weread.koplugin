@@ -77,14 +77,18 @@ f=fixture();f.options.is_current=nil;out=f.run();expect(not out.attempted and f.
 -- First write: preserve the exact no-chapter observation while waiting for ACK
 -- propagation. Never restore UID0 or equate a matching point with a lost ACK.
 local State=require('weread.lib.native_cloud_state')
-local function initial_fixture(kind)
-    local empty={book={bookId='41',chapterUid=0,chapterOffset=0,progress=0,readingTime=0,recordReadingTime=0,ttsTime=0}}
-    local target=progress(after,0);target.book.recordReadingTime=0
+local function initial_fixture(kind,reading_time)
+    reading_time=reading_time or 0
+    local empty={book={bookId='41',chapterUid=0,chapterOffset=0,progress=0,readingTime=reading_time,recordReadingTime=0,ttsTime=0}}
+    local target=progress(after,reading_time);target.book.recordReadingTime=0
     local initial=fixture()
     initial.record.metadata.before=assert(State.from(empty,'41'))
-    initial.record.metadata.counts={readingTime=0,recordReadingTime=0,ttsTime=0};initial.saved=F.clone(initial.record)
+    initial.record.metadata.counts={readingTime=reading_time,recordReadingTime=0,ttsTime=0};initial.saved=F.clone(initial.record)
+    if reading_time>0 then
+        initial.record.metadata.basis='filtered_xhtml_utf16';initial.saved=F.clone(initial.record)
+    end
     initial.queue={{bookId='41',version=0},F.clone(empty),shelf,{feature={}},kind=='noack' and {} or {succ=1}}
-    if kind=='changed' then target.book.readingTime=1 end
+    if kind=='changed' then target.book.readingTime=reading_time+1 end
     for _i,value in ipairs(kind=='delayed' and {empty,empty,target} or {target}) do
         initial.queue[#initial.queue+1]=F.clone(value);initial.queue[#initial.queue+1]=shelf
     end
@@ -97,6 +101,21 @@ for _i,kind in ipairs({'accepted','delayed','noack','changed'}) do
     expect(f.saved.phase==((kind=='accepted' or kind=='delayed') and 'verified' or kind=='noack' and 'pending' or 'acknowledged'))
     expect(kind~='delayed' or out.readbacks==3 and f.waits==2)
     f.run();expect(f.posts==1,'initial operation repeated')
+end
+for _i,kind in ipairs({'accepted','noack','changed'}) do
+    f=initial_fixture(kind,2);out=f.run()
+    expect(f.posts==1 and f.body.readingTime==0,'initial write sent reading time')
+    expect(out.kind==(kind=='accepted' and 'confirmed' or 'unconfirmed'))
+    expect(f.saved.phase==(kind=='accepted' and 'verified' or kind=='noack' and 'pending' or 'acknowledged'))
+    f.run();expect(f.posts==1,'nonzero-time initial operation was repeated')
+end
+f=initial_fixture('accepted',2);f.record.metadata.basis='raw_txt_utf16';f.saved=F.clone(f.record)
+out=f.run();expect(not out.attempted and f.posts==0,'unverified ordinary TXT first position was allowed')
+f=initial_fixture('accepted',2);f.queue[2].book.readingTime=3
+out=f.run();expect(not out.attempted and f.posts==0 and f.saved.phase=='prepared','changed initial reading time was overwritten')
+for _i,key in ipairs({'recordReadingTime','ttsTime'}) do
+    f=initial_fixture('accepted',2);f.record.metadata.counts[key]=1;f.saved=F.clone(f.record)
+    out=f.run();expect(not out.attempted and f.posts==0,'unverified initial time category was allowed: '..key)
 end
 -- XHTML may start without a server summary. A missing post-write summary is
 -- not evidence that the requested summary was saved, even after an ACK.

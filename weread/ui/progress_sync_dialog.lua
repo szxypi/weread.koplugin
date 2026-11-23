@@ -66,7 +66,7 @@ function ProgressSyncDialog.notify(code, data)
         elseif data.error=='source_remote_changed' then
             text=_("The cloud position changed while preparing this upload. Your local position is kept. Sync again to compare positions.")
         elseif data.error=='source_initial_time_unverified' then
-            text=_("WeRead has recorded reading time but has no chapter position for this book. First-time sync is not available for this state yet. Your local position is kept; nothing was uploaded.")
+            text=_("WeRead has recorded reading, audio or recorded time but has no chapter position for this book. First-time sync is not available for this state yet. Your local position is kept; nothing was uploaded.")
         elseif data.error=='source_native_authentication_unavailable' then
             text=_("E-ink authorization is unavailable for syncing this position. Your local position is kept. Check E-ink login in account settings, then sync again.")
         elseif data.error=='source_format_unsupported' then

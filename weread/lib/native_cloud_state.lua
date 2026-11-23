@@ -80,4 +80,10 @@ function M.zero(counts)
     local ok,value=pcall(P.counts,counts)
     return ok and value.readingTime==0 and value.recordReadingTime==0 and value.ttsTime==0
 end
+-- The first-position write sends no time. Ordinary reading time may already
+-- exist, but audio and recorded-time variants have not been verified.
+function M.initial_counts(counts)
+    local ok,value=pcall(P.counts,counts)
+    return ok and value.recordReadingTime==0 and value.ttsTime==0
+end
 return M

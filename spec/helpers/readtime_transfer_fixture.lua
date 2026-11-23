@@ -44,9 +44,11 @@ function M.new(mode,expect,roots,cb,config)
         if web and f.mode=='cb_web_counter_delay' and f.posts>0 and f.reads<=1 then reading=20 end
         local point={bookId=f.book_id,chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
             summary=summary,readingTime=reading,recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}
-        if f.mode=='no_position' or f.mode=='no_position_nonzero' or f.mode=='no_position_mixed' and not web then
+        if f.mode=='no_position' or f.mode=='no_position_nonzero' or f.mode=='no_position_audio'
+            or f.mode=='no_position_mixed' and not web then
             point.chapterUid,point.chapterIdx,point.chapterOffset,point.progress,point.summary=0,nil,0,0,nil
             point.readingTime=f.mode=='no_position_nonzero' and 20 or 0
+            if f.mode=='no_position_audio' then point.ttsTime=1 end
         end
         return {timestamp=f.clock,book=point}
     end

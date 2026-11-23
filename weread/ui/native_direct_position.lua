@@ -270,7 +270,9 @@ function M.start(host,entry,options)
                     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
                     local dialog
                     dialog=require('ui/widget/confirmbox'):new{
-                        text=_('Save this page as your cloud reading position? The cloud percentage is kept until WeRead updates it.'),
+                        text=_(State.none(metadata.before)
+                            and 'WeRead has no cloud position for this book. Set this page as its first position? Existing reading time will be kept.'
+                            or 'Save this page as your cloud reading position? The cloud percentage is kept until WeRead updates it.'),
                         ok_text=_('Sync this page'),cancel_text=_('Keep cloud position'),keep_dialog_open=true,
                         cancel_callback=function() if host._native_direct_position==ctx then M.cancel(host) end end,
                         ok_callback=function()

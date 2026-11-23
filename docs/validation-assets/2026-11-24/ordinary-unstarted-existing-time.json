@@ -1,0 +1,39 @@
+{
+  "scope": "one existing numeric-ID EPUB book, initially with no chapter and zero time on both channels",
+  "authentication": {
+    "reason": "two native shelf reads returned HTTP 401",
+    "renewal_posts": 1,
+    "same_account_and_shelf_verified": true,
+    "credentials_remain_in_keychain": true
+  },
+  "time_probe": {
+    "dry_run_account_data_posts": 0,
+    "account_data_posts": 1,
+    "observed_real_elapsed_seconds": 2,
+    "real_koreader_reading_session": false,
+    "explicit_acknowledgement": true,
+    "native_and_web_remained_no_chapter": true,
+    "native_and_web_reading_time_seconds": 2,
+    "monthly_and_daily_statistics_verified": true,
+    "one_shot_record_retained": true
+  },
+  "initial_position_probe": {
+    "dry_run_account_data_posts": 0,
+    "account_data_posts": 1,
+    "protocol": "native zero-time position request from independently verified EPUB/Web source",
+    "explicit_acknowledgement": true,
+    "native_and_web_target_independently_verified": true,
+    "native_and_web_reading_time_preserved_seconds": 2,
+    "source_and_shelf_unchanged": true,
+    "first_position_remains_established": true,
+    "original_no_chapter_restored": false,
+    "one_shot_record_retained": true
+  },
+  "fresh_process_readback": {
+    "account_data_posts": 0,
+    "independent_readbacks": 2,
+    "position_time_source_shelf_and_prior_record_verified": true
+  },
+  "production_native_ui_real_account_tested": false,
+  "physical_kindle_tested": false
+}

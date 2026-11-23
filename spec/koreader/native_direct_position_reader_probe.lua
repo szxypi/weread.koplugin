@@ -223,17 +223,29 @@ if input.mode:find('^selection_direct') then
     return
 end
 open_menu()
+if input.mode=='upload_initial_recorded' or input.mode=='upload_initial_tts' then
+    wait(function() return host.checked_message~=nil end)
+    assert(host.checked_message==require('weread.lib.plugin_util').tr('The cloud position could not be safely checked. Your current page is kept.'),
+        'unverified audio or recorded time was accepted')
+    print('WEREAD_POSITION_READER='..json.encode{ok=true,mode=input.mode})
+    return
+end
 if input.mode:find('^upload') or input.mode:find('^interval') then
     wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
     assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
     local confirm=host._native_direct_position.confirm
+    if input.mode:find('^upload_initial') then
+        assert(confirm.text==require('weread.lib.plugin_util').tr('WeRead has no cloud position for this book. Set this page as its first position? Existing reading time will be kept.'),
+            'first-position confirmation was not explicit')
+    end
     if input.mode=='upload_cancel' then
         confirm.cancel_callback();assert(not host._native_direct_position)
     else
         confirm.ok_callback();wait(function() return host.checked_message~=nil end)
         local tr=require('weread.lib.plugin_util').tr
         local expected=input.mode=='upload_changed' and 'The cloud position changed during the check. Your current page is kept.'
-            or (input.mode=='upload_lost_ack' or input.mode=='upload_missing_after')
+            or (input.mode=='upload_lost_ack' or input.mode=='upload_missing_after'
+                or input.mode=='upload_initial_noack' or input.mode=='upload_initial_changed')
                 and 'The sync result could not be confirmed. Choose sync again to review it.'
             or 'Cloud reading position synced and checked.'
         assert(host.checked_message==tr(expected),'unexpected upload result')

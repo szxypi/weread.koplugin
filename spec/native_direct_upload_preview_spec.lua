@@ -16,9 +16,11 @@ package.preload['weread.lib.native_authorization']=function() return {new=functi
         assert(options.is_current())
         if stage=='position_metadata' then return {bookId='42',version=mode=='version' and 8 or 7} end
         assert(stage=='position_progress');reads=reads+1;local p=point()
-        if mode=='initial' or mode=='initial_counts' then
+        if mode=='initial' or mode=='initial_counts' or mode=='initial_recorded' or mode=='initial_tts' or mode=='initial_changed_counts' then
             p.chapterUid,p.chapterIdx,p.chapterOffset,p.progress,p.summary=0,0,0,0,''
-            p.readingTime,p.recordReadingTime,p.ttsTime=mode=='initial_counts' and 1 or 0,0,0
+            p.readingTime,p.recordReadingTime,p.ttsTime=(mode=='initial_counts' or mode=='initial_changed_counts') and 2 or 0,
+                mode=='initial_recorded' and 1 or 0,mode=='initial_tts' and 1 or 0
+            if mode=='initial_changed_counts' and reads==2 then p.readingTime=3 end
         end
         if mode=='missing_summary' then p.summary=nil end
         if mode=='changed' and reads==2 then p.chapterOffset=21 end
@@ -32,7 +34,9 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
     assert(e==entry and file=='/native' and context=='context' and ns==native and ws==web and active() and options.prepare_summary)
     if mode=='source' then return nil,'source_changed' end
     local p=point();if mode=='missing_summary' then p.summary=nil end
-    if mode=='initial' then p.chapterUid,p.chapterIdx,p.chapterOffset,p.progress,p.summary=0,0,0,0,nil end
+    if mode=='initial' or mode=='initial_counts' or mode=='initial_changed_counts' then
+        p.chapterUid,p.chapterIdx,p.chapterOffset,p.progress,p.summary=0,0,0,0,nil
+    end
     if mode=='web' then p.chapterOffset=99 end
     if mode=='web_summary' then p.summary='other summary' end
     for _i=1,mode=='one_web' and 1 or 2 do
@@ -56,10 +60,13 @@ expect(Contract.valid(bound) and value.dispatch_authorized==false,'preview did n
 bound.basis='raw_txt_utf16';expect(Contract.valid(bound),'dispatch test fixture was invalid independently of its basis')
 value=prepare('initial');expect(value and value.before.kind=='no_chapter' and value.desired.raw_percent==0,
     'explicit empty cloud position with zero counters was rejected')
+value=prepare('initial_counts');expect(value and value.before.kind=='no_chapter' and value.counts.readingTime==2,
+    'first position did not retain ordinary reading time')
 value=prepare('missing_summary');expect(value and value.before.kind=='position_without_summary' and value.before.summary==nil,
     'missing summary was not represented explicitly')
 for _,case in ipairs({{'changed','cloud_changed'},{'counts','cloud_changed'},
-    {'initial_counts','baseline_unavailable'},
+    {'initial_recorded','baseline_unavailable'},{'initial_tts','baseline_unavailable'},
+    {'initial_changed_counts','cloud_changed'},
     {'shelf','cloud_changed'},{'version','source_changed'},{'source','source_changed'},{'web','cloud_changed'},
     {'web_summary','cloud_changed'},
     {'one_web','cloud_changed'}}) do

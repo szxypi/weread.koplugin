@@ -55,7 +55,7 @@ local function snapshotter(client,auth,selected,web,book,expected_version,expect
         if reject_unstarted then
             local state=require('weread.lib.native_cloud_state')
             if state.from(raw,book) and state.from(remote,book)
-                and state.zero(P.counts(assert(Remote.node(raw,book)))) then
+                and state.initial_counts(P.counts(assert(Remote.node(raw,book)))) then
                 error('readtime_transfer/position_required',0)
             end
         end
