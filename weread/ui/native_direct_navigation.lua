@@ -135,7 +135,7 @@ function M.start(host,direction,notes)
             show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=true,
             enable_next_chapter=true,enable_book_details=true,show_sync_row=false,
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
-            enable_search_cached=true}, {
+            enable_search_book=true,enable_search_cached=true}, {
             on_chapter_list=function()
                 local book,view=details()
                 if book and view then require('weread.ui.native_direct_reading').start(host,book,view) end
@@ -165,6 +165,11 @@ function M.start(host,direction,notes)
             on_bookshelf=function() if current() then M.cancel(host);host:showBookshelf() end end,
             on_search=function() if current() then M.cancel(host);host:showSearch() end end,
             on_search_current=function() if current() then reader.search:onShowFulltextSearchInput() end end,
+            on_search_book=function()
+                if not current() then return end
+                local entry=ctx.entry;M.cancel(host)
+                require('weread.ui.book_search').open(host,entry.book_id,nil,entry.chapter_uid,entry)
+            end,
             on_search_cached=function()
                 if not current() then return end
                 local entry=ctx.entry;M.cancel(host)

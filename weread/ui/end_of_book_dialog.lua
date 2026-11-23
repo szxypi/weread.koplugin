@@ -109,6 +109,7 @@ function M.show(opts, callbacks)
             callback = function() dismiss_then(callbacks.on_search_current) end,
         },
         {
+            id = 'search_book',
             text = _("Search entire book"),
             enabled = opts.enable_search_book == true,
             callback = function() dismiss_then(callbacks.on_search_book) end,

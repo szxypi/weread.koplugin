@@ -22,6 +22,9 @@ local shown
 package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(opts,callbacks) shown={opts=opts,callbacks=callbacks} end} end
 local search_entry
 package.preload['weread.ui.native_direct_search']=function() return {open=function(_,entry) search_entry=entry;return true end} end
+local online_search
+package.preload['weread.ui.book_search']=function() return {open=function(_,id,chapters,uid,entry)
+    online_search={id=id,chapters=chapters,uid=uid,entry=entry};return true end} end
 local auto_target
 package.preload['weread.ui.native_direct_reading']=function() return {start=function(_,book,view,options)
     auto_target={book=book,view=view,options=options};return true end} end
@@ -57,6 +60,11 @@ host,s=fixture();Nav.start(host);s.finish(1)
 expect(shown.opts.enable_search_cached,'native quick menu did not enable downloaded search')
 shown.callbacks.on_search_cached()
 expect(search_entry==source and not host._native_direct_navigation,'downloaded search did not receive the verified chapter')
+host,s=fixture();Nav.start(host);s.finish(1)
+expect(shown.opts.enable_search_book,'native quick menu did not enable online search')
+shown.callbacks.on_search_book()
+expect(online_search and online_search.id=='42' and online_search.uid=='37' and online_search.entry==source
+    and not host._native_direct_navigation,'online search did not receive the verified chapter')
 host,s=fixture();Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)
 expect(s.opened==0 and s.message=='The adjacent chapter is not saved. Connect to download it.','offline missing chapter was guessed')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)

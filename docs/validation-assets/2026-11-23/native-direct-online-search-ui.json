@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-23",
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "environment": "installed plugin and full KOReader ReaderUI with synthetic books and loopback services",
+  "screens": ["600x800", "1264x1680"],
+  "checks": ["online search", "same chapter exact page", "cached cross-chapter exact page", "download after confirmation", "cancel before download", "unavailable chapter blocked", "changed source blocked", "offline fallback", "preserve keyword on downloaded search"],
+  "source_quote_checked_by_reader": true,
+  "cloud_progress_or_annotation_writes": 0,
+  "account_change_and_page_change": "component tests",
+  "real_account_tested": false,
+  "physical_kindle_tested": false
+}

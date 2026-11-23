@@ -149,6 +149,8 @@ function M:onReaderReady()
     if direct_cloud then direct_cloud.cancel(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open']
     if direct_search_open then direct_search_open.cancel(self) end
+    local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation']
+    if direct_online_search then direct_online_search.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     local local_file=self.ui and self.ui.document and self.ui.document.file
@@ -273,6 +275,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation'];if direct_online_search then direct_online_search.on_view_changed(self) end
     local direct_search=package.loaded['weread.ui.native_direct_search'];if direct_search then direct_search.on_view_changed(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open'];if direct_search_open then direct_search_open.on_view_changed(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.on_view_changed then direct_note.on_view_changed(self) end
@@ -296,6 +299,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation'];if direct_online_search then direct_online_search.on_view_changed(self) end
     local direct_search=package.loaded['weread.ui.native_direct_search'];if direct_search then direct_search.on_view_changed(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open'];if direct_search_open then direct_search_open.on_view_changed(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.on_view_changed then direct_note.on_view_changed(self) end
@@ -337,6 +341,8 @@ function M:onCloseDocument()
     if direct_cloud then direct_cloud.cancel(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open']
     if direct_search_open then direct_search_open.cancel(self) end
+    local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation']
+    if direct_online_search then direct_online_search.cancel(self) end
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local display=package.loaded['weread.ui.reader_display'];if display then display.cancel(self) end

@@ -11,8 +11,9 @@ local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 
-local function open_downloaded(host,book,chapters,keyword)
+local function open_downloaded(host,book,chapters,keyword,native_entry)
     local ok,opened=pcall(function()
+        if native_entry then return require('weread.ui.native_direct_search').open(host,native_entry,keyword) end
         return require('weread.ui.cached_book_search').open(host,book,chapters,keyword)
     end)
     return ok and opened==true
@@ -114,7 +115,7 @@ render=function(host,owner)
             cached_added=true
             items[#items+1]={text=_('Search downloaded chapters'),callback=function()
                 if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
-                local opened=open_downloaded(host,owner.id,owner.chapters,owner.keyword)
+                local opened=open_downloaded(host,owner.id,owner.chapters,owner.keyword,owner.native_entry)
                 if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
             end}
         end
@@ -145,7 +146,8 @@ render=function(host,owner)
             local context=preview(hit.context,hit.text)
             items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
                 if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
-                    Navigation.start(host,owner,row,current)
+                    if owner.native_entry then require('weread.ui.native_direct_online_navigation').start(host,owner,hit,current)
+                    else Navigation.start(host,owner,row,current) end
                 end
             end}
         end
@@ -400,32 +402,34 @@ local function prepare_catalog(host,owner,chapters)
     if not started then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.')) end
 end
 
-function M.open(host,book_id,chapters,current_uid)
+function M.open(host,book_id,chapters,current_uid,native_entry)
     if type(book_id)~='string' or not Access.display_book_id(book_id) then return false end
     local document=host.ui and host.ui.document
     local scope=host.settings:get_auth_scope()
     local account=host.library_db and host.library_db:accountKey()
     if not document or not document.file then return false end
+    if native_entry and (not scope or not require('weread.lib.native_direct_cache').valid_entry(native_entry,book_id,scope.vid)
+        or native_entry.chapter_uid~=current_uid) then return false end
     if not host:isNetworkOnline() then
-        if open_downloaded(host,book_id,chapters) then return true end
+        if open_downloaded(host,book_id,chapters,nil,native_entry) then return true end
         host:showOffline(_('Search entire book'));return false
     end
     if scope and not host.settings:auth_scope_matches(scope) then
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
     if not account or not scope then
-        if open_downloaded(host,book_id,chapters) then return true end
+        if open_downloaded(host,book_id,chapters,nil,native_entry) then return true end
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
     local access=Access.capture(host.settings)
     if not access or not access.web then
-        if open_downloaded(host,book_id,chapters) then return true end
+        if open_downloaded(host,book_id,chapters,nil,native_entry) then return true end
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
     if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end
     local owner={id=book_id,scope=scope,account=account,document=document,file=document.file,
         session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_',
-        current_uid=current_uid}
+        current_uid=current_uid,native_entry=native_entry}
     host._book_search_owner=owner
     local InputDialog=require('ui/widget/inputdialog')
     local input

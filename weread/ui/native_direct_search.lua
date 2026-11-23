@@ -161,7 +161,9 @@ start=function(host,owner)
     end
     step()
 end
-function M.open(host,entry)
+function M.open(host,entry,initial_keyword)
+    if initial_keyword~=nil and (type(initial_keyword)~='string' or #initial_keyword>160
+        or initial_keyword:find('[%z%c]')) then return false end
     local reader=host.ui;local doc=reader and reader.document;local scope=host.settings:get_auth_scope()
     local at=doc and location(reader,doc)
     if not at or not scope or not host.settings:auth_scope_matches(scope) or not host.library_db
@@ -189,7 +191,7 @@ function M.open(host,entry)
             render(host,owner);start(host,owner)
         end
     end
-    input=require('ui/widget/inputdialog'):new{title=_('Search downloaded chapters (ignores spaces)'),input='',buttons={{
+    input=require('ui/widget/inputdialog'):new{title=_('Search downloaded chapters (ignores spaces)'),input=initial_keyword or '',buttons={{
         {text=_('Cancel'),callback=function() if current(host,owner) then M.cancel(host) end end},
         {text=_('Search (match case)'),is_enter_default=true,callback=search(false)}},{
         {text=_(require('weread.lib.unicode_search').available() and 'Search (ignore case)' or 'Search (ignore English case)'),callback=search(true)}}}}

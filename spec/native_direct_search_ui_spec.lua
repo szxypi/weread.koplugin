@@ -73,6 +73,9 @@ local function finish(worker)
 end
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
+expect(Search.open(host,one,'prefilled') and displayed.input=='prefilled','downloaded fallback lost search text')
+Search.cancel(host)
+expect(not Search.open(host,one,'bad\nquery'),'downloaded fallback accepted a control character')
 local owner=start();local worker=workers[#workers];finish(worker)
 expect(owner.finished and owner.checked==2 and owner.unavailable==0 and #owner.value==2,'search missed available chapters')
 expect(table.concat(scans,',')=='a,b,c','failed copy or old version was searched incorrectly')
