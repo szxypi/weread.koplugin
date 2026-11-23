@@ -64,6 +64,7 @@ end
 
 function M.start(host,book,view,options)
     if type(book)~='table' or not view or host._book_detail_view~=view then return false end
+    local cleanup=package.loaded['weread.ui.native_direct_cleanup'];if cleanup then cleanup.cancel(host) end
     local id=Protocol.id(book.book_id or book.bookId)
     if not id then return false end
     local online=host.isNetworkConnected and host:isNetworkConnected() or not host.isNetworkConnected and host:isNetworkOnline()

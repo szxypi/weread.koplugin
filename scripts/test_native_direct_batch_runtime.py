@@ -144,6 +144,33 @@ def run(runtime):
                         ok=True, mode='presence_repair', network_blocked=True)
                     assert held.is_file() and not chapter.exists()
                     held.rename(chapter)
+                    # Real cached chapters: preserve a local note and a ledger
+                    # reference, interrupt a third deletion, recover in a new
+                    # process and redownload the removed chapter.
+                    empty_slot = None
+                    for mode in ('cleanup_start', 'cleanup_corrupt', 'cleanup_recover', 'cleanup_redownload',
+                                 'cleanup_ui_pending', 'cleanup_ui_active', 'cleanup_ui_corrupt', 'cleanup_ui_cancel',
+                                 'cleanup_ui_stale', 'cleanup_ui_cancel_during', 'cleanup_redownload', 'cleanup_ui_run'):
+                        if mode == 'cleanup_corrupt':
+                            recovery, = (root/'native-reader-v1'/account/book).glob('*/.native-cleanup')
+                            recovery_bytes = recovery.read_bytes()
+                            recovery.write_bytes(recovery_bytes+b'corrupt')
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        frames = [line for line in child.stdout.splitlines() if line.startswith('WEREAD_DIRECT_BATCH=')]
+                        expected = dict(ok=True, mode=mode)
+                        if mode != 'cleanup_redownload': expected['network_blocked'] = True
+                        assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])==expected
+                        if mode == 'cleanup_corrupt': recovery.write_bytes(recovery_bytes)
+                        if mode == 'cleanup_recover':
+                            empty_slot = recovery.parent
+                            assert not empty_slot.exists()
+                            empty_slot.mkdir()
+                        if mode == 'cleanup_redownload' and empty_slot is not None:
+                            assert len(list(empty_slot.glob('*.epub')))==1
+                            empty_slot = None
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-locked-', dir='/dev/shm') as directory:
                     root = Path(directory)
                     for name in ('plugins', 'xdg'):

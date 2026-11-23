@@ -236,6 +236,8 @@ function M:closeWeReadUI()
     if self.cancelBookReading then self:cancelBookReading() end
     local native_direct=package.loaded['weread.ui.native_direct_reading']
     if native_direct then native_direct.cancel(self) end
+    local native_cleanup=package.loaded['weread.ui.native_direct_cleanup']
+    if native_cleanup then native_cleanup.cancel(self) end
     local native_home=package.loaded['weread.ui.native_home_resume']
     if native_home then native_home.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
@@ -1653,6 +1655,12 @@ function M:showBookMenu(book)
         actions[#actions+1]={text=_('Read saved E-Ink chapter'),callback=self:safeCallback(_('Read saved E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{cached=true}) end
         end)}
+        local native_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+        if native_scope and require('weread.lib.native_direct_cache').book_directory(self.settings,native_scope.vid,detail_id) then
+            actions[#actions+1]={text=_('Clear unused E-Ink chapters'),callback=self:safeCallback(_('Clear unused E-Ink chapters'),function()
+                if self._book_detail_view==view then require('weread.ui.native_direct_cleanup').start(self,book,view) end
+            end)}
+        end
     end
     if has_cache then
         actions[#actions + 1] = {
@@ -1713,6 +1721,8 @@ function M:showBookMenu(book)
                 self:cancelBookReading()
                 local native_direct=package.loaded['weread.ui.native_direct_reading']
                 if native_direct then native_direct.cancel(self) end
+                local native_cleanup=package.loaded['weread.ui.native_direct_cleanup']
+                if native_cleanup then native_cleanup.cancel(self) end
                 local native_home=package.loaded['weread.ui.native_home_resume']
                 if native_home and self._native_home_resume and self._native_home_resume.view==view then native_home.cancel(self) end
                 require('weread.ui.catalog_request').cancel(self)

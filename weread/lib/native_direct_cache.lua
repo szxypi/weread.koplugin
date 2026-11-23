@@ -8,6 +8,8 @@ local Path=require('weread.lib.native_direct_path')
 local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000}
 local CHUNK=65536
 local OPERATION='.native-operation'
+local RETIRING='.native-cleanup'
+M.RETIRING=RETIRING
 
 local function fs()
     local ok,lfs=pcall(require,'libs/libkoreader-lfs')
@@ -250,6 +252,7 @@ local function candidate_present(lfs,book_dir,entry)
     local dir=book_dir..'/'..name_of(entry)
     local attr=mode(lfs,dir)
     if not attr or attr.mode~='directory' then return false end
+    if mode(lfs,dir..'/'..RETIRING) then return false end
     local file=mode(lfs,dir..'/'..filename(entry.book_id,entry.chapter_uid))
     local receipt=read_file(lfs,dir..'/receipt.txt',256)
     local key,size,digest
@@ -315,7 +318,8 @@ function M.list(settings,account,book_id,current)
                 local copy=tonumber(suffix)
                 if hash(key) and copy and tostring(copy)==suffix and copy<M.MAX_COPIES then
                     local dir=book_dir..'/'..name;local attr=mode(lfs,dir)
-                    local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
+                    local entry=attr and attr.mode=='directory' and not mode(lfs,dir..'/'..RETIRING)
+                        and read_entry(lfs,dir,key,copy,book_id,account)
                     local file=entry and mode(lfs,dir..'/'..filename(book_id,entry.chapter_uid))
                     if entry and file and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE then
                         rows[#rows+1]=attach_ref(lfs,dir,entry)
@@ -364,7 +368,7 @@ function M.open(settings,account,book_id,entry,current)
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return nil end
     local dir=book_dir..'/'..name_of(entry);local attr=mode(lfs,dir)
-    if not attr or attr.mode~='directory' then return nil end
+    if not attr or attr.mode~='directory' or mode(lfs,dir..'/'..RETIRING) then return nil end
     local actual=read_entry(lfs,dir,entry.key,entry.copy,book_id,account)
     if not actual or entry_payload(actual)~=entry_payload(entry) then return nil end
     if entry.catalog_sha256 then
@@ -486,6 +490,12 @@ function M.publish(settings,account,book,chapter,prepared,current)
         local created=lfs.mkdir(dir)
         local attr=mode(lfs,dir)
         if not attr or attr.mode~='directory' then return nil,'storage' end
+        -- A power loss after the last cleanup marker was removed can leave an
+        -- empty owned slot. rmdir never removes a slot containing any data.
+        if not created and lease and lease:owns() and lfs.rmdir(dir) then
+            created=lfs.mkdir(dir);attr=mode(lfs,dir)
+            if not created or not attr or attr.mode~='directory' then return nil,'storage' end
+        end
         local path=dir..'/'..chapter_file
         local entry={owner=Crypto.sha256_hex('native-direct-account\0'..account),
             book_id=book.book_id,chapter_uid=chapter.chapterUid,book_version=prepared.book_version,
@@ -497,7 +507,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
             entry.catalog_prev,entry.catalog_next=chapter.catalog_prev,chapter.catalog_next
         end
         if not created then
-            if verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
+            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
                 and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
                 save_presence(settings,account,book.book_id,entry,live)
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,

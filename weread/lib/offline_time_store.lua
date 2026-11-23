@@ -48,7 +48,15 @@ function Store:source_references(account,book_id)
     if not parent or parent.mode~='directory' then return nil,'storage' end
     local info,_,errno=lfs.symlinkattributes(path)
     if not info then
-        if errno==2 then return {files={},unverified=false} end
+        if errno==2 then
+            -- Orphaned SQLite journals may contain the only remaining copy of
+            -- pending records; absence of the main DB is not proof of emptiness.
+            for _,suffix in ipairs({'-wal','-shm','-journal'}) do
+                local journal,_,journal_errno=lfs.symlinkattributes(path..suffix)
+                if journal or journal_errno~=2 then return nil,'storage' end
+            end
+            return {files={},unverified=false}
+        end
         return nil,'storage'
     end
     if info.mode~='file' then return nil,'storage' end

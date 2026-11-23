@@ -21,6 +21,198 @@ local function pump(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
+if input.mode=='cleanup_ui_cancel' or input.mode=='cleanup_ui_stale' or input.mode=='cleanup_ui_run'
+    or input.mode=='cleanup_ui_cancel_during'
+    or input.mode=='cleanup_ui_pending' or input.mode=='cleanup_ui_active' or input.mode=='cleanup_ui_corrupt' then
+    assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+    local cache=require('weread.lib.native_direct_cache')
+    local book={book_id='42',title='Synthetic',author='Fixture',chapters={}}
+    settings=require('weread.lib.settings'):new()
+    settings.data_dir=home;settings.cache_dir=home..'/book-cache'
+    assert(require('util').makePath(settings.cache_dir))
+    settings:set('account',{user_vid='12345678',name='Synthetic',login_method='qr'})
+    settings:set('cookies',{wr_vid='12345678',wr_skey='synthetic'})
+    settings:set('books',{['42']=book});settings:flush()
+    scope=assert(settings:get_auth_scope())
+    local client=require('weread.lib.client'):new(settings)
+    local library=require('weread.lib.library_db'):new(settings)
+    local coverage=require('weread.lib.readtime_coverage'):new(home);assert(coverage:initialize())
+    local host={settings=settings,client=client,library_db=library,readtime_coverage=coverage,
+        offline_time={store=require('weread.lib.offline_time_store'):new(home)},ui={},
+        discovery_epoch=1,_reader_session_gen=1,isNetworkConnected=function() return true end,
+        showBusy=function(self,label,cancel)
+            self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message)
+        end,
+        closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
+        showInfo=function(self,message) self.message=message end,
+        showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
+        getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
+        safeCallback=function(_,_,callback) return callback end,refreshShelfCacheIndicators=function() end,
+        cancelBookMetadata=function() end,cancelBookReading=function() end}
+    host:showBookMenu(book)
+    local action
+    for _,button in ipairs(host._book_detail_view._action_buttons) do
+        if button.text==require('weread.lib.plugin_util').tr('Clear unused E-Ink chapters') then action=button end
+    end
+    assert(action,'cleanup action missing')
+    local state_path,state_backup
+    if input.mode=='cleanup_ui_active' then
+        local rows=assert(cache.list(settings,scope.vid,'42',function() return true end))
+        host.ui.document={file=assert(cache.open(settings,scope.vid,'42',rows[3],function() return true end)).path}
+    elseif input.mode=='cleanup_ui_pending' then
+        package.loaded['weread.lib.native_position_store']={new=function() return {read=function() return {phase='pending'} end} end}
+    elseif input.mode=='cleanup_ui_corrupt' then
+        state_path=assert(settings:get_book('42')).cache_dir..'/.weread-accounts/'..library:accountKey()..'/reading_state.json'
+        local state=assert(io.open(state_path,'rb'));state_backup=assert(state:read('*a'));assert(state:close())
+        state=assert(io.open(state_path,'wb'));assert(state:write('corrupt'));assert(state:close())
+    elseif input.mode=='cleanup_ui_cancel_during' then
+        local model=require('weread.lib.native_direct_cleanup');local step=model.step
+        model.step=function(...)
+            local ok,reason=step(...)
+            if ok then
+                local hit=assert(io.open(home..'/cleanup-hit','wb'));assert(hit:write('done'));assert(hit:close())
+                while true do socket.sleep(.1) end
+            end
+            return ok,reason
+        end
+    end
+    action.callback()
+    if input.mode=='cleanup_ui_active' or input.mode=='cleanup_ui_pending' or input.mode=='cleanup_ui_corrupt' then
+        pump(function() return host.message~=nil end)
+        assert(not host._native_cleanup and not host.busy_message,'unsafe cleanup was offered')
+        assert(#assert(cache.list(settings,scope.vid,'42',function() return true end))==3)
+        if state_path then
+            local state=assert(io.open(state_path,'wb'));assert(state:write(state_backup));assert(state:close())
+        end
+        print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
+    end
+    pump(function() return host._native_cleanup and host._native_cleanup.dialog or host.message end)
+    assert(not host.message,host.message)
+    local dialog=assert(host._native_cleanup.dialog)
+    if input.mode=='cleanup_ui_cancel' then dialog.cancel_callback();UI:close(dialog)
+    elseif input.mode=='cleanup_ui_stale' then
+        settings:set('account',{user_vid='87654321'});settings:flush()
+        dialog.ok_callback();UI:close(dialog)
+    elseif input.mode=='cleanup_ui_cancel_during' then
+        dialog.ok_callback();UI:close(dialog)
+        pump(function() local file=io.open(home..'/cleanup-hit','rb');if file then file:close();return true end end)
+        require('weread.ui.native_direct_cleanup').cancel(host)
+    else
+        dialog.ok_callback();UI:close(dialog)
+        pump(function() return host.message~=nil end)
+        assert(host.message==require('weread.lib.plugin_util').T(
+            require('weread.lib.plugin_util').tr('Cleared %1 unused E-Ink chapters.'),'1'),host.message)
+    end
+    assert(not host._native_cleanup and not host.busy_message)
+    local saved=assert(cache.list(settings,'12345678','42',function() return true end))
+    assert(#saved==((input.mode=='cleanup_ui_run' or input.mode=='cleanup_ui_cancel_during') and 2 or 3),
+        'unexpected number of saved chapters')
+    assert(cache.present(settings,'12345678','42'),'remaining saved chapters lost their indicator')
+    print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
+end
+if input.mode=='cleanup_start' or input.mode=='cleanup_recover' or input.mode=='cleanup_corrupt' then
+    assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+    local cache=require('weread.lib.native_direct_cache')
+    local cleanup=require('weread.lib.native_direct_cleanup')
+    local ledger=require('weread.lib.offline_time_store'):new(home)
+    local owner=require('weread.lib.native_position_contract').account_key(scope.vid)
+    local codec=require('weread.lib.client'):new(settings)
+    local current=function() return true end
+    local rows=assert(cache.list(settings,scope.vid,'42',current))
+    if input.mode=='cleanup_start' then
+        assert(#rows==3)
+        local first=assert(cache.open(settings,scope.vid,'42',rows[1],current))
+        local second=assert(cache.open(settings,scope.vid,'42',rows[2],current))
+        local sidecar=require('docsettings'):getSidecarDir(first.path,'doc')
+        assert(require('util').makePath(sidecar))
+        local note=assert(io.open(sidecar..'/metadata.epub.lua','wb'));assert(note:write('synthetic note'));assert(note:close())
+        assert(ledger:begin(owner,{book_id='42',stats_book=1,start_time=100,time_zone='+08:00',
+            book_version=second.book_version,file_id=second.file_id,version_source='native_direct'}))
+    else assert(#rows==2,'interrupted copy was exposed to the reader') end
+    local lease=assert(cache.acquire(settings,scope.vid,'42'))
+    local plan=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+    if input.mode=='cleanup_corrupt' then
+        assert(#plan.items==0 and plan.protected==3,'corrupt recovery record was trusted')
+        lease:release()
+        print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
+    end
+    assert(#plan.items==1 and plan.protected==2,'protected chapters were selected')
+    local again=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+    assert(cleanup.same_plan(plan,again),'stable cleanup plan changed')
+    if input.mode=='cleanup_start' then
+        local item=plan.items[1];assert(not item.staged and item.record.files['catalog.txt'])
+        local lfs=require('libs/libkoreader-lfs');local stat=lfs.symlinkattributes
+        local target=plan.root..'/'..item.folder..'/wr-chapter-'
+            ..require('weread.lib.crypto').sha256_hex('42\0'..item.record.chapter)..'.epub'
+        rawset(lfs,'symlinkattributes',function(path,...)
+            local attr,err,number=stat(path,...)
+            if path==target and type(attr)=='table' then attr.ino=1e18 end
+            return attr,err,number
+        end)
+        local large_inode=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        rawset(lfs,'symlinkattributes',stat)
+        assert(#large_inode.items==1,'large filesystem inode was rejected')
+        local pinned=rows[3]
+        pinned.file_id=assert(cache.open(settings,scope.vid,'42',pinned,current)).file_id
+        local database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec([[CREATE TABLE native_direct_mark_source (
+            cache_key TEXT PRIMARY KEY,book_id TEXT NOT NULL,chapter_uid TEXT NOT NULL,file_id TEXT NOT NULL,
+            source_hash TEXT NOT NULL,body TEXT NOT NULL,serial INTEGER NOT NULL)]])
+        local statement=database:prepare('INSERT INTO native_direct_mark_source VALUES(?,?,?,?,?,?,?)')
+        statement:bind(pinned.key,'42',pinned.chapter_uid,pinned.file_id,pinned.source_sha256,'synthetic',1):step()
+        statement:close();database:close()
+        local marked=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#marked.items==0 and marked.protected==3,'cached mark source was selected')
+        assert(not cleanup.step(settings,codec,plan,lease,1,current),'new cached mark source did not invalidate cleanup')
+        database=require('lua-ljsqlite3/init').open(home..'/library-'..owner..'.db')
+        database:exec('DELETE FROM native_direct_mark_source');database:close()
+        settings.get_book=function() return {native_home_resume={entry=pinned}} end
+        local referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#referenced.items==0 and referenced.protected==3,'home resume chapter was selected')
+        assert(not cleanup.step(settings,codec,plan,lease,1,current),'new home resume did not invalidate cleanup')
+        settings.get_book=function() return {last_local_position={file_id=pinned.file_id}} end
+        referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#referenced.items==0 and referenced.protected==3,'saved position source was selected')
+        settings.get_book=function() return {pending_upload_position={file_id='invalid'}} end
+        referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#referenced.items==0 and referenced.protected==3,'unverified position source was ignored')
+        settings.get_book=function() return {book_id='43'} end
+        referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#referenced.items==0 and referenced.protected==3,'mismatched book metadata was ignored')
+        settings.get_book=nil
+        local legacy_dir=home..'/legacy-book';assert(require('libs/libkoreader-lfs').mkdir(legacy_dir))
+        local state=assert(io.open(legacy_dir..'/reading_state.json','wb'));assert(state:write('corrupt'));assert(state:close())
+        settings.get_book_indexes=function() return {['42']={cache_dir=legacy_dir}} end
+        referenced=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#referenced.items==0 and referenced.protected==3,'corrupt reading state was ignored')
+        assert(os.remove(legacy_dir..'/reading_state.json'));assert(require('libs/libkoreader-lfs').rmdir(legacy_dir))
+        settings.get_book_indexes=nil
+        local unknown=plan.root..'/'..item.folder..'/unexpected.txt'
+        local extra=assert(io.open(unknown,'wb'));assert(extra:write('do not delete'));assert(extra:close())
+        local changed=assert(cleanup.scan(settings,scope.vid,'42',owner,codec,current,lease))
+        assert(#changed.items==0 and not cleanup.same_plan(plan,changed),'unexpected file did not invalidate preview')
+        assert(not cleanup.step(settings,codec,plan,lease,1,current),'stale plan removed files')
+        assert(os.remove(unknown))
+        local old_remove=os.remove
+        rawset(os,'remove',function(path) if path:match('/catalog%.txt$') then return nil end return old_remove(path) end)
+        local ok=cleanup.step(settings,codec,plan,lease,1,current)
+        rawset(os,'remove',old_remove)
+        assert(not ok,'injected interruption did not stop cleanup')
+        local dir=plan.root..'/'..item.folder
+        assert(require('libs/libkoreader-lfs').symlinkattributes(dir..'/'..cache.RETIRING),'missing recovery record')
+        assert(not require('libs/libkoreader-lfs').symlinkattributes(dir..'/wr-chapter-'
+            ..require('weread.lib.crypto').sha256_hex('42\0'..item.record.chapter)..'.epub'))
+        assert(not cache.open(settings,scope.vid,'42',rows[3],current),'partially cleaned copy was opened')
+    else
+        assert(plan.items[1].staged,'new process did not find interrupted deletion')
+        local ok,why=cleanup.step(settings,codec,plan,lease,1,current)
+        assert(ok and why=='done','recovery did not finish')
+        assert(not require('libs/libkoreader-lfs').symlinkattributes(plan.root..'/'..plan.items[1].folder))
+        assert(#assert(cache.list(settings,scope.vid,'42',current))==2)
+    end
+    lease:release()
+    print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
+end
 if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local cache=require('weread.lib.native_direct_cache')
@@ -77,6 +269,9 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         local ledger=Ledger:new(home);local owner=string.rep('a',20);local path=assert(ledger:path(owner))
         local absent=assert(ledger:source_references(owner,'42'))
         assert(not absent.unverified and not next(absent.files) and not io.open(path,'rb'))
+        local journal=assert(io.open(path..'-wal','wb'));assert(journal:write('synthetic'));assert(journal:close())
+        assert(not ledger:source_references(owner,'42'),'orphaned ledger journal was ignored')
+        assert(os.remove(path..'-wal'))
         assert(not ledger:source_references(owner,'042'),'invalid book id was accepted')
         local file_id=string.rep('b',64)
         assert(ledger:begin(owner,{book_id='42',stats_book=1,start_time=100,time_zone='+08:00',
@@ -180,8 +375,8 @@ else
     else
         local T=require('weread.lib.plugin_util').T;local tr=require('weread.lib.plugin_util').tr
         local template=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
-        local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2' or '0'
-        local saved=input.mode=='resume' and '1' or input.mode=='locked' and '0' or '3'
+        local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2' or input.mode=='cleanup_redownload' and '1' or '0'
+        local saved=input.mode=='resume' and '1' or input.mode=='locked' and '0' or input.mode=='cleanup_redownload' and '2' or '3'
         assert(text==T(template,downloaded,saved,input.mode=='locked' and '1' or '0','0'),text)
     end
     assert(not host._native_direct_reading and not host.busy_message)
