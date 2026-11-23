@@ -115,7 +115,7 @@ function M:refresh()
         local h,c=self.host,self.context
         local online=h.isNetworkConnected and h:isNetworkConnected() or not h.isNetworkConnected and h.isNetworkOnline and h:isNetworkOnline()
         if not online then self:stop();return end
-        if h._native_direct_position or h.busy_message then self:refresh();return end
+        if h._native_direct_position or h.busy_message or h._offline_time_transfer_lock then self:refresh();return end
         local identity=Identity.read_document(c.document,c.entry.book_id)
         if identity.file_id~=c.entry.file_id or identity.book_id~=c.entry.book_id
             or identity.book_version~=c.entry.book_version then self:stop();return end

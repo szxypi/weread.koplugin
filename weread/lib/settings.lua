@@ -55,7 +55,7 @@ local defaults = {
         interval_seconds = 30,
         report_on_open = true,
     },
-    offline_time = { enabled = false },
+    offline_time = { enabled = false, auto_native = false },
     cloud_highlight_style = 1,
     cloud_highlight_color = 0,
     thought_popup = {

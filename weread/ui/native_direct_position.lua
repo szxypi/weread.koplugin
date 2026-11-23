@@ -35,6 +35,10 @@ function M.on_view_changed(host)
 end
 function M.start(host,entry,options)
     local automatic=options and options.automatic
+    if options and options.upload and host._offline_time_transfer_lock then
+        if not automatic and host.showInfo then host:showInfo(_('Another synchronization is running. Try again after it finishes.')) end
+        return false
+    end
     if automatic and (type(automatic)~='table' or type(automatic.current)~='function' or type(automatic.done)~='function'
         or type(automatic.baseline)~='table' or options.upload~=true or options.cloud==true
         or host._native_direct_position or not automatic.current()) then return false end

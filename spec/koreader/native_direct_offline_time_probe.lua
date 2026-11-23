@@ -141,6 +141,32 @@ assert(submit,'current-day native batch was not offered');submit.callback();pump
 assert(sent.mode=='send' and sent.owner==account and sent.selection.native_direct==true
     and sent.selection.current_day==true and sent.guard(),'current-day batch was not sent to the service')
 sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
+-- Real UI scheduler and subprocess selection/source scan; only transport is
+-- substituted. A one-second interval makes this a bounded timer simulation.
+host.settings:set('offline_time',{enabled=true,auto_native=false});host.settings:flush()
+assert(collector:start());pump(function() return collector.active~=nil end)
+local messages,auto_calls=0,0;local old_notice=host.showTransientInfo
+host.showTransientInfo=function() messages=messages+1 end
+local Auto=require('weread.lib.native_direct_time_auto')
+local auto_toggle
+for _,entry in ipairs(host:getReadReportMenuItems()) do
+    if entry.text==tr('Automatically sync E-Ink chapter time every 5 minutes') then auto_toggle=entry end
+end
+assert(auto_toggle and not auto_toggle.checked_func(),'automatic time toggle missing')
+auto_toggle.callback()
+assert(auto_toggle.checked_func() and host.settings:get('offline_time').enabled,'automatic time toggle failed')
+Auto.cancel(host)
+assert(Auto.start(host,true,{interval=1,service_factory=function() return {
+    start=function(_self,mode,owner,selection,references,guard,callback)
+        assert(mode=='send' and owner==account and selection.native_direct and selection.current_day and guard())
+        assert(references[1].kind=='native_direct');auto_calls=auto_calls+1
+        callback({kind='unconfirmed'});return true
+    end,cancel=function() end,
+} end}))
+pump(function() return host._native_auto_time_blocked==true end)
+assert(auto_calls==1 and messages==1 and not host._native_auto_time,'uncertain automatic result did not stop')
+assert(not Auto.start(host) and auto_calls==1,'uncertain automatic result was retried')
+host.showTransientInfo=old_notice
 host.isNetworkConnected=function() return false end
 local previous=collector:status().pending
 host.settings:set('account',{user_vid='87654321',name='Other',login_method='qr'})
@@ -151,4 +177,5 @@ assert(not collector.active and collector:status().pending==0,'foreign account r
 assert(collector.store:summary(account).pending==previous,'old account records changed')
 print('WEREAD_DIRECT_OFFLINE_TIME='..json.encode{ok=true,network_blocked=true,real_statistics=true,
     pause_resume=true,deduplicated=true,chapter_change=true,online_capture=true,source_discovery=true,source_ui=true,current_day_ui=true,
+    automatic_dry_run=true,auto_toggle=true,
     account_isolated=true,ordinary_path_isolated=true})

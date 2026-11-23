@@ -260,6 +260,8 @@ transfer=function(host,context,mode,input)
         local started,reason=host.offline_time_transfer_service:start(mode,context.account,input,refs,current,function(result)
             if not owns(host,context) or result.kind=='cancelled' then M.close(host);return end
             if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+            local auto=package.loaded['weread.lib.native_direct_time_auto']
+            if auto and (result.kind=='confirmed' or result.kind=='completed') then auto.start(host,true) end
             local labels={confirmed='This batch is independently confirmed in cloud reading time.',
                 saved_confirmation='Cloud accounting is confirmed. Finish local bookkeeping from the review menu.',
                 completed='Local records updated. Original transfer evidence is kept.',

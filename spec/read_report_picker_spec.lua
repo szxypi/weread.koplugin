@@ -167,6 +167,16 @@ expect(offline.enabled and local_stops == 1 and local_starts == 1, "offline togg
 fail_flush = true
 report_items[6].callback(touchmenu)
 expect(offline.enabled and status_text == "Could not save offline time settings.", "failed offline preference save rolls back")
+fail_flush=false;report_items[7].callback(touchmenu)
+expect(offline.enabled and offline.auto_native==true,'automatic time toggle did not enable local recording')
+report_items[6].callback(touchmenu)
+expect(not offline.enabled and offline.auto_native==true,'local toggle lost the automatic preference')
+report_items[6].callback(touchmenu)
+expect(offline.enabled and offline.auto_native==true,'reenabling local time lost the automatic preference')
+fail_flush=true;report_items[7].callback(touchmenu)
+expect(offline.enabled and offline.auto_native==true and status_text=='Could not save offline time settings.',
+    'failed automatic preference save did not roll back')
+fail_flush=false
 local reviewed,closed
 package.preload['weread.ui.offline_time_review']=function() return {
     show=function(target) reviewed=target end,close=function(target) closed=target end,

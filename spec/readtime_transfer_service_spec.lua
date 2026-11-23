@@ -48,12 +48,13 @@ f=fixture();f.options.observe_source=function() error('readtime_source/format') 
 expect(f.start());f.deliver()
 expect(f.result.kind=='unsupported_source' and f.posts==0 and f.ledger:summary(f.account).pending==2)
 -- Refuse an active writer, without abandoning its job, even before a claim.
-for _i,busy in ipairs({'report','preparation','sync','source','position'}) do
+for _i,busy in ipairs({'report','preparation','sync','source','native_position','position'}) do
     f=fixture()
     if busy=='report' then f.host.read_report.job={}
     elseif busy=='preparation' then f.host.read_report.preparation={}
     elseif busy=='sync' then f.host.progress_sync.uploading=true
     elseif busy=='source' then f.host.source_upload={job={}}
+    elseif busy=='native_position' then f.host._native_direct_position={}
     else
         local db=H.connect(f.root..'/library.db');db:close()
         local store=require('weread.lib.native_position_store'):new(f.host.library_db,f.client)

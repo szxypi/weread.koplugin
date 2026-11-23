@@ -136,6 +136,8 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local time_source=package.loaded['weread.lib.native_direct_offline_time'];if time_source then time_source.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
@@ -267,6 +269,15 @@ function M:onReaderReady()
     end)
     local _started, _title, reason = self.read_report:on_reader_ready()
     if self.offline_time then self.offline_time:resume() end
+    local time_options=self.settings:get('offline_time',{})
+    if type(time_options)=='table' and time_options.enabled==true and time_options.auto_native==true then
+        local session=self._reader_session_gen;local epoch=self._native_auto_time_epoch
+        UIManager:scheduleIn(.2,function()
+            if self._reader_session_gen==session and self._native_auto_time_epoch==epoch and not self._weread_suspended then
+                require('weread.lib.native_direct_time_auto').start(self)
+            end
+        end)
+    end
     local rr = self.settings:get("read_report")
     if rr.enabled and rr.mode == "auto" and reason == "document_not_weread" then
         self:showTransientInfo(_("Current book is not from WeRead, reading time not reported"), 1)
@@ -324,6 +335,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close']
@@ -433,6 +446,8 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     require('weread.ui.catalog_request').cancel(self)
@@ -610,6 +625,8 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
@@ -693,6 +710,12 @@ function M:onResume()
     if self.source_position then self.source_position:resume("suspend") end
     self.read_report:on_resume()
     if self.offline_time then self.offline_time:resume() end
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto']
+    local time_options=self.settings:get('offline_time',{})
+    if not auto_time and type(time_options)=='table' and time_options.enabled==true and time_options.auto_native==true then
+        auto_time=require('weread.lib.native_direct_time_auto')
+    end
+    if auto_time then auto_time.start(self) end
     require('weread.ui.finish_offline').pump(self)
     require('weread.ui.membership_offline').pump(self)
     if self.startHomeStatusTimer and self.shelf_view and self.shelf_view.home_layout then
@@ -706,17 +729,20 @@ end
 
 function M:onReadingResumed()
     if self.offline_time then self.offline_time:resume() end
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.start(self) end
 end
 
 function M:onNetworkConnected()
     personal_action(self,'network_connected')
     if self.progress_sync then self.progress_sync:on_network_connected() end
     if self.offline_time then self.offline_time:update("network_connected", true) end
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.start(self) end
     require('weread.ui.finish_offline').pump(self)
     require('weread.ui.membership_offline').pump(self)
 end
 
 function M:onNetworkDisconnected()
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end

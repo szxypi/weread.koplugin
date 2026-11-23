@@ -249,7 +249,13 @@ Review.show(host);deliver();choose('Check today’s E-Ink chapter time');deliver
 eq(host._offline_time_detail.title:find('Only the displayed current-day batch',1,true)~=nil,true)
 host._offline_time_detail.buttons[2][1].callback();deliver();deliver()
 eq(dispatched.mode,'send');eq(dispatched.input.current_day,true);eq(dispatched.input.native_direct,true)
-dispatched.callback({kind='unconfirmed'});eq(today_ledger:summary(account).pending,2)
+local old_auto=package.loaded['weread.lib.native_direct_time_auto'];local rearmed=0
+package.loaded['weread.lib.native_direct_time_auto']={start=function(target,reset) eq(target,host);eq(reset,true);rearmed=rearmed+1 end}
+dispatched.callback({kind='unconfirmed'});eq(today_ledger:summary(account).pending,2);eq(rearmed,0)
+Review.show(host);deliver();choose('Check today’s E-Ink chapter time');deliver()
+host._offline_time_detail.buttons[2][1].callback();deliver();deliver()
+dispatched.callback({kind='confirmed'});eq(rearmed,1)
+package.loaded['weread.lib.native_direct_time_auto']=old_auto
 rawset(os,'time',old_time)
 direct.scan_page=saved_direct_scan
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))

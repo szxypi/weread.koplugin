@@ -44,7 +44,7 @@ end
 function M.freeze(host)
     local timer=host._native_direct_interval;local c=timer and timer.context
     if not c or not enabled(host) or not timer:access_current() or not online(host) or timer.attempt
-        or host._native_direct_position or host.busy_message or not host.library_db
+        or host._native_direct_position or host._offline_time_transfer_lock or host.busy_message or not host.library_db
         or type(host.library_db.open)~='function' then return nil end
     local location=Context.location(c.document,c.reader.view and c.reader.view.view_mode or 'page')
     if not location or Context.same_location(location,c.location) then return nil end

@@ -95,18 +95,44 @@ function M:getReadReportMenuItems()
             keep_menu_open = true, check_callback_updates_menu = true,
             checked_func = function() return self.settings:get("offline_time", {}).enabled == true end,
             callback = self:safeCallback(_("Record offline and E-Ink chapter time locally"), function(menu)
-                local enabled = self.settings:get("offline_time", {}).enabled == true
+                local previous = self.settings:get("offline_time", {})
+                if type(previous)~='table' then previous={} end
+                local enabled = previous.enabled == true
+                local updated={};for key,value in pairs(previous) do updated[key]=value end;updated.enabled=not enabled
+                local auto=package.loaded['weread.lib.native_direct_time_auto'];if auto then auto.cancel(self) end
                 if self.offline_time then self.offline_time:stop("disabled") end
                 local native_time=package.loaded['weread.lib.native_direct_offline_time'];if native_time then native_time.cancel(self) end
                 local ok = pcall(function()
-                    self.settings:set("offline_time", { enabled = not enabled })
+                    self.settings:set("offline_time", updated)
                     if self.settings:flush() == false then error("write_failed") end
                 end)
                 if not ok then
-                    self.settings:set("offline_time", { enabled = enabled })
+                    self.settings:set("offline_time", previous)
                     self:showInfo(_("Could not save offline time settings."))
                 end
                 if self.offline_time then self.offline_time:start() end
+                if auto then auto.start(self,true) end
+                if menu then menu:updateItems() end
+            end),
+        },
+        {
+            text = _("Automatically sync E-Ink chapter time every 5 minutes"),
+            keep_menu_open = true, check_callback_updates_menu = true,
+            checked_func = function() return self.settings:get('offline_time',{}).auto_native==true end,
+            callback = self:safeCallback(_("Automatically sync E-Ink chapter time every 5 minutes"), function(menu)
+                local previous=self.settings:get('offline_time',{});local updated={}
+                if type(previous)~='table' then previous={} end
+                for key,value in pairs(previous) do updated[key]=value end
+                updated.auto_native=previous.auto_native~=true
+                if updated.auto_native then updated.enabled=true end
+                local auto=require('weread.lib.native_direct_time_auto');auto.cancel(self)
+                local ok=pcall(function()
+                    self.settings:set('offline_time',updated)
+                    if self.settings:flush()==false then error('write_failed') end
+                end)
+                if not ok then self.settings:set('offline_time',previous);self:showInfo(_("Could not save offline time settings.")) end
+                if self.offline_time then self.offline_time:start() end
+                auto.start(self,true)
                 if menu then menu:updateItems() end
             end),
         },

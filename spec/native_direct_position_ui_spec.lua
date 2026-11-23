@@ -131,7 +131,10 @@ local function fixture()
     end
     return host,s
 end
-local host,s=fixture();expect(Position.start(host,entry),'position action did not start');s.capture();s.result(1)
+local host,s=fixture();host._offline_time_transfer_lock={}
+expect(not Position.start(host,entry,{upload=true}) and not host._native_direct_position and s.infos==1,
+    'position upload ignored an active reading-time transfer')
+host,s=fixture();expect(Position.start(host,entry),'position action did not start');s.capture();s.result(1)
 expect(s.message=='The local reading position was checked against the chapter source.'
     and not host._native_direct_position,'read-only success not reported')
 host,s=fixture();Position.start(host,entry);s.capture();in_worker=true;local stale=s.jobs[1].task();in_worker=false;page=2;s.jobs[1].callback(stale)

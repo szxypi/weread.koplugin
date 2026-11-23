@@ -3,7 +3,8 @@ local M={}
 function M.acquire(host,book,current)
     local report,sync=host.read_report,host.progress_sync
     local upload=host.source_upload
-    if host._offline_time_transfer_lock or report and (report.job or report.preparation or report.offline_time_transfer)
+    if host._offline_time_transfer_lock or host._native_direct_position
+        or report and (report.job or report.preparation or report.offline_time_transfer)
         or sync and (sync.upload_job or sync.uploading or sync.offline_time_transfer)
         or upload and (upload.job or upload.native and (upload.native.job or upload.native.service.job)) then return nil,'busy' end
     local store=require('weread.lib.native_position_store'):new(host.library_db,host.client)

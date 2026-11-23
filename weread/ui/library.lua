@@ -283,6 +283,9 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
+    local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
+    self._native_auto_time_blocked=nil
     self._guest_recent_searches=nil
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
@@ -324,6 +327,11 @@ function M:onWeReadAccountChanged()
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
     if self.offline_time then self.offline_time:resume() end
+    local time_options=self.settings and self.settings.get and self.settings:get('offline_time',{})
+    if not auto_time and type(time_options)=='table' and time_options.enabled==true and time_options.auto_native==true then
+        auto_time=require('weread.lib.native_direct_time_auto')
+    end
+    if auto_time then auto_time.start(self) end
     if personal then personal.attach(self) end
 end
 
