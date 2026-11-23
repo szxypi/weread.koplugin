@@ -107,7 +107,6 @@ function M.open(host,selection,bookmark)
     local document=host.ui and host.ui.document;local id=host:detectWeReadBook()
     local direct=document and not id and DirectPath.contains(host.settings,document.file)
     if direct then
-        if bookmark then return false end
         local ok,raw=pcall(document.getDocumentFileContent,document,Identity.PATH)
         local identity=ok and Identity.decode(raw);id=identity and identity.book_id
     end
@@ -150,25 +149,26 @@ function M.open(host,selection,bookmark)
         M.cancel(host);host:showInfo(_(message))
     end
     local function begin_capture()
+    local function direct_metadata(doc,book,render_path)
+        local e=owner.direct_entry
+        if doc~=document or book~=id or render_path~='OEBPS/text/chapter.xhtml' or not e then return nil end
+        local identity=Identity.read_document(doc,book)
+        if identity.file_id~=e.file_id or identity.book_id~=e.book_id or identity.book_version~=e.book_version then return nil end
+        return {metadata=e.file_id..e.source_sha256,identity=identity,chapter_uid=e.chapter_uid}
+    end
     owner.thread=coroutine.create(function()
         if bookmark then
             local input=Context.capture(document,id,owner.location,{viewport_height=owner.viewport_height,is_current=function() return current(host,owner) end,
-                yield=function() coroutine.yield() end})
+                yield=function() coroutine.yield() end,metadata_resolver=direct and direct_metadata or nil})
             if not input or input.error then owner.error=input and input.error;return nil end
-            input.chapters=host.library_db:getChapters(id);return input
+            if not direct then input.chapters=host.library_db:getChapters(id) end;return input
         end
         local inputs={text=selection.text,chapters=not direct and host.library_db:getChapters(id) or nil}
         for _i,pair in ipairs({{'first',selection.pos0},{'last',selection.pos1}}) do
             local location={xpointer=document:getNormalizedXPointer(pair[2]),page=owner.location.page,pos=owner.location.pos,view_mode=mode}
             if not location.xpointer or not location.xpointer:find('/text()',1,true) then return nil end
             inputs[pair[1]]=Context.capture(document,id,location,{is_current=function() return current(host,owner) end,
-                yield=function() coroutine.yield() end,metadata_resolver=direct and function(doc,book,render_path)
-                    local e=owner.direct_entry
-                    if doc~=document or book~=id or render_path~='OEBPS/text/chapter.xhtml' or not e then return nil end
-                    local identity=Identity.read_document(doc,book)
-                    if identity.file_id~=e.file_id or identity.book_id~=e.book_id or identity.book_version~=e.book_version then return nil end
-                    return {metadata=e.file_id..e.source_sha256,identity=identity,chapter_uid=e.chapter_uid}
-                end or nil})
+                yield=function() coroutine.yield() end,metadata_resolver=direct and direct_metadata or nil})
             if inputs[pair[1]].error then owner.error=inputs[pair[1]].error;return nil end
         end
         return inputs
@@ -193,7 +193,7 @@ function M.open(host,selection,bookmark)
                 local function active() return host.settings:auth_scope_matches(owner.scope)
                     and NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web) end
                 row,reason=require('weread.lib.native_direct_reference').capture(host.client,host.settings,owner.direct_entry,
-                    owner.source_file,input,owner.native,owner.web,active)
+                    owner.source_file,input,owner.native,owner.web,active,bookmark)
             else row,reason=(bookmark and Bookmark or Reference).capture_native(input) end
             return {reference=row,reason=reason}
         end,function(result)

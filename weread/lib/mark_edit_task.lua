@@ -21,9 +21,9 @@ function M.preview(client,settings,selected,input)
     local metadata,direct_version
     if input.operation=='create' or input.operation=='bookmark_create' then
         local bookmark=input.operation=='bookmark_create'
-        if not bookmark and require('weread.lib.native_direct_path').contains(settings,input.source_file) then
+        if require('weread.lib.native_direct_path').contains(settings,input.source_file) then
             local reference,why,version=require('weread.lib.native_direct_reference').verify(client,settings,selected,input.reference,
-                input.source_file,function() return current(settings,selected) end)
+                input.source_file,function() return current(settings,selected) end,bookmark)
             if not reference then error(why=='auth_expired' and 'native_direct/auth_expired'
                 or why=='web_expired' and 'source_currentness/web_expired' or 'mark_edit/source',0) end
             if not require('weread.lib.native_position_protocol').integer(version,0,2147483647) then error('mark_edit/source',0) end

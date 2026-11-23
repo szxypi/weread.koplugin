@@ -16,12 +16,19 @@ package.preload['weread.lib.selection_reference']=function() return {
     verify_direct=function(value,e,path,raw) assert(value==row and e==entry and path==file and raw=='verified source');return row end,
     restore_direct=function(e,path,key,raw) assert(e==entry and path==file and key=='draft' and raw=='verified source');return row end,
 } end
+package.preload['weread.lib.bookmark_reference']=function() return {
+    capture_direct=function(value,e,path,raw) assert(value==input and e==entry and path==file and raw=='verified source');return row end,
+    verify_direct=function(value,e,path,raw) assert(value==row and e==entry and path==file and raw=='verified source');return row end,
+} end
 local Direct=require('weread.lib.native_direct_reference');local checks=0
 local function expect(v,label) checks=checks+1;assert(v,label) end
 local function current() return live end
 expect(Direct.capture({},settings,entry,file,input,native,web,current)==row,'verified selection unavailable')
 local verified,_,version=Direct.verify({},settings,native,row,file,current)
 expect(verified==row and version==7,'verified source version missing')
+expect(Direct.capture({},settings,entry,file,input,native,web,current,true)==row,'verified bookmark unavailable')
+verified,_,version=Direct.verify({},settings,native,row,file,current,true)
+expect(verified==row and version==7,'bookmark source version missing')
 expect(Direct.restore({},settings,entry,file,'draft',native,web,current)==row,'verified draft unavailable')
 local previous=calls
 expect(not Direct.capture({},settings,entry,'/outside',input,native,web,current) and calls==previous,'outside path read source')

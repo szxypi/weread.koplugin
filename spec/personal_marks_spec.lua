@@ -2,7 +2,7 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture')
 local codec=Fixture.codec();local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
-local UI={setDirty=function() end,scheduleIn=function(_self,_delay,task) timers[#timers+1]=task end,
+local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_self,_delay,task) timers[#timers+1]=task end,
     unschedule=function(_self,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
 package.preload.device=function() return {screen={scaleBySize=function(_self,n) return n end}} end
@@ -113,12 +113,35 @@ expect(#s.records==1 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthet
 expect(s.bookmarks[1].pos0==2 and s.bookmarks[1].pos1==nil,'point was changed into a native highlight')
 expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==s.indicator and Display.available(host))
 local clicked=false
-s.indicator.hitTest=function() return s.bookmarks[1] end
+s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
 host.showMyCloudBookmarks=function(_self,book)
     expect(book==state.book);host._my_marks_owner={menu={item_table={{my_note_id='synthetic-point',callback=function() clicked=true end}}}}
     return true
 end
 expect(Display.tap(host,{pos={x=1,y=1}}) and clicked,'corner did not open the matching bookmark')
+local two=Fixture.clone(snapshot)
+two.updated[2].markText='First page preview'
+two.updated[3]={bookmarkId='second-point',type=0,chapterUid=7,range='20',markText='Second page preview'}
+Display.changed(host,two);drain();expect(#s.bookmarks==2,'second same-page bookmark missing')
+s.indicator.hitTestAll=function() return s.bookmarks end
+host.showList=function(_,_,items) return {item_table=items} end
+host.showMyCloudBookmarks=function(self)
+    self._my_marks_owner={menu={item_table={}}}
+    for _,item in ipairs(s.bookmarks) do self._my_marks_owner.menu.item_table[#self._my_marks_owner.menu.item_table+1]={
+        my_note_id=item.bookmarkId,callback=function() clicked=item.bookmarkId end} end
+    return true
+end
+expect(Display.tap(host,{pos={x=1,y=1}},true));local picker=s.picker
+local choice
+for _,item in ipairs(picker and picker.item_table or {}) do if item.my_note_id=='second-point' then choice=item end end
+expect(picker and #picker.item_table==2 and choice and choice.my_note_kind=='bookmark'
+    and choice.text:find('Second page preview',1,true),'same-page bookmark choice missing preview')
+choice.callback();expect(clicked=='second-point' and picker.closed,'second bookmark could not be opened')
+expect(Display.tap(host,{pos={x=1,y=1}},true));picker=s.picker;choice=nil
+for _,item in ipairs(picker.item_table) do if item.my_note_id=='second-point' then choice=item end end
+s.indicator.hitTestAll=function() return {} end
+clicked=false;choice.callback();expect(not clicked and picker.closed,'scrolled-away bookmark remained selectable')
+Display.changed(host,snapshot);drain();s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
 state.show=false;Display.update(host);expect(not s.indicator.enabled)
 state.show=true;Display.update(host);drain();expect(s.indicator.enabled and #s.bookmarks==1)
 host._translation_mode='translated';Display.update(host);expect(not s.indicator.enabled)

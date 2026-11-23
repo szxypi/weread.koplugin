@@ -23,7 +23,9 @@ REPO=Path(__file__).resolve().parent.parent
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
-    parser.add_argument('--highlight',action='store_true',help='Run the bounded highlight lifecycle')
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument('--highlight',action='store_true',help='Run the bounded highlight lifecycle')
+    modes.add_argument('--bookmark',action='store_true',help='Run the bounded bookmark lifecycle')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or not all(1<=n<=4096 for n in (args.width,args.height,args.dpi))
@@ -40,6 +42,7 @@ def main(argv=None):
         endpoint=payload.get('mock_endpoint')
         match=re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})',endpoint) if isinstance(endpoint,str) else None
         if (not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token) or type(trial['armed']) is not bool
+                or (trial.get('bookmark') is True)!=args.bookmark or 'bookmark' in trial and trial['bookmark'] is not True
                 or endpoint is not None and (not match or int(match.group(1))>65535)
                 or not synthetic_endpoint_allowed(payload,endpoint)):
             raise ValueError('direct_ui_trial/input')
@@ -61,8 +64,8 @@ def main(argv=None):
                 raise ValueError('direct_ui_trial/prepare')
             result['phase']='reader';private=dict(payload,path=str(path))
             child=subprocess.Popen([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
-                str(plugin),str(REPO/'spec/koreader'/('native_direct_highlight_trial_probe.lua' if args.highlight else 'native_direct_selection_trial_probe.lua')),
-                str(REPO/'spec/koreader'/('native_highlight_trial_gate.lua' if args.highlight else 'native_thought_trial_gate.lua'))],cwd=runtime,env=env,
+                str(plugin),str(REPO/'spec/koreader'/('native_direct_highlight_trial_probe.lua' if args.highlight or args.bookmark else 'native_direct_selection_trial_probe.lua')),
+                str(REPO/'spec/koreader'/('native_highlight_trial_gate.lua' if args.highlight or args.bookmark else 'native_thought_trial_gate.lua'))],cwd=runtime,env=env,
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
             try:
                 write_initial(child.stdin,private);frames=Frames(child.stdout,token,timeout=360)

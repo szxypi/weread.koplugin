@@ -129,9 +129,13 @@ function M.show(opts, callbacks)
         table.insert(buttons, {{id='native_cloud_position',text=_('Open cloud reading position'),
             callback=function() dismiss_then(callbacks.on_native_cloud_position) end}})
     end
-    if callbacks.on_native_upload_position then
-        table.insert(buttons, {{id='native_upload_position',text=_('Sync this page to cloud'),
-            callback=function() dismiss_then(callbacks.on_native_upload_position) end}})
+    if callbacks.on_native_upload_position or callbacks.on_native_bookmark then
+        local row={}
+        if callbacks.on_native_upload_position then row[#row+1]={id='native_upload_position',text=_('Sync this page to cloud'),
+            callback=function() dismiss_then(callbacks.on_native_upload_position) end} end
+        if callbacks.on_native_bookmark then row[#row+1]={id='native_save_bookmark',text=_('Save cloud bookmark'),
+            callback=function() dismiss_then(callbacks.on_native_bookmark) end} end
+        table.insert(buttons,row)
     end
 
     if opts.show_claim_location then

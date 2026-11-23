@@ -46,20 +46,32 @@ class Handler(BaseHTTPRequestHandler):
             data=json.dumps(dict(reviews=[dict(review=server.review)] if server.review else [],totalCount=int(server.review is not None),hasMore=0)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path in ('/book/addBookmark','/review/add') and self.command=='POST' and server.mode.startswith('selection_direct_'):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-            from annotation_source_quotes import SourceQuotes
-            quote=SourceQuotes(BODY,body_only=True).quote(request.get('range'))
-            server.valid &= request.get('bookId')=='42' and request.get('bookVersion')==1 and quote=='Unique paragraph 0001'
+            is_bookmark=server.mode.startswith('selection_direct_bookmark')
+            if is_bookmark:
+                from bookmark_point import from_mark,project
+                point=from_mark(BODY,'42','37',dict(type=0,chapterUid=37,range=request.get('range'),markText=request.get('markText')))
+                quote=project(BODY,point['chapter_offset'])['markText']
+            else:
+                from annotation_source_quotes import SourceQuotes
+                quote=SourceQuotes(BODY,body_only=True).quote(request.get('range'))
+                server.valid &= quote=='Unique paragraph 0001'
+            server.valid &= request.get('bookId')=='42' and request.get('bookVersion')==1
             if target.path=='/book/addBookmark':
-                server.valid &= request.get('chapterUid')==37 and request.get('markText')==quote and request.get('type')==1 and server.mark is None
+                server.valid &= request.get('chapterUid')==37 and request.get('markText')==quote and request.get('type')==(0 if is_bookmark else 1) and server.mark is None
                 if not server.mode.endswith('_no_effect'):
-                    server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=1,range=request['range'],markText=quote,
-                        style=request['style'],colorStyle=request['colorStyle'],createTime=1700000000)
+                    server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=request['type'],range=request['range'],markText=quote,
+                        style=request['style'],createTime=1700000000)
+                    if not is_bookmark:server.mark['colorStyle']=request['colorStyle']
             else:
                 server.valid &= request.get('chapterUid')=='37' and request.get('abstract')==quote and request.get('isPrivate')==1 and server.review is None
                 if not server.mode.endswith('_no_effect'):
                     server.review=dict(reviewId='synthetic-direct-thought',bookId='42',userVid='12345678',chapterUid=37,type=1,
                         range=request['range'],abstract=quote,content=request['content'],isPrivate=1,createTime=1700000000)
             data=json.dumps({} if server.mode.endswith(('_lost_ack','_no_effect')) else dict(succ=1)).encode()
+        elif target.hostname=='i.weread.qq.com' and target.path=='/book/removeBookmark' and self.command=='POST' and server.mode=='selection_direct_bookmark_roundtrip':
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            server.valid &= request=={'bookmarkIds':['synthetic-direct-mark']} and server.mark is not None and server.mark['type']==0
+            server.mark=None;data=json.dumps(dict(succ=1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/shelf/sync' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             data=json.dumps(dict(books=[dict(bookId='42',finishReading=0,secret=0)],archive=[])).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET' and server.mode.startswith(('upload','interval')):
@@ -105,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             query=parse_qs(target.query,keep_blank_values=True)
             chapters=query.get('chapters',[''])[0];server.valid &= query.get('bookId')==['42'] and chapters in ('0,37','0,38') and query.get('stopAutoPayWhenBNE')==['1']
             uid=chapters.split(',')[-1];raw=BODY if uid=='37' else BODY2
-            if server.mode in ('selection_direct_mark_changed','selection_direct_thought_changed') and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
+            if server.mode in ('selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_bookmark_changed') and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
                 raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
             if server.mode in ('selection_direct_auth_expired','selection_direct_limited'):
                 code,data=(401 if server.mode=='selection_direct_auth_expired' else 429),b''
@@ -171,6 +183,7 @@ MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_chan
        'interval_close','interval_close_conflict','interval_close_noack','interval_close_offline','interval_close_reopen',
        'selection_direct','selection_direct_mismatch','selection_direct_move','selection_direct_mark','selection_direct_thought',
        'selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_thought_draft',
+       'selection_direct_bookmark','selection_direct_bookmark_quick','selection_direct_bookmark_changed','selection_direct_bookmark_no_effect','selection_direct_bookmark_roundtrip',
        'selection_direct_auth_expired','selection_direct_web_expired','selection_direct_limited',
        'selection_direct_mark_lost_ack','selection_direct_thought_lost_ack','selection_direct_mark_no_effect','selection_direct_thought_no_effect')
 
@@ -211,8 +224,11 @@ def run(runtime,modes=MODES):
                         assert writes==['/book/read']*write_count, (mode,writes)
                         mark_posts=sum(path=='/book/addBookmark' for _,_,path in server.calls)
                         thought_posts=sum(path=='/review/add' for _,_,path in server.calls)
-                        assert mark_posts==(1 if mode in ('selection_direct_mark','selection_direct_mark_lost_ack','selection_direct_mark_no_effect') else 0), (mode,mark_posts)
+                        assert mark_posts==(1 if mode in ('selection_direct_mark','selection_direct_mark_lost_ack','selection_direct_mark_no_effect',
+                            'selection_direct_bookmark','selection_direct_bookmark_quick','selection_direct_bookmark_no_effect','selection_direct_bookmark_roundtrip') else 0), (mode,mark_posts)
                         assert thought_posts==(1 if mode in ('selection_direct_thought','selection_direct_thought_lost_ack','selection_direct_thought_no_effect') else 0), (mode,thought_posts)
+                        assert sum(path=='/book/removeBookmark' for _,_,path in server.calls)==(1 if mode=='selection_direct_bookmark_roundtrip' else 0)
+                        if mode=='selection_direct_bookmark_roundtrip':assert server.mark is None
                         if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview','upload','interval','selection_direct')):
                             assert sum(path=='/web/book/chapter/e_0' for _,_,path in server.calls)==(2 if mode in ('cloud','cloud_after') else 1)
                         if mode.startswith('cloud') and mode!='cloud_move':

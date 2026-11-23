@@ -43,6 +43,17 @@ end
 bad=Clone(input);bad.metadata='stale';expect(not Ref.capture_native(bad,archive),'stale native metadata accepted')
 bad=Clone(input);bad.chapters={};expect(not Ref.capture_native(bad,archive),'guessed chapter index accepted')
 expect(not Ref.valid(row,'900002'),'foreign account book accepted')
+local entry={book_id='900001',chapter_uid='2',chapter_idx=3,book_version=7,file_id=identity.file_id,
+    source_sha256=Crypto.sha256_hex(raw)}
+local direct_input=Clone(input);direct_input.metadata=entry.file_id..entry.source_sha256
+local direct,direct_why=Ref.capture_direct(direct_input,entry,'/cached.epub',raw);assert(direct,direct_why)
+expect(Ref.valid(direct,'900001') and direct.range==row.range and direct.markText==row.markText,'direct point changed reference')
+expect(Ref.verify_direct(direct,entry,'/cached.epub',raw)~=nil,'direct source failed re-verification')
+local altered=Clone(direct);altered.markText='Different preview';expect(not Ref.verify_direct(altered,entry,'/cached.epub',raw),'changed direct preview accepted')
+altered=Clone(direct_input);altered.metadata='stale';expect(not Ref.capture_direct(altered,entry,'/cached.epub',raw),'stale direct metadata accepted')
+altered=Clone(direct_input);altered.identity.book_version=8;expect(not Ref.capture_direct(altered,entry,'/cached.epub',raw),'different direct version accepted')
+expect(not Ref.capture_direct(direct_input,entry,'/cached.epub',raw..'changed'),'different direct source accepted')
+altered=Clone(entry);altered.chapter_idx=4;expect(not Ref.verify_direct(direct,altered,'/cached.epub',raw),'different direct chapter index accepted')
 local cb_book={book_id='CB_Synthetic',bookVersion=7,chapters=chapters,cached_file='/cached.epub'}
 local cb_root=Identity.encode(cb_book,chapters,Identity.capture(cb_book),Crypto.sha256_hex(raw));local cb_identity=assert(Identity.decode(cb_root))
 local cb_meta=assert(Source.bind(assert(Source.capture(cb_book,chapters[1],raw,'web_xhtml')),cb_identity,path,Crypto.sha256_hex(raw)))

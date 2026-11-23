@@ -16,8 +16,12 @@ local first={bookmarkId='first',pos0=1};local second={bookmarkId='second',pos0=2
 layer:setRecords({{pos0='bad'},first,second});layer:paintTo(bb,0,0)
 expect(#layer.visible==1 and layer.visible[1]==first and layer.rect.y==17,'page membership/invalid point handling failed')
 local r=layer.rect;expect(layer:hitTest{x=r.x+1,y=r.y+1}==first)
+local same_page={bookmarkId='same-page',pos0=1}
+layer:setRecords({first,same_page,first,second});layer:paintTo(bb,0,0);r=layer.rect
+local hits=layer:hitTestAll{x=r.x+1,y=r.y+1}
+expect(#hits==2 and hits[1]==first and hits[2]==same_page,'same-page bookmarks were not returned independently')
 expect(not layer:hitTest{x=r.x+r.w,y=r.y},'half-open right edge is active')
-page=2;expect(not layer:hitTest{x=r.x+1,y=r.y+1},'stale painted page is clickable')
+page=2;expect(not layer:hitTest{x=r.x+1,y=r.y+1} and #layer:hitTestAll{x=r.x+1,y=r.y+1}==0,'stale painted page is clickable')
 layer:paintTo(bb,0,0);expect(layer.visible[1]==second)
 page=3;layer:paintTo(bb,0,0);expect(#layer.visible==0 and not layer.rect,'unbookmarked page retained corner')
 page=1;view.dogear_visible=true;layer:paintTo(bb,0,0)

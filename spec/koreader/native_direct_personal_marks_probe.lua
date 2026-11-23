@@ -89,7 +89,7 @@ else
         if item.thoughtId=='synthetic-direct-thought' then thought=item end
     end
     assert(mark and thought and thought.style==3,'thought identity or distinct style missing')
-    assert(#state.bookmarks==1 and state.bookmarks[1].bookmarkId=='synthetic-direct-point','direct bookmark missing')
+    assert(#state.bookmarks==2,'direct same-page bookmarks missing')
     if input.force_fallback then assert(fallback_count>0,'verified search fallback was not used') end
     for _,row in ipairs({mark,thought}) do
         local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
@@ -108,7 +108,18 @@ else
         'thought choice did not open its content')
     require('weread.ui.my_cloud_marks').cancel(host)
     reader.rolling:onGotoXPointer(state.bookmarks[1].pos0);UI:forceRePaint()
-    assert(#state.indicator.visible==1,'direct cloud bookmark has no visible corner')
+    assert(#state.indicator.visible==2,'direct cloud bookmarks do not share a visible corner')
+    for _,id in ipairs({'synthetic-direct-point','synthetic-direct-point-two'}) do
+        local corner=assert(state.indicator.rect)
+        assert(Display.tap(host,{pos={x=corner.x+1,y=corner.y+1}},true),'bookmark corner did not open')
+        local picker=assert(state.picker);local choice
+        for _,item in ipairs(picker.item_table) do if item.my_note_kind=='bookmark' and item.my_note_id==id then choice=item end end
+        assert(choice and choice.text:find('paragraph 0001',1,true),'bookmark preview missing');choice.callback()
+        local owner=assert(host._my_marks_owner);assert(owner.bookmarks and owner.menu._shelf_popup,'chosen bookmark popup missing')
+        local expected=id=='synthetic-direct-point' and 'Unique paragraph 0001' or 'nique paragraph 0001'
+        assert(owner.menu._shelf_popup.text:find(expected,1,true),'wrong bookmark opened')
+        require('weread.ui.my_cloud_marks').cancel(host);UI:forceRePaint()
+    end
     Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)
     Display.wake(host);wait(function() return state.complete end);UI:forceRePaint()
     assert(state.overlay.enabled and #state.overlay.visible>0,'direct personal mark not restored')

@@ -6,6 +6,7 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local size=assert(tonumber(io.stdin:read('*l')));assert(size>0 and size<=262144)
 local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial);local cfg=assert(input.selection_preview)
+local bookmark=trial.bookmark==true
 _G._direct_trial_error_token=trial.rpc_token
 local ffi=require('ffi');local parent=tonumber(ffi.C.getpid())
 local function rpc(kind,seq,extra)
@@ -29,7 +30,8 @@ Access.capture=function(s,existing) return capture(s,existing or credentials) en
 local client=require('weread.lib.client'):new(settings);local request=client.request
 local gate;local sequence=1
 local native='https://i.weread.qq.com';local web='https://weread.qq.com'
-local writes={[native..'/book/addBookmark']='create',[native..'/book/removeBookmark']='delete'}
+local writes={[native..'/book/addBookmark']=bookmark and 'bookmark_create' or 'create',
+    [native..'/book/removeBookmark']=bookmark and 'bookmark_delete' or 'delete'}
 client.request=function(self,options)
     local url,headers=options.url,options.headers or {};assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     local operation=writes[url]
@@ -78,18 +80,25 @@ local host={ui=reader,settings=settings,client=client,library_db=library,_reader
     showInputDialog=function(_,dialog) UI:show(dialog) end,showInfo=function(self,message) self.checked_message=message end,
     detectWeReadBook=function() return nil end,showList=require('weread.ui.common').showList}
 local gatepath=assert(arg[3]);gate=dofile(gatepath):new({permit_writes=trial.armed,book_id=input.book_id,
-    original_ids=trial.original_ids,create_body=trial.create_body},library,client,home)
-local matches=assert(reader.document:findAllText(cfg.reference.markText,false,0,3,false,0))
-assert(#matches==1 and matches[1].start and matches[1]['end'])
-local first,last=matches[1].start,matches[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
-assert(reader.document:getTextFromXPointers(first,last)==cfg.reference.markText)
+    bookmarks=bookmark,original_ids=trial.original_ids,create_body=trial.create_body},library,client,home)
 local Selection=require('weread.ui.selection_thought');assert(Selection.attach(host))
-reader.highlight.selected_text={text=cfg.reference.markText,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
-assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+if bookmark then
+    reader.rolling:onGotoPage(1);reader.document:clearSelection();UI:forceRePaint()
+    assert(Selection.open_bookmark(host),'direct bookmark entry unavailable')
+else
+    local matches=assert(reader.document:findAllText(cfg.reference.markText,false,0,3,false,0))
+    assert(#matches==1 and matches[1].start and matches[1]['end'])
+    local first,last=matches[1].start,matches[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
+    assert(reader.document:getTextFromXPointers(first,last)==cfg.reference.markText)
+    reader.highlight.selected_text={text=cfg.reference.markText,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+    assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+end
 wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
 local owner=assert(host._selection_thought_owner);wait(function() return owner.reference~=nil or host.checked_message~=nil end)
 local row=assert(owner.reference);local expected=cfg.reference
-assert(row.range==expected.range and row.markText==expected.markText and row.bookmarkId==expected.bookmarkId
+assert(row.range==(bookmark and trial.create_body.range or expected.range)
+    and row.markText==(bookmark and trial.create_body.markText or expected.markText)
+    and (bookmark or row.bookmarkId==expected.bookmarkId)
     and row.chapterUid==expected.chapterUid and row.source.book_id==expected.source.book_id
     and row.source.chapter_uid==expected.source.chapter_uid and row.source.raw_sha256==expected.source.raw_sha256
     and row.source.raw_bytes==expected.source.raw_bytes)
@@ -100,7 +109,7 @@ end
 local function perform(kind,reference)
     host.checked_message=nil
     if kind=='create' then
-        local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Save highlight') then action=item.callback end end
+        local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr(bookmark and 'Save cloud bookmark' or 'Save highlight') then action=item.callback end end
         assert(action);action()
     else
         local editor=require('weread.ui.mark_editor')
@@ -116,15 +125,15 @@ if not trial.armed then
     assert(gate:read().phase=='blocked' and journal:read().phase=='pending')
     print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=0,posts=0,blocked=true});return
 end
-assert(host.checked_message==tr('Cloud highlight change verified.') and journal:read().phase=='idle')
+assert(host.checked_message==tr(bookmark and 'Cloud bookmark change verified.' or 'Cloud highlight change verified.') and journal:read().phase=='idle')
 local cache=Service.new_cache(library,client);local target;local original={}
 for _,id in ipairs(trial.original_ids) do original[id]=true end
 for _,item in ipairs(assert(cache:read(input.book_id)).updated) do
     if not original[item.bookmarkId] then assert(not target);target=item end
 end
 assert(target);rpc('verified',1,{created_id=target.bookmarkId});gate:advance(target.bookmarkId);sequence=2
-perform('delete',target)
-assert(host.checked_message==tr('Cloud highlight change verified.') and journal:read().phase=='idle')
+perform(bookmark and 'bookmark_delete' or 'delete',target)
+assert(host.checked_message==tr(bookmark and 'Cloud bookmark change verified.' or 'Cloud highlight change verified.') and journal:read().phase=='idle')
 rpc('verified',2,{created_id=target.bookmarkId})
 Selection.cancel(host)
 print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=2,posts=2,blocked=false})

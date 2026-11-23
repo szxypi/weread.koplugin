@@ -10,17 +10,22 @@ from verify_owner_reading import reading_position
 from verify_web_source_progress import BASE
 
 
-def execute(probe,credentials,store,command,*,source,armed,report,on_final=None):
-    if type(armed) is not bool or not command or not store.native or store.read()!=(None,None):
+def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,bookmark=False):
+    if type(armed) is not bool or type(bookmark) is not bool or not command or not store.native or store.read()!=(None,None):
         raise ValueError('direct_highlight_trial/intent')
     probe.current();selection=probe.source;p=selection.plan
     if (source['book_id']!=p.bound['book_id'] or source['uid']!=p.bound['chapter_uid']
             or source['source_sha256']!=selection.payload['source_raw_sha256']):raise ValueError('direct_highlight_trial/source')
     selection.baseline(credentials,'direct_highlight_before_launch')
-    bound=bind_native(p.bound,probe.body);token=secrets.token_hex(16)
+    if bookmark:
+        from bookmark_trial_model import bind
+        bound=bind(p.bound,probe.body,native=True)
+    else:bound=bind_native(p.bound,probe.body)
+    token=secrets.token_hex(16)
     payload=dict(credentials=credentials,book_id=source['book_id'],uid=source['uid'],book_version=source['book_version'],
         source_sha256=source['source_sha256'],web_cookies=selection.payload['cookies'],selection_preview=deepcopy(selection.payload['selection_preview']),
         trial=dict(armed=armed,rpc_token=token,original_ids=sorted(p.baseline['marks']['updated']),create_body=deepcopy(probe.body)))
+    if bookmark:payload['trial']['bookmark']=True
     if source.get('mock_endpoint') is not None:payload['mock_endpoint']=source['mock_endpoint']
     receipt=store.reserve(bound) if armed else None
     child=frames=None;waiting=None;claims=steps=0;target=runner=None
@@ -76,7 +81,8 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None)
             receipt=store.advance(receipt,'verified');store.finish(receipt)
         if store.read()!=(None,None):raise ValueError('direct_highlight_trial/intent')
         changed=final['marks']['chapters']!=p.baseline['marks']['chapters']
-        report.update(result='DIRECT_HIGHLIGHT_ROUNDTRIP_VERIFIED' if armed else 'DIRECT_HIGHLIGHT_DRY_RUN_VERIFIED',
+        report.update(result=('DIRECT_BOOKMARK_ROUNDTRIP_VERIFIED' if armed else 'DIRECT_BOOKMARK_DRY_RUN_VERIFIED') if bookmark
+                else ('DIRECT_HIGHLIGHT_ROUNDTRIP_VERIFIED' if armed else 'DIRECT_HIGHLIGHT_DRY_RUN_VERIFIED'),
             intent_fingerprint=digest(bound),claims=claims,independent_steps=steps,
             account_data_posts=2 if armed and not source.get('mock_endpoint') else 0,
             synthetic_posts=2 if armed and source.get('mock_endpoint') else 0,

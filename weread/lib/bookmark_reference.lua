@@ -6,6 +6,7 @@ local Currentness=require('weread.lib.source_currentness')
 local Catalog=require('weread.lib.source_upload_candidate')
 local Marks=require('weread.lib.my_cloud_marks')
 local Protocol=require('weread.lib.protocol')
+local Crypto=require('weread.lib.crypto')
 local M={}
 local function fail(reason) error('bookmark_reference/'..reason,0) end
 local function key(uid,point,sha) return 'bookmark:'..uid..':'..point..':'..sha end
@@ -54,6 +55,45 @@ function M.capture_native(input,read)
         if meta~=input.metadata or record.raw_sha256~=p.raw_sha256 or p.basis~=Source.coordinate_basis(record.format) then fail('source') end
         local value=Point.project(raw,p.chapter_offset,record.format);if not value then fail('point') end
         return reference(p.book_id,p.chapter_uid,Catalog.chapter_index(input.chapters,p.chapter_uid),value)
+    end)
+end
+-- The caller verifies native and Web bytes and the account-bound cache entry
+-- before passing them here. Never infer a point from the preview alone.
+local function direct_source(entry,file,raw)
+    local function hash(value) return type(value)=='string' and #value==64 and value:match('^[a-f0-9]+$') end
+    if type(entry)~='table' or not Marks.id(entry.book_id) or not Marks.id(entry.chapter_uid)
+        or type(entry.chapter_idx)~='number' or entry.chapter_idx<0 or entry.chapter_idx>1000000 or entry.chapter_idx%1~=0
+        or type(entry.book_version)~='number' or entry.book_version<0 or entry.book_version>2147483647 or entry.book_version%1~=0
+        or not hash(entry.file_id) or not hash(entry.source_sha256) or type(file)~='string' or file==''
+        or type(raw)~='string' or #raw<1 or #raw>Source.MAX_BYTES or Crypto.sha256_hex(raw)~=entry.source_sha256 then fail('source') end
+end
+function M.capture_direct(input,entry,file,raw)
+    return guarded(function()
+        direct_source(entry,file,raw)
+        if type(input)~='table' or type(input.identity)~='table' or input.book_id~=entry.book_id
+            or input.chapter_uid~=entry.chapter_uid or input.file~=file or input.metadata~=entry.file_id..entry.source_sha256
+            or input.render_path~='OEBPS/text/chapter.xhtml' or input.identity.book_id~=entry.book_id
+            or input.identity.file_id~=entry.file_id or input.identity.book_version~=entry.book_version then fail('source_changed') end
+        local map=require('weread.lib.source_coordinates').build(raw,{allow_multiple_bodies=true})
+        local co=map and require('weread.lib.source_position_worker').locate_verified_map(map,input.text,input.point_offset)
+        local value=co and Point.project(raw,co,'web_xhtml')
+        if not value then fail('point') end
+        return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
+    end)
+end
+function M.verify_direct(row,entry,file,raw)
+    return guarded(function()
+        direct_source(entry,file,raw)
+        if not M.valid(row,entry.book_id) or tostring(row.chapterUid)~=entry.chapter_uid
+            or row.chapterIdx~=entry.chapter_idx or row.source.raw_sha256~=entry.source_sha256 or row.source.raw_bytes~=#raw then
+            fail('source_changed')
+        end
+        local point=Point.from_mark(raw,entry.book_id,entry.chapter_uid,row,'web_xhtml')
+        local value=point and Point.project(raw,point.chapter_offset,'web_xhtml')
+        local rebuilt=value and reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
+        if not rebuilt or rebuilt.bookmarkId~=row.bookmarkId or rebuilt.markText~=row.markText
+            or rebuilt.range~=row.range then fail('source_changed') end
+        return rebuilt
     end)
 end
 function M.verify(row,book,current_file,read)

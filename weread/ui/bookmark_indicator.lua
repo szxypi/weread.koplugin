@@ -62,17 +62,22 @@ function M:paintTo(bb,x,y)
         bb:paintRect(left+at,top+r.h-line-rise,1,line,color)
     end
 end
-function M:hitTest(pos)
+function M:hitTestAll(pos)
+    local records,seen={},{}
     local r=self.rect
-    if not self.enabled or not r or not pos or type(pos.x)~='number' or type(pos.y)~='number' then return end
+    if not self.enabled or not r or not pos or type(pos.x)~='number' or type(pos.y)~='number' then return records end
     local ok,geometry=pcall(self.geometry,self)
     if not ok or not geometry or geometry.x+self.origin.x~=r.x or geometry.y+self.origin.y~=r.y
-        or geometry.w~=r.w or geometry.h~=r.h then return end
+        or geometry.w~=r.w or geometry.h~=r.h then return records end
     if pos.x>=r.x and pos.x<r.x+r.w and pos.y>=r.y and pos.y<r.y+r.h then
         for _i,row in ipairs(self.visible) do
             local valid,show=pcall(onscreen,self,self.ui.document,row.pos0)
-            if valid and show then return row end
+            if valid and show and not seen[row] then records[#records+1]=row;seen[row]=true end
         end
     end
+    return records
+end
+function M:hitTest(pos)
+    return self:hitTestAll(pos)[1]
 end
 return M

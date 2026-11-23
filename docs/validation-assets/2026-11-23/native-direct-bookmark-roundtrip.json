@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-23",
+  "scope": "one account, one authorized EPUB chapter, isolated native KOReader host",
+  "screen": "1264x1680",
+  "screen_dpi": 300,
+  "same_plan_dispatch_blocked_preflight": true,
+  "native_web_source_bytes_match": true,
+  "create_posts": 1,
+  "delete_posts": 1,
+  "independent_readbacks": 2,
+  "authentication_posts": 0,
+  "original_records_unchanged": true,
+  "chapter_metadata_unchanged": true,
+  "bookshelf_and_positions_unchanged": true,
+  "temporary_profile_removed": true,
+  "credential_file_audit_passed": true,
+  "installed_bytes_match": true,
+  "no_automatic_replay": true,
+  "synthetic_coverage": ["two screen sizes", "main and quick menu", "create and delete", "same-page bookmark picker", "offline reopen", "changed source", "unknown result without replay"],
+  "limitations": ["one account and chapter", "real bookmark indicator click untested", "physical Kindle untested"]
+}

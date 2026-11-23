@@ -219,6 +219,16 @@ function M:getMainMenuItems()
             table.insert(reader_items,1,{text=_('WeRead · Quick menu'),callback=self:safeCallback(_('WeRead · Quick menu'),function()
                 if self.ui.document==document and self._reader_session_gen==session then self:onShowWeReadQuickMenu() end
             end)})
+            if book_id==nil then
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
+                    if self.ui.document==document and self._reader_session_gen==session
+                        and account~=nil and account==(self.library_db and self.library_db:accountKey())
+                        and require('weread.lib.native_direct_path').contains(self.settings,document.file) then
+                        require('weread.ui.selection_thought').open_bookmark(self)
+                    end
+                end)}
+            end
         end
         if book_id ~= nil then
             if WeRead.is_mp_book(book_id) then

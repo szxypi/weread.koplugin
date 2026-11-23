@@ -47,7 +47,8 @@ active.client.request=function(self,options)
         or url=='https://i.weread.qq.com/book/chapterInfos'
         or input.mode:find('^selection_direct_') and (url:find('https://i.weread.qq.com/book/bookmarklist?',1,true)==1
             or url:find('https://i.weread.qq.com/review/list?',1,true)==1
-            or url=='https://i.weread.qq.com/book/addBookmark' or url=='https://i.weread.qq.com/review/add')
+            or url=='https://i.weread.qq.com/book/addBookmark' or url=='https://i.weread.qq.com/book/removeBookmark'
+            or url=='https://i.weread.qq.com/review/add')
         or url:find('https://i.weread.qq.com/book/chapterdownload?',1,true)==1
         or url=='https://weread.qq.com/api/userInfo?userVid=12345678'
         or url=='https://weread.qq.com/web/book/chapterInfos'
@@ -105,9 +106,24 @@ if input.mode:find('^selection_direct') then
     assert(host._selection_thought_hook,'native chapter selection action was not attached')
     local matches=assert(reader.document:findAllText('Unique paragraph 0001',false,0,3,false,0))
     assert(#matches==1 and matches[1].start and matches[1]['end'])
-    reader.highlight.selected_text={text='Unique paragraph 0001',pos0=matches[1].start,pos1=matches[1]['end']}
-    reader.highlight:onShowHighlightMenu();UI:forceRePaint()
-    assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+    local bookmark=input.mode:find('^selection_direct_bookmark')~=nil
+    if bookmark then
+        reader.rolling:onGotoXPointer(matches[1].start);reader.document:clearSelection();UI:forceRePaint()
+        if input.mode=='selection_direct_bookmark_quick' then
+            assert(host:onShowWeReadQuickMenu())
+            wait(function() local top=UI:getTopmostVisibleWidget()
+                return top and type(top.getButtonById)=='function' and top:getButtonById('native_save_bookmark')~=nil end)
+            UI:forceRePaint();assert(UI:getTopmostVisibleWidget():getButtonById('native_save_bookmark')):onTapSelectButton()
+        else
+            local action;local tr=require('weread.lib.plugin_util').tr
+            for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr('Save cloud bookmark') then action=item.callback end end
+            assert(action,'native direct bookmark menu missing');action()
+        end
+    else
+        reader.highlight.selected_text={text='Unique paragraph 0001',pos0=matches[1].start,pos1=matches[1]['end']}
+        reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+        assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
+    end
     wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
     local owner=assert(host._selection_thought_owner)
     if input.mode=='selection_direct_move' then
@@ -125,11 +141,11 @@ if input.mode:find('^selection_direct') then
                 or input.mode=='selection_direct_limited' and 'WeRead is limiting requests. Please try again later.'
             if message then assert(host.checked_message==require('weread.lib.plugin_util').tr(message),'wrong source error') end
         else
-            assert(owner.reference and require('weread.lib.selection_reference').valid(owner.reference,'42'))
-            if input.mode:find('^selection_direct_mark') or input.mode:find('^selection_direct_thought') then
+            assert(owner.reference and require(bookmark and 'weread.lib.bookmark_reference' or 'weread.lib.selection_reference').valid(owner.reference,'42'))
+            if bookmark or input.mode:find('^selection_direct_mark') or input.mode:find('^selection_direct_thought') then
                 local thought=input.mode:find('^selection_direct_thought')~=nil
                 local tr=require('weread.lib.plugin_util').tr
-                local label=tr(thought and 'Write private thought' or 'Save highlight');local action
+                local label=tr(bookmark and 'Save cloud bookmark' or thought and 'Write private thought' or 'Save highlight');local action
                 for _,item in ipairs(owner.menu.item_table) do if item.text==label then action=item.callback;break end end
                 assert(action,'selection action missing');action()
                 local function tap(id)
@@ -166,8 +182,24 @@ if input.mode:find('^selection_direct') then
                     or changed and (thought
                     and 'The thought or quoted highlight changed, or could not be checked. Your local draft is kept. Refresh and try again.'
                     or 'The cloud mark or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.')
-                    or thought and 'Cloud thought change verified.' or 'Cloud highlight change verified.'),
+                    or thought and 'Cloud thought change verified.' or bookmark and 'Cloud bookmark change verified.' or 'Cloud highlight change verified.'),
                     'unexpected direct annotation result')
+                if input.mode=='selection_direct_bookmark_roundtrip' then
+                    require('weread.ui.selection_thought').cancel(host);host.checked_message=nil
+                    assert(host:showMyCloudBookmarks('42'),'could not open direct cloud bookmarks')
+                    local notes=assert(host._my_marks_owner);local target
+                    for _,item in ipairs(notes.menu.item_table) do if item.my_note_id=='synthetic-direct-mark' then target=item end end
+                    assert(target,'new direct bookmark missing from list');target.callback()
+                    UI:forceRePaint();local popup=assert(notes.menu._shelf_popup)
+                    assert(popup.button_table:getButtonById('delete_bookmark')):onTapSelectButton()
+                    wait(function() return not notes.mark_editor or notes.mark_editor.service.preview end)
+                    assert(notes.mark_editor and notes.mark_editor.service.preview,'direct bookmark delete preflight failed')
+                    UI:forceRePaint();popup=assert(notes.menu._shelf_popup)
+                    assert(popup.button_table:getButtonById('confirm_highlight_change')):onTapSelectButton()
+                    wait(function() return not notes.mark_editor end)
+                    assert(host.checked_message==tr('Cloud bookmark change verified.'),'direct bookmark deletion not verified')
+                    require('weread.ui.my_cloud_marks').cancel(host)
+                end
                 if thought and changed then
                     local drafts=require('weread.lib.thought_edit_store'):new(host.library_db,host.client):drafts()
                     assert(drafts and #drafts==1,'changed source did not retain the local draft')

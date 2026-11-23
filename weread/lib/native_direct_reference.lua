@@ -11,15 +11,16 @@ local function active(settings,native,web,current)
     local ok,value=pcall(current)
     return ok and value==true and Access.matches(settings,native) and Currentness.matches(settings,web)
 end
-function M.capture(client,settings,entry,file,input,native,web,current)
+function M.capture(client,settings,entry,file,input,native,web,current,bookmark)
     if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current) then return nil,'invalid' end
     local raw,why=Position.verified_source(client,settings,entry,file,native,web,current)
     if not raw then return nil,why end
-    local row,reason=Reference.capture_direct(input,entry,file,raw)
+    local ref=bookmark and require('weread.lib.bookmark_reference') or Reference
+    local row,reason=ref.capture_direct(input,entry,file,raw)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
 end
-function M.verify(client,settings,native,row,file,current)
+function M.verify(client,settings,native,row,file,current,bookmark)
     if type(current)~='function' or not Path.contains(settings,file) or type(native)~='table'
         or type(native.scope)~='table' or not Access.matches(settings,native) then return nil,'invalid' end
     local web=Currentness.capture(settings)
@@ -30,7 +31,8 @@ function M.verify(client,settings,native,row,file,current)
     if not entry or not live() then return nil,'source_changed' end
     local raw,why=Position.verified_source(client,settings,entry,file,native,web,live)
     if not raw then return nil,why end
-    local verified,reason=Reference.verify_direct(row,entry,file,raw)
+    local ref=bookmark and require('weread.lib.bookmark_reference') or Reference
+    local verified,reason=ref.verify_direct(row,entry,file,raw)
     if not live() then return nil,'session_changed' end
     return verified,reason,entry.book_version
 end

@@ -55,7 +55,8 @@ def run(runtime):
                     quote='Unique paragraph 0001';first=BODY.index(quote);marker=f'{first}-{first+len(quote)}'
                     server.mode='selection_direct_overlay';server.calls=[]
                     server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=1,range=marker,markText=quote,style=1,colorStyle=0,createTime=1700000000)
-                    server.marks=[server.mark,dict(bookmarkId='synthetic-direct-point',chapterUid=37,type=0,range=str(first),markText=quote,createTime=1700000000)]
+                    server.marks=[server.mark,dict(bookmarkId='synthetic-direct-point',chapterUid=37,type=0,range=str(first),markText=quote,createTime=1700000000),
+                        dict(bookmarkId='synthetic-direct-point-two',chapterUid=37,type=0,range=str(first+1),markText=quote[1:],createTime=1700000000)]
                     server.review=dict(bookId='42',userVid=12345678,reviewId='synthetic-direct-thought',chapterUid=37,
                         type=1,range=marker,abstract=quote,content='Synthetic private thought',isPrivate=1,createTime=1700000000)
                     payload['path']=path;payload['force_fallback']=True

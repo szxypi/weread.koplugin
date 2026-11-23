@@ -380,43 +380,39 @@ local function open_record(host,s,record,bookmark)
     end
     return true
 end
-local function note_preview(s,record)
-    local rows=record.thoughtId and s.thought_snapshot and s.thought_snapshot.reviews
-        or not record.thoughtId and s.snapshot and s.snapshot.updated or {}
-    for _,row in ipairs(rows) do
-        if (record.thoughtId and row.reviewId==record.thoughtId)
-            or (not record.thoughtId and row.bookmarkId==record.bookmarkId) then
-            local value=record.thoughtId and row.content or row.markText
-            if type(value)~='string' or value=='' then value=row.abstract end
-            if type(value)~='string' or value=='' then return '' end
-            value=value:gsub('[%z%c]',' '):gsub('%s+',' ')
-            local shortened=require('weread.lib.protocol').utf8_substr(value,48)
-            return #shortened<#value and shortened..'…' or shortened
-        end
-    end
-    return ''
+local function note_preview(row,thought)
+    if not row then return '' end
+    local value=thought and row.content or row.markText
+    if type(value)~='string' or value=='' then value=row.abstract end
+    if type(value)~='string' or value=='' then return '' end
+    value=value:gsub('[%z%c]',' '):gsub('%s+',' ')
+    local shortened=require('weread.lib.protocol').utf8_substr(value,48)
+    return #shortened<#value and shortened..'…' or shortened
 end
-function M.tap(host,ges,bookmarks_only)
-    local s=host._personal_marks;if not s or not enabled(host,s) or not ges or not ges.pos then return false end
-    local bookmark=s.indicator:hitTest(ges.pos)
-    if bookmark then return open_record(host,s,bookmark,true) end
-    if bookmarks_only then return false end
-    local records=s.overlay:hitTestAll(ges.pos)
-    if #records==0 then return false end
-    if #records==1 then return open_record(host,s,records[1],false) end
+local function choose_records(host,s,records,bookmarks,pos)
+    if #records==1 then return open_record(host,s,records[1],bookmarks) end
     if type(host.showList)~='function' then return false end
     close_picker(s)
     local _=require('weread.lib.i18n').tr
     local generation=s.generation;local items,menu={}
+    local marks,thoughts={},{}
+    for _,row in ipairs(s.snapshot and s.snapshot.updated or {}) do marks[row.bookmarkId]=row end
+    for _,row in ipairs(s.thought_snapshot and s.thought_snapshot.reviews or {}) do thoughts[row.reviewId]=row end
     for index,record in ipairs(records) do
-        local preview=note_preview(s,record)
-        local label=_(record.thoughtId and 'Thought' or 'Highlight')..' '..index
+        local preview=note_preview(record.thoughtId and thoughts[record.thoughtId] or marks[record.bookmarkId],record.thoughtId~=nil)
+        local label=_(bookmarks and 'Bookmark' or record.thoughtId and 'Thought' or 'Highlight')..' '..index
         items[#items+1]={text=preview~='' and label..': '..preview or label,my_note_id=record.thoughtId or record.bookmarkId,
-            my_note_kind=record.thoughtId and 'thought' or 'mark',
+            my_note_kind=bookmarks and 'bookmark' or record.thoughtId and 'thought' or 'mark',
             callback=function()
                 if s.picker~=menu then return end
                 close_picker(s)
-                if enabled(host,s) and s.generation==generation then open_record(host,s,record,false) end
+                if not enabled(host,s) or s.generation~=generation then return end
+                if bookmarks then
+                    local still_visible=false
+                    for _,item in ipairs(s.indicator:hitTestAll(pos)) do if item==record then still_visible=true;break end end
+                    if not still_visible then return end
+                end
+                open_record(host,s,record,bookmarks)
             end}
     end
     menu=host:showList(_('WeRead notes'),items,nil,{thought_text=true})
@@ -429,5 +425,14 @@ function M.tap(host,ges,bookmarks_only)
         end
     end
     return menu~=nil
+end
+function M.tap(host,ges,bookmarks_only)
+    local s=host._personal_marks;if not s or not enabled(host,s) or not ges or not ges.pos then return false end
+    local bookmarks=s.indicator:hitTestAll(ges.pos)
+    if #bookmarks>0 then return choose_records(host,s,bookmarks,true,ges.pos) end
+    if bookmarks_only then return false end
+    local records=s.overlay:hitTestAll(ges.pos)
+    if #records==0 then return false end
+    return choose_records(host,s,records,false,ges.pos)
 end
 return M
