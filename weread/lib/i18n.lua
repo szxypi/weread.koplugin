@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["You changed pages offline. Your local page is kept. Compare with the cloud or sync this page?"] = "离线期间翻过页，本机阅读位置会保留。要比较云端位置，还是同步本页？",
+    ["Compare cloud position"] = "比较云端位置",
     ["Could not save this draft. It may have changed elsewhere, or storage is full."] = "无法保存草稿，可能已在其他位置修改，或存储空间不足。",
     ["Book ID"] = "书籍编号",
     ["This draft changed or is unavailable. Open local thought drafts again."] = "草稿已变化或不可用，请重新打开本机想法草稿。",

@@ -17,7 +17,8 @@ function M.cancel(host)
 end
 
 function M.start(host,direction,notes)
-    if notes~=nil and notes~='marks' and notes~='bookmarks' and notes~='thoughts' then return false end
+    if notes~=nil and notes~='marks' and notes~='bookmarks' and notes~='thoughts'
+        and notes~='cloud' and notes~='upload' then return false end
     local reader=host.ui;local document=reader and reader.document
     local path=document and document.file
     if not Path.contains(host.settings,path) then return false end
@@ -31,11 +32,21 @@ function M.start(host,direction,notes)
     M.cancel(host)
     local ctx={reader=reader,document=document,path=path,scope=scope,session=host._reader_session_gen or 0,
         account=host.library_db and host.library_db:accountKey()}
+    local context
+    if notes=='cloud' or notes=='upload' then
+        context=require('weread.lib.source_context')
+        ctx.location=context.location(document,reader.view and reader.view.view_mode or 'page')
+        if not ctx.location then host:showInfo(_('The current reading page could not be verified.'));return false end
+    end
     host._native_direct_navigation=ctx
     local function current()
         return host._native_direct_navigation==ctx and host.ui==reader and reader.document==document and document.file==path
             and (host._reader_session_gen or 0)==ctx.session and host.settings:auth_scope_matches(scope)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)
+    end
+    local function page_current()
+        return not ctx.location or context.same_location(ctx.location,
+            context.location(document,reader.view and reader.view.view_mode or 'page'))
     end
     local function busy(label)
         host:showBusy(_(label),function() M.cancel(host) end);ctx.busy=host.busy_message
@@ -72,7 +83,7 @@ function M.start(host,direction,notes)
         local generation=ctx.generation
         local called,started=pcall(worker.start,worker,task,function(value)
             if host._native_direct_navigation~=ctx or ctx.generation~=generation then return end
-            if not current() then M.cancel(host);return end
+            if not current() or not page_current() then M.cancel(host);return end
             done(value)
         end)
         if not called or not started then fail('Could not check this saved E-Ink chapter.') end
@@ -281,9 +292,14 @@ function M.start(host,direction,notes)
             if identity.book_id~=id or identity.file_id~=ctx.entry.file_id or identity.book_version~=ctx.entry.book_version then
                 fail('The saved chapter changed or could not be verified. Existing files were kept.');return
             end
-            local method=notes=='marks' and 'showMyCloudMarks' or notes=='bookmarks' and 'showMyCloudBookmarks' or 'showMyCloudThoughts'
             close_busy();M.cancel(host)
-            if type(host[method])=='function' then host[method](host,id) end
+            if notes=='cloud' or notes=='upload' then
+                require('weread.ui.native_direct_position').start(host,ctx.entry,
+                    notes=='cloud' and {cloud=true} or {upload=true})
+            else
+                local method=notes=='marks' and 'showMyCloudMarks' or notes=='bookmarks' and 'showMyCloudBookmarks' or 'showMyCloudThoughts'
+                if type(host[method])=='function' then host[method](host,id) end
+            end
         elseif direction==1 or direction==-1 then close_busy();step(direction) else menu() end
     end)
     return true
@@ -291,5 +307,9 @@ end
 function M.open_notes(host,variant)
     if variant~='marks' and variant~='bookmarks' and variant~='thoughts' then return false end
     return M.start(host,nil,variant)
+end
+function M.open_position(host,action)
+    if action~='cloud' and action~='upload' then return false end
+    return M.start(host,nil,action)
 end
 return M

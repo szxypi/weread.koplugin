@@ -209,6 +209,9 @@ function M:onReaderReady()
     if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if not weread_book_id and require('weread.lib.native_direct_path').contains(self.settings,local_file) then
         require('weread.ui.native_home_resume').record(self)
+        require('weread.ui.native_direct_reconnect').ready(self)
+    else
+        local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.cancel(self) end
     end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
@@ -290,6 +293,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.view_changed(self) end
     local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation'];if direct_online_search then direct_online_search.on_view_changed(self) end
     local direct_search=package.loaded['weread.ui.native_direct_search'];if direct_search then direct_search.on_view_changed(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open'];if direct_search_open then direct_search_open.on_view_changed(self) end
@@ -314,6 +318,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.view_changed(self) end
     local direct_online_search=package.loaded['weread.ui.native_direct_online_navigation'];if direct_online_search then direct_online_search.on_view_changed(self) end
     local direct_search=package.loaded['weread.ui.native_direct_search'];if direct_search then direct_search.on_view_changed(self) end
     local direct_search_open=package.loaded['weread.ui.native_direct_search_open'];if direct_search_open then direct_search_open.on_view_changed(self) end
@@ -338,6 +343,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
@@ -452,6 +458,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
@@ -632,6 +639,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.suspend(self) end
     if self._weread_suspended then return end
     self._weread_suspended=true
     local native_direct=package.loaded['weread.ui.native_direct_reading'];if native_direct then native_direct.cancel(self) end
@@ -709,6 +717,7 @@ end
 
 function M:onResume()
     self._weread_suspended=nil
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.connected(self) end
     local pending=self._resume_chapter_prefetch;self._resume_chapter_prefetch=nil
     if pending then
         UIManager:scheduleIn(.2,function()
@@ -746,6 +755,7 @@ function M:onReadingResumed()
 end
 
 function M:onNetworkConnected()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.connected(self) end
     personal_action(self,'network_connected')
     if self.progress_sync then self.progress_sync:on_network_connected() end
     if self.offline_time then self.offline_time:update("network_connected", true) end
@@ -755,6 +765,7 @@ function M:onNetworkConnected()
 end
 
 function M:onNetworkDisconnected()
+    local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.disconnected(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end

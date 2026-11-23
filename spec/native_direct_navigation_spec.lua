@@ -11,6 +11,11 @@ local next_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=str
 local full_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('f',64),copy=0,
     title='Next',missing_images=0,catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
 local rows={next_entry};local source_ok=true;local can_open=true
+local page=1;local in_worker=false
+package.preload['weread.lib.source_context']=function() return {
+    location=function() assert(not in_worker,'background task accessed reader geometry');return {page=page} end,
+    same_location=function(a,b) return a and b and a.page==b.page end,
+} end
 package.preload['weread.lib.native_direct_cache']=function() return {MAX_ENTRIES=2000,
     valid_entry=function(entry,id,account) return (entry==source or entry==next_entry or entry==full_entry) and id=='42' and account=='123' end,
     identify=function(_,_,_,current) return current() and source_ok and source or nil end,
@@ -26,6 +31,9 @@ local shown
 package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(opts,callbacks) shown={opts=opts,callbacks=callbacks} end} end
 local search_entry
 local refresh_entry
+local position_entry
+package.preload['weread.ui.native_direct_position']=function() return {start=function(_,entry,options)
+    position_entry={entry=entry,options=options};return true end} end
 package.preload['weread.ui.native_direct_image_refresh']=function() return {start=function(_,entry) refresh_entry=entry end} end
 package.preload['weread.ui.native_direct_search']=function() return {open=function(_,entry) search_entry=entry;return true end} end
 local online_search
@@ -36,7 +44,7 @@ package.preload['weread.ui.native_direct_reading']=function() return {start=func
     auto_target={book=book,view=view,options=options};return true end} end
 local Nav=require('weread.ui.native_direct_navigation')
 local function fixture()
-    shown=nil;auto_target=nil;refresh_entry=nil;rows={next_entry};source_ok=true;can_open=true
+    shown=nil;auto_target=nil;refresh_entry=nil;position_entry=nil;rows={next_entry};source_ok=true;can_open=true;page=1
     local s={jobs={},opened=0,online=false,account='owner',scope={vid='123',epoch=1}}
     local document={file='/tmp/x/native-reader-v1/current.epub',identity={book_id='42',file_id=source.file_id,book_version=1}}
     local host={ui={document=document},client={},_reader_session_gen=1,
@@ -55,7 +63,7 @@ local function fixture()
         openFile=function(_,file) s.opened=s.opened+1;s.path=file end,
         _native_direct_navigation_worker={start=function(_,task,callback) s.jobs[#s.jobs+1]={task=task,callback=callback};return true end,
             cancel=function() s.cancelled=true end}}
-    function s.finish(index) local job=s.jobs[index];job.callback(job.task()) end
+    function s.finish(index) local job=s.jobs[index];in_worker=true;local value=job.task();in_worker=false;job.callback(value) end
     return host,s
 end
 local host,s=fixture();expect(Nav.start(host),'navigation did not start');s.finish(1)
@@ -132,4 +140,16 @@ host,s=fixture();expect(Nav.open_notes(host,'bookmarks'));source_ok=false;s.fini
 expect(not s.notes and s.message:find('could not be verified',1,true),'unverified direct file opened notes')
 host,s=fixture();expect(Nav.open_notes(host,'thoughts'));host.ui.document.identity.file_id=string.rep('0',64);s.finish(1)
 expect(not s.notes and s.message:find('could not be verified',1,true),'open document and saved file mismatch opened notes')
+for _,action in ipairs({'cloud','upload'}) do
+    host,s=fixture();expect(Nav.open_position(host,action));s.finish(1)
+    expect(position_entry and position_entry.entry==source and position_entry.options[action]==true
+        and not host._native_direct_navigation,'position action did not use the verified chapter')
+    host,s=fixture();expect(Nav.open_position(host,action));local job=s.jobs[1];local pending_result=job.task();s.account='other';job.callback(pending_result)
+    expect(not position_entry and not host._native_direct_navigation,'stale account started a position action')
+    host,s=fixture();expect(Nav.open_position(host,action));job=s.jobs[1];pending_result=job.task();page=2;job.callback(pending_result)
+    expect(not position_entry and not host._native_direct_navigation,'changed page started a position action')
+end
+host,s=fixture();expect(Nav.open_position(host,'cloud'));host.ui.document.identity.file_id=string.rep('0',64);s.finish(1)
+expect(not position_entry and s.message:find('could not be verified',1,true),'unverified file started a position action')
+expect(not Nav.open_position(host,'unexpected'),'unsupported position action accepted')
 print('PASS: local native reader navigation, account guards and online fallback ('..checks..' checks)')

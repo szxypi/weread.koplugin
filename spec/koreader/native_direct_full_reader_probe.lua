@@ -34,6 +34,33 @@ assert(not host:detectWeReadBook() and not host._current_weread_book_id)
 local report_id,_,reason=host.read_report:resolve_target();assert(not report_id and reason=='native_direct_local_only')
 assert(first.document:getPageCount()>2 and first.rolling)
 first.rolling:onGotoPage(2);UI:forceRePaint();local anchor=assert(first.document:getXPointer())
+-- Exercise the installed plugin's reconnect reminder without allowing any
+-- network request or account write. The position entry is still resolved by
+-- the actual cache worker before the separately tested position flow starts.
+local old_sync=host.settings:get('sync',{})
+host.settings:set('sync',{pull_on_open=true})
+local online=true
+host.isNetworkConnected=function() return online end
+host.isNetworkOnline=function() return online end
+local reconnect=require('weread.ui.native_direct_reconnect')
+assert(reconnect.ready(host),'native reconnect tracking did not start')
+local position=require('weread.ui.native_direct_position');local old_start=position.start;local selected
+position.start=function(_,entry,options) selected={entry=entry,options=options};return true end
+for index,action in ipairs({'cloud','upload'}) do
+    online=false;host:onNetworkDisconnected()
+    first.rolling:onGotoPage(index==1 and 3 or 2);host:onPageUpdate()
+    online=true;host:onNetworkConnected()
+    pump(function() return host._native_direct_reconnect and host._native_direct_reconnect.dialog end)
+    local dialog=host._native_direct_reconnect.dialog
+    UI:forceRePaint();assert(dialog:getContentSize().h<=Device.screen:getHeight(),'reconnect prompt exceeded screen')
+    local button=assert(dialog:getButtonById('reconnect_'..action));button:onTapSelectButton()
+    pump(function() return selected~=nil end)
+    assert(selected.entry.book_id=='42' and selected.entry.chapter_uid=='37' and selected.options[action]==true,
+        'reconnect choice did not reach verified native chapter')
+    selected=nil
+end
+position.start=old_start;host.settings:set('sync',old_sync)
+first.rolling:onGotoPage(2);UI:forceRePaint();assert(first.document:isXPointerInCurrentPage(anchor))
 -- Search the real cached EPUB without network and independently resolve the
 -- result in CREngine. Search coordinates remain local, not upload authority.
 local cache=require('weread.lib.native_direct_cache')
