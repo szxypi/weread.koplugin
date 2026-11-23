@@ -34,14 +34,17 @@ def verify_rows(raw,baseline,uid,rows,thoughts=False):
     try:
         model=SourceQuotes(raw.decode('utf-8'),body_only=True)
         for row in rows:
-            if not isinstance(row,dict) or set(row)!={'id','range','text'} or row['id'] in seen:return False
+            fields={'id','range','text'}|({'content_sha256'} if thoughts else set())
+            if not isinstance(row,dict) or set(row)!=fields or row['id'] in seen:return False
             original=(baseline['thoughts'] if thoughts else baseline['marks']['updated']).get(row['id'])
             quote=original.get('abstract' if thoughts else 'markText') if original else None
             if (not original or original.get('type')!=1 or str(original.get('chapterUid'))!=uid
                     or original.get('range')!=row['range'] or not isinstance(quote,str)
                     or not isinstance(row['text'],str) or not normalized(row['text'])
                     or normalized(model.quote(row['range']))!=normalized(quote)
-                    or normalized(row['text'])!=normalized(quote)):return False
+                    or normalized(row['text'])!=normalized(quote)
+                    or thoughts and (not isinstance(original.get('content'),str)
+                        or hashlib.sha256(original['content'].encode()).hexdigest()!=row['content_sha256'])):return False
             seen.add(row['id'])
         return True
     except (ValueError,TypeError,KeyError,UnicodeError):return False
@@ -141,7 +144,8 @@ def main(argv=None):
             credential_file_audit=True,temporary_profile_removed=True,installed_bytes_match=True)
         if args.thoughts:
             report.update(visible_thoughts=len(result['rows']),chapter_thoughts=len(rows),
-                all_chapter_thoughts_displayed={row['id'] for row in result['rows']}=={row['reviewId'] for row in rows})
+                all_chapter_thoughts_displayed={row['id'] for row in result['rows']}=={row['reviewId'] for row in rows},
+                popup_contents_independently_matched=True)
         else:
             report.update(visible_marks=len(result['rows']),chapter_highlights=len(rows),
                 all_chapter_highlights_displayed={row['id'] for row in result['rows']}=={row['bookmarkId'] for row in rows})

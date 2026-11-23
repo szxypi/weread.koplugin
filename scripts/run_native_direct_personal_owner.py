@@ -78,7 +78,9 @@ def main(argv=None):
                         or stage['offline'] is not offline or not isinstance(stage['rows'],list) or not 1<=len(stage['rows'])<=100):
                     raise ValueError('stage')
                 for row in stage['rows']:
-                    if (not isinstance(row,dict) or set(row)!={'id','range','text'} or any(not isinstance(row[k],str) for k in row)
+                    fields={'id','range','text'}|({'content_sha256'} if payload.get('expect_thoughts') is True else set())
+                    if (not isinstance(row,dict) or set(row)!=fields or any(not isinstance(row[k],str) for k in row)
+                            or 'content_sha256' in row and not re.fullmatch(r'[0-9a-f]{64}',row['content_sha256'])
                             or not 1<=len(row['id'])<=256 or not 1<=len(row['range'])<=32 or not 1<=len(row['text'].encode())<=4096):
                         raise ValueError('rows')
                 stages.append(stage)

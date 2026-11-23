@@ -148,9 +148,37 @@ for _,row in ipairs(state.records) do
     reader.rolling:onGotoXPointer(row.pos0);UI:forceRePaint()
     local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
     assert(#text>0 and #text<=4096)
-    local visible=false;for _,item in ipairs(state.overlay.visible) do if item.record.bookmarkId==row.bookmarkId then visible=true end end
+    local visible
+    for _,item in ipairs(state.overlay.visible) do
+        if item.record==row then
+            local rect=item.rect;local pos={x=rect.x+math.floor(rect.w/2),y=rect.y+math.floor(rect.h/2)}
+            if not state.indicator:hitTest(pos) then visible=pos;break end
+        end
+    end
     assert(visible,'personal owner mark not visible')
-    rows[#rows+1]={id=row.thoughtId or row.bookmarkId,range=row.range,text=text};reader.document:clearSelection()
+    local result={id=row.thoughtId or row.bookmarkId,range=row.range,text=text}
+    if input.expect_thoughts then
+        assert(Display.tap(host,{pos=visible}),'personal thought tap failed')
+        if state.picker then
+            local choice
+            for _,item in ipairs(state.picker.item_table) do
+                if item.my_note_kind=='thought' and item.my_note_id==row.thoughtId then choice=item end
+            end
+            assert(choice,'personal thought choice missing');choice.callback()
+        end
+        local owner=host._my_marks_owner
+        assert(owner and owner.thoughts and owner.menu and owner.menu._shelf_popup,'personal thought popup missing')
+        local original
+        for _,item in ipairs(owner.value and owner.value.reviews or {}) do if item.reviewId==row.thoughtId then original=item end end
+        assert(original and type(original.content)=='string','personal thought cache mismatch')
+        local popup=owner.menu._shelf_popup;local shown=popup.text
+        local tr=require('weread.lib.i18n').tr
+        assert(type(shown)=='string' and (original.content=='' and shown:find(tr('No thought text was returned.'),1,true)
+            or original.content~='' and shown:find(tr('Thought')..'\n'..original.content,1,true)),'personal thought content missing')
+        result.content_sha256=require('weread.lib.crypto').sha256_hex(original.content)
+        require('weread.ui.my_cloud_marks').cancel(host)
+    end
+    rows[#rows+1]=result;reader.document:clearSelection()
     end
 end
 assert(#rows>0,'personal owner requested mark kind missing')

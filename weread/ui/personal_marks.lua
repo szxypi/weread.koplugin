@@ -24,8 +24,12 @@ local function cancel_work(s)
     if s.task then UI:unschedule(s.task);s.task=nil end
     if s.worker then s.worker:cancel() end
 end
+local function close_picker(s)
+    local picker=s.picker;s.picker=nil
+    if picker then UI:close(picker) end
+end
 local function clear(host,s)
-    if s.picker then UI:close(s.picker);s.picker=nil end
+    close_picker(s)
     s.records={};s.bookmarks={};s.overlay:setRecords({},true);s.indicator:setRecords({});dirty(host)
 end
 local function metadata(host,s)
@@ -162,6 +166,7 @@ function M.update(host)
     if s.overlay.enabled~=show then s.overlay:setEnabled(show);dirty(host) end
     if s.indicator.enabled~=show then s.indicator:setEnabled(show);dirty(host) end
     if not show then
+        close_picker(s)
         if s.job or s.task or s.loading then cancel_work(s);s.loading=false;s.metadata=nil;s.complete=false end
         return
     end
@@ -298,7 +303,7 @@ end
 function M.detach(host)
     local s=host._personal_marks;host._personal_marks=nil
     if not s then return end
-    cancel_work(s);if s.picker then UI:close(s.picker);s.picker=nil end
+    cancel_work(s);close_picker(s)
     s.overlay:setEnabled(false);s.indicator:setEnabled(false)
     if host.ui and host.ui.view and host.ui.view.view_modules then
         host.ui.view.view_modules[M.KEY]=nil;host.ui.view.view_modules[M.BOOKMARK_KEY]=nil
@@ -307,7 +312,7 @@ function M.detach(host)
 end
 function M.pause(host)
     local s=host._personal_marks;if not s then return end
-    s.editing=true;s.loading=false;cancel_work(s)
+    s.editing=true;s.loading=false;cancel_work(s);close_picker(s)
 end
 function M.changed(host,snapshot)
     local s=host._personal_marks
@@ -329,7 +334,7 @@ function M.resume(host)
 end
 function M.suspend(host)
     local s=host._personal_marks;if not s then return end
-    s.suspended=true;s.loading=false;cancel_work(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
+    s.suspended=true;s.loading=false;cancel_work(s);close_picker(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
 end
 function M.wake(host)
     local s=host._personal_marks;if not s then return end
@@ -375,6 +380,22 @@ local function open_record(host,s,record,bookmark)
     end
     return true
 end
+local function note_preview(s,record)
+    local rows=record.thoughtId and s.thought_snapshot and s.thought_snapshot.reviews
+        or not record.thoughtId and s.snapshot and s.snapshot.updated or {}
+    for _,row in ipairs(rows) do
+        if (record.thoughtId and row.reviewId==record.thoughtId)
+            or (not record.thoughtId and row.bookmarkId==record.bookmarkId) then
+            local value=record.thoughtId and row.content or row.markText
+            if type(value)~='string' or value=='' then value=row.abstract end
+            if type(value)~='string' or value=='' then return '' end
+            value=value:gsub('[%z%c]',' '):gsub('%s+',' ')
+            local shortened=require('weread.lib.protocol').utf8_substr(value,48)
+            return #shortened<#value and shortened..'…' or shortened
+        end
+    end
+    return ''
+end
 function M.tap(host,ges,bookmarks_only)
     local s=host._personal_marks;if not s or not enabled(host,s) or not ges or not ges.pos then return false end
     local bookmark=s.indicator:hitTest(ges.pos)
@@ -384,19 +405,29 @@ function M.tap(host,ges,bookmarks_only)
     if #records==0 then return false end
     if #records==1 then return open_record(host,s,records[1],false) end
     if type(host.showList)~='function' then return false end
-    if s.picker then UI:close(s.picker);s.picker=nil end
+    close_picker(s)
     local _=require('weread.lib.i18n').tr
     local generation=s.generation;local items,menu={}
     for index,record in ipairs(records) do
-        items[#items+1]={text=_(record.thoughtId and 'My cloud thoughts' or 'My cloud highlights')..' '..index,
+        local preview=note_preview(s,record)
+        local label=_(record.thoughtId and 'Thought' or 'Highlight')..' '..index
+        items[#items+1]={text=preview~='' and label..': '..preview or label,my_note_id=record.thoughtId or record.bookmarkId,
+            my_note_kind=record.thoughtId and 'thought' or 'mark',
             callback=function()
                 if s.picker~=menu then return end
-                s.picker=nil;UI:close(menu)
+                close_picker(s)
                 if enabled(host,s) and s.generation==generation then open_record(host,s,record,false) end
             end}
     end
-    menu=host:showList(_('WeRead notes'),items)
+    menu=host:showList(_('WeRead notes'),items,nil,{thought_text=true})
     s.picker=menu
+    if menu then
+        local on_close=menu.onCloseWidget
+        menu.onCloseWidget=function(instance,...)
+            if s.picker==instance then s.picker=nil end
+            if on_close then return on_close(instance,...) end
+        end
+    end
     return menu~=nil
 end
 return M

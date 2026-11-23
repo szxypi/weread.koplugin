@@ -48,7 +48,8 @@ def main():
                 assert child.stdout.count(marker)==1
                 result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
                 assert child.returncode==0 and result.get('result')=='PASS',(result,server.calls)
-                assert result['rows']==[dict(id='synthetic-direct-thought',range=f'{first}-{first+len(quote)}',text=quote)]
+                assert result['rows']==[dict(id='synthetic-direct-thought',range=f'{first}-{first+len(quote)}',text=quote,
+                    content_sha256=hashlib.sha256(b'Synthetic private thought').hexdigest())]
                 assert result['offline_reopen'] and result['credential_file_audit'] and result['installed_bytes_match'] and result['profile_removed']
                 assert server.valid and not server.leaked and any(path=='/review/list' for _,_,path in server.calls)
                 assert not any(path in ('/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)

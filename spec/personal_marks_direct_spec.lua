@@ -117,12 +117,24 @@ overlay.visible[#overlay.visible+1]=overlay.visible[#overlay.visible]
 expect(Display.tap(host,{pos={x=15,y=15}}),'overlapping notes did not respond')
 local picker=host._personal_marks.picker
 expect(picker and #picker.item_table==2,'overlapping line boxes did not produce two distinct choices')
+expect(picker.item_table[1].text:find('Unique quotation',1,true) and picker.item_table[2].text:find('Private thought',1,true),
+    'overlapping notes did not expose distinct previews')
 picker.item_table[2].callback();expect(selected=='thought' and picker.closed,'thought choice did not open the correct record')
 expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
 picker.item_table[1].callback();expect(selected=='mark','highlight choice did not open the correct record')
 expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+picker:onCloseWidget();expect(not host._personal_marks.picker,'closing picker retained its owner')
+picker.item_table[2].callback();expect(selected=='mark','closed picker accepted a stale selection')
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
 state.owner='account-b';picker.item_table[2].callback();state.owner='account-a'
 expect(selected=='mark','old account choice opened a thought')
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+state.show=false;Display.update(host);expect(picker.closed and not host._personal_marks.picker,'hiding left the note picker open')
+state.show=true;Display.update(host);drain()
+overlay.visible={};for _,row in ipairs(host._personal_marks.records) do overlay.visible[#overlay.visible+1]={record=row,rect={x=10,y=10,w=30,h=10}} end
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+Display.suspend(host);expect(picker.closed and not host._personal_marks.picker,'suspending left the note picker open')
+Display.wake(host);drain()
 local other={schema=1,book_id='42',fetched_at=1000,reviews=codec:json_decode('[]')}
 Display.thoughts_changed(host,other);drain();expect(#host._personal_marks.records==2,'foreign book changed thought layer')
 Display.changed(host,empty);drain()
@@ -131,7 +143,17 @@ expect(#host._personal_marks.records==1 and host._personal_marks.records[1].thou
 Display.changed(host,snapshot);drain()
 thoughts.reviews=codec:json_decode('[]');Display.thoughts_changed(host,thoughts);drain()
 expect(#host._personal_marks.records==1,'deleted thought remained visible')
-Display.detach(host);state.entry_ok=false
+thoughts.reviews[1]={reviewId='long',type=1,chapterUid=2,abstract='Unique quotation',range='15-31',
+    content=string.rep('长',60)..'\nprivate tail'}
+Display.thoughts_changed(host,thoughts);drain()
+overlay.visible={};for _,row in ipairs(host._personal_marks.records) do overlay.visible[#overlay.visible+1]={record=row,rect={x=10,y=10,w=30,h=10}} end
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+local long_preview
+for _,item in ipairs(picker.item_table) do if item.my_note_id=='long' then long_preview=item.text end end
+expect(long_preview and long_preview:find(string.rep('长',48)..'…',1,true) and not long_preview:find('\n',1,true)
+    and not long_preview:find('private tail',1,true),'long thought preview was not safely truncated')
+Display.detach(host)
+state.entry_ok=false
 expect(Display.attach(host));drain();expect(#host._personal_marks.records==0 and not Display.available(host),'unverified entry displayed')
 Display.detach(host);state.entry_ok=true;state.identity=false;expect(not Display.attach(host),'missing file identity accepted')
 print('personal_marks_direct_spec: '..checks..' checks passed')

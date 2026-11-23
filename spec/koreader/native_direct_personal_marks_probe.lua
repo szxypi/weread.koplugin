@@ -102,7 +102,7 @@ else
     assert(state.picker and #state.picker.item_table==2,'overlapping notes were not offered separately')
     local choices=state.picker.item_table
     local thought_choice
-    for _,item in ipairs(choices) do if item.text:find('thought',1,true) or item.text:find('想法',1,true) then thought_choice=item end end
+    for _,item in ipairs(choices) do if item.my_note_kind=='thought' then thought_choice=item end end
     assert(thought_choice,'thought choice missing');thought_choice.callback()
     assert(host._my_marks_owner and host._my_marks_owner.thoughts and host._my_marks_owner.menu._shelf_popup,
         'thought choice did not open its content')
