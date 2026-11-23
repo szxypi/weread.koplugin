@@ -26,7 +26,9 @@ MARKER = b'\nWEREAD_BATCH_OWNER_RUN='
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
-    if not parser.parse_args().saved_session:
+    parser.add_argument('--full-shelf', action='store_true')
+    args = parser.parse_args()
+    if not args.saved_session:
         parser.error('explicit --saved-session is required for account reads')
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     report = dict(result='UNVERIFIED', account_data_writes=0, authentication_posts=0,
@@ -84,10 +86,27 @@ def main():
             sources[uid] = item
         payload = dict(credentials=credentials, book_id=book_id, version=model['version'],
                        total=len(model['chapters']), sources=sources)
+        if args.full_shelf:
+            projected, seen = [], set()
+            def safe_text(value):
+                if (isinstance(value, str) and len(value.encode()) <= 2048
+                        and not any(ord(char) < 32 or ord(char) == 127 for char in value)):
+                    return value
+                return ''
+            for row in shelf.get('books', []):
+                key = identity(row.get('bookId')) if isinstance(row, dict) else None
+                if key and key not in seen:
+                    seen.add(key)
+                    projected.append(dict(bookId=key, title=safe_text(row.get('title')),
+                                          author=safe_text(row.get('author'))))
+            if book_id not in seen or not 1 <= len(projected) <= 5000: raise ValueError('shelf_projection')
+            payload.update(full_shelf=True, shelf_books=projected)
+        encoded = json.dumps(payload, ensure_ascii=False).encode()
+        if len(encoded)>262144: raise ValueError('input_limit')
         phase = 'native_runner'
         child = subprocess.run(['docker', 'exec', '-i', 'weread-validation', 'python3',
                                 '/source/scripts/run_native_direct_batch_owner.py'],
-                               input=json.dumps(payload, ensure_ascii=False).encode(), stdout=subprocess.PIPE,
+                               input=encoded, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, timeout=900)
         if len(child.stdout)>65536 or child.stdout.count(MARKER)!=1: raise ValueError('runner')
         result = json.loads(child.stdout.split(MARKER, 1)[1].splitlines()[0])
@@ -104,6 +123,9 @@ def main():
                     'profile_removed','source_matches','repeat_skipped','offline_render','network_blocked',
                     'credential_file_audit','installed_bytes_match'))):
             raise ValueError('runner_result')
+        if args.full_shelf and (result.get('full_plugin') is not True or result.get('offline_reader') is not True
+                                or result.get('shelf_count')!=len(projected)):
+            raise ValueError('shelf_result')
         phase = 'final_check'
         for _ in range(2):
             if state_hash(api.request('shelf', BASE+'/shelf/sync', credentials=credentials)) != before:
@@ -117,6 +139,11 @@ def main():
             source_matches=True, repeat_skipped=True, offline_render=True, network_blocked=True,
             credential_file_audit=True, installed_bytes_match=True, profile_removed=True,
             missing_images_by_size=[row['missing'] for row in result['samples']])
+        if args.full_shelf:
+            report.pop('rendered_tokens')
+            report.update(full_plugin=True, numeric_shelf_books=len(projected), offline_reader_opened=True,
+                offline_reader_chapters=1, other_cached_chapters_verified=len(available)-1,
+                reader_text_checked_by_size=[row['reader_text_checked'] for row in result['samples']])
     except (Exception, KeyboardInterrupt) as error:
         report['phase'] = phase
         if 'HTTP 401' in str(error): report['reason'] = 'auth_expired'

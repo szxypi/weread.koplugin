@@ -41,6 +41,28 @@ def validate(payload):
             or any(not isinstance(credentials[key], str) or not 8 <= len(credentials[key]) <= 4096
                    for key in ('accessToken', 'refreshToken', 'deviceId'))):
         raise ValueError('credentials')
+    full_shelf = payload.get('full_shelf', False)
+    if type(full_shelf) is not bool:
+        raise ValueError('full_shelf')
+    if full_shelf:
+        books = payload.get('shelf_books')
+        if not isinstance(books, list) or not 1 <= len(books) <= 5000:
+            raise ValueError('shelf')
+        seen = set()
+        for row in books:
+            if (not isinstance(row, dict) or set(row) != {'bookId', 'title', 'author'}
+                    or not isinstance(row['bookId'], str) or not re.fullmatch(r'[1-9][0-9]{0,19}', row['bookId'])
+                    or row['bookId'] in seen):
+                raise ValueError('shelf')
+            seen.add(row['bookId'])
+            for key in ('title', 'author'):
+                if (not isinstance(row[key], str) or len(row[key].encode()) > 2048
+                        or any(ord(char) < 32 or ord(char) == 127 for char in row[key])):
+                    raise ValueError('shelf')
+        if book not in seen:
+            raise ValueError('shelf')
+    elif 'shelf_books' in payload:
+        raise ValueError('shelf')
     return payload
 
 
@@ -53,8 +75,8 @@ def main():
     root = None
     phase = 'input'
     try:
-        raw = sys.stdin.buffer.read(65537)
-        if len(raw) > 65536: raise ValueError('input_limit')
+        raw = sys.stdin.buffer.read(262145)
+        if len(raw) > 262144: raise ValueError('input_limit')
         payload = validate(json.loads(raw))
         runtime = Path('/validation/runtime/lib/koreader')
         with tempfile.TemporaryDirectory(prefix='weread-native-batch-owner-', dir='/dev/shm') as temporary:
@@ -73,6 +95,9 @@ def main():
                            EMULATE_READER_W=str(width), EMULATE_READER_H=str(height), EMULATE_READER_DPI=str(dpi),
                            WEREAD_DIRECT_OWNER_TMPFS='1')
                 size_result = {}
+                full_shelf = payload.get('full_shelf', False)
+                probe = 'native_direct_batch_shelf_owner_probe.lua' if full_shelf else 'native_direct_batch_owner_probe.lua'
+                marker = b'WEREAD_BATCH_SHELF=' if full_shelf else b'WEREAD_BATCH_OWNER='
                 for mode in ('online', 'repeat', 'offline'):
                     phase = mode
                     private = dict(payload, mode=mode)
@@ -80,28 +105,39 @@ def main():
                         private.pop('credentials');private.pop('web_cookies', None)
                         private['vid'] = payload['credentials']['vid']
                     code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
-                        str(plugin), str(REPO/'spec/koreader/native_direct_batch_owner_probe.lua'), str(REPO)],
+                        str(plugin), str(REPO/'spec/koreader'/probe), str(REPO)],
                         env, json.dumps(private, ensure_ascii=False).encode(), runtime, timeout=360)
                     if code:
                         match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                         if match: report['probe_line'] = int(match.group(1))
-                    result = frame(out, b'WEREAD_BATCH_OWNER=')
+                    result = frame(out, marker)
                     if code or repaint or result.get('ok') is not True or result.get('mode') != mode:
                         if result.get('reason') in {'auth_expired', 'rate_limited', 'session_changed', 'catalog_changed',
                                                     'unavailable', 'not_entitled', 'storage', 'invalid_source', 'invalid'}:
                             report['reason'] = result['reason']
                         raise ValueError('probe')
                     if result.get('chapters') != len(payload['sources']): raise ValueError('count')
+                    if full_shelf and (result.get('full_plugin') is not True
+                            or result.get('shelf_count') != len(payload['shelf_books'])):
+                        raise ValueError('shelf')
                     if mode == 'offline':
-                        if result.get('network_blocked') is not True or result.get('tokens') != sum('token' in row for row in payload['sources'].values()):
+                        if (result.get('network_blocked') is not True
+                                or full_shelf and result.get('reader_opened') is not True
+                                or not full_shelf and result.get('tokens') != sum('token' in row for row in payload['sources'].values())):
                             raise ValueError('offline')
+                        if full_shelf:
+                            expected_tokens = 1 if any('token' in row for row in payload['sources'].values()) else 0
+                            if type(result.get('tokens')) is not int or result['tokens'] != expected_tokens:
+                                raise ValueError('offline')
+                            size_result['reader_text_checked'] = result['tokens']
                     else:
                         if (result.get('source_matches') is not True or result.get('unavailable') != payload['total']-len(payload['sources'])
                                 or type(result.get('missing')) is not int or not 0 <= result['missing'] <= len(payload['sources'])
                                 or type(result.get('requests')) is not int or not 1 <= result['requests'] <= 200):
                             raise ValueError('online')
                         if mode == 'online': size_result = dict(requests=result['requests'], missing=result['missing'])
-                        elif result['requests']-size_result['requests'] != 2 or result['missing'] != size_result['missing']:
+                        elif (result['requests']-size_result['requests'] not in ((2,3) if full_shelf else (2,))
+                              or result['missing'] != size_result['missing']):
                             raise ValueError('repeat')
                 phase = 'audit'
                 secrets = [payload['credentials'][key].encode() for key in ('accessToken', 'refreshToken', 'deviceId')]
@@ -120,6 +156,8 @@ def main():
                           unavailable=payload['total']-len(payload['sources']), source_matches=True,
                           repeat_skipped=True, offline_render=True, network_blocked=True,
                           credential_file_audit=True, installed_bytes_match=True, samples=results)
+            if payload.get('full_shelf'):
+                report.update(full_plugin=True, shelf_count=len(payload['shelf_books']), offline_reader=True)
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

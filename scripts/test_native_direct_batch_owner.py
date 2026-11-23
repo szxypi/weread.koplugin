@@ -31,6 +31,14 @@ class ScopeValidation(unittest.TestCase):
         self.rejected(lambda value: value['sources']['37'].update(sha256='invalid'))
         self.rejected(lambda value: value['sources']['37'].update(token='bad\nsecret'))
 
+    def test_shelf_scope_requires_unique_valid_books_and_target(self):
+        self.payload.update(full_shelf=True, shelf_books=[dict(bookId='42', title='Book', author='Writer')])
+        self.assertIs(validate(self.payload), self.payload)
+        self.rejected(lambda value: value['shelf_books'].append(dict(bookId='42', title='Other', author='Writer')))
+        self.rejected(lambda value: value['shelf_books'][0].update(bookId='100'))
+        self.rejected(lambda value: value['shelf_books'][0].update(title='bad\ntitle'))
+        self.rejected(lambda value: value.update(full_shelf=False))
+
 
 if __name__ == '__main__':
     unittest.main()
