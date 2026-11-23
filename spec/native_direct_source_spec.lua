@@ -29,7 +29,7 @@ local function fetch() return Direct.fetch({}, {},'42','37',expected,options) en
 local result=assert(fetch())
 assert(result.xhtml=='<p>Native</p>' and result.css=='safe-style' and #result.assets==1
     and result.source_channel=='eink' and result.coordinate_source_authoritative==false and result.missing_images==0
-    and #result.source_sha256==64 and source_calls==1 and remote_calls==1)
+    and result.source_raw==source.body and #result.source_sha256==64 and source_calls==1 and remote_calls==1)
 remote_missing=true
 local missing=assert(Direct.fetch({}, {},'42','37',expected,{is_current=function() return true end,allow_missing_images=true}))
 assert(missing.missing_images==1 and missing.xhtml:find('placeholders',1,true)

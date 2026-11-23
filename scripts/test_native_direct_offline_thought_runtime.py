@@ -27,6 +27,9 @@ def run(runtime):
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
                     payload['path']=frame(child,'WEREAD_POSITION_PREPARED=')['path']
+                    native_source=Path(payload['path']).parent/'native-source.txt'
+                    native_raw=native_source.read_bytes();assert native_raw.decode()==BODY
+                    assert native_source.stat().st_mode & 0o077==0
                     def reader(mode,offline):
                         payload.update(mode=mode,offline=offline);server.mode=mode;server.calls=[]
                         child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_reader_probe.lua')],
@@ -35,7 +38,11 @@ def run(runtime):
                         if offline:assert not server.calls,'offline reader requested network'
                         assert server.valid and not server.leaked
                         return list(server.calls)
+                    native_source.unlink()
                     reader('selection_direct_offline_missing',True)
+                    native_source.write_bytes(native_raw)
+                    reader('selection_direct_thought_offline_draft',True)
+                    reader('selection_direct_thought_offline_draft',True)
                     calls=reader('selection_direct',False)
                     assert any(path=='/book/chapterdownload' for _,_,path in calls)
                     reader('selection_direct_thought_offline_draft',True)
@@ -45,10 +52,13 @@ def run(runtime):
                         raw=db.execute('SELECT body FROM native_direct_mark_source').fetchone()[0]
                         assert raw==BODY and db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1
                         db.execute("UPDATE native_direct_mark_source SET body='tampered'")
+                    reader('selection_direct_thought_offline_draft',True)
+                    native_source.write_bytes(b'tampered')
                     reader('selection_direct_offline_missing',True)
                     with sqlite3.connect(dbs[0]) as db:
                         assert db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1
                         db.execute('UPDATE native_direct_mark_source SET body=?',(raw,))
+                    native_source.write_bytes(native_raw)
                     calls=reader('selection_direct_thought_changed',False)
                     assert not any(path=='/review/add' for _,_,path in calls)
                     with sqlite3.connect(dbs[0]) as db:assert db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1

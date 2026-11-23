@@ -144,7 +144,7 @@ if input.mode:find('^selection_direct') then
             local message=input.mode=='selection_direct_auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
                 or input.mode=='selection_direct_web_expired' and 'Log in again to verify the selected text.'
                 or input.mode=='selection_direct_limited' and 'WeRead is limiting requests. Please try again later.'
-                or input.mode=='selection_direct_offline_missing' and 'The verified offline source is unavailable. Reconnect and select this text again.'
+                or input.mode=='selection_direct_offline_missing' and 'The offline chapter source is unavailable. Reconnect and select this text again.'
             if message then assert(host.checked_message==require('weread.lib.plugin_util').tr(message),'wrong source error') end
         else
             assert(owner.reference and require(bookmark and 'weread.lib.bookmark_reference' or 'weread.lib.selection_reference').valid(owner.reference,'42'))

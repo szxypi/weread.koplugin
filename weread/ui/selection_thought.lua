@@ -55,7 +55,7 @@ render=function(host,owner)
     if not current(host,owner) then return end
     local items={}
     if owner.reference then
-        if owner.offline_source then items[#items+1]={text=_('Offline draft uses a verified cached source. Reconnect before submitting.'),select_enabled=false} end
+        if owner.offline_source then items[#items+1]={text=_('Offline draft uses cached chapter text. The source is checked again before submission.'),select_enabled=false} end
         if not owner.offline_source then
         items[#items+1]={text=_(owner.bookmarks and 'Save cloud bookmark' or 'Save highlight'),callback=function()
             if current(host,owner) then require('weread.ui.mark_editor').start(host,owner,owner.bookmarks and 'bookmark_create' or 'create',owner.reference,current,render) end
@@ -147,7 +147,7 @@ function M.open(host,selection,bookmark)
     local function unavailable(reason)
         if not current(host,owner) then return end
         owner.error=reason or owner.error or 'selection_unavailable'
-        local message=direct and owner.offline_source and 'The verified offline source is unavailable. Reconnect and select this text again.'
+        local message=direct and owner.offline_source and 'The offline chapter source is unavailable. Reconnect and select this text again.'
             or direct and owner.error=='auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
             or direct and owner.error=='web_expired' and 'Log in again to verify the selected text.'
             or direct and owner.error=='rate_limited' and 'WeRead is limiting requests. Please try again later.'

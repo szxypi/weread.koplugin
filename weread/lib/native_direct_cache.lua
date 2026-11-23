@@ -137,6 +137,41 @@ local function read_file(lfs,path,limit)
     local raw,err=file:read(limit+1);local closed=file:close()
     return not err and closed and raw and #raw==attr.size and raw or nil
 end
+-- Native-only bytes are a local draft aid, never proof of Web coordinates.
+-- An interrupted write is rejected by its hash and never overwritten.
+local RAW_SOURCE='native-source.txt'
+local function save_raw(lfs,dir,entry,raw,lease,current)
+    local limit=require('weread.lib.source_coordinates').MAX_BYTES
+    if not lease or not lease:owns() or not current() or type(raw)~='string' or #raw<1 or #raw>limit
+        or Crypto.sha256_hex(raw)~=entry.source_sha256 then return end
+    local path=dir..'/'..RAW_SOURCE
+    if mode(lfs,path) then return end
+    local ffi=require('ffi');require('ffi/posix_h')
+    if ffi.os~='Linux' and ffi.os~='OSX' then return end
+    local flags=require('bit').bor(ffi.C.O_WRONLY,ffi.C.O_CREAT,ffi.C.O_CLOEXEC,
+        ffi.os=='OSX' and 0x800 or 0x80,ffi.os=='OSX' and 0x100 or 0x20000)
+    local fd=tonumber(ffi.C.open(path,flags,ffi.cast('int',384)))
+    if fd<0 then return end
+    local offset=0
+    while offset<#raw and lease:owns() and current() do
+        local n=tonumber(ffi.C.write(fd,ffi.cast('const char*',raw)+offset,#raw-offset))
+        if n>0 then offset=offset+n elseif n>=0 or ffi.errno()~=ffi.C.EINTR then break end
+    end
+    if offset==#raw then ffi.C.fsync(fd) end
+    ffi.C.close(fd)
+end
+function M.read_raw_source(file,entry)
+    if type(file)~='string' or type(entry)~='table' or not hash(entry.source_sha256) then return nil end
+    local dir=file:match('^(.*)/[^/]+$');local lfs=fs()
+    if not lfs or not dir then return nil end
+    local parent=mode(lfs,dir)
+    if not parent or parent.mode~='directory' then return nil end
+    local raw=read_file(lfs,dir..'/'..RAW_SOURCE,require('weread.lib.source_coordinates').MAX_BYTES)
+    local after=mode(lfs,dir)
+    if not after or after.mode~='directory' or after.dev~=parent.dev or after.ino~=parent.ino
+        or not raw or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil end
+    return raw
+end
 local function read_entry(lfs,dir,key,copy,book_id,account)
     local raw=read_file(lfs,dir..'/entry.txt',4096)
     if not raw then return nil end
@@ -509,6 +544,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
         if not created then
             if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
                 and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
+                pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,live)
                 save_presence(settings,account,book.book_id,entry,live)
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                     missing_images=prepared.missing_images}
@@ -537,6 +573,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
                 return nil,live() and 'storage' or 'session_changed'
             end
             save_presence(settings,account,book.book_id,entry,live)
+            pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,live)
             return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                 missing_images=prepared.missing_images}
         end

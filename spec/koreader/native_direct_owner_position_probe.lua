@@ -130,6 +130,11 @@ if input.selection then
         report.mark_preview=true;report.thought_preview=true
     end
     if input.offline_draft then
+        -- Force the offline path to use the downloaded native source, even
+        -- though the online comparison above populated a verified cache.
+        local cache=require('weread.lib.native_direct_cache')
+        assert(cache.read_raw_source(input.path,entry))
+        local db=assert(library:open());db:exec('DELETE FROM native_direct_mark_source');db:close()
         selection.cancel(host);online=false;host.checked_message=nil
         assert(selection.open(host,{text=chosen,pos0=first,pos1=last}))
         local offline=assert(host._selection_thought_owner)

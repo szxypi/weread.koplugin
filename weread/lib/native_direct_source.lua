@@ -56,7 +56,7 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
     if not current() then return nil,'session_changed' end
     return {book_id=book_id,chapter_uid=chapter_uid,book_version=source.book_version,
         catalog_sha256=source.catalog_sha256,reading_catalog_sha256=source.reading_catalog_sha256,
-        source_sha256=Crypto.sha256_hex(source.body),xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
+        source_sha256=Crypto.sha256_hex(source.body),source_raw=source.body,xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
         source_channel='eink',coordinate_source_authoritative=false}
 end
 return M

@@ -1,5 +1,6 @@
 -- Native chapter writes require independent native and Web verification.
--- Offline drafts may use a previously verified, account-local source cache.
+-- Offline drafts may also use the pinned chapter's native-only source;
+-- online submission must independently verify it against the Web source.
 local Access=require('weread.lib.native_read_access')
 local Currentness=require('weread.lib.source_currentness')
 local Cache=require('weread.lib.native_direct_cache')
@@ -38,7 +39,11 @@ local function cached(settings,library,entry,file,native,web,current)
     if not live() then return nil,'session_changed' end
     local ok,raw=pcall(function() return require('weread.lib.native_direct_mark_source_store'):new(library):read(pinned) end)
     if not live() then return nil,'session_changed' end
-    if not ok or not raw then return nil,'offline_source_unavailable' end
+    if not ok or not raw then
+        ok,raw=pcall(Cache.read_raw_source,file,pinned)
+        if not live() then return nil,'session_changed' end
+        if not ok or not raw then return nil,'offline_source_unavailable' end
+    end
     return raw
 end
 function M.capture_cached(settings,library,entry,file,input,native,web,current)
