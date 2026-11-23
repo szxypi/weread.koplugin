@@ -52,6 +52,7 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local identity = archive.archiveId or archive.archive_id or archive.id
         local system_archive = system_identity_count == 1 and tostring(identity) == "1" and label == "归档"
         local members, seen = {}, {}
+        local member_ids, seen_ids = {}, {}
         local invalid_members = not members_array(archive.bookIds)
         local missing_members = false
         local mp_only = #ids > 0
@@ -59,6 +60,9 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
             id = Identity.persisted_identity(id)
             if not id then invalid_members = true end
             if not id or id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
+            if id and id:sub(1,7) ~= 'MP_WXS_' and not seen_ids[id] then
+                member_ids[#member_ids + 1] = id; seen_ids[id] = true
+            end
             local book = id and by_id[id]
             -- Known public-account containers are shown elsewhere. A missing
             -- ordinary book, however, means the displayed group is partial.
@@ -79,6 +83,9 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
                 label = label,
                 books = members,
                 incomplete = (invalid_members or missing_members) or nil,
+                -- Missing shelf entries still have known IDs. Preserve them
+                -- when copying a cloud group into device-only storage.
+                member_ids = not invalid_members and member_ids or nil,
             }
         end
     end

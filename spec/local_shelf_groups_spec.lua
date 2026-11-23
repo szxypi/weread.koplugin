@@ -4,6 +4,13 @@ local Groups=require('weread.lib.shelf_groups')
 local n=0
 local function expect(value) n=n+1;assert(value,'local groups check '..n) end
 local empty=Model.empty();expect(Model.valid(empty))
+local cloud=Groups.list({{archiveId=7,name='云端组',bookIds={'42','missing','MP_WXS_1'}}},{{bookId='42'}})[1]
+local copied=assert(Model.copy_cloud(empty,cloud,'本机副本'))
+expect(#empty.groups==0 and copied.groups[1].name=='本机副本' and #copied.groups[1].books==2
+    and copied.groups[1].books[1]=='42' and copied.groups[1].books[2]=='missing')
+cloud.member_ids[1]='changed';expect(copied.groups[1].books[1]=='42')
+expect(not Model.copy_cloud(copied,cloud,'本机副本') and not Model.copy_cloud(empty,{member_ids={'42','42'}},'bad')
+    and not Model.copy_cloud(empty,{member_ids={'MP_WXS_1'}},'bad') and not Model.copy_cloud(empty,{},'bad'))
 local first=assert(Model.change(empty,{kind='create',name='  已读  '}))
 expect(#empty.groups==0 and first.groups[1].name=='已读' and first.groups[1].id==1)
 expect(not Model.change(first,{kind='create',name='已读'}))

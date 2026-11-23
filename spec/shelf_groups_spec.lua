@@ -24,6 +24,8 @@ expect(groups[1].incomplete==true and not groups[2].incomplete,
     'missing ordinary member was not distinguished from a complete group')
 expect(groups[1].books[1].bookId == "two" and groups[1].books[2].bookId == "one",
     "group order or duplicate handling is wrong")
+expect(#groups[1].member_ids==3 and groups[1].member_ids[1]=='two' and groups[1].member_ids[2]=='one'
+    and groups[1].member_ids[3]=='missing','copyable members lost missing IDs or retained duplicates')
 expect(groups[2].label == "Unnamed group" and groups[2].books[1].bookId == "three",
     "blank group name did not retain its book")
 expect(groups[1].key == "archive:7" and Groups.find(groups, "archive:7") == groups[1]
@@ -63,6 +65,7 @@ expect(#unavailable==3 and #unavailable[1].books==0 and #unavailable[2].books==0
 local with_mp=Groups.list({{archiveId=14,name='Mixed visible types',bookIds={'one','MP_WXS_123'}}},books)
 expect(not with_mp[1].incomplete and #with_mp[1].books==1,
     'a public-account container was misreported as a missing regular book')
+expect(#with_mp[1].member_ids==1 and with_mp[1].member_ids[1]=='one','public account leaked into local group copy')
 
 local system=Groups.list({
     {archiveId=1,name='归档',bookIds={'one','two'}},
@@ -124,6 +127,7 @@ local rounded,complete=Groups.list({{archiveId=99,name='Old',bookIds={1000000000
     {{bookId='100000000000000',title='String'},{bookId='2',title='Other'}})
 expect(#rounded==1 and #rounded[1].books==0 and rounded[1].incomplete and not complete,
     'potentially rounded member was attached or declared ungrouped')
+expect(rounded[1].member_ids==nil,'unverifiable member was offered for copying')
 local system_unknown,system_complete=Groups.list({{archiveId=1,name='归档',bookIds={100000000000000}}},books)
 expect(system_complete and system_unknown[2].key=='__ungrouped__' and #system_unknown[2].books==3,
     'unknown system-carrier member hid the independently ungrouped books')
@@ -131,6 +135,7 @@ for _,invalid_members in ipairs({false, {[1]='one',[3]='two'}}) do
     local incomplete,verified=Groups.list({{archiveId=2,name='Invalid',bookIds=invalid_members}},books)
     expect(not verified and incomplete[1].incomplete and not Groups.find(incomplete,'__ungrouped__'),
         'malformed group members were treated as complete')
+    expect(incomplete[1].member_ids==nil,'malformed group was offered for copying')
 end
 
 print(("shelf_groups_spec: %d checks"):format(checks))

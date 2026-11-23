@@ -58,6 +58,17 @@ function M.change(value,action)
     return M.valid(result) and result or nil
 end
 
+-- Copy in one value so the caller can persist name and memberships together.
+function M.copy_cloud(value,source,label)
+    if type(source)~='table' or not array(source.member_ids,5000) then return nil end
+    for _,id in ipairs(source.member_ids) do
+        if type(id)~='string' or Identity.persisted_identity(id)~=id or id:sub(1,7)=='MP_WXS_' then return nil end
+    end
+    local created=M.change(value,{kind='create',name=label})
+    if not created then return nil end
+    return M.change(created,{kind='books',id=created.groups[#created.groups].id,books=source.member_ids})
+end
+
 -- Set this one book's memberships without changing any other book, including
 -- members not present in the current shelf snapshot.
 function M.assign(value,book,selected)

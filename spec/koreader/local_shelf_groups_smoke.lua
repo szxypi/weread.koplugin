@@ -279,6 +279,45 @@ if phase=='live' then
     local capped=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
     assert(#capped.groups[1].books==5000 and capped.groups[1].books[1]==missing[1]
         and capped.groups[1].books[5000]==missing[5000],'group limit test changed absent members')
+    -- Copy a real projected cloud-group snapshot into one local transaction,
+    -- retaining ordinary missing IDs while excluding public-account entries.
+    auth('900006')
+    local copy_cloud={{archiveId=7,name='云端测试组',bookIds={'101','missing-copy','MP_WXS_1','101'}}}
+    host:applyShelfSnapshot(shelf,copy_cloud);host:showShelfView('books')
+    view,manager=manage();picker=select_row(view,manager,text('Copy a cloud group to this device'))
+    assert(entry(picker,'云端测试组').mandatory=='2')
+    input=select_row(view,picker,'云端测试组');input:setInputText('本机复制组')
+    button(input,text('Save')).callback();pump(function() return host.shelf_view~=view end)
+    local copy=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#copy.groups==1 and copy.groups[1].name=='本机复制组' and #copy.groups[1].books==2
+        and copy.groups[1].books[1]=='101' and copy.groups[1].books[2]=='missing-copy')
+    assert(#copy_cloud[1].bookIds==4 and copy_cloud[1].bookIds[2]=='missing-copy','cloud group was modified')
+    assert(host.shelf_groups[#host.shelf_groups].incomplete,'missing copied book was not reported')
+    -- A new shelf snapshot invalidates an open copy dialog before saving.
+    view,manager=manage();picker=select_row(view,manager,text('Copy a cloud group to this device'))
+    input=select_row(view,picker,'云端测试组');input:setInputText('过期副本')
+    host:applyShelfSnapshot(shelf,{{archiveId=7,name='云端测试组',bookIds={'102'}}})
+    button(input,text('Save')).callback();UI:handleInput()
+    local after_copy=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#after_copy.groups==1 and after_copy.groups[1].books[1]=='101','stale cloud snapshot was copied')
+    require('weread.ui.shelf_popup').close(view)
+    -- Changing account while naming a copy cannot write into either account.
+    auth('900007');host:applyShelfSnapshot(shelf,copy_cloud);host:showShelfView('books')
+    view,manager=manage();picker=select_row(view,manager,text('Copy a cloud group to this device'))
+    input=select_row(view,picker,'云端测试组');input:setInputText('旧账号副本')
+    auth('900008');host:applyShelfSnapshot(shelf,copy_cloud)
+    button(input,text('Save')).callback();UI:handleInput()
+    assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'copy crossed accounts')
+    require('weread.ui.shelf_popup').close(view)
+    auth('900007');host:applyShelfSnapshot(shelf,copy_cloud)
+    assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'stale copy wrote to old account')
+    auth('900009');host:applyShelfSnapshot(shelf,{{archiveId=7,name='重复甲',bookIds={'101'}},
+        {archiveId=7,name='重复乙',bookIds={'102'}},{archiveId=8,name='无效成员',bookIds={100000000000000}}})
+    host:showShelfView('books');view,manager=manage()
+    picker=select_row(view,manager,text('Copy a cloud group to this device'))
+    assert(entry(picker,text('No cloud groups available to copy.'))
+        and not pcall(entry,picker,'重复甲') and not pcall(entry,picker,'无效成员'),'ambiguous group offered for copying')
+    require('weread.ui.shelf_popup').close(view)
     auth('900000');host:applyShelfSnapshot(shelf,cloud)
     settings:flush()
 else
@@ -291,6 +330,10 @@ else
     confirm.ok_callback();pump(function() return host.shelf_view~=view end)
     assert_shelf_cloud();assert(#host.shelf_groups==2 and #host.shelf_regular==3)
     local state=assert(host.library_db:getProfileState('shelf_local_groups_v1'));assert(#state.groups==0 and state.next_id==2)
+    auth('900006');host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
+    local copy=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#copy.groups==1 and copy.groups[1].name=='本机复制组' and copy.groups[1].books[2]=='missing-copy')
+    assert(host.shelf_groups[#host.shelf_groups].incomplete,'copied missing member lost after offline reopen')
 end
 print('\nWEREAD_LOCAL_GROUPS='..require('json').encode({result='PASS',phase=phase,network_requests=0}))
 os.exit(0)

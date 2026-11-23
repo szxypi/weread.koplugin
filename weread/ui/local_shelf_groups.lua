@@ -3,6 +3,7 @@ local Model=require('weread.lib.local_shelf_groups')
 local Identity=require('weread.lib.shelf_snapshot')
 local Popup=require('weread.ui.shelf_popup')
 local ShelfSearch=require('weread.lib.shelf_search')
+local ShelfGroups=require('weread.lib.shelf_groups')
 local Query=require('weread.lib.search_query')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
@@ -50,7 +51,7 @@ function M.open(host,owner,is_current,on_change)
             if alive() then callback() end
         end)
     end
-    local show_list,show_group,show_books,show_input
+    local show_list,show_group,show_books,show_input,show_copy
     show_input=function(group)
         local dialog
         dialog=require('ui/widget/inputdialog'):new{
@@ -170,10 +171,37 @@ function M.open(host,owner,is_current,on_change)
         }}
         Popup.show(owner,dialog)
     end
+    show_copy=function()
+        local menu,rows=nil,{}
+        for _index,group in ipairs(host.shelf_cloud_groups or {}) do
+            if group.key~='__ungrouped__' and type(group.member_ids)=='table'
+                and ShelfGroups.unique(host.shelf_cloud_groups,group.key)==group then
+                rows[#rows+1]={text=group.label,mandatory=tostring(#group.member_ids),callback=function()
+                    transition(menu,function()
+                        local dialog
+                        dialog=require('ui/widget/inputdialog'):new{
+                            title=_('Name the local group copy'),input=group.label,input_type='text',
+                            buttons={{{text=_('Cancel'),callback=function() transition(dialog,show_copy) end},
+                                {text=_('Save'),is_enter_default=true,callback=function()
+                                    if not alive() or not Popup.current(owner,dialog) then return end
+                                    commit(host,owner,alive,on_change,base,original,Model.copy_cloud(base,group,dialog:getInputText()))
+                                end}}},
+                        }
+                        Popup.show(owner,dialog,function(widget) host:showInputDialog(widget) end)
+                    end)
+                end}
+            end
+        end
+        if #rows==0 then rows[1]={text=_('No cloud groups available to copy.'),select_enabled=false} end
+        menu=require('ui/widget/menu'):new{title=_('Copy a cloud group to this device'),item_table=rows,
+            subtitle=_('Copies regular books only. The new group stays on this device.'),items_per_page=12}
+        Popup.show(owner,menu)
+    end
     show_list=function()
         if not alive() then return end
         local rows,menu={},nil
         rows[1]={text=_('Create local group'),callback=function() transition(menu,function() show_input(nil) end) end}
+        rows[#rows+1]={text=_('Copy a cloud group to this device'),callback=function() transition(menu,show_copy) end}
         for _,group in ipairs(host.shelf_local_state.groups) do
             rows[#rows+1]={text=group.name,mandatory=tostring(#group.books),callback=function()
                 transition(menu,function() show_group(group) end)
