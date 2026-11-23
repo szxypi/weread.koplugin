@@ -5,7 +5,7 @@ assert(os.getenv('WEREAD_DIRECT_OWNER_TMPFS')=='1')
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local plugin=home..'/plugins/weread.koplugin';package.path=plugin..'/?.lua;'..package.path
 local ffi=require('ffi');local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
-assert(type(input.credentials)=='table' and type(input.cookies)=='table' and input.cookies.wr_vid==input.credentials.vid)
+assert(type(input.credentials)=='table' and type(input.cookies)=='table' and input.cookies.wr_vid == input.credentials.vid)
 pcall(ffi.cdef,'int memfd_create(const char *, unsigned int);')
 local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=input.credentials.vid,name=''},cookies=input.cookies,api_key=''}
 local fd=tonumber(ffi.C.memfd_create('weread-time-auth',1));assert(fd>=0)
