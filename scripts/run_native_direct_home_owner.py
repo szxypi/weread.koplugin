@@ -30,6 +30,7 @@ def main(argv=None):
     parser.add_argument('--progress-estimate', action='store_true')
     parser.add_argument('--offline-reminder', action='store_true')
     parser.add_argument('--offline-time', action='store_true')
+    parser.add_argument('--offline-time-ui', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
@@ -41,6 +42,8 @@ def main(argv=None):
         parser.error('offline reminder requires full UI')
     if args.offline_time and not args.full_ui:
         parser.error('offline time requires full UI')
+    if args.offline_time_ui and not args.offline_time:
+        parser.error('offline time UI requires offline time')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -84,6 +87,7 @@ def main(argv=None):
                        SDL_VIDEODRIVER='dummy', EMULATE_READER='1', EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8',
                        EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
                        EMULATE_READER_DPI=str(args.dpi), WEREAD_DIRECT_OWNER_TMPFS='1')
+            if args.offline_time_ui: env['TZ'] = 'Asia/Shanghai'
             phase = 'native_chapter'
             prepare = dict(payload, plugin_home=True, quick_search=args.quick_search)
             probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
@@ -152,7 +156,7 @@ def main(argv=None):
             if args.offline_time:
                 phase = 'offline_time'
                 saved = None
-                for stage in ('capture', 'reopen'):
+                for stage in (('capture', 'reopen', 'reopen_review') if args.offline_time_ui else ('capture', 'reopen')):
                     private = dict(stage=stage, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
                     code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                         str(REPO), str(REPO/'spec/koreader/native_direct_time_owner_probe.lua')], env,
@@ -168,7 +172,8 @@ def main(argv=None):
                             or type(observed.get('rows')) is not int or observed['rows'] < 1
                             or type(observed.get('seconds')) is not int or observed['seconds'] < 5
                             or not isinstance(observed.get('snapshot'), str)
-                            or re.fullmatch(r'[0-9a-f]{64}', observed['snapshot']) is None):
+                            or re.fullmatch(r'[0-9a-f]{64}', observed['snapshot']) is None
+                            or observed.get('review_verified') is not (stage == 'reopen_review')):
                         raise ValueError('offline_time')
                     point = observed['rows'], observed['seconds'], observed['snapshot']
                     if saved is not None and point != saved: raise ValueError('offline_time_changed')
@@ -218,6 +223,8 @@ def main(argv=None):
                 report['offline_reminder_verified'] = True
             if args.offline_time:
                 report['offline_time_verified'] = True
+            if args.offline_time_ui:
+                report['offline_time_ui_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

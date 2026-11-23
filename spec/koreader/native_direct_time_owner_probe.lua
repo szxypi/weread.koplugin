@@ -48,7 +48,7 @@ if input.stage=='capture' then
     assert(collector:status().pending-before==collector.active.last_seen-started and collector.active.last_seen-started>=5,
         'reading duration missing or duplicated')
     assert(collector:stop('paused'))
-elseif input.stage~='reopen' then error('invalid stage') end
+elseif input.stage~='reopen' and input.stage~='reopen_review' then error('invalid stage') end
 local rows=assert(collector.store:pending(account));assert(#rows>0,'captured duration missing')
 local count=0;local total=0;local selection
 for _,row in ipairs(rows) do
@@ -67,6 +67,42 @@ until found.kind~='more'
 assert(found.kind=='found','duration source missing')
 local entry=assert(require('weread.lib.native_direct_cache').identify(host.settings,scope.vid,found.reference.file,function() return true end))
 assert(entry.file_id==selection.file_id and entry.source_sha256==found.reference.source_sha256,'wrong chapter source')
+local snapshot=require('weread.lib.readtime_transfer_contract').digest(rows)
+if input.stage=='reopen_review' then
+    assert(collector:stop('paused'))
+    local selected=assert(require('weread.lib.readtime_transfer_queue'):new{
+        ledger=collector.store,coverage=host.readtime_coverage}:select(account,input.book_id,{current_day=true,allow_native=true}))
+    assert(selected.selection and selected.selection.current_day and selected.selection.native_direct
+        and selected.selection.seconds==total and selected.selection.file_id==selection.file_id,
+        'current-day selection omitted the captured time')
+    host.isNetworkConnected=function() return true end
+    local sent
+    host.offline_time_transfer_service={cancel=function() end,start=function(_self,mode,owner,batch,references,guard,callback)
+        sent={mode=mode,owner=owner,batch=batch,references=references,guard=guard,callback=callback};return true
+    end}
+    host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end,'menu')
+    local tr=require('weread.lib.i18n').tr;local action
+    for _,item in ipairs(host._offline_time_menu.item_table) do
+        if item.text==tr('Check today’s E-Ink chapter time') then action=item end
+    end
+    assert(action,'current-day time action missing');action.callback()
+    pump(function() return host._offline_time_detail~=nil end,'detail')
+    local submit
+    for _,row in ipairs(host._offline_time_detail.buttons) do for _,button in ipairs(row) do
+        if button.text==tr('Transfer this batch') then submit=button end
+    end end
+    assert(submit,'transfer action missing');submit.callback();pump(function() return sent~=nil end,'source')
+    assert(sent.mode=='send' and sent.owner==account and sent.guard()
+        and require('weread.lib.readtime_transfer_contract').digest(sent.batch)
+            ==require('weread.lib.readtime_transfer_contract').digest(selected.selection),
+        'menu prepared a different time batch')
+    assert(#sent.references==1 and sent.references[1].kind=='native_direct'
+        and sent.references[1].file==found.reference.file
+        and sent.references[1].source_sha256==found.reference.source_sha256,'menu selected a different source')
+    sent.callback({kind='unavailable'});host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
+    assert(require('weread.lib.readtime_transfer_contract').digest(assert(collector.store:pending(account)))==snapshot,
+        'blocked preparation changed the ledger')
+end
 reader:onClose(false)
 print('WEREAD_DIRECT_TIME_OWNER='..json.encode{ok=true,stage=input.stage,network_blocked=true,rows=count,seconds=total,
-    snapshot=require('weread.lib.readtime_transfer_contract').digest(rows)})
+    snapshot=snapshot,review_verified=input.stage=='reopen_review'})

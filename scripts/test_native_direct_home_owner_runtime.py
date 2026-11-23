@@ -84,7 +84,7 @@ def main():
                 if args.reminder_only:
                     command.append('--offline-reminder')
                 if args.time_only:
-                    command.append('--offline-time')
+                    command.extend(('--offline-time','--offline-time-ui'))
                 if store_search:
                     command.append('--store-search')
                     payload['store_search_keyword']='Synthetic'
@@ -106,6 +106,7 @@ def main():
                 assert result.get('progress_estimate_verified',False) is args.progress_only
                 assert result.get('offline_reminder_verified',False) is args.reminder_only
                 assert result.get('offline_time_verified',False) is args.time_only
+                assert result.get('offline_time_ui_verified',False) is args.time_only
                 assert server.valid and not server.leaked
                 assert all(path in ('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
                 assert any(path=='/store/search' for _,_,path in server.calls) is store_search

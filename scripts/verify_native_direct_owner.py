@@ -66,6 +66,7 @@ def main(argv=None):
     parser.add_argument('--progress-estimate',action='store_true',help='Check the native chapter progress panel offline')
     parser.add_argument('--offline-reminder',action='store_true',help='Verify local offline reminder across fresh processes')
     parser.add_argument('--offline-time',action='store_true',help='Verify offline time capture across fresh processes')
+    parser.add_argument('--offline-time-ui',action='store_true',help='Verify today’s time selection and native menu')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--store-search',action='store_true',help='Select an off-shelf book through a public search')
     parser.add_argument('--quick-search',action='store_true',help='Search the bookstore from the native reader')
@@ -85,6 +86,7 @@ def main(argv=None):
     if args.progress_estimate and not args.home_full_ui:parser.error('progress estimate requires full home UI')
     if args.offline_reminder and not args.home_full_ui:parser.error('offline reminder requires full home UI')
     if args.offline_time and not args.home_full_ui:parser.error('offline time requires full home UI')
+    if args.offline_time_ui and not args.offline_time:parser.error('offline time UI requires offline time')
     if args.compare_web_progress and not (args.home or args.offline_search or args.online_search or args.copies or args.image_refresh):
         parser.error('Web comparison requires home, chapter search or copy verification')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
@@ -212,6 +214,7 @@ def main(argv=None):
                 if args.progress_estimate:required.add('progress_estimate_verified')
                 if args.offline_reminder:required.add('offline_reminder_verified')
                 if args.offline_time:required.add('offline_time_verified')
+                if args.offline_time_ui:required.add('offline_time_ui_verified')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
@@ -237,6 +240,7 @@ def main(argv=None):
                 if args.progress_estimate:report['progress_estimate_verified']=True
                 if args.offline_reminder:report['offline_reminder_verified']=True
                 if args.offline_time:report['offline_time_verified']=True
+                if args.offline_time_ui:report['offline_time_ui_verified']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}

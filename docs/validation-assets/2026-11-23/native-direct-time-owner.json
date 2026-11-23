@@ -20,5 +20,12 @@
   "web_position_unchanged": true,
   "temporary_profiles_removed": true,
   "real_time_upload_tested": false,
-  "physical_kindle_tested": false
+  "physical_kindle_tested": false,
+  "beijing_timezone": true,
+  "today_queue_selected": true,
+  "native_time_menu_prepared": true,
+  "selected_batch_and_source_match": true,
+  "ui_network_simulated": true,
+  "transfer_service_intercepted": true,
+  "ledger_preserved_after_intercept": true
 }
