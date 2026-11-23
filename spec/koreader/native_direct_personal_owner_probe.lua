@@ -40,6 +40,11 @@ local function configure(host)
         local url=options.url;local headers=options.headers or {}
         if url==native..'/book/info?bookId='..input.book_id
             or url==native..'/book/bookmarklist?bookId='..input.book_id..'&synckey=0' then assert(options.method=='GET')
+        elseif input.expect_thoughts and url:find(native..'/review/list?bookId='..input.book_id..'&listType=11&listMode=0&mine=1&synckey=0&count=',1,true)==1 then
+            local count=url:match('&count=(%d+)$')
+            local allowed={['20']=true,['40']=true,['80']=true,['160']=true,['320']=true,['640']=true,
+                ['1280']=true,['2560']=true,['5000']=true}
+            assert(options.method=='GET' and allowed[count])
         elseif url==native..'/book/chapterInfos' then
             local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
                 and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
@@ -138,13 +143,16 @@ local state;wait(function() state=host._personal_marks;return state and state.co
 if not state.direct or #state.records==0 or #state.records>100 then diagnostic();error('personal owner empty',0) end
 local rows=json.decode('[]')
 for _,row in ipairs(state.records) do
+    if (input.expect_thoughts and row.thoughtId) or (not input.expect_thoughts and not row.thoughtId) then
     assert(type(row.bookmarkId)=='string' and type(row.range)=='string')
     reader.rolling:onGotoXPointer(row.pos0);UI:forceRePaint()
     local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
     assert(#text>0 and #text<=4096)
     local visible=false;for _,item in ipairs(state.overlay.visible) do if item.record.bookmarkId==row.bookmarkId then visible=true end end
     assert(visible,'personal owner mark not visible')
-    rows[#rows+1]={id=row.bookmarkId,range=row.range,text=text};reader.document:clearSelection()
+    rows[#rows+1]={id=row.thoughtId or row.bookmarkId,range=row.range,text=text};reader.document:clearSelection()
+    end
 end
+assert(#rows>0,'personal owner requested mark kind missing')
 assert(host.client:json_encode(reader.annotation.annotations)==notes)
 print('WEREAD_DIRECT_PERSONAL_OWNER='..json.encode{ok=true,offline=input.offline==true,rows=rows})

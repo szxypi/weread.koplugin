@@ -5,7 +5,8 @@ local function spans(boxes,kind)
     local rows={}
     for _i,entry in ipairs(boxes) do
         local style=entry.record.style or 0
-        if (kind==1 and style==1) or (kind==2 and style==2) or (kind==0 and style~=1 and style~=2) then
+        if (kind==1 and style==1) or (kind==2 and style==2) or (kind==3 and style==3)
+            or (kind==0 and style~=1 and style~=2 and style~=3) then
             local r=entry.rect;rows[#rows+1]={x=r.x,right=r.x+r.w,y=r.y,h=r.h}
         end
     end
@@ -23,6 +24,12 @@ end
 function M.paint(bb,boxes,style)
     for _i,r in ipairs(spans(boxes,1)) do bb:darkenRect(r.x,r.y,r.right-r.x,r.h,.18) end
     for _i,r in ipairs(spans(boxes,0)) do bb:paintRect(r.x,r.y+r.h-1,r.right-r.x,style.width,style.color) end
+    for _i,r in ipairs(spans(boxes,3)) do
+        local dash,gap=math.max(1,style.width*4),math.max(1,style.width*3)
+        for x=r.x,r.right-1,dash+gap do
+            bb:paintRect(x,math.max(r.y,r.y+r.h-1-2*style.width),math.min(dash,r.right-x),style.width,style.color)
+        end
+    end
     local step=style.wave_step or style.width
     for _i,r in ipairs(spans(boxes,2)) do
         local index=0

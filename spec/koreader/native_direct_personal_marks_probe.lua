@@ -56,6 +56,7 @@ local function configure(active)
         local native='https://i.weread.qq.com';local web='https://weread.qq.com'
         assert(url==native..'/book/info?bookId=42' or url==native..'/book/chapterInfos'
             or url==native..'/book/bookmarklist?bookId=42&synckey=0'
+            or url==native..'/review/list?bookId=42&listType=11&listMode=0&mine=1&synckey=0&count=20'
             or url:find(native..'/book/chapterdownload?',1,true)==1
             or url==web..'/api/userInfo?userVid=12345678' or url==web..'/web/book/chapterInfos'
             or url:find(web..'/web/reader/',1,true)==1 or url:find(web..'/web/book/chapter/e_',1,true)==1,
@@ -81,14 +82,31 @@ if input.expect_missing then
     assert(#state.records==0 and #state.bookmarks==0,'corrupt cached source displayed')
 else
     wait(function() state=host._personal_marks;return state and state.complete end)
-    assert(state.direct and #state.records==1 and state.records[1].bookmarkId=='synthetic-direct-mark')
+    assert(state.direct and #state.records==2,'direct mark and thought did not both appear')
+    local mark,thought
+    for _,item in ipairs(state.records) do
+        if item.bookmarkId=='synthetic-direct-mark' then mark=item end
+        if item.thoughtId=='synthetic-direct-thought' then thought=item end
+    end
+    assert(mark and thought and thought.style==3,'thought identity or distinct style missing')
     assert(#state.bookmarks==1 and state.bookmarks[1].bookmarkId=='synthetic-direct-point','direct bookmark missing')
     if input.force_fallback then assert(fallback_count>0,'verified search fallback was not used') end
-    local row=state.records[1]
-    local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
-    assert(require('weread.lib.source_dom').normalize(text)==require('weread.lib.source_dom').normalize('Unique paragraph 0001'))
+    for _,row in ipairs({mark,thought}) do
+        local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
+        assert(require('weread.lib.source_dom').normalize(text)==require('weread.lib.source_dom').normalize('Unique paragraph 0001'))
+    end
     reader.document:clearSelection();UI:forceRePaint()
     assert(#state.overlay.visible>0,'direct personal mark has no visible native boxes')
+    local rect=state.overlay.visible[1].rect
+    assert(Display.tap(host,{pos={x=rect.x+1,y=rect.y+1}}),'overlapping notes did not open')
+    assert(state.picker and #state.picker.item_table==2,'overlapping notes were not offered separately')
+    local choices=state.picker.item_table
+    local thought_choice
+    for _,item in ipairs(choices) do if item.text:find('thought',1,true) or item.text:find('想法',1,true) then thought_choice=item end end
+    assert(thought_choice,'thought choice missing');thought_choice.callback()
+    assert(host._my_marks_owner and host._my_marks_owner.thoughts and host._my_marks_owner.menu._shelf_popup,
+        'thought choice did not open its content')
+    require('weread.ui.my_cloud_marks').cancel(host)
     reader.rolling:onGotoXPointer(state.bookmarks[1].pos0);UI:forceRePaint()
     assert(#state.indicator.visible==1,'direct cloud bookmark has no visible corner')
     Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)

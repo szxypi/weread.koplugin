@@ -18,6 +18,17 @@ function M.load(client,library,book,access,online)
     end
     return {snapshot=saved or false,refreshed=false}
 end
+-- Thoughts have their own account-scoped snapshot and may fail independently
+-- from marks. A partial or invalid network response never replaces the cache.
+function M.load_thoughts(client,library,book,access,online)
+    local thoughts=require('weread.lib.my_cloud_thoughts')
+    local store=Cache:new(library,client,'thoughts');local saved=store:read(book)
+    if online and access and not access.renewal_pending then
+        local ok,value=pcall(thoughts.fetch,client,book,{native=access})
+        if ok then return {snapshot=value,refreshed=true} end
+    end
+    return {snapshot=saved or false,refreshed=false}
+end
 local function project_rows(raw,book,uid,format,metadata,rows)
     local result={metadata=metadata,rows={}}
     for _i,row in ipairs(rows) do

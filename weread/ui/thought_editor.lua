@@ -83,7 +83,10 @@ local function busy(ctx,label)
     viewer(ctx,label,'Closing this window stops the check. Any submitted change will only be checked, never sent again.')
 end
 local function reload(ctx)
-    if ctx.owner.thoughts then ctx.owner.value=ctx.cache:read(ctx.owner.id) or ctx.owner.value end
+    local snapshot=ctx.cache:read(ctx.owner.id)
+    if ctx.owner.thoughts then ctx.owner.value=snapshot or ctx.owner.value end
+    local display=package.loaded['weread.ui.personal_marks']
+    if snapshot and display and type(display.thoughts_changed)=='function' then display.thoughts_changed(ctx.host,snapshot) end
     if ctx.redraw then ctx.redraw(ctx.host,ctx.owner) end
 end
 local function submit(ctx)

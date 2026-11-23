@@ -272,4 +272,18 @@ function Overlay:hitTest(pos)
     end
 end
 
+-- Several personal notes may refer to the same passage. Return each record
+-- once even when a multi-line selection yields several overlapping boxes.
+function Overlay:hitTestAll(pos)
+    local records,seen={},{}
+    for index = #self.visible, 1, -1 do
+        local entry = self.visible[index]
+        if not seen[entry.record] and inside(entry.rect, pos, self.hit_padding) then
+            seen[entry.record] = true
+            records[#records + 1] = entry.record
+        end
+    end
+    return records
+end
+
 return Overlay

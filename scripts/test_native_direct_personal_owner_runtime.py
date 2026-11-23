@@ -39,6 +39,19 @@ def main():
                 assert result['offline_reopen'] and result['credential_file_audit'] and result['installed_bytes_match'] and result['profile_removed']
                 assert server.valid and not server.leaked
                 assert not any(path in ('/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)
+                server.review=dict(bookId='42',userVid=12345678,reviewId='synthetic-direct-thought',chapterUid=37,
+                    type=1,range=f'{first}-{first+len(quote)}',abstract=quote,content='Synthetic private thought',isPrivate=1)
+                payload['expect_thoughts']=True;server.calls=[]
+                child=subprocess.run([sys.executable,str(REPO/'scripts/run_native_direct_personal_owner.py'),'--koreader',str(args.koreader),
+                    '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)],input=json.dumps(payload).encode(),
+                    capture_output=True,timeout=420)
+                assert child.stdout.count(marker)==1
+                result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
+                assert child.returncode==0 and result.get('result')=='PASS',(result,server.calls)
+                assert result['rows']==[dict(id='synthetic-direct-thought',range=f'{first}-{first+len(quote)}',text=quote)]
+                assert result['offline_reopen'] and result['credential_file_audit'] and result['installed_bytes_match'] and result['profile_removed']
+                assert server.valid and not server.leaked and any(path=='/review/list' for _,_,path in server.calls)
+                assert not any(path in ('/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)
         print('PASS: private owner runner, online/offline personal mark and credential audit at both sizes')
     finally:server.shutdown();server.server_close();thread.join()
 

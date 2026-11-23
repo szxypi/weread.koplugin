@@ -18,5 +18,14 @@ class PersonalOwnerComparisonTests(unittest.TestCase):
         self.assertFalse(verify_rows(self.raw,self.base,'2',[dict(self.row,id='other')]))
         self.assertFalse(verify_rows(self.raw,self.base,'2',[]))
 
+    def test_thought_quote_uses_own_reference_not_private_prose_or_highlight(self):
+        self.base['thoughts']={'thought':{'type':1,'chapterUid':2,'range':self.marker,
+            'abstract':'Unique owner comparison quote.','content':'Different private prose'}}
+        row=dict(self.row,id='thought')
+        self.assertTrue(verify_rows(self.raw,self.base,'2',[row],thoughts=True))
+        self.assertFalse(verify_rows(self.raw,self.base,'2',[dict(row,text='Different private prose')],thoughts=True))
+        self.assertFalse(verify_rows(self.raw,self.base,'2',[self.row],thoughts=True))
+        self.assertFalse(verify_rows(self.raw,self.base,'3',[row],thoughts=True))
+
 
 if __name__=='__main__':unittest.main()

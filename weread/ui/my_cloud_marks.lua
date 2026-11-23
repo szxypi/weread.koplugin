@@ -288,7 +288,11 @@ refresh=function(host,owner,resume_draft)
         if not current(host,owner) then return end
         if not saved or not success then host:showInfo(_(owner.labels.save_failed));return end
         local display=package.loaded['weread.ui.personal_marks']
-        if display and not owner.thoughts then display.changed(host,value) end
+        if display then
+            local changed
+            if owner.thoughts then changed=display.thoughts_changed else changed=display.changed end
+            if type(changed)=='function' then changed(host,value) end
+        end
         local resume=context.resume_draft and owner.generation==context.generation and not owner.menu._shelf_popup
         owner.value=value;render(host,owner)
         if resume and current(host,owner) and not owner.menu._shelf_popup then

@@ -126,8 +126,10 @@ function M.start(host,owner,is_current,missing_only)
             if not valid() then if owner.bulk_context==job then M.cancel(host,owner) end;return end
             if not saved or success~=true and success~='exists' then finish('failed');return end
             if success=='exists' then job.already=job.already+1 else job.saved=job.saved+1 end
-            local display=not thoughts and package.loaded['weread.ui.personal_marks']
-            if success==true and display and type(display.changed)=='function' then pcall(display.changed,host,value) end
+            local display=package.loaded['weread.ui.personal_marks']
+            local changed
+            if display then if thoughts then changed=display.thoughts_changed else changed=display.changed end end
+            if success==true and type(changed)=='function' then pcall(changed,host,value) end
             job.done=job.done+1;dialog:reportProgress(job.done)
             dialog:setTitle(T(_('Saving cloud notes: %1/%2 sets'),tostring(job.done),tostring(job.total)))
             if job.done==job.total then finish('complete') else later() end

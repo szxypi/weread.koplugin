@@ -11,6 +11,8 @@ expect(calls[2].kind=='stroke' and calls[2].x==50 and calls[2].y==29 and calls[2
 expect(#calls==14,'wave did not retain bounded per-column strokes')
 local heights={};for i=3,#calls do heights[calls[i].y]=true;expect(calls[i].x>=80 and calls[i].x<92 and calls[i].w==1,'wave escaped its line bounds') end
 expect(heights[27] and heights[28] and heights[29],'wave was drawn as a straight line')
+calls={};Painter.paint(bb,{box(0,10,20),box(3,10,20)},{width=1,wave_step=1,color='black'})
+expect(calls[1].y==29 and calls[2].y==27 and #calls>2,'thought dash did not remain distinct from overlapping highlight')
 for _i,value in ipairs({0,1,2}) do expect(Style.valid(value) and Style.labels[value],'missing supported style') end
 expect(not Style.valid(3) and not Style.valid('1') and not Style.valid(.5),'invalid style accepted')
 expect(Style.editable{type=1,colorStyle=5} and not Style.editable{type=0,colorStyle=0} and not Style.editable{type=1,colorStyle=6},'style editing lost color boundary')

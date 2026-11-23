@@ -2,7 +2,7 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture');local codec=Fixture.codec()
 local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
-local UI={setDirty=function() end,scheduleIn=function(_,_,task) timers[#timers+1]=task end,
+local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_,_,task) timers[#timers+1]=task end,
     unschedule=function(_,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
 package.preload.device=function() return {screen={scaleBySize=function(_,n) return n end}} end
@@ -27,7 +27,7 @@ end,read_document=function() return state.identity and identity or {} end} end
 package.preload['weread.lib.native_direct_cache']=function() return {identify=function(_,vid,file,current)
     assert(vid=='123' and file=='/direct.epub' and current());return state.entry_ok and entry or nil
 end,valid_entry=function(value,book,vid) return state.entry_ok and value==entry and book=='41' and vid=='123' end} end
-package.preload['weread.lib.source_dom']=function() return {open_direct_prepared=function(_,book,uid,id,options)
+package.preload['weread.lib.source_dom']=function() return {normalize=function(value) return value end,open_direct_prepared=function(_,book,uid,id,options)
     assert(book=='41' and uid=='2' and id==identity)
     return {locate_span=function(_,a,b)
         if state.walk_failure then return nil,'source_dom/walk_diverged' end
@@ -40,11 +40,14 @@ end} end
 local loads,prepares=0,0
 package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_NATIVE_BYTES=1024,
     load=function(_,_,book,_,online) assert(book=='41');loads=loads+1;return {snapshot=snapshot,refreshed=online} end,
+    load_thoughts=function() return {snapshot=false,refreshed=false} end,
     prepare_direct=function(_,_,_,file,e,metadata,rows,online)
         assert(file=='/direct.epub' and e==entry and online==state.online);prepares=prepares+1
         if not state.source then error('missing cache') end
-        return {metadata=metadata,rows={{bookmarkId=rows[1].bookmarkId,reference_hash=Contract.row_hash(rows[1]),
-            first_anchor={point=1},last_anchor={point=2}}}}
+        local result={metadata=metadata,rows={}}
+        for _,row in ipairs(rows) do result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+            first_anchor={point=1},last_anchor={point=2}} end
+        return result
     end,
     verify=function(rows) local ids={};for _,row in ipairs(rows) do ids[#ids+1]=row.bookmarkId end;return ids end,
 } end
@@ -90,6 +93,44 @@ state.online=false;state.source=false;expect(Display.attach(host));drain()
 expect(#host._personal_marks.records==0 and not host._personal_marks.complete,'missing offline source displayed')
 state.online=true;state.source=true;Display.network_connected(host);drain()
 expect(#host._personal_marks.records==1 and host._personal_marks.complete,'reconnect did not recover missing source')
+local thoughts={schema=1,book_id='41',fetched_at=1000,reviews=codec:json_decode('[]')}
+thoughts.reviews[1]={reviewId='thought-1',type=1,chapterUid=2,abstract='Unique quotation',range='15-31',content='Private thought'}
+Display.thoughts_changed(host,thoughts);drain()
+expect(#host._personal_marks.records==2,'thought and highlight did not both appear')
+local thought
+for _,row in ipairs(host._personal_marks.records) do if row.thoughtId then thought=row end end
+expect(thought and thought.thoughtId=='thought-1' and thought.style==3,'thought lost its distinct identity or style')
+local selected
+host.showList=function(_,_,items) return {item_table=items} end
+host.showMyCloudThoughts=function(self)
+    self._my_marks_owner={menu={item_table={{my_note_id='thought-1',callback=function() selected='thought' end}}}}
+    return true
+end
+host.showMyCloudMarks=function(self)
+    self._my_marks_owner={menu={item_table={{my_note_id='first',callback=function() selected='mark' end}}}}
+    return true
+end
+local overlay=host._personal_marks.overlay
+overlay.visible={}
+for _,row in ipairs(host._personal_marks.records) do overlay.visible[#overlay.visible+1]={record=row,rect={x=10,y=10,w=30,h=10}} end
+overlay.visible[#overlay.visible+1]=overlay.visible[#overlay.visible]
+expect(Display.tap(host,{pos={x=15,y=15}}),'overlapping notes did not respond')
+local picker=host._personal_marks.picker
+expect(picker and #picker.item_table==2,'overlapping line boxes did not produce two distinct choices')
+picker.item_table[2].callback();expect(selected=='thought' and picker.closed,'thought choice did not open the correct record')
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+picker.item_table[1].callback();expect(selected=='mark','highlight choice did not open the correct record')
+expect(Display.tap(host,{pos={x=15,y=15}}));picker=host._personal_marks.picker
+state.owner='account-b';picker.item_table[2].callback();state.owner='account-a'
+expect(selected=='mark','old account choice opened a thought')
+local other={schema=1,book_id='42',fetched_at=1000,reviews=codec:json_decode('[]')}
+Display.thoughts_changed(host,other);drain();expect(#host._personal_marks.records==2,'foreign book changed thought layer')
+Display.changed(host,empty);drain()
+expect(#host._personal_marks.records==1 and host._personal_marks.records[1].thoughtId=='thought-1',
+    'thought without a matching highlight was lost')
+Display.changed(host,snapshot);drain()
+thoughts.reviews=codec:json_decode('[]');Display.thoughts_changed(host,thoughts);drain()
+expect(#host._personal_marks.records==1,'deleted thought remained visible')
 Display.detach(host);state.entry_ok=false
 expect(Display.attach(host));drain();expect(#host._personal_marks.records==0 and not Display.available(host),'unverified entry displayed')
 Display.detach(host);state.entry_ok=true;state.identity=false;expect(not Display.attach(host),'missing file identity accepted')

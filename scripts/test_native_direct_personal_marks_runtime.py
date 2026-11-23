@@ -53,9 +53,11 @@ def run(runtime):
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     path=frame(child,'WEREAD_POSITION_PREPARED=')['path'];assert Path(path).is_file()
                     quote='Unique paragraph 0001';first=BODY.index(quote);marker=f'{first}-{first+len(quote)}'
-                    server.mode='selection_direct_overlay';server.calls=[];server.review=None
+                    server.mode='selection_direct_overlay';server.calls=[]
                     server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=1,range=marker,markText=quote,style=1,colorStyle=0,createTime=1700000000)
                     server.marks=[server.mark,dict(bookmarkId='synthetic-direct-point',chapterUid=37,type=0,range=str(first),markText=quote,createTime=1700000000)]
+                    server.review=dict(bookId='42',userVid=12345678,reviewId='synthetic-direct-thought',chapterUid=37,
+                        type=1,range=marker,abstract=quote,content='Synthetic private thought',isPrivate=1,createTime=1700000000)
                     payload['path']=path;payload['force_fallback']=True
                     def reader(offline,missing=False):
                         server.calls=[];payload.update(offline=offline,expect_missing=missing)
@@ -68,6 +70,7 @@ def run(runtime):
                         assert server.valid and not server.leaked
                     reader(False)
                     assert any(path=='/book/bookmarklist' for _,_,path in server.calls)
+                    assert any(path=='/review/list' for _,_,path in server.calls)
                     assert any(path=='/book/chapterdownload' for _,_,path in server.calls)
                     reader(True)
                     dbs=list((root/'weread').glob('library-*.db'));assert len(dbs)==1
