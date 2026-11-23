@@ -31,9 +31,9 @@ def shelf_projection(value):
 
 
 class Broker:
-    def __init__(self,grant,store,*,current,verify_expiry,observe,claim):
+    def __init__(self,grant,store,*,current,verify_expiry,verify_grant,observe,claim):
         validate_credentials(grant);self.grant=deepcopy(grant);self.store=store;self.current=current
-        self.verify_expiry=verify_expiry;self.observe=observe;self.claim=claim
+        self.verify_expiry=verify_expiry;self.verify_grant=verify_grant;self.observe=observe;self.claim=claim
         self.phase='initial';self.receipt=self.fresh=self.snapshot=None;self.expired_at=0;self.auth_claimed=0;self.saved_status=False
     def handle(self,event,armed):
         if not isinstance(event,dict) or type(armed) is not bool:raise ValueError('shelf_renewal/event')
@@ -56,11 +56,13 @@ class Broker:
             fresh=event['credentials'];validate_credentials(fresh)
             if (set(fresh)!={'vid','deviceId','accessToken','refreshToken'} or fresh['vid']!=self.grant['vid']
                     or fresh['deviceId']!=self.grant['deviceId'] or type(event['book_count']) is not int):raise ValueError('shelf_renewal/owner')
-            observed=self.observe(fresh)
-            if len(observed[0])!=event['book_count']:raise ValueError('shelf_renewal/count')
+            count=self.verify_grant(fresh)
+            if type(count) is not int or not 1<=count<=5000:raise ValueError('shelf_renewal/count')
             self.current();self.saved_status=None;self.store.finish_renewal(self.receipt,fresh,verified=True)
             if self.store.load(fresh['vid'])!=fresh:raise ValueError('shelf_renewal/readback')
-            self.saved_status=True;self.fresh=deepcopy(fresh);self.snapshot=observed;self.phase='verified';return True
+            self.saved_status=True;self.fresh=deepcopy(fresh);self.phase='verified'
+            if count!=event['book_count']:raise ValueError('shelf_renewal/count')
+            self.snapshot=self.observe(fresh);return True
         if name=='shelf' and self.phase=='verified' and armed and set(event)=={'kind','snapshot'}:
             if shelf_projection(event['snapshot'])!=self.snapshot or self.store.load(self.grant['vid'])!=self.fresh:
                 raise ValueError('shelf_renewal/shelf')

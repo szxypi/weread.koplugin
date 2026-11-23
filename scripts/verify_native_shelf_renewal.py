@@ -45,6 +45,10 @@ def run(*,apply=False):
             except Exception:return bool(probe.report['stages'] and probe.report['stages'][-1].get('status')==401)
             return False
         native_states=[]
+        def verify_grant(credentials):
+            probe=NativeProbe();raw=probe.request('shelf',BASE+'/shelf/sync',credentials=credentials)
+            if not isinstance(raw,dict) or not isinstance(raw.get('books'),list):raise ValueError('shelf_renewal/shelf')
+            return len(raw['books'])
         def observe(credentials):
             probe=NativeProbe();raw=probe.request('shelf',BASE+'/shelf/sync',credentials=credentials)
             value=shelf_projection(raw);fingerprint=state_hash(raw)
@@ -61,7 +65,7 @@ def run(*,apply=False):
             finally:os.close(directory)
         current()
         if store.load(saved['vid'])!=grant or not verify_expiry(grant):raise ValueError('shelf_renewal/expiry')
-        broker=Broker(grant,store,current=current,verify_expiry=verify_expiry,observe=observe,claim=claim)
+        broker=Broker(grant,store,current=current,verify_expiry=verify_expiry,verify_grant=verify_grant,observe=observe,claim=claim)
         payload=dict(token=secrets.token_hex(16),armed=apply,credentials=grant,web_cookies=cookies,expected_count=len(baseline[0]))
         report['phase']='ui';execute(payload,command(apply),broker,report)
         if apply:

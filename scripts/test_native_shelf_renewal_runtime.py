@@ -44,7 +44,7 @@ def run(runtime):
                     server.auth_posts=0;server.mode=mode;server.calls=[];server.leaked=False
                     credentials=grant();store=NativeSessionStore(Backend());store.save(credentials,credentials['vid'],verified=True)
                     marks=[];broker=Broker(credentials,store,current=lambda:None,verify_expiry=lambda _grant:server.auth_posts==0,
-                        observe=lambda _grant:shelf_projection(SHELF),claim=lambda:marks.append('claimed'))
+                        verify_grant=lambda _grant:len(SHELF['books']),observe=lambda _grant:shelf_projection(SHELF),claim=lambda:marks.append('claimed'))
                     payload=dict(token='a'*32,armed=armed,credentials=credentials,web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},
                         expected_count=1,mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                     command=['python3',str(REPO/'scripts/run_native_shelf_renewal_ui.py'),'--koreader',str(runtime),'--candidate',str(candidate),

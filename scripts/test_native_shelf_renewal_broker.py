@@ -21,7 +21,7 @@ class BrokerTests(unittest.TestCase):
         self.projected=shelf_projection(self.raw);self.claims=0
         def claim():self.claims+=1
         self.broker=Broker(self.grant,self.store,current=lambda:None,verify_expiry=lambda _grant:True,
-            observe=lambda _grant:self.projected,claim=claim)
+            verify_grant=lambda _grant:1,observe=lambda _grant:self.projected,claim=claim)
     def expiry(self):return self.broker.handle(dict(kind='expiry',status=401),True)
     def claim(self,armed=True):return self.broker.handle(dict(kind='claim',body=body(self.grant)),armed)
     def test_dry_does_not_claim_or_renew(self):
@@ -54,6 +54,12 @@ class BrokerTests(unittest.TestCase):
         changed=deepcopy(self.raw);changed['books'][0]['title']='Different'
         with self.assertRaises(ValueError):self.broker.handle(dict(kind='shelf',snapshot=changed),True)
         self.assertEqual(self.broker.phase,'verified');self.assertEqual(self.store.load(self.grant['vid']),fresh)
+    def test_shelf_validation_failure_preserves_verified_new_grant(self):
+        self.expiry();self.claim();fresh=dict(self.grant,accessToken='synthetic-renewed')
+        def fail(_grant):raise ValueError('shelf_renewal/shelf')
+        self.broker.observe=fail
+        with self.assertRaises(ValueError):self.broker.handle(dict(kind='verified',credentials=fresh,book_count=1),True)
+        self.assertTrue(self.broker.saved_status);self.assertEqual(self.store.load(self.grant['vid']),fresh)
     def test_duplicate_ids_or_ambiguous_group_are_rejected(self):
         for change in ('book','group'):
             raw=deepcopy(self.raw)
