@@ -86,10 +86,12 @@ local worked,reason=pcall(function()
     assert(C.digest(rows)==input.ledger_hash and #rows>0)
     local journal=require('weread.lib.readtime_transfer_store'):new{ledger=ledger,coverage=coverage,codec=host.client}
     local selected;allowed_client=host.client
+    local automatic=input.automatic==true
+    local function active() return automatic and host._native_auto_time~=nil or not automatic and host._offline_time_review~=nil end
     local guard=require('spec.koreader.native_time_http_guard').install(host.client,{
         grant=input.credentials,book_id=input.book_id,chapter_uid=input.chapter_uid,book_version=input.book_version,
         native_direct=true,cookies=input.cookies,months=input.months,now=os.time,
-        current=function() return host._offline_time_review~=nil end,selection=function() return selected end,
+        current=active,selection=function() return selected end,
         record=function() local record=assert(journal:pending(account));assert(record.phase=='claimed');return record end,
         rpc=function(kind,value) return rpc(kind,value) end})
     local guarded=host.client.request
@@ -109,15 +111,17 @@ local worked,reason=pcall(function()
     end
     local service=require('weread.lib.readtime_transfer_service'):new{settings=host.settings,client=host.client,journal=journal,
         credentials=credentials,scheduler=UI,task_options={allow_current_native=true},acquire=function(book)
-            return require('weread.lib.readtime_transfer_lease').acquire(host,book,function() return host._offline_time_review~=nil end)
+            return require('weread.lib.readtime_transfer_lease').acquire(host,book,active)
         end}
-    local start=service.start;local background=false
+    local start=service.start;local background=false;local automatic_result
     function service:start(mode,owner,selection,refs,check,callback)
         assert(mode=='send' and owner==account and selection.native_direct and selection.current_day
             and selection.book_id==input.book_id and #refs==1 and refs[1].kind=='native_direct')
         selected=selection
         if not rpc('selection',{selection=selection,reference=refs[1]}) then return false,'unavailable' end
-        local started,why=start(self,mode,owner,selection,refs,check,callback)
+        local started,why=start(self,mode,owner,selection,refs,check,function(result)
+            automatic_result=result;callback(result)
+        end)
         if started then
             local worker=assert(self.worker and self.worker.job)
             assert(type(worker.pid)=='number' and worker.pid~=tonumber(ffi.C.getpid()));background=true
@@ -125,33 +129,44 @@ local worked,reason=pcall(function()
         return started,why
     end
     host.offline_time_transfer_service=service
-    host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
-    local tr=require('weread.lib.i18n').tr;local chosen
-    for _,item in ipairs(host._offline_time_menu.item_table) do if item.text==tr('Check today’s E-Ink chapter time') then chosen=item end end
-    assert(chosen,'direct_time/menu');chosen.callback();pump(function() return host._offline_time_detail~=nil end)
-    local send
-    for _,row in ipairs(host._offline_time_detail.buttons) do for _,button in ipairs(row) do
-        if button.text==tr('Transfer this batch') then assert(not send);send=button end
-    end end
-    assert(send and type(send.callback)=='function','direct_time/button');send.callback()
-    pump(function() return host._offline_time_detail~=nil and service.job==nil end)
-    local expected=input.armed and 'This batch is independently confirmed in cloud reading time.'
-        or 'Cloud accounting is not confirmed. The request is kept and will not be sent again.'
-    assert(host._offline_time_detail.title==tr(expected),'direct_time/dialog')
+    if automatic then
+        local Auto=require('weread.lib.native_direct_time_auto');Auto.cancel(host)
+        host.settings:set('offline_time',{enabled=true,auto_native=true})
+        host.offline_time.active={account=account,book_id=input.book_id,document=reader.document,native_time_file_id=rows[1].file_id}
+        assert(Auto.start(host,true,{interval=1,service_factory=function() return service end}),'direct_time/auto_start')
+        pump(function() return automatic_result~=nil and service.job==nil end)
+        assert(automatic_result.kind==(input.armed and 'confirmed' or 'unconfirmed'),'direct_time/auto_result')
+        Auto.cancel(host);host.offline_time.active=nil
+    else
+        host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
+        local tr=require('weread.lib.i18n').tr;local chosen
+        for _,item in ipairs(host._offline_time_menu.item_table) do if item.text==tr('Check today’s E-Ink chapter time') then chosen=item end end
+        assert(chosen,'direct_time/menu');chosen.callback();pump(function() return host._offline_time_detail~=nil end)
+        local send
+        for _,row in ipairs(host._offline_time_detail.buttons) do for _,button in ipairs(row) do
+            if button.text==tr('Transfer this batch') then assert(not send);send=button end
+        end end
+        assert(send and type(send.callback)=='function','direct_time/button');send.callback()
+        pump(function() return host._offline_time_detail~=nil and service.job==nil end)
+        local expected=input.armed and 'This batch is independently confirmed in cloud reading time.'
+            or 'Cloud accounting is not confirmed. The request is kept and will not be sent again.'
+        assert(host._offline_time_detail.title==tr(expected),'direct_time/dialog')
+    end
     local pending=journal:pending(account);local summary=assert(ledger:summary(account));local phase=pending and pending.phase or 'none'
     assert(background and not host._offline_time_transfer_lock and
         (input.armed and phase=='none' and summary.confirmed==selected.seconds
         or not input.armed and phase=='claimed' and summary.confirmed==0),'direct_time/ledger')
     -- Guard state lives in the worker, so the broker's claim/receipt frames
     -- supply the independent send count; do not trust the parent's fork copy.
-    assert(guard and selected);host:closeOfflineTimeUI();reader:onClose(false)
+    assert(guard and selected);if not automatic then host:closeOfflineTimeUI() end;reader:onClose(false)
     local status=ffi.new('int[1]')
     pump(function()
         local child=tonumber(ffi.C.waitpid(-1,status,ffi.C.WNOHANG))
         while child>0 do child=tonumber(ffi.C.waitpid(-1,status,ffi.C.WNOHANG)) end
         return child==-1
     end)
-    emit('RESULT',{result='PASS',native_menu=true,background_service=true,local_phase=phase,workers_reaped=true})
+    local result={result='PASS',background_service=true,local_phase=phase,workers_reaped=true}
+    result[automatic and 'automatic' or 'native_menu']=true;emit('RESULT',result)
 end)
 if not worked then
     local module,line

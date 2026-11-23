@@ -34,13 +34,14 @@ from verify_readtime_upload import counters,expected_statistics
 from verify_web_source_progress import BASE as WEB,WebSourceProbe
 
 
-def trusted_command(armed):
+def trusted_command(armed,automatic=False):
     command=base_command();old='scripts/run_cb_native_time_guarded_dry.py'
     if command.count(old)!=1 or command.count('--source')!=1:raise ValueError('direct_time/command')
     command[command.index(old)]='scripts/run_native_direct_time_trial.py'
     index=command.index('--source');del command[index:index+2]
     command+=['--width','1264','--height','1680','--dpi','300']
     if armed:command.append('--armed')
+    if automatic:command.append('--automatic')
     return command
 
 
@@ -83,15 +84,15 @@ def matching_target(before,after,seconds,start,*,allow_added_zero=False):
     return False
 
 
-def run(*,apply=False,intent=None,predecessor=None):
-    if type(apply) is not bool:raise ValueError('direct_time/mode')
+def run(*,apply=False,intent=None,predecessor=None,automatic=False):
+    if type(apply) is not bool or type(automatic) is not bool:raise ValueError('direct_time/mode')
     report=dict(result='UNVERIFIED',phase='start',account_data_posts=0,authentication_posts=0,
         dispatch_may_have_occurred=False,private_data_in_report=False)
     child=web=saved=grant=None;receipt=None;awaiting=None
     try:
         intent=Intent() if intent is None else intent
         if intent.read()!=(None,None) or other_pending():raise ValueError('direct_time/pending')
-        command=trusted_command(apply)
+        command=trusted_command(apply,automatic)
         saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
         def current():return SessionStore().load()==saved and NativeSessionStore().load(saved['vid'])==grant
         if grant['vid']!=saved['vid'] or not current():raise ValueError('direct_time/session')
@@ -119,6 +120,7 @@ def run(*,apply=False,intent=None,predecessor=None):
         token=secrets.token_hex(16)
         payload=dict(token=token,armed=apply,credentials=grant,web_cookies=cookies,book_id=book,uid=uid,book_version=version,
             source_sha256=expected['source_sha256'],months=[month])
+        if automatic:payload['automatic']=True
         report['phase']='runner';child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
         write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=420,max_frame=65536)
         sequence=[];selection=reference=None;seconds=None;runner=None;start=None
@@ -175,6 +177,7 @@ def run(*,apply=False,intent=None,predecessor=None):
             report.update(result='DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED',phase='complete',profile_removed=True,
                 seconds=seconds,independent_readbacks=stable,position_unchanged=True,shelf_unchanged=True,
                 one_shot_record_retained=True)
+        if automatic:report['automatic_shortened_interval']=True
     except (Exception,KeyboardInterrupt) as error:
         if isinstance(error,ValueError) and re.fullmatch('direct_time/[a-z_]+',str(error)):report['reason']=str(error)
         if child is not None and child.poll() is None and awaiting is not None:

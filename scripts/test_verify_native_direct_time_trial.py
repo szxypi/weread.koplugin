@@ -14,7 +14,7 @@ import verify_native_direct_time_trial as task
 
 
 class DirectTimeSupervisorTests(unittest.TestCase):
-    def exercise(self,mode,predecessor=None):
+    def exercise(self,mode,predecessor=None,automatic=False):
         now,grant,expected,selection,reference,baseline,event=fixture()
         raw=b'Synthetic direct book content';source_hash=hashlib.sha256(raw).hexdigest()
         reference['source_sha256']=source_hash;event['record']['metadata']['source']['source_sha256']=source_hash
@@ -62,10 +62,11 @@ class DirectTimeSupervisorTests(unittest.TestCase):
              patch.object(task,'ChapterProbe',FakeProbe),patch.object(task,'WebSourceProbe',FakeWeb),\
              patch.object(task,'Native',FakeNative),patch.object(task,'snapshot',side_effect=responses),\
              patch.object(task,'trusted_command',return_value=['synthetic']),patch.object(task.subprocess,'Popen',return_value=child),\
-             patch.object(task,'Frames',FakeFrames),patch.object(task,'write_initial'),\
+             patch.object(task,'Frames',FakeFrames),patch.object(task,'write_initial') as initial_writer,\
              patch.object(task,'reply',side_effect=lambda _stream,value:answers.append(value)),patch.object(task,'stop'),\
              patch.object(task,'time',SimpleNamespace(time=lambda:now,sleep=lambda _n:None)):
-            report=task.run(apply=armed,predecessor=predecessor)
+            report=task.run(apply=armed,predecessor=predecessor,automatic=automatic)
+            self.assertEqual(initial_writer.call_args.args[1].get('automatic',False),automatic)
         self.assertNotIn('private-web-cookie',str(report));self.assertNotIn('synthetic-access',str(report))
         return report,intent,answers
 
@@ -101,6 +102,14 @@ class DirectTimeSupervisorTests(unittest.TestCase):
         self.assertEqual(guard.calls,[(False,False),(True,False),(True,True)])
         self.assertEqual(report['account_data_posts'],0);self.assertEqual(intent.read(),(None,None))
         self.assertFalse(answers[-1]['ok'])
+
+    def test_automatic_uses_same_single_use_and_readback_rules(self):
+        report,intent,_=self.exercise('success',automatic=True)
+        self.assertEqual(report['result'],'DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED')
+        self.assertTrue(report['automatic_shortened_interval'])
+        self.assertEqual(intent.read()[0]['phase'],'verified')
+        report,intent,_=self.exercise('bad_ack',automatic=True)
+        self.assertEqual(report['result'],'UNVERIFIED');self.assertEqual(intent.read()[0]['phase'],'claimed')
 
     def test_only_bounded_new_zero_days_can_be_ignored(self):
         _now,_grant,_expected,selection,_reference,baseline,_event=fixture()

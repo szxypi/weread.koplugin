@@ -23,7 +23,7 @@ from shelf_flag_change_contract import state_hash
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--ko2',action='store_true');args=parser.parse_args()
+    parser.add_argument('--ko2',action='store_true');parser.add_argument('--automatic',action='store_true');args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',0),StoreHandler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
@@ -48,10 +48,12 @@ def main():
                     web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},book_id='42',uid='37',book_version=1,
                     source_sha256=expected['source_sha256'],months=[month],
                     mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                if args.automatic:payload['automatic']=True
                 width,height,dpi=('1264','1680','300') if args.ko2 else ('600','800','167')
                 command=[sys.executable,str(REPO/'scripts/run_native_direct_time_trial.py'),'--koreader',str(args.koreader),
                     '--candidate',str(candidate),'--width',width,'--height',height,'--dpi',dpi]
                 if armed:command.append('--armed')
+                if args.automatic:command.append('--automatic')
                 child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
                 events=[];result=None;seconds=None
                 try:

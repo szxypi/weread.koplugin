@@ -6,6 +6,7 @@ from native_direct_time_trial_store import Intent
 from test_cb_fixture_position_transport import MemoryBackend
 from test_native_direct_time_trial_contract import fixture
 from verify_native_direct_time_successor import PriorGuard
+from verify_native_direct_time_automatic import PriorGuards
 
 
 class SuccessorTests(unittest.TestCase):
@@ -46,6 +47,17 @@ class SuccessorTests(unittest.TestCase):
             else:plan['selection']['seconds']+=1
             receipt=store.claim(plan,now=self.now);store.advance(receipt,'acknowledged')
             with self.subTest(change=change),self.assertRaises(ValueError):PriorGuard(store)
+
+    def test_automatic_checks_both_immutable_predecessors(self):
+        self.ack();other=Intent(backend=MemoryBackend())
+        receipt=other.claim(deepcopy(self.plan),now=self.now);other.advance(receipt,'acknowledged')
+        guards=PriorGuards([self.store,other]);self.assertTrue(guards.unchanged())
+        with self.assertRaises(ValueError):guards.check(self.grant,self.selection)
+        later=deepcopy(self.selection);later['protocol_rows'][0]['start_time']+=6
+        self.assertTrue(guards.check(self.grant,later));self.assertTrue(guards.unchanged())
+        value,receipt=other.read();other.advance(receipt,'verified')
+        self.assertEqual(value['phase'],'acknowledged');self.assertFalse(guards.unchanged())
+        with self.assertRaises(ValueError):guards.check(self.grant,later)
 
 
 if __name__=='__main__':unittest.main()

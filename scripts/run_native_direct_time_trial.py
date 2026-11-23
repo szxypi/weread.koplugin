@@ -24,6 +24,7 @@ def main(argv=None):
     parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
     parser.add_argument('--width',type=int,default=1264);parser.add_argument('--height',type=int,default=1680)
     parser.add_argument('--dpi',type=int,default=300);parser.add_argument('--armed',action='store_true')
+    parser.add_argument('--automatic',action='store_true')
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or not args.candidate.is_file()
             or not all(1<=value<=4096 for value in (args.width,args.height,args.dpi))
@@ -36,6 +37,7 @@ def main(argv=None):
         payload=read_initial(sys.stdin.buffer);token=payload.get('token')
         if (not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token)
                 or type(payload.get('armed')) is not bool or payload['armed'] is not args.armed
+                or payload.get('automatic',False) is not args.automatic
                 or not synthetic_endpoint_allowed(payload,payload.get('mock_endpoint'))):raise ValueError('input')
         grant=payload['credentials'];validate_credentials(grant);validate_cookies(payload['web_cookies'],grant['vid'])
         if not isinstance(payload.get('months'),list) or not 1<=len(payload['months'])<=2:
@@ -67,6 +69,7 @@ def main(argv=None):
             private=dict(token=token,armed=args.armed,path=str(path),book_id=payload['book_id'],chapter_uid=payload['uid'],
                 book_version=payload['book_version'],credentials=grant,cookies=payload['web_cookies'],months=payload['months'],
                 ledger_hash=captured['snapshot'])
+            if args.automatic:private['automatic']=True
             if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
             def emit(kind,value):
                 raw=json.dumps(value,separators=(',',':')).encode()
@@ -96,7 +99,8 @@ def main(argv=None):
             if payload.get('mock_endpoint') and isinstance(reported,dict):
                 diagnostic={key:reported.get(key) for key in ('result','failed_module','failed_line','guard_failure','guard_stage') if key in reported}
                 diagnostic['events']=list(seen)
-            if (child.wait(timeout=15)!=0 or reported!={'result':'PASS','native_menu':True,'background_service':True,
+            if (child.wait(timeout=15)!=0 or reported!={'result':'PASS',
+                    'automatic' if args.automatic else 'native_menu':True,'background_service':True,
                     'local_phase':'none' if args.armed else 'claimed','workers_reaped':True}
                     or seen!=(['selection','claim','ack'] if args.armed else ['selection','claim'])):
                 raise ValueError('ui')

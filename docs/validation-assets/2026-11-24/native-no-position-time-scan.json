@@ -1,0 +1,10 @@
+{
+  "scope": "read-only native progress on the first 133 unique numeric book identifiers from the current shelf",
+  "examined": 133,
+  "native_no_chapter": 43,
+  "native_no_chapter_with_nonzero_reading_counters": 0,
+  "unavailable": 0,
+  "account_data_posts": 0,
+  "web_positions_checked": false,
+  "conclusion": "No real candidate for testing initialization with existing nonzero reading counters was found in this sample; write behavior remains unverified."
+}
