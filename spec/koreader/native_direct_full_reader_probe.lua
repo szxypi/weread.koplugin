@@ -34,6 +34,19 @@ assert(not host:detectWeReadBook() and not host._current_weread_book_id)
 local report_id,_,reason=host.read_report:resolve_target();assert(not report_id and reason=='native_direct_local_only')
 assert(first.document:getPageCount()>2 and first.rolling)
 first.rolling:onGotoPage(2);UI:forceRePaint();local anchor=assert(first.document:getXPointer())
+-- Search the real cached EPUB without network and independently resolve the
+-- result in CREngine. Search coordinates remain local, not upload authority.
+local cache=require('weread.lib.native_direct_cache')
+local current=function() return Reader.instance==first and first.document.file==input.first end
+local entry=assert(cache.identify(host.settings,'12345678',input.first,current))
+local found=require('weread.lib.native_direct_search').scan(host.settings,'12345678',entry,'paragraph 50',1,false,current)
+assert(found.complete and #found.hits==1 and found.hits[1].chapter_uid==entry.chapter_uid)
+local identity=require('weread.lib.book_file_identity').read_document(first.document,entry.book_id)
+local index=assert(require('weread.lib.source_dom').open_direct_prepared(first.document,entry.book_id,entry.chapter_uid,
+    identity,{is_current=current}))
+local point=assert(index:locate_anchor(found.hits[1].anchor))
+assert(point.file_id==entry.file_id and point.chapter_uid==entry.chapter_uid and point.xpointer)
+assert(first.document:isXPointerInCurrentPage(anchor),'search moved the page')
 local function quick(active,id)
     assert(active:onShowWeReadQuickMenu())
     pump(function()
