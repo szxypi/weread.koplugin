@@ -18,6 +18,24 @@ function M.load(client,library,book,access,online)
     end
     return {snapshot=saved or false,refreshed=false}
 end
+local function project_rows(raw,book,uid,format,metadata,rows)
+    local result={metadata=metadata,rows={}}
+    for _i,row in ipairs(rows) do
+        if row.type==0 then
+            local point=Point.prepare(raw,book,uid,row,format)
+            if point then
+                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
+            end
+        elseif row.type==1 then
+            local span=Span.prepare(raw,book,uid,row,format)
+            if span then
+                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+                    first_anchor=span.first_anchor,last_anchor=span.last_anchor,normalized_sha256=span.normalized_sha256}
+            end
+        end
+    end
+    return result
+end
 function M.prepare(file,book,metadata,rows,read)
     local record=Source.decode_metadata(metadata)
     if not record or record.book_id~=book or record.format~='web_xhtml' and record.format~='web_txt'
@@ -32,22 +50,32 @@ function M.prepare(file,book,metadata,rows,read)
     local verified=Source.verify_snapshot{metadata=metadata,identity=identity,book_id=book,chapter_uid=record.chapter_uid,
         raw=members[Source.raw_path(record.raw_sha256)],rendered=members[record.render_path]}
     if not verified then error('personal_marks/source',0) end
-    local result={metadata=metadata,rows={}}
-    for _i,row in ipairs(rows) do
-        if row.type==0 then
-            local point=Point.prepare(verified.raw,book,record.chapter_uid,row,record.format)
-            if point then
-                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
-            end
-        elseif row.type==1 then
-            local span=Span.prepare(verified.raw,book,record.chapter_uid,row,record.format)
-            if span then
-                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
-                    first_anchor=span.first_anchor,last_anchor=span.last_anchor,normalized_sha256=span.normalized_sha256}
-            end
+    return project_rows(verified.raw,book,record.chapter_uid,record.format,metadata,rows)
+end
+-- A direct chapter has no Web archive metadata. Its pinned cache entry was
+-- verified by the reader worker; uncached bytes require both source channels.
+function M.prepare_direct(client,settings,library,file,entry,metadata,rows,online)
+    local DirectCache=require('weread.lib.native_direct_cache')
+    local scope=settings:get_auth_scope()
+    if not scope or not settings:auth_scope_matches(scope) or not DirectCache.valid_entry(entry,entry and entry.book_id,scope.vid)
+        or type(entry.file_id)~='string' or #entry.file_id~=64 or not entry.file_id:match('^[a-f0-9]+$')
+        or metadata~=entry.file_id..entry.source_sha256..entry.key or type(rows)~='table' or #rows>M.BATCH then
+        error('personal_marks/scope',0)
+    end
+    local store=require('weread.lib.native_direct_mark_source_store'):new(library)
+    local raw=store:read(entry)
+    if not raw and online then
+        local access=require('weread.lib.native_read_access').capture(settings)
+        local web=require('weread.lib.source_currentness').capture(settings)
+        if access and web then
+            raw=require('weread.lib.native_direct_position').verified_source(client,settings,entry,file,access,web,function()
+                return settings:auth_scope_matches(scope)
+            end)
+            if raw then store:write(entry,raw) end
         end
     end
-    return result
+    if not raw or not settings:auth_scope_matches(scope) then error('personal_marks/source',0) end
+    return project_rows(raw,entry.book_id,entry.chapter_uid,'web_xhtml',metadata,rows)
 end
 function M.verify(rows)
     if type(rows)~='table' or #rows>M.BATCH then return {} end

@@ -53,6 +53,22 @@ for _,tag in ipairs({
 }) do denied(input(tag,'',assets),'inline_style') end
 denied(input('<p>text</p>','@import "external.css";',assets),'css_import')
 denied(input('<p>text</p>','p{background:url("../missing.png")}',assets),'missing')
+
+local missing_image=input('<html><body><img src="../lost.png"/>Readable text</body></html>',
+    'p{background:url("../lost.png")}',{})
+local fallback=assert(Resources.prepare(missing_image,nil,{allow_missing_images=true}))
+assert(fallback.missing_local_images==1 and #fallback.assets==1
+    and fallback.assets[1].data==require('weread.lib.native_missing_image')
+    and fallback.xhtml:find('Readable text',1,true) and fallback.xhtml:find('../'..fallback.assets[1].href,1,true)
+    and fallback.css:find(fallback.assets[1].href,1,true),'missing local image was not safely replaced')
+local rejected,reason=Resources.prepare(input('<p>text</p>','p{src:url("../font.woff")}',{}),nil,{allow_missing_images=true})
+assert(not rejected and reason=='native_resources/missing','missing non-image was silently replaced')
+local bad_image_path,bad_image_reason=Resources.prepare(input('<img src="x%2Z.png"/>','',{}),nil,{allow_missing_images=true})
+assert(not bad_image_path and bad_image_reason=='native_resources/unsupported','malformed image path was accepted')
+local many_missing={};for i=1,65 do many_missing[#many_missing+1]='<img src="../missing'..i..'.png"/>' end
+local excessive,limit_reason=Resources.prepare(input(table.concat(many_missing),'',{}),nil,{allow_missing_images=true})
+assert(not excessive and limit_reason=='native_resources/missing_limit','missing image count was not bounded')
+
 local stale=input('<p>text</p>','',assets);stale.body='different';denied(stale,'source_changed')
 local remote=assert(Resources.prepare(input('<img src="data:image/png;base64,AAAA"/>','',{})))
 assert(remote.remote_references==0 and remote.xhtml:find('data:image/png;base64,AAAA',1,true))

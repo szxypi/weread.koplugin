@@ -262,4 +262,60 @@ expect(not Dom.open_direct_prepared(direct_doc,'42','11',bad_identity,{is_curren
     'direct file without a version accepted')
 expect(not Dom.open_direct_prepared(direct_doc,'42','11',direct_identity,{is_current=function() return false end}),
     'stale direct reader accepted')
+-- When the native cursor walk diverges, exact search remains only a candidate:
+-- both chapter prefixes and the complete quote must agree with source anchors.
+local quote='Unique passage for verified direct fallback.'
+local search_plain='A long prefix before the marked text. '..quote..' A long suffix after it.'
+local search_raw='<html><body><p>'..search_plain..'</p></body></html>'
+local _,_,search_doc,_,search_counts,search_xp=fixture(search_raw,search_plain,
+    {book_id='42',path='OEBPS/text/chapter.xhtml'})
+search_doc.getHTMLFromXPointers=function(self) return self:getHTMLFromXPointer() end
+local search_identity=Identity.read_document(search_doc,'42')
+local search_index=assert(Dom.open_direct_prepared(search_doc,'42','11',search_identity,{is_current=function() return true end}))
+local raw_first,raw_last=assert(search_raw:find(quote,1,true))
+local target={bookmarkId='direct',type=1,chapterUid=11,markText=quote,range=(raw_first-1)..'-'..raw_last}
+package.preload.util=package.preload.util or function() return {htmlEntitiesToUtf8=function(value) return value end} end
+local span=assert(require('weread.lib.my_mark_span').prepare(search_raw,'42','11',target,'web_xhtml'))
+local first,last=assert(search_plain:find(quote,1,true))
+search_doc.findAllText=function(_,pattern,casefold,context,maximum,regex)
+    search_counts.search=search_counts.search+1
+    assert(pattern==quote and not casefold and context==0 and maximum==32 and not regex)
+    return {{start=search_xp(first-1),['end']=search_xp(last)}}
+end
+search_index.invalid='walk_diverged'
+local recovered=assert(search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024))
+expect(recovered.pos0==search_xp(first-1) and recovered.pos1==search_xp(last)
+    and recovered.text==quote and search_counts.search==1,'verified direct search did not recover exact span')
+expect(search_index.invalid=='walk_diverged','fallback revived the unsafe backward walker')
+local valid_search=search_doc.findAllText
+search_doc.findAllText=function() return {{start=search_xp(first),['end']=search_xp(last)}} end
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),'shifted native prefix accepted')
+search_doc.findAllText=function() return {{start=search_xp(first),['end']=search_xp(last)},
+    {start=search_xp(first-1),['end']=search_xp(last)}} end
+expect(search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),
+    'valid source-anchored match among multiple search hits was discarded')
+search_doc.findAllText=function() return {{start=search_xp(first-1),['end']=search_xp(last)},
+    {start=search_xp(first-1),['end']=search_xp(last)}} end
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),'duplicate search result accepted')
+search_doc.findAllText=function() return {{start='/body/DocFragment[2]/body/p/text().0',['end']='/body/DocFragment[2]/body/p/text().3'}} end
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),'foreign fragment accepted')
+search_doc.findAllText=valid_search
+local point_fallback=assert(search_index:locate_point_search(span.first_anchor,quote,512*1024))
+expect(point_fallback.xpointer==search_xp(first-1) and point_fallback.co==span.first_anchor.co,
+    'verified bookmark point did not preserve its anchored position')
+expect(not search_index:locate_point_search(span.last_anchor,quote,512*1024),'wrong bookmark source point accepted')
+expect(not search_index:locate_point_search(span.first_anchor,nil,512*1024),'bookmark without preview guessed a position')
+local original_extract=search_doc.getTextFromXPointers
+search_doc.getTextFromXPointers=function(self,a,b)
+    local value=original_extract(self,a,b)
+    return a~='/body/DocFragment[1].0' and value..'changed' or value
+end
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),
+    'mismatched native full quotation accepted')
+search_doc.getTextFromXPointers=original_extract
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,string.rep('x',4097),512*1024),'unbounded search accepted')
+search_index.options.is_current=function() return false end
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024)
+    and search_index.invalid=='cancelled','stale fallback escaped session cancellation')
+expect(not search_index:locate_span_search(span.first_anchor,span.last_anchor,quote,512*1024),'cancelled fallback revived')
 print(('source_dom_spec: %d checks'):format(checks))

@@ -77,7 +77,8 @@ function M.complete(client,source,options)
         or not Position.integer(source.book_version,0,2147483647)
         or type(source.catalog_sha256)~='string' or #source.catalog_sha256~=64
         or not source.catalog_sha256:match('^[0-9a-f]+$') then return nil,'invalid_source' end
-    local initial,reason=Resources.prepare(source)
+    local resource_options={allow_missing_images=options.allow_missing_images==true}
+    local initial,reason=Resources.prepare(source,nil,resource_options)
     if not initial then return nil,reason end
     local saved=snapshot(source)
     local function ready()
@@ -131,12 +132,15 @@ function M.complete(client,source,options)
         end
     end
     local allowed,why=ready();if not allowed then return nil,why end
-    local result,err=Resources.prepare(source,assets)
+    local result,err=Resources.prepare(source,assets,resource_options)
     if not result then return nil,err end
     if result.remote_references~=0 then return nil,'source_changed' end
     result.downloaded_images=downloaded
     result.downloaded_digests=digests
-    if options.allow_missing_images==true then result.missing_images=missing end
+    if options.allow_missing_images==true then
+        result.missing_images=missing+result.missing_local_images
+        if result.missing_images>64 then return nil,'invalid_source' end
+    end
     return result
 end
 return M

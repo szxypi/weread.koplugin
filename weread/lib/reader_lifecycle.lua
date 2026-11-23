@@ -682,6 +682,7 @@ function M:onReadingResumed()
 end
 
 function M:onNetworkConnected()
+    personal_action(self,'network_connected')
     if self.progress_sync then self.progress_sync:on_network_connected() end
     if self.offline_time then self.offline_time:update("network_connected", true) end
     require('weread.ui.finish_offline').pump(self)

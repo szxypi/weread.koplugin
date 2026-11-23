@@ -11,7 +11,7 @@ local Overlay=require('weread.ui.xpointer_overlay')
 local M={KEY='weread_personal_marks',BOOKMARK_KEY='weread_cloud_bookmarks'}
 local function current(host,s)
     return host._personal_marks==s and host.ui and host.ui.document==s.document and s.document.file==s.file
-        and host:detectWeReadBook()==s.book
+        and (s.direct or host:detectWeReadBook()==s.book)
         and host._reader_session_gen==s.session and host.library_db:accountKey()==s.account
         and host.settings:auth_scope_matches(s.scope) and (host._translation_mode==nil or host._translation_mode=='original')
 end
@@ -29,6 +29,11 @@ local function clear(host,s)
 end
 local function metadata(host,s)
     local ok,value=pcall(function()
+        if s.direct then
+            local e=s.entry;local identity=require('weread.lib.book_file_identity').read_document(s.document,s.book)
+            if not e or identity.file_id~=e.file_id or identity.book_version~=e.book_version then return nil end
+            return {metadata=e.file_id..e.source_sha256..e.key,chapter_uid=e.chapter_uid,record={format='web_xhtml'}}
+        end
         local xp=s.document:getXPointer();local member=Dom.member(s.document,xp)
         return member and Source.document_metadata(s.document,s.book,nil,member.render_path)
     end)
@@ -77,10 +82,14 @@ batch=function(host,s,job)
     if job.cursor>#job.rows then s.job=nil;s.complete=true;return end
     local rows={};for i=job.cursor,math.min(#job.rows,job.cursor+Task.BATCH-1) do rows[#rows+1]=job.rows[i] end
     job.cursor=job.cursor+#rows
-    local started=worker(host,s,function() return Task.prepare(s.file,s.book,job.metadata,rows) end,function(result)
+    local online=host.isNetworkOnline and host:isNetworkOnline() or false
+    local started=worker(host,s,function()
+        if s.direct then return Task.prepare_direct(host.client,host.settings,host.library_db,s.file,s.entry,job.metadata,rows,online) end
+        return Task.prepare(s.file,s.book,job.metadata,rows)
+    end,function(result)
         if not same_job(host,s,job) then return end
         if type(result)~='table' or result.metadata~=job.metadata or type(result.rows)~='table' then s.job=nil;return end
-        local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil} end
+        local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil,text=row.markText} end
         local expected={}
         if #result.rows>Task.BATCH then s.job=nil;return end
         for _i,row in ipairs(result.rows) do
@@ -91,17 +100,29 @@ batch=function(host,s,job)
         local pending,points,verify={},{},{}
         local last_yield=os.clock()
         local thread=coroutine.create(function()
-            job.index=job.index or Dom.open_prepared(s.document,s.book,job.metadata,{is_current=function() return same_job(host,s,job) end,
-                yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end})
+            local options={is_current=function() return same_job(host,s,job) end,
+                yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end}
+            job.index=job.index or (s.direct and Dom.open_direct_prepared(s.document,s.book,job.uid,s.identity,options)
+                or not s.direct and Dom.open_prepared(s.document,s.book,job.metadata,options))
             if not job.index then return false end
             for _i,row in ipairs(result.rows) do
                 if row.bookmark then
-                    local point=job.index:locate_anchor(row.anchor)
+                    local point,reason
+                    if not job.direct_search then point,reason=job.index:locate_anchor(row.anchor) end
+                    if s.direct and (job.direct_search or reason=='source_dom/walk_diverged') then
+                        job.direct_search=true
+                        point=job.index:locate_point_search(row.anchor,originals[row.bookmarkId].text,Task.MAX_NATIVE_BYTES)
+                    end
                     if point and point.co==row.anchor.co then
                         points[#points+1]={bookmarkId=row.bookmarkId,pos0=point.xpointer,chapter_uid=job.uid,range=job.ranges[row.bookmarkId]}
                     end
                 else
-                    local span=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES)
+                    local span,reason
+                    if not job.direct_search then span,reason=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES) end
+                    if s.direct and (job.direct_search or reason=='source_dom/walk_diverged') then
+                        job.direct_search=true
+                        span=job.index:locate_span_search(row.first_anchor,row.last_anchor,originals[row.bookmarkId].text,Task.MAX_NATIVE_BYTES)
+                    end
                     if span then
                         pending[row.bookmarkId]={bookmarkId=row.bookmarkId,pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,
                             range=job.ranges[row.bookmarkId],style=job.styles[row.bookmarkId]}
@@ -143,6 +164,9 @@ function M.update(host)
         return
     end
     if s.editing or s.loading then return end
+    if s.direct and s.loaded and not s.remote_attempted and host.isNetworkOnline and host:isNetworkOnline() then
+        load(host,s,true);return
+    end
     if not s.snapshot and not s.loaded then
         load(host,s,not s.remote_attempted and host.isNetworkOnline and host:isNetworkOnline() or false);return
     end
@@ -167,8 +191,26 @@ load=function(host,s,online)
     s.loading=true
     if online then s.remote_attempted=true end
     local access=online and require('weread.lib.native_read_access').capture(host.settings)
-    local started=worker(host,s,function() return Task.load(host.client,host.library_db,s.book,access,online) end,function(result)
+    local started=worker(host,s,function()
+        local entry
+        if s.direct then
+            entry=require('weread.lib.native_direct_cache').identify(host.settings,s.scope.vid,s.file,function()
+                return host.settings:auth_scope_matches(s.scope)
+            end)
+            if not entry or entry.book_id~=s.book or entry.file_id~=s.identity.file_id
+                or entry.book_version~=s.identity.book_version then return {error='file_changed'} end
+        end
+        local value=Task.load(host.client,host.library_db,s.book,access,online);value.entry=entry;return value
+    end,function(result)
         s.loading=false
+        if s.direct then
+            local entry=type(result)=='table' and result.entry
+            if not entry or not require('weread.lib.native_direct_cache').valid_entry(entry,s.book,s.scope.vid)
+                or entry.file_id~=s.identity.file_id or entry.book_version~=s.identity.book_version then
+                s.loaded=false;s.entry=nil;s.snapshot=nil;clear(host,s);return
+            end
+            s.entry=entry
+        end
         s.loaded=true
         local ok,value=pcall(Marks.validate,host.client,type(result)=='table' and result.snapshot,s.book)
         if not ok then return end
@@ -187,11 +229,21 @@ function M.attach(host)
     M.detach(host)
     if not host.settings or not host.settings.get_auth_scope or not host.library_db or not host.detectWeReadBook then return false end
     local document=host.ui and host.ui.document;local book=Marks.display_id(host:detectWeReadBook())
+    local direct,identity=false,nil
+    if document and not book and require('weread.lib.native_direct_path').contains(host.settings,document.file) then
+        local ok,raw=pcall(document.getDocumentFileContent,document,require('weread.lib.book_file_identity').PATH)
+        local parsed=ok and require('weread.lib.book_file_identity').decode(raw)
+        if parsed and parsed.chapter_count==1 and Marks.id(parsed.book_id) then
+            book=parsed.book_id;identity=require('weread.lib.book_file_identity').read_document(document,book)
+            direct=identity.file_id==parsed.file_id and identity.book_version==parsed.book_version
+            if not direct then book=nil end
+        end
+    end
     local scope=host.settings:get_auth_scope();local account=host.library_db and host.library_db:accountKey()
     if not document or not book or not account or not scope or not host.settings:auth_scope_matches(scope)
         or not document.info or document.info.has_pages or not host.ui.view or not host.ui.view.registerViewModule then return false end
     local s={book=book,document=document,file=document.file,scope=scope,account=account,session=host._reader_session_gen,generation=0,
-        records={},bookmarks={},loading=true}
+        records={},bookmarks={},loading=true,direct=direct,identity=identity}
     local screen=require('device').screen;local BB=require('ffi/blitbuffer')
     local overlay=Overlay:new{records={},painter=require('weread.ui.personal_mark_painter').paint,
         style={width=math.max(1,screen:scaleBySize(1)),wave_step=math.max(1,screen:scaleBySize(1)),color=BB.Color8(0)}}
@@ -243,6 +295,11 @@ function M.wake(host)
     local s=host._personal_marks;if not s then return end
     s.suspended=false;s.metadata=nil;s.complete=false
     if not s.snapshot then load(host,s,false) else M.update(host) end
+end
+function M.network_connected(host)
+    local s=host._personal_marks
+    if not s or not s.direct or not enabled(host,s) or s.editing then return end
+    cancel_work(s);s.loading=false;load(host,s,true)
 end
 function M.invalidate(host)
     local s=host._personal_marks;if not s then return end

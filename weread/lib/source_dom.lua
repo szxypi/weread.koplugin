@@ -465,6 +465,74 @@ function Index:locate_span(first_anchor,last_anchor,limit)
     end)
 end
 
+-- Fallback for a direct chapter when CRE's backward character walk diverges.
+-- Search is only a candidate: source anchors, both full native prefixes and
+-- the complete selected text must independently agree.
+local function search_boundary(self,anchor)
+    if type(anchor)~='table' or type(anchor.text)~='string' or #anchor.text>Coordinates.MAX_ANCHOR_BYTES
+        or anchor.basis~=self.basis or anchor.point_unit~='unicode_scalars'
+        or type(anchor.co)~='number' or anchor.co<0 or anchor.co%1~=0 or anchor.co>Coordinates.MAX_BYTES*8
+        or type(anchor.point_offset)~='number' or anchor.point_offset<0 or anchor.point_offset%1~=0 then fail('invalid_anchor') end
+    local text,count=normalize(anchor.text)
+    if text~=anchor.text or count<12 or anchor.point_offset>count then fail('invalid_anchor') end
+    local first=self.flat:find(anchor.text,1,true)
+    if not first then fail('anchor_missing') end
+    if self.flat:find(anchor.text,first+1,true) then fail('anchor_ambiguous') end
+    return first+byte_after(anchor.text,anchor.point_offset)-1
+end
+local function verified_search(self,first,last,quote,limit)
+    if last<=first or last-first>limit then fail('invalid_span') end
+    local wanted=normalize(quote)
+    if wanted=='' or self.flat:sub(first,last-1)~=wanted then fail('invalid_span') end
+    self:_yield()
+    local found=self.document:findAllText(quote,false,0,32,false,0)
+    self:_check()
+    if type(found)~='table' or #found==0 or #found>32 then fail('search_ambiguous') end
+    local function prefix(point,ending)
+        local actual=normalize(self:_extract(self.root..'.0',point),function() self:_yield() end)
+        return #actual==ending-1 and actual==self.flat:sub(1,ending-1)
+    end
+    local chosen
+    for _,candidate in ipairs(found) do
+        if type(candidate)~='table' then fail('invalid_span') end
+        local a,b=candidate.start,candidate['end']
+        if fragment(a)==self.root and fragment(b)==self.root and self.document:compareXPointers(a,b)==1
+            and prefix(a,first) and prefix(b,last) then
+            local text=self:_extract(a,b);local normalized=normalize(text,function() self:_yield() end)
+            if normalized==wanted then
+                if chosen then fail('search_ambiguous') end
+                chosen={pos0=a,pos1=b,text=text}
+            end
+        end
+        self:_yield()
+    end
+    if not chosen then fail('walk_diverged') end
+    self:_check();return chosen
+end
+local function search_scope(self,quote,limit,task)
+    if self.invalid and self.invalid~='walk_diverged' then return nil,'source_dom/'..self.invalid end
+    if type(limit)~='number' or limit<1 or limit>M.MAX_TEXT_BYTES or limit%1~=0
+        or type(quote)~='string' or #quote==0 or #quote>4096
+        or type(self.document.findAllText)~='function' then return nil,'source_dom/invalid_span' end
+    local old_invalid=self.invalid;self.invalid=nil
+    local result,reason=protected(function() self:_check();return task() end)
+    if self.invalid~='cancelled' and self.invalid~='file_changed' then self.invalid=old_invalid end
+    return result,reason
+end
+function Index:locate_span_search(first_anchor,last_anchor,quote,limit)
+    return search_scope(self,quote,limit,function()
+        return verified_search(self,search_boundary(self,first_anchor),search_boundary(self,last_anchor),quote,limit)
+    end)
+end
+function Index:locate_point_search(anchor,quote,limit)
+    return search_scope(self,quote,limit,function()
+        local first=search_boundary(self,anchor);local text=normalize(quote)
+        local span=verified_search(self,first,first+#text,quote,limit)
+        return {xpointer=span.pos0,co=anchor.co,book_id=self.book_id,chapter_uid=self.chapter_uid,
+            file_id=self.file_id,render_path=self.render_path,basis='verified_source_dom'}
+    end)
+end
+
 function Index:capture(xpointer)
     if not self.map then return nil,'source_dom/source_unavailable' end
     return self:_protected(function()

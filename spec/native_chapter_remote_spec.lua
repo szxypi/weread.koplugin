@@ -65,6 +65,14 @@ calls,alive=0,true;value,reason=Remote.complete(client,unsafe,options)
 assert(not value and reason=='remote_unsupported' and calls==0)
 local replacement=assert(Remote.complete(client,unsafe,fallback))
 assert(replacement.missing_images==1 and calls==0 and not replacement.xhtml:find('evil.invalid',1,true))
+local mixed_body='<img src="../lost.png"/><img src="https://img.qq.com/image.png?a=1&amp;b=2"/>'
+local mixed={book_id='42',chapter_uid='7',book_version=1,catalog_sha256=string.rep('a',64),
+    source_channel='eink',coordinate_source_authoritative=false,is_text=false,unusable_resources=0,
+    body=mixed_body,css='',assets={},body_parts={{source='text/7.xhtml',data=mixed_body}},style_parts={}}
+mode,calls,alive='redirect',0,true
+local mixed_result=assert(Remote.complete(client,mixed,fallback))
+assert(mixed_result.missing_images==2 and mixed_result.missing_local_images==1 and calls==1
+    and #mixed_result.assets==1,'local and remote placeholders did not share asset or counts')
 local many={}
 for i=1,65 do many[#many+1]='<img src="https://img.qq.com/'..i..'.png"/>' end
 local large_body=table.concat(many)

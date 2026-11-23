@@ -50,6 +50,20 @@ local function lookup(index,owner,reference)
     local resolved=clean((parent~='' and parent..'/' or '')..ref)
     local href=resolved and index.exact[resolved]
     if href==false then return nil,'ambiguous' end
+    if not href and resolved and index.allow_missing_images then
+        local ext=ref:lower():match('%.([a-z0-9]+)$')
+        if ({png=true,jpg=true,jpeg=true,gif=true,webp=true})[ext] then
+            if not index.missing_seen[resolved] then
+                if index.missing_count>=M.MAX_REMOTE then fail('missing_limit') end
+                index.missing_seen[resolved]=true;index.missing_count=index.missing_count+1
+            end
+            local data=require('weread.lib.native_missing_image')
+            href='images/eink-'..Crypto.sha256_hex(data)..'.png'
+            if not index.seen[href] then
+                index.seen[href]=true;index.output[#index.output+1]={href=href,media_type='image/png',data=data}
+            end
+        end
+    end
     return href,href and 'local' or 'missing'
 end
 local function index_assets(assets,remote_assets)
@@ -307,14 +321,17 @@ local function concatenable(css)
     return depth==0 and boundary
 end
 
-function M.prepare(value,remote_assets)
+function M.prepare(value,remote_assets,options)
     local ok,result=pcall(function()
+        if options~=nil and (type(options)~='table' or type(options.allow_missing_images)~='boolean') then fail('options') end
         if type(value)~='table' or value.source_channel~='eink' or value.coordinate_source_authoritative~=false
             or value.is_text~=false or not array(value.body_parts,2048) or #value.body_parts==0
             or not array(value.style_parts,2048) or not valid_text(value.body) or not valid_text(value.css)
             or type(value.unusable_resources)~='number' or value.unusable_resources<0
             or value.unusable_resources%1~=0 or value.unusable_resources>2048 then fail('source') end
         local index=index_assets(value.assets,remote_assets or {})
+        index.allow_missing_images=options and options.allow_missing_images==true
+        index.missing_seen={};index.missing_count=0
         local style_index={exact={}}
         for _,part in ipairs(value.style_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('css') end
@@ -358,7 +375,7 @@ function M.prepare(value,remote_assets)
             fail('source_changed')
         end
         return {xhtml=table.concat(bodies,'\n'),css=table.concat(styles,'\n'),assets=index.output,
-            remote_references=summary.remote,localized_references=summary.localized,
+            remote_references=summary.remote,localized_references=summary.localized,missing_local_images=index.missing_count,
             remote_urls=summary.remote_urls,
             unusable_resources=value.unusable_resources,source_channel='eink',coordinate_source_authoritative=false}
     end)
