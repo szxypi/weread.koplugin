@@ -46,13 +46,15 @@ class WebKeyShelf:
 class AndroidKeyShelf(WebKeyShelf):
     """One fixed legacy Android client profile, for read-only comparison."""
     def headers(self, owner, key):
-        return {'vid':owner,'skey':key,'User-Agent':'WeRead/7.0.0 WRBrand/huawei Dalvik/2.1.0',
+        return {'vid':owner,'skey':key,'v':'7.4.2.23','User-Agent':'WeRead/7.0.0 WRBrand/huawei Dalvik/2.1.0',
                 'Accept':'application/json'}
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');args=parser.parse_args(argv)
-    report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_values_saved=False)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--android-profile',action='store_true');args=parser.parse_args(argv)
+    if args.android_profile and not args.saved_session:parser.error('android profile requires saved session')
+    report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_values_saved_to_files=False)
     saved=grant=web=None
     try:
         if args.saved_session:
@@ -60,11 +62,19 @@ def main(argv=None):
             web=WebFlagsProbe();web.vid=owner
             for key,value in saved['cookies'].items():web.set_cookie(key,value)
             web.verify_account();native=NativeProbe()
+            rotated=save_refreshed_web_session(store,saved,web)
+            if rotated:
+                saved.clear();saved=store.load()
+                if saved['vid']!=owner:raise ValueError('cloud_group_auth/session')
+            report['web_rotation_saved']=rotated
+            report['phase']='native_baseline'
             expected=project(native.request('shelf_full',FULL_SHELF,credentials=grant))
-            observed=project(WebKeyShelf().read(owner,saved['cookies'].get('wr_skey')))
+            report['phase']='client_shelf'
+            client=AndroidKeyShelf() if args.android_profile else WebKeyShelf()
+            observed=project(client.read(owner,saved['cookies'].get('wr_skey')))
             if not _cross_channel(expected,observed):raise ValueError('cloud_group_auth/mismatch')
             web.verify_account();report.update(result='WEB_KEY_SHELF_READ_VERIFIED',same_owner_verified=True,
-                group_membership_matches_native=True,web_rotation_saved=save_refreshed_web_session(store,saved,web))
+                group_membership_matches_native=True,web_rotation_saved=save_refreshed_web_session(store,saved,web) or rotated)
     except HTTPError as exc:
         report.update(result='UNVERIFIED',reason='http_rejection',http_status=exc.code);exc.close()
     except (URLError,ValueError,KeyError,TypeError):report.update(result='UNVERIFIED',reason='read_unavailable')

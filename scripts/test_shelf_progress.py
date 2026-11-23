@@ -1,5 +1,6 @@
 """Synthetic display contract only; never opens the real Keychain or network."""
 from contextlib import redirect_stdout,redirect_stderr
+from datetime import datetime
 import io
 import json
 from types import SimpleNamespace
@@ -36,9 +37,14 @@ class DisplayTests(unittest.TestCase):
             probe.return_value.request.side_effect=[dict(books=[dict(bookId='99009900')]),dict(book=dict(progress=37.8))]
             probe.return_value.report=dict(stages=[dict(stage='account',status=200)])
             self.assertEqual(main(['--saved-session']),0)
+        result=json.loads(out.getvalue())
+        # The clock's fractional seconds may coincidentally contain the
+        # synthetic percentage; it is not a progress field or private value.
+        datetime.fromisoformat(result['checked_at'])
+        without_clock=json.dumps({key:value for key,value in result.items() if key!='checked_at'})
         for private in ('88008800','99009900','private-sentinel','37.8'):
-            self.assertNotIn(private,out.getvalue())
-        self.assertEqual(json.loads(out.getvalue())['display_progress_count'],1)
+            self.assertNotIn(private,without_clock)
+        self.assertEqual(result['display_progress_count'],1)
 
     def test_refreshed_verified_session_saved_before_optional_native_failure(self):
         cookies=[SimpleNamespace(name=k,value=v,domain='.weread.qq.com',path='/')
