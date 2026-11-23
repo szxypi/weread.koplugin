@@ -33,7 +33,13 @@ local image_snapshot=F.snapshot(codec);local image_row=image_snapshot.reviews[1]
 image_row.attachment_state='available';image_row.attachment_urls='https://weread-picture-1258476243.file.myqcloud.com/synthetic.png'
 expect(C.row_hash(image_row)~=C.row_hash(F.row()),'attachment omitted from record identity')
 expect(not pcall(C.make,codec,image_snapshot,'edit',image_row,'updated'),'editing an attachment-bearing thought was allowed')
+expect(not pcall(C.make,codec,image_snapshot,'delete',image_row),'unverified old attachment was deletable')
+local other=F.snapshot(codec);other.reviews[2]=F.clone(image_row);other.reviews[2].reviewId='other-attachment'
+expect(not pcall(C.make,codec,other,'delete',other.reviews[1]),'another unverifiable attachment was ignored')
+image_row.attachment_digest=string.rep('a',64)
 expect(C.validate_body('delete',C.make(codec,image_snapshot,'delete',image_row).body),'explicit deletion of attachment-bearing thought refused')
+local prior=F.clone(image_row);image_row.attachment_digest=string.rep('b',64)
+expect(not pcall(C.make,codec,image_snapshot,'delete',prior),'changed attachment metadata was ignored before deletion')
 expect(C.digest({'中😀',12,'12'})=='be80ffb5ab35c48e543bcff520d2402918946844ebfdd1c1e7a4bdd2a802d958','Python typed digest differs')
 local plan=C.make(codec,snapshot,'create',F.mark(),input,F.marks(codec),{bookId='900001',version=77},'900000')
 expect(plan.body.content==input and plan.body.isPrivate==1 and plan.body.chapterUid=='7','user text or private context changed')

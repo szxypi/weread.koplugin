@@ -22,9 +22,9 @@ local function codec_info(client)
         for _i,key in ipairs({'bookId','book_id'}) do if present(value[key]) and tostring(value[key])~=id then fail('book') end end
         for _i,key in ipairs({'userVid','vid'}) do if owner and present(value[key]) and tostring(value[key])~=owner then fail('owner') end end
     end
-    return present,array,scope
+    return present,array,scope,mt
 end
-local function entry(value,present,cached)
+local function entry(value,present,cached,array_mt)
     local id=value.reviewId
     if not text(id,256) or id:find('%s') then fail('identity') end
     local out={reviewId=id}
@@ -33,8 +33,8 @@ local function entry(value,present,cached)
     end
     if out.content==nil then fail('text') end
     local attachments=cached and require('weread.lib.thought_attachments').cached(value)
-        or not cached and require('weread.lib.thought_attachments').project(value,present)
-    if attachments then out.attachment_state,out.attachment_urls=attachments.state,attachments.urls end
+        or not cached and require('weread.lib.thought_attachments').project(value,present,{array_mt=array_mt})
+    if attachments then out.attachment_state,out.attachment_urls,out.attachment_digest=attachments.state,attachments.urls,attachments.digest end
     for _i,name in ipairs({'chapterUid','chapterIdx','type','createTime','isPrivate','isFinish'}) do
         if present(value[name]) then
             local observed=value[name]
@@ -50,7 +50,7 @@ local function entry(value,present,cached)
 end
 function M.page(client,source,id,owner)
     if not M.display_id(id) or not M.id(owner) then fail('scope') end
-    local present,array,scope=codec_info(client);scope(source,id,owner)
+    local present,array,scope,mt=codec_info(client);scope(source,id,owner)
     for _i,key in ipairs({'errcode','errCode'}) do if present(source[key]) and source[key]~=0 then fail('rejected') end end
     if present(source.succ) and source.succ~=true and source.succ~=1 then fail('rejected') end
     array(source.reviews)
@@ -67,7 +67,7 @@ function M.page(client,source,id,owner)
         end
         if not explicit then fail('owner') end
         if present(review.book) then scope(review.book,id,owner) end
-        local item=entry(review,present,false)
+        local item=entry(review,present,false,mt)
         if present(row.reviewId) and row.reviewId~=item.reviewId then fail('identity') end
         if seen[item.reviewId] then fail('duplicate') end
         seen[item.reviewId]=true;out[#out+1]=item

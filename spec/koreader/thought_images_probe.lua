@@ -52,7 +52,13 @@ if mode=='offline' or mode=='public-offline' then snapshot=assert(store:read('42
 if mode=='corrupt' then
     local db=assert(library:open());db:exec("UPDATE thought_image_cache SET body='broken'");db:close()
 end
-local row=snapshot.reviews[1];assert(row.attachment_state=='available' and row.attachment_urls==url)
+local row=snapshot.reviews[1];assert(row.attachment_state=='available' and row.attachment_urls==url
+    and type(row.attachment_digest)=='string' and #row.attachment_digest==64)
+raw.reviews[1].review.pictures[1].width=33
+local changed=Data.project(client,raw,'42',user,1000)
+assert(changed.reviews[1].attachment_urls==row.attachment_urls
+    and changed.reviews[1].attachment_digest~=row.attachment_digest)
+assert(not pcall(require('weread.lib.thought_edit_contract').make,client,changed,'delete',row))
 local Popup=require('weread.ui.shelf_popup');local widget=require('ui/widget/textviewer'):new{title='Synthetic',text='Synthetic'}
 Popup.show(owner.menu,widget,function(value) UI:show(value) end)
 local Images=require('weread.ui.thought_images');assert(Images.open(host,owner,row,1,widget,current,1))

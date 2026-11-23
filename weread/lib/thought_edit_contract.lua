@@ -30,6 +30,9 @@ local function fields_hash(row,fields)
 end
 function M.row_hash(row)
     local base=fields_hash(row,FIELDS)
+    if row.attachment_digest~=nil then
+        return M.digest({'thought-attachments-v2',base,row.attachment_state,row.attachment_urls,row.attachment_digest})
+    end
     if row.attachment_state~=nil then return M.digest({'thought-attachments-v1',base,row.attachment_state,row.attachment_urls}) end
     return base
 end
@@ -37,6 +40,7 @@ function M.snapshot_hash(snapshot)
     local rows,seen={},{}
     for _i,row in ipairs(snapshot.reviews) do
         if seen[row.reviewId] then fail('duplicate') end
+        if row.attachment_state~=nil and not M.hash(row.attachment_digest) then fail('attachments_unverified') end
         seen[row.reviewId]=true;rows[#rows+1]=row
     end
     table.sort(rows,function(a,b) return a.reviewId<b.reviewId end)
@@ -124,7 +128,7 @@ function M.make(client,snapshot,operation,reference,content,marks,metadata,owner
         target=reference.reviewId;local original
         for _i,row in ipairs(snapshot.reviews) do if row.reviewId==target then original=row end end
         if not original or M.row_hash(original)~=M.row_hash(reference) then fail('changed') end
-        if operation=='edit' and original.attachment_state~=nil then fail('attachments') end
+        if original.attachment_state~=nil and (operation=='edit' or not M.hash(original.attachment_digest)) then fail('attachments') end
         if original.isPrivate~=0 and original.isPrivate~=1 then fail('privacy') end
         if not Marks.id(book) and original.isPrivate~=1 then fail('privacy') end
         body={reviewId=target};local rows=client:json_decode('[]')

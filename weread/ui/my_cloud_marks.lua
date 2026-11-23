@@ -164,6 +164,9 @@ render=function(host,owner)
                             else parts[#parts+1]=_('No thought text was returned.') end
                             if row.attachment_state=='partial' then parts[#parts+1]=_('Some thought attachments could not be displayed.') end
                             if row.attachment_state then parts[#parts+1]=_('Editing thoughts with attachments is not available yet.') end
+                            if row.attachment_state and not row.attachment_digest then
+                                parts[#parts+1]=_('Cannot safely delete this thought because its attachments could not be verified. Refresh the thought list and try again.')
+                            end
                         else
                             if row.markText and row.markText~='' then parts[#parts+1]=row.markText end
                             if row.abstract and row.abstract~='' and row.abstract~=row.markText then parts[#parts+1]=row.abstract end
@@ -236,7 +239,7 @@ render=function(host,owner)
                             end
                         end
                         local operations=owner.mark_writable and (owner.thoughts and editor.can_edit(row) and (owner.writable or row.isPrivate==1)
-                            and (row.attachment_state and {'delete'} or {'edit','delete'})
+                            and (row.attachment_state and (row.attachment_digest and {'delete'} or {}) or {'edit','delete'})
                             or not owner.thoughts and editor.can_create(row) and {'create'}) or {}
                         for _j,operation in ipairs(operations) do
                             buttons=buttons or {};buttons[#buttons+1]={{id='thought_'..operation,

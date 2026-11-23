@@ -206,6 +206,7 @@ local ok,reason=pcall(function()
             assert(image_row and image_row.isPrivate==1 and image_row.abstract)
             image_row.range='12-24';image_row.attachment_state='available'
             image_row.attachment_urls='https://weread-picture-1258476243.file.myqcloud.com/synthetic.png'
+            image_row.attachment_digest=string.rep('c',64)
             assert(require('weread.lib.my_thought_target').can_locate(image_row))
         end
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(item)
@@ -215,6 +216,10 @@ local ok,reason=pcall(function()
             assert(buttons:getButtonById('thought_image_1') and buttons:getButtonById('open_thought_quote'),
                 'image and quote actions must both remain available')
             assert(not buttons:getButtonById('thought_edit'),'attachment thought editing must be guarded')
+            if owner.mark_writable then assert(buttons:getButtonById('thought_delete'),'verified attachment deletion was hidden') end
+            UI:close(popup);tick();image_row.attachment_digest=nil;item.callback();popup=assert(menu._shelf_popup)
+            assert(not popup.button_table:getButtonById('thought_delete') and popup.text:find(
+                tr('Cannot safely delete this thought because its attachments could not be verified. Refresh the thought list and try again.'),1,true))
             image_row.range=nil;image_row.attachment_state=nil;image_row.attachment_urls=nil
         end
         if imported then

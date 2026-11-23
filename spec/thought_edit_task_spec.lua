@@ -8,6 +8,11 @@ local function fixture(op,mode)
     local settings,credentials,auth=F.access();local selected=require('weread.lib.native_read_access').capture(settings,credentials)
     local client=F.codec();client.settings=settings
     f.snapshot=F.snapshot(client);f.input={book_id='900001',operation=op,reference=op=='create' and F.mark() or F.row(),content='新的实际想法 😀'}
+    if op=='delete' and (mode=='attachment_changed' or mode=='attachment_present') then
+        for _,row in ipairs({f.snapshot.reviews[1],f.input.reference}) do
+            row.attachment_state='partial';row.attachment_urls='';row.attachment_digest=string.rep('a',64)
+        end
+    end
     local plan=C.make(client,f.snapshot,op,f.input.reference,f.input.content,op=='create' and F.marks(client),{bookId='900001',version=77},'900000')
     f.record={metadata=plan.metadata}
     local journal={owns=function() return f.phase~='idle' end,claim=function()
@@ -21,6 +26,7 @@ local function fixture(op,mode)
         if f.mode=='expired' then error('my_thoughts/native_expired',0) end
         local snapshot=F.clone(f.snapshot)
         if f.mode=='preflight_changed' and f.posts==0 then snapshot.reviews[1].content='External change' end
+        if f.mode=='attachment_changed' and f.posts==0 then snapshot.reviews[1].attachment_digest=string.rep('b',64) end
         return snapshot
     end
     client.request=function(_self,options)
@@ -62,6 +68,11 @@ for _i,mode in ipairs({'preflight_changed','expired','get_failed','claim_failed'
     local f=fixture('edit',mode);local result=f.run()
     expect(not result.attempted and f.posts==0 and f.phase=='prepared','preflight failure dispatched: '..mode)
 end
+local attachment=fixture('delete','attachment_changed');local changed=attachment.run()
+expect(not changed.attempted and attachment.posts==0 and attachment.claims==0,
+    'changed unknown attachment metadata reached delete dispatch')
+attachment=fixture('delete','attachment_present');local deleted=attachment.run()
+expect(deleted.kind=='confirmed' and attachment.posts==1,'verified attachment deletion did not complete')
 local f=fixture('edit','normal');f.input.content=F.row().content
 f.record.metadata=C.make(F.codec(),F.snapshot(F.codec()),'edit',F.row(),f.input.content).metadata
 local result=f.run();expect(result.kind=='noop' and not result.attempted and f.posts==0,'unchanged text dispatched')

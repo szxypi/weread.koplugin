@@ -20,13 +20,15 @@ function M.decode(value)
     return out
 end
 function M.cached(value)
-    if value.attachment_state==nil and value.attachment_urls==nil then return nil end
+    if value.attachment_state==nil and value.attachment_urls==nil and value.attachment_digest==nil then return nil end
     if value.attachment_state~='available' and value.attachment_state~='partial' then error('thought_attachment/state',0) end
     local urls=M.decode(value.attachment_urls)
     if not urls or value.attachment_state=='available' and #urls==0 then error('thought_attachment/state',0) end
-    return {state=value.attachment_state,urls=value.attachment_urls}
+    if value.attachment_digest~=nil and (type(value.attachment_digest)~='string' or #value.attachment_digest~=64
+        or not value.attachment_digest:match('^[a-f0-9]+$')) then error('thought_attachment/digest',0) end
+    return {state=value.attachment_state,urls=value.attachment_urls,digest=value.attachment_digest}
 end
-function M.project(value,present)
+function M.project(value,present,options)
     local urls,seen,unknown={}, {},false
     local function add(url)
         if not M.allowed(url) then unknown=true;return end
@@ -63,6 +65,7 @@ function M.project(value,present)
     end
     if type(value.htmlContent)=='string' and value.htmlContent:lower():find('<img',1,true) then unknown=true end
     if #urls==0 and not unknown then return nil end
-    return {state=unknown and 'partial' or 'available',urls=table.concat(urls,'\n')}
+    local digest=options and require('weread.lib.thought_attachment_fingerprint').compute(value,present,options.array_mt)
+    return {state=unknown and 'partial' or 'available',urls=table.concat(urls,'\n'),digest=digest}
 end
 return M

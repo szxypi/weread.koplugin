@@ -272,6 +272,7 @@ local zh = {
     ["Could not open this thought image."] = "无法打开这张想法图片。",
     ["This image is not saved on this device. Connect to view it."] = "此图片尚未保存在设备上，请联网查看。",
     ["Some thought attachments could not be displayed."] = "部分想法附件暂无法显示。",
+    ["Cannot safely delete this thought because its attachments could not be verified. Refresh the thought list and try again."] = "无法核对这条想法的附件，暂不能安全删除。请刷新想法列表后重试。",
     ["Loading review image…"] = "正在加载书评图片…",
     ["Review image"] = "书评图片",
     ["View review image %1"] = "查看书评图片 %1",

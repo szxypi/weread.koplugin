@@ -23,10 +23,21 @@ with_image.reviews[3].review.pictures={{url='https://untrusted.example/image.png
 local image_snapshot=Data.project(client,with_image,'900001','900000',1000)
 expect(image_snapshot.reviews[1].attachment_state=='available' and image_snapshot.reviews[1].attachment_urls==image,
     'picture attachment was not retained')
+expect(type(image_snapshot.reviews[1].attachment_digest)=='string' and #image_snapshot.reviews[1].attachment_digest==64,
+    'attachment metadata identity was not retained')
 expect(image_snapshot.reviews[2].attachment_urls==image,'handwriting image was not retained')
 expect(image_snapshot.reviews[3].attachment_state=='partial' and image_snapshot.reviews[3].attachment_urls=='',
     'untrusted picture was accepted or silently discarded')
 expect(Data.validate(client,image_snapshot,'900001').reviews[1].attachment_urls==image,'offline attachment snapshot changed')
+expect(Data.validate(client,image_snapshot,'900001').reviews[1].attachment_digest==image_snapshot.reviews[1].attachment_digest,
+    'offline attachment metadata identity changed')
+local previous=image_snapshot.reviews[1]
+with_image.reviews[1].review.pictures[1].unknown={revision=2}
+local changed=Data.project(client,with_image,'900001','900000',1000)
+expect(changed.reviews[1].attachment_urls==previous.attachment_urls
+    and changed.reviews[1].attachment_digest~=previous.attachment_digest,'unrecognized attachment change was missed')
+expect(not pcall(require('weread.lib.thought_edit_contract').make,client,changed,'delete',previous),
+    'changed attachment was accepted for deletion')
 image_snapshot.reviews[1].attachment_urls='https://untrusted.example/image.png'
 expect(not pcall(Data.validate,client,image_snapshot,'900001'),'untrusted cached attachment accepted')
 expect(Data.page(client,source(1,3),'900001','900000').has_more,'false hasMore truncated the personal list')
