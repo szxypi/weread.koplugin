@@ -136,6 +136,7 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
@@ -336,6 +337,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
@@ -448,6 +450,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
@@ -628,6 +631,7 @@ end
 function M:onSuspend()
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end

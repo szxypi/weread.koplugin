@@ -99,5 +99,64 @@ for _,entry in ipairs(rows) do
 end
 assert(original_copy and improved and original_copy.path==old_path and improved.path~=old_path
     and original_copy.source_sha256==improved.source_sha256)
-print('WEREAD_DIRECT_IMAGE_REFRESH='..json.encode{ok=true,path=improved.path,original_kept=true,
-    page_unchanged=true,source_equal=true,missing_before=input.initial_missing or 1,missing_after=0})
+local output={ok=true,path=improved.path,original_kept=true,page_unchanged=true,source_equal=true,
+    missing_before=input.initial_missing or 1,missing_after=0}
+if input.resume then
+    local Context=require('weread.lib.source_context');local Identity=require('weread.lib.book_file_identity')
+    local old_entry=assert(Cache.identify(host.settings,account,old_path,function() return true end))
+    local at=assert(Context.location(reader.document,reader.view and reader.view.view_mode))
+    local context=Context.capture(reader.document,old_entry.book_id,at,{is_current=function() return true end,
+        metadata_resolver=function(doc,book_id,render_path)
+            if render_path~='OEBPS/text/chapter.xhtml' then return nil end
+            local id=Identity.read_document(doc,book_id)
+            return {metadata=old_entry.file_id..old_entry.source_sha256,identity=id,chapter_uid=old_entry.chapter_uid}
+        end})
+    assert(context and not context.error)
+    local following,seen={},0
+    for char in context.text:gmatch('[%z\1-\127\194-\244][\128-\191]*') do
+        seen=seen+1;if seen>context.point_offset and #following<16 then following[#following+1]=char end
+    end
+    assert(#following==16);local expected=table.concat(following)
+    local function continue_copy()
+        local offer=assert(host._native_direct_copy_resume and host._native_direct_copy_resume.dialog)
+        UI:forceRePaint();local continue=assert(offer:getButtonById('continue_copy'))
+        assert(continue.dimen and continue.dimen.x>=0 and continue.dimen.y>=0
+            and continue.dimen.x+continue.dimen.w<=Device.screen:getWidth()
+            and continue.dimen.y+continue.dimen.h<=Device.screen:getHeight(),'copy continuation button is outside the screen')
+        continue:onTapSelectButton()
+    end
+    if input.test_damage then
+        local file=assert(io.open(improved.path,'rb'));local bytes=assert(file:read('*a'));assert(file:close())
+        file=assert(io.open(improved.path,'ab'));assert(file:write('synthetic corruption'));assert(file:close())
+        host.showInfo=function(self,message) self._test_resume_message=message end
+        continue_copy()
+        pump(function() return host._test_resume_message~=nil end)
+        assert(host._test_resume_message==require('weread.lib.plugin_util').tr(
+            'Could not match this page in the new copy. Your current page was kept.'))
+        assert(Reader.instance==reader and reader.document.file==old_path and reader.document:isXPointerInCurrentPage(anchor))
+        file=assert(io.open(improved.path,'wb'));assert(file:write(bytes));assert(file:close())
+        assert(require('weread.ui.native_direct_copy_resume').offer(host,old_entry,improved.path))
+        output.damaged_copy_rejected=true
+    end
+    continue_copy()
+    pump(function() return Reader.instance and Reader.instance~=reader and Reader.instance.document.file==improved.path end)
+    local destination=Reader.instance;local destination_host=assert(destination.weread);local observed=false
+    pump(function()
+        if destination_host._native_direct_search_incoming or destination_host._native_direct_search_open then observed=true end
+        return observed and not destination_host._native_direct_search_incoming and not destination_host._native_direct_search_open
+    end)
+    local page=destination.document:getCurrentPage();local count=destination.document:getPageCount()
+    local first=destination.document:getPageXPointer(page)
+    local last=page<count and destination.document:getPageXPointer(page+1) or first
+    if page==count then
+        for _=1,5000 do
+            local next_point=destination.document:getNextVisibleChar(last)
+            if not next_point or next_point==last or not destination.document:isXPointerInCurrentPage(next_point) then break end
+            last=next_point
+        end
+    end
+    local visible=assert(destination.document:getTextFromXPointers(first,last))
+    assert(require('weread.lib.source_dom').normalize(visible):find(expected,1,true),'new copy opened at the wrong text')
+    output.resumed_at_page=true
+end
+print('WEREAD_DIRECT_IMAGE_REFRESH='..json.encode(output))

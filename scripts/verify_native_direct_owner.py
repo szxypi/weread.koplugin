@@ -221,7 +221,7 @@ def main(argv=None):
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}
                 if args.neighbor:required|={'neighbor_matches','neighbor_offline_roundtrip','neighbor_missing_images'}
                 if args.copies:required|={'copies_offline_verified','copies_reader_positions'}
-                if args.image_refresh:required|={'image_refresh_verified','image_refresh_missing_before','image_refresh_missing_after'}
+                if args.image_refresh:required|={'image_refresh_verified','image_refresh_resumed','image_refresh_missing_before','image_refresh_missing_after'}
                 if args.offline_search:required.add('offline_search')
                 if args.online_search:required.add('online_search')
                 if args.online_missing:required.add('online_missing')
@@ -257,7 +257,7 @@ def main(argv=None):
                     neighbor_missing_images=result['neighbor_missing_images'])
                 if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
                 if args.image_refresh:report.update(image_refresh_verified=True,image_refresh_missing_before=result['image_refresh_missing_before'],
-                    image_refresh_missing_after=result['image_refresh_missing_after'])
+                    image_refresh_missing_after=result['image_refresh_missing_after'],image_refresh_resumed=True)
                 if args.offline_search:report['offline_search_verified']=True
                 if args.online_search:report.update(online_search_verified=True,native_progress_unchanged=True)
                 if args.online_missing:report.update(missing_cancel_verified=True,missing_download_verified=True)

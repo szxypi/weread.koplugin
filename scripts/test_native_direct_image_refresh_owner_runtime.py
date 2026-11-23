@@ -35,7 +35,8 @@ def main():
                 marker=b'\nWEREAD_DIRECT_OWNER_RUN=';assert child.stdout.count(marker)==1
                 result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
                 assert child.returncode==0 and result['result']=='PASS',result
-                assert result['image_refresh_verified'] and result['image_refresh_missing_before']==1 and result['image_refresh_missing_after']==0
+                assert result['image_refresh_verified'] and result['image_refresh_resumed']
+                assert result['image_refresh_missing_before']==1 and result['image_refresh_missing_after']==0
                 assert all(result[key] is True for key in ('offline_network_guard','profile_removed','credential_file_audit','installed_bytes_match'))
                 assert not server.leaked and server.catalog_valid and server.download_valid
                 assert not any(path in ('/book/read','/book/batchUploadProgress','/book/addBookmark','/review/add') for path in server.paths)

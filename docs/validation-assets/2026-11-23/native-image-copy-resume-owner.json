@@ -1,0 +1,20 @@
+{
+  "scope": "one real account, one chapter with two remote images",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "initial_failure": "image requests deliberately suppressed in an isolated profile",
+  "missing_images_before": 2,
+  "missing_images_after": 0,
+  "installed_reader_copy_resume": true,
+  "target_page_independently_checked_against_original_text": true,
+  "original_and_improved_files_preserved": true,
+  "improved_images_decoded_offline": 2,
+  "native_shelf_unchanged": true,
+  "web_position_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "separate_expired_authorization_renewal_posts": 1,
+  "credentials_written_to_files": false,
+  "temporary_profiles_removed": true,
+  "natural_missing_image_tested": false,
+  "physical_kindle_tested": false
+}

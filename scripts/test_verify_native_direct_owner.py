@@ -264,8 +264,11 @@ class NativeDirectOwnerTests(unittest.TestCase):
         result=dict(result='PASS',profile_removed=True,native_requests=5,source_matches=True,offline_reopen=True,
             offline_network_guard=True,web_coordinates=False,manual_time_blocked=True,credential_file_audit=True,
             installed_bytes_match=True,missing_images=1,warning_verified=True)
-        for proof,changed in ((False,False),(True,False),(True,True)):
+        for proof,resumed,changed in ((False,False,False),(True,False,False),(True,True,False),(True,True,True)):
+            for key in ('image_refresh_verified','image_refresh_resumed','image_refresh_missing_before','image_refresh_missing_after'):
+                result.pop(key,None)
             if proof:result.update(image_refresh_verified=True,image_refresh_missing_before=1,image_refresh_missing_after=0)
+            if resumed:result['image_refresh_resumed']=True
             child=SimpleNamespace(returncode=0,stdout=task.FRAME+json.dumps(result).encode()+b'\n');calls=[]
             web=SimpleNamespace(cookies=SimpleNamespace(clear=lambda:None),set_cookie=lambda *_args:None,
                 verify_account=lambda:None,request=lambda stage,*_args:calls.append(stage) or {})
@@ -278,9 +281,9 @@ class NativeDirectOwnerTests(unittest.TestCase):
                 saved.return_value.load.return_value={'vid':'123','cookies':{'wr_skey':'private-token'}}
                 native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
                 code=task.main(['--saved-session','--image-refresh','--compare-web-progress','--lua-command','runner'])
-            self.assertEqual(code,0 if proof and not changed else 1)
+            self.assertEqual(code,0 if proof and resumed and not changed else 1)
             report=json.loads(output.getvalue())
-            self.assertEqual(report.get('image_refresh_verified'),True if proof and not changed else None)
+            self.assertEqual(report.get('image_refresh_verified'),True if proof and resumed and not changed else None)
             self.assertNotIn('private',output.getvalue())
 
     def test_online_search_requires_proof_and_unchanged_native_progress(self):

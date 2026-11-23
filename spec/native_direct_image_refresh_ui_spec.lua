@@ -20,6 +20,10 @@ package.preload['weread.lib.native_read_recovery']=function() return {cancel=fun
 package.preload['weread.lib.native_direct_cache']=function() return {valid_entry=function(entry,id,account)
     return type(entry)=='table' and id=='42' and account=='123' end} end
 local result
+local offered,offer_error
+package.preload['weread.ui.native_direct_copy_resume']=function() return {offer=function(_,item,path)
+    if offer_error then error('dialog unavailable') end
+    offered={entry=item,path=path};return true end} end
 package.preload['weread.lib.native_direct_image_refresh']=function() return {run=function(_,_,native,entry,path,book,current)
     expect(native==selected and entry.book_id=='42' and path:find('/native-reader-v1/',1,true)
         and book.book_id=='42' and current(),'refresh task lost its source or account')
@@ -29,7 +33,7 @@ local Refresh=require('weread.ui.native_direct_image_refresh')
 local entry={book_id='42',file_id=string.rep('a',64),book_version=3,source_sha256=string.rep('b',64),
     missing_images=2,catalog_sha256=string.rep('c',64)}
 local function fixture()
-    authorized=true;result=nil
+    authorized=true;result=nil;offered=nil;offer_error=false
     local state={jobs={},online=true,account='owner',scope=scope,opened=0}
     local document={file='/tmp/native-reader-v1/old.epub'}
     local host={ui={document=document},client={},_reader_session_gen=1,
@@ -51,7 +55,11 @@ expect(not Refresh.start(host,entry) and s.message=='E-Ink authorization is requ
 host,s=fixture();expect(Refresh.start(host,entry),'refresh did not start')
 result={kind='improved',path='/tmp/native-reader-v1/new.epub',book_version=3,source_sha256=entry.source_sha256,missing_images=0}
 s.finish(1)
-expect(s.opened==0 and s.message:find('new chapter copy',1,true) and not host._native_direct_image_refresh,'improved copy changed the reader')
+expect(s.opened==0 and offered and offered.entry==entry and offered.path==result.path
+    and not host._native_direct_image_refresh,'improved copy changed the reader or lost its offer')
+host,s=fixture();Refresh.start(host,entry);offer_error=true
+result={kind='improved',path='/tmp/native-reader-v1/new.epub',book_version=3,source_sha256=entry.source_sha256,missing_images=0}
+s.finish(1);expect(s.message:find('new chapter copy',1,true) and s.opened==0,'unavailable offer did not preserve the manual fallback')
 host,s=fixture();Refresh.start(host,entry);result={kind='unchanged'};s.finish(1)
 expect(s.opened==0 and s.message:find('No additional images',1,true),'unchanged result was not explained')
 host,s=fixture();Refresh.start(host,entry);result={kind='improved',path=host.ui.document.file,book_version=3,

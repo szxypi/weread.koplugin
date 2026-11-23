@@ -93,7 +93,12 @@ function M.start(host,entry)
                 and result.path~=ctx.file and result.book_version==entry.book_version
                 and result.source_sha256==entry.source_sha256 and type(result.missing_images)=='number'
                 and result.missing_images%1==0 and result.missing_images>=0 and result.missing_images<entry.missing_images then
-                finish('Additional images were saved in a new chapter copy. Your current page is unchanged. Open the saved chapter list to use it.');return
+                local path=result.path;M.cancel(host)
+                local offered,shown=pcall(function() return require('weread.ui.native_direct_copy_resume').offer(host,entry,path) end)
+                if not offered or not shown then
+                    host:showInfo(_('Additional images were saved in a new chapter copy. Your current page is unchanged. Open the saved chapter list to use it.'))
+                end
+                return
             end
             finish('Could not retry the chapter images. The current chapter was kept.')
         end)

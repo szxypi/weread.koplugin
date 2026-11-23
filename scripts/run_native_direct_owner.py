@@ -110,13 +110,13 @@ def main(argv=None):
                 phase='image_refresh'
                 if not 1<=result['missing_images']<=64:raise ValueError('missing_fixture')
                 private=dict(path=str(path),credentials=payload['credentials'],book_id=payload['book_id'],uid=payload['uid'],
-                    initial_missing=result['missing_images'],owner=True)
+                    initial_missing=result['missing_images'],owner=True,resume=True)
                 if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
                 code,out,repaint=run_child([str(runtime/'luajit'),str(repo/'spec/koreader/native_direct_image_refresh_probe.lua')],
                     env,json.dumps(private,ensure_ascii=False).encode(),runtime,timeout=300)
                 refreshed=line(out,b'WEREAD_DIRECT_IMAGE_REFRESH=');improved=Path(refreshed.get('path',''))
-                if (code or repaint or set(refreshed)!={'ok','path','original_kept','page_unchanged','source_equal','missing_before','missing_after'}
-                        or any(refreshed[key] is not True for key in ('ok','original_kept','page_unchanged','source_equal'))
+                if (code or repaint or set(refreshed)!={'ok','path','original_kept','page_unchanged','source_equal','missing_before','missing_after','resumed_at_page'}
+                        or any(refreshed[key] is not True for key in ('ok','original_kept','page_unchanged','source_equal','resumed_at_page'))
                         or refreshed['missing_before']!=result['missing_images'] or refreshed['missing_after']!=0
                         or not improved.is_file() or profile not in improved.parents or improved==path):raise ValueError('refresh_result')
                 phase='image_refresh_offline'
@@ -275,7 +275,7 @@ def main(argv=None):
                 neighbor_missing_images=result['neighbor_missing_images'])
             if args.copies:report.update(copies_offline_verified=True,copies_reader_positions=True)
             if args.image_refresh:report.update(image_refresh_verified=True,image_refresh_missing_before=result['missing_images'],
-                image_refresh_missing_after=0)
+                image_refresh_missing_after=0,image_refresh_resumed=True)
             if args.offline_search:report['offline_search']=True
             if args.online_search:report['online_search']=True
             if args.online_missing:report['online_missing']=True

@@ -54,10 +54,12 @@ def main():
                         assert checked==dict(ok=True,scenario=scenario,page_unchanged=True,original_kept=True) and not server.leaked
                     payload.pop('scenario')
                     server.mode='remote';server.paths=[];server.leaked=False;server.catalog_valid=server.download_valid=True
+                    payload['resume']=True;payload['test_damage']=True
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_image_refresh_probe.lua')],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=240)
                     result=frame(child,'WEREAD_DIRECT_IMAGE_REFRESH=');new=result['path']
                     assert result['ok'] and result['page_unchanged'] and result['original_kept'] and result['source_equal']
+                    assert result['resumed_at_page'] and result['damaged_copy_rejected']
                     assert old!=new and Path(old).is_file() and Path(new).is_file() and not server.leaked
                     assert server.catalog_valid and server.download_valid and '/book/chapterdownload' in server.paths
                     assert not any(path in ('/book/read','/book/batchUploadProgress','/book/addBookmark','/review/add') for path in server.paths)
