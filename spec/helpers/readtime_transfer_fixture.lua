@@ -45,10 +45,22 @@ function M.new(mode,expect,roots,cb,config)
         local point={bookId=f.book_id,chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
             summary=summary,readingTime=reading,recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}
         if f.mode=='no_position' or f.mode=='no_position_nonzero' or f.mode=='no_position_audio'
+            or f.mode=='no_position_no_ack' or f.mode=='no_position_no_delta' or f.mode=='no_position_source_changed'
+            or f.mode=='no_position_web_mismatch' or f.mode=='no_position_web_changed' or f.mode=='no_position_new_chapter'
+            or f.mode=='no_position_presence_changed' or f.mode=='no_position_web_audio' or f.mode=='no_position_web_delay'
+            or f.mode=='no_position_missing_counter'
             or f.mode=='no_position_mixed' and not web then
             point.chapterUid,point.chapterIdx,point.chapterOffset,point.progress,point.summary=0,nil,0,0,nil
-            point.readingTime=f.mode=='no_position_nonzero' and 20 or 0
+            point.readingTime=(f.mode=='no_position_nonzero' and 20 or 0)+(f.applied and 2 or 0)
             if f.mode=='no_position_audio' then point.ttsTime=1 end
+            if web and f.mode=='no_position_web_audio' then point.recordReadingTime=1 end
+            if web and f.mode=='no_position_missing_counter' then point.readingTime=nil end
+            if web and f.mode=='no_position_web_delay' and f.posts>0 and f.reads<=1 then point.readingTime=0 end
+            if web and (f.mode=='no_position_web_mismatch' or f.mode=='no_position_web_changed' and f.posts>0) then
+                point.readingTime=point.readingTime+1
+            end
+            if f.mode=='no_position_new_chapter' and f.posts>0 then point.chapterUid=7 end
+            if f.mode=='no_position_presence_changed' and f.posts>0 then point.summary='' end
         end
         return {timestamp=f.clock,book=point}
     end
@@ -65,10 +77,10 @@ function M.new(mode,expect,roots,cb,config)
         if options.method=='POST' then
             expect(options.url=='https://i.weread.qq.com/book/batchUploadProgress');f.posts=f.posts+1
             expect(f.posts==1 and f.journal:pending(f.account).phase=='claimed','POST did not follow durable claim')
-            f.body=Json.decode(options.body);f.applied=f.mode~='no_delta'
+            f.body=Json.decode(options.body);f.applied=f.mode~='no_delta' and f.mode~='no_position_no_delta'
             if f.mode=='lost' then error('synthetic lost reply') end
             if f.mode=='cancel_post' then f.current=false end
-            data=f.mode=='no_ack' and {} or {succ=1}
+            data=(f.mode=='no_ack' or f.mode=='no_position_no_ack') and {} or {succ=1}
         elseif options.url:find('/book/info?',1,true) then
             data={bookId=f.book_id,bookVersion=(f.mode=='metadata_version' or f.mode=='metadata_changed_after' and f.posts>0) and 8 or f.book_version}
             if f.mode=='metadata_conflict' then data.version=8 end

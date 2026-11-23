@@ -2,7 +2,7 @@
 import copy
 import unittest
 
-from native_direct_time_trial_contract import day,validate_claim,validate_selection
+from native_direct_time_trial_contract import day,no_chapter_hash,validate_claim,validate_selection
 from native_direct_time_trial_store import Intent
 from native_time_bundle_native_record import point_hash
 from native_time_bundle_selection import native_digest
@@ -44,6 +44,18 @@ def fixture():
 
 
 class DirectTimeContractTests(unittest.TestCase):
+    def test_unstarted_baseline_binds_absence_and_optional_fields(self):
+        now,grant,expected,selection,reference,baseline,event=fixture()
+        raw=dict(bookId='42',chapterUid=0,chapterOffset=0,progress=0)
+        baseline.update(unstarted=True,native_point=copy.deepcopy(raw),web_point=copy.deepcopy(raw))
+        metadata=event['record']['metadata'];metadata['position_contract']='historical-time-no-chapter-presence-v1'
+        metadata['native_hash']=metadata['web_hash']=no_chapter_hash(raw,'42')
+        self.assertTrue(validate_claim(event,selection,reference,expected,baseline,grant,now))
+        for mutate in (lambda value:value.update(summary=''),lambda value:value.update(chapterIdx=0),
+                       lambda value:value.update(chapterUid=7)):
+            changed=copy.deepcopy(baseline);mutate(changed['web_point'])
+            with self.assertRaises(ValueError):validate_claim(event,selection,reference,expected,changed,grant,now)
+
     def test_selection_binds_source_and_whole_captured_intervals(self):
         now,grant,expected,selection,reference,baseline,event=fixture()
         self.assertIs(validate_selection(selection,reference,expected,6,now),selection)

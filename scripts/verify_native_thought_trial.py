@@ -49,7 +49,7 @@ from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectI
 from verify_native_direct_roundtrip import DirectTrialStore
 from secure_position_experiment import ExperimentStore as PositionExperimentStore
 from verify_annotation_experiment import AnnotationProbe
-from ordinary_unstarted_ui_prior import OrdinaryUnstartedUiTimeStore,OrdinaryUnstartedUiPositionStore
+from ordinary_unstarted_ui_prior import OrdinaryUnstartedUiTimeStore,OrdinaryUnstartedUiPositionStore,NativeDirectUnstartedTimeStore
 
 
 class TrialFailure(ValueError):
@@ -152,7 +152,7 @@ def readtime_pending():
     return False
 
 
-def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False,exclude_native_finish=False,exclude_mark_color=False,exclude_txt_full_summary=False,exclude_txt_zero_time=False,exclude_native_txt=False,exclude_native_txt_roundtrip=False,exclude_native_txt_flow=False,exclude_raw_txt_excerpt=False,exclude_native_reader_trial=False,exclude_native_reconnect_trial=False,exclude_ordinary_reconnect_trial=False,exclude_ordinary_reconnect_retry=False,exclude_ordinary_reconnect_third=False,exclude_ordinary_reconnect_fourth=False,exclude_native_close_trial=False,exclude_native_timer_trial=False,exclude_native_initial_position=False,exclude_native_initial_reader=False,exclude_native_direct_ui=False,exclude_native_direct_interval=False,exclude_native_direct_close=False,exclude_ordinary_ui_time=False,exclude_ordinary_ui_position=False):
+def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False,exclude_native_finish=False,exclude_mark_color=False,exclude_txt_full_summary=False,exclude_txt_zero_time=False,exclude_native_txt=False,exclude_native_txt_roundtrip=False,exclude_native_txt_flow=False,exclude_raw_txt_excerpt=False,exclude_native_reader_trial=False,exclude_native_reconnect_trial=False,exclude_ordinary_reconnect_trial=False,exclude_ordinary_reconnect_retry=False,exclude_ordinary_reconnect_third=False,exclude_ordinary_reconnect_fourth=False,exclude_native_close_trial=False,exclude_native_timer_trial=False,exclude_native_initial_position=False,exclude_native_initial_reader=False,exclude_native_direct_ui=False,exclude_native_direct_interval=False,exclude_native_direct_close=False,exclude_ordinary_ui_time=False,exclude_ordinary_ui_position=False,exclude_direct_unstarted_time=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or not exclude_native_finish and NativeFinishTrialStore().pending()
@@ -177,6 +177,7 @@ def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclud
             or not exclude_native_direct_close and NativeDirectCloseTrialStore().pending()
             or not exclude_ordinary_ui_time and OrdinaryUnstartedUiTimeStore().pending()
             or not exclude_ordinary_ui_position and OrdinaryUnstartedUiPositionStore().pending()
+            or not exclude_direct_unstarted_time and NativeDirectUnstartedTimeStore().pending()
             or InitialMarkStyleStore().read()[0] is not None
             or NonemptyMarksStore().read()[0] is not None
             or readtime_pending()

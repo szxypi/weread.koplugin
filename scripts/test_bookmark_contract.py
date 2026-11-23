@@ -112,6 +112,7 @@ class BookmarkContractTests(unittest.TestCase):
                 contexts.enter_context(patch.object(task,'NativeDirectCloseTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'OrdinaryUnstartedUiTimeStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'OrdinaryUnstartedUiPositionStore')).return_value.pending.return_value=False
+                contexts.enter_context(patch.object(task,'NativeDirectUnstartedTimeStore')).return_value.pending.return_value=False
                 native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
                 txt_zero.return_value.pending.return_value=False
                 txt_full.return_value.pending.return_value=False

@@ -10,10 +10,36 @@ from native_direct_time_trial_store import Intent
 from test_cb_fixture_position_transport import MemoryBackend
 from test_native_direct_time_trial_contract import fixture
 from verify_readtime_upload import expected_statistics
+from verify_native_statistics import period
 import verify_native_direct_time_trial as task
 
 
 class DirectTimeSupervisorTests(unittest.TestCase):
+    def test_unstarted_snapshots_bind_both_channel_counts_and_shelves(self):
+        raw=dict(bookId='42',chapterUid=0,chapterOffset=0,progress=0,readingTime=0,recordReadingTime=0,ttsTime=0)
+        month=1698796800
+        class Read:
+            def __init__(self,*_args):pass
+            def progress(self):return deepcopy(raw)
+            def stats(self):return dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0)
+        class Probe:
+            def request(self,*_args,**_kwargs):return dict(books=[],archive=[])
+        class Web:
+            def request(self,stage,*_args):return dict(books=[],archive=[]) if stage=='shelf' else deepcopy(raw)
+        web=Web()
+        with patch.object(task,'NativeRead',Read),patch.object(task,'ChapterProbe',Probe):
+            before=task.snapshot({},'42',web,unstarted=True)
+        self.assertTrue(before['unstarted']);self.assertEqual(before['counts'],before['web_counts'])
+        self.assertEqual(before['native_point'],dict(bookId='42',chapterUid=0,chapterOffset=0,progress=0))
+        after=deepcopy(before);after['counts']['readingTime']=2;after['web_counts']['readingTime']=2
+        start=1700000000;month=str(period('monthly',start)[0])
+        before['months']={month:dict(baseTime=int(month),readTimes={},totalReadTime=0,readDays=0)}
+        after['months']={month:expected_statistics(before['months'][month],start,2)}
+        self.assertTrue(task.matching_target(before,after,2,start))
+        after['web_counts']['readingTime']=0;self.assertFalse(task.matching_target(before,after,2,start))
+        after['web_counts']['readingTime']=2;after['web_shelf_hash']='changed'
+        self.assertFalse(task.matching_target(before,after,2,start))
+
     def exercise(self,mode,predecessor=None,automatic=False):
         now,grant,expected,selection,reference,baseline,event=fixture()
         raw=b'Synthetic direct book content';source_hash=hashlib.sha256(raw).hexdigest()

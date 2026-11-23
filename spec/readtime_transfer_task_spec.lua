@@ -263,7 +263,7 @@ local function direct_fixture(mode,current_day)
     item.options.observe_source=nil
     Direct.observe=function(_client,_settings,account,selection,file,_native,_web,current,previous)
         item.source_reads=item.source_reads+1
-        if not current() or item.mode=='source_changed' and previous and item.posts>0
+        if not current() or (item.mode=='source_changed' or item.mode=='no_position_source_changed') and previous and item.posts>0
             or item.mode=='source_before' and previous then return nil end
         expect(account==item.account and selection.file_id==item.file_id and file==direct_ref.file)
         return {kind='native_direct',ref=direct_ref,account=account,file_id=selection.file_id}
@@ -282,24 +282,45 @@ f=direct_fixture('source_before')
 result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
 expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'changed source reached dispatch')
 for _i,current_day in ipairs({false,true}) do
-    f=direct_fixture('no_position',current_day)
-    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
-    expect(result.kind=='position_required' and not result.attempted and f.posts==0
-        and f.ledger:summary(f.account).pending==2 and f.journal:pending(f.account)==nil,
-        'unstarted book did not preserve its pending time and explain the next step')
+    for _j,mode in ipairs({'no_position','no_position_nonzero'}) do
+        f=direct_fixture(mode,current_day)
+        result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+        expect(result.kind=='confirmed' and result.attempted and f.posts==1
+            and f.ledger:summary(f.account).confirmed==2 and f.journal:pending(f.account)==nil,
+            'unstarted time did not settle: '..mode)
+        record=assert(f.journal:get(f.account,result.attempt))
+        expect(record.metadata.position_contract==require('weread.lib.readtime_point').NO_CHAPTER,
+            'unstarted position contract missing')
+        result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+        expect(not result.attempted and f.posts==1,'unstarted time replayed')
+    end
 end
-f=direct_fixture('no_position_nonzero',true)
-result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
-expect(result.kind=='position_required' and not result.attempted and f.posts==0
-    and f.ledger:summary(f.account).pending==2 and f.journal:pending(f.account)==nil,
-    'first-position guidance was not shown when ordinary time existed')
-for _i,mode in ipairs({'no_position_audio','no_position_mixed'}) do
+for _i,mode in ipairs({'no_position_audio','no_position_mixed','no_position_web_mismatch',
+    'no_position_web_audio','no_position_missing_counter'}) do
     f=direct_fixture(mode,true)
     result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
     expect(result.kind=='unavailable' and not result.attempted and f.posts==0
         and f.ledger:summary(f.account).pending==2 and f.journal:pending(f.account)==nil,
         'uncertain first-position baseline was treated as safe: '..mode)
 end
+f=direct_fixture('no_position_web_delay',true)
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and result.readbacks==3 and f.posts==1,'unstarted Web counter delay was not verified')
+for _i,mode in ipairs({'no_position_no_ack','no_position_source_changed','no_position_web_changed',
+    'no_position_new_chapter','no_position_presence_changed'}) do
+    f=direct_fixture(mode,true)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+    expect(result.kind=='unconfirmed' and result.attempted and f.posts==1 and f.ledger:summary(f.account).confirmed==0,mode)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+    expect(not result.attempted and f.posts==1,'uncertain unstarted transfer replayed: '..mode)
+end
+f=direct_fixture('no_position_no_delta',true)
+result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)
+record=assert(f.journal:pending(f.account));expect(result.kind=='unconfirmed' and record.phase=='acknowledged')
+f.applied=true;local unstarted_configs=f.configs
+result=Task.resolve(f.client,f.settings,f.native,f.web,record,{direct_ref},f.journal,f.options)
+expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==unstarted_configs,
+    'unstarted read-only resolution failed or resent')
 for _i,mode in ipairs({'lost','no_ack','source_changed'}) do
     f=direct_fixture(mode)
     result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{direct_ref},f.journal,f.options)

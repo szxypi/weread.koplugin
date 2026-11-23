@@ -61,6 +61,10 @@ class PriorTests(unittest.TestCase):
             position.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_ordinary_ui_time=True))
             self.assertFalse(shared.other_pending(exclude_ordinary_ui_time=True,exclude_ordinary_ui_position=True))
+            direct=factories['NativeDirectUnstartedTimeStore'].return_value;direct.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_ordinary_ui_time=True,exclude_ordinary_ui_position=True))
+            self.assertFalse(shared.other_pending(exclude_ordinary_ui_time=True,exclude_ordinary_ui_position=True,
+                exclude_direct_unstarted_time=True))
 
 
 if __name__=='__main__':unittest.main()

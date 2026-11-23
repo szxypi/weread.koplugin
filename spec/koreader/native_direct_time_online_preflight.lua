@@ -106,12 +106,12 @@ repeat
 until found.kind~='more'
 assert(found.kind=='found')
 local journal=require('weread.lib.readtime_transfer_store'):new{ledger=ledger,coverage=coverage,codec=client}
-local begin=journal.begin;local reached=false
+local begin=journal.begin;local reached=false;local captured_contract
 journal.begin=function(_self,owner,batch,metadata)
     assert(not reached and owner==account and digest(batch)==digest(selection) and metadata.seconds==selection.seconds
         and metadata.protocol=='native-current-time-cst-v1' and metadata.source.file_id==selection.file_id
         and type(metadata.request_hash)=='string' and #metadata.request_hash==64)
-    reached=true;return nil
+    reached=true;captured_contract=metadata.position_contract;return nil
 end
 local Source=require('weread.lib.native_direct_readtime_source');local observe=Source.observe;local source_reason='none'
 Source.observe=function(...)
@@ -141,7 +141,8 @@ journal.begin=begin
 assert(not result.attempted and not result.acknowledged)
 assert(digest(assert(ledger:pending(account)))==before and not journal:pending(account))
 local expected=input.expect_no_position==true
-local matched=expected and result.kind=='position_required' and not reached or not expected and reached
+local ready=expected and reached and captured_contract==Point.NO_CHAPTER
+local matched=ready or not expected and reached and captured_contract==Point.CONTRACT
 print('WEREAD_DIRECT_TIME_ONLINE='..json.encode{ok=matched and blocked==0,blocked_before_dispatch=true,ledger_unchanged=true,
     last=last,requests=count,rejected=rejected,last_status=last_status,source_reason=source_reason,transport=transport,
-    error_line=error_line,point_failure=point_failure,write_guard_verified=true,position_required=result.kind=='position_required'})
+    error_line=error_line,point_failure=point_failure,write_guard_verified=true,unstarted_time_ready=ready})

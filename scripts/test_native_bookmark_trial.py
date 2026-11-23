@@ -166,6 +166,7 @@ class NativeBookmarkTests(unittest.TestCase):
                 contexts.enter_context(patch.object(shared,'NativeDirectCloseTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(shared,'OrdinaryUnstartedUiTimeStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(shared,'OrdinaryUnstartedUiPositionStore')).return_value.pending.return_value=False
+                contexts.enter_context(patch.object(shared,'NativeDirectUnstartedTimeStore')).return_value.pending.return_value=False
                 native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
                 txt_zero.return_value.pending.return_value=False
                 txt_full.return_value.pending.return_value=False

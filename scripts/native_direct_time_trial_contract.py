@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from native_time_bundle_native_record import point_hash
 from native_time_bundle_selection import native_digest
 from native_time_capture_evidence import account_key
+from native_initial_position import no_chapter
 from readtime_upload_model import batch,integer,validate_rows
 from verify_native_position_lua import equivalent
 
@@ -14,6 +15,18 @@ def valid_hash(value):return isinstance(value,str) and re.fullmatch('[a-f0-9]{64
 
 
 def day(stamp):return (stamp+28800)//86400*86400-28800
+
+
+def no_chapter_hash(raw,book):
+    from verify_reader_progress import find_node
+    node=find_node(raw,book)
+    def optional(key):
+        if key not in node:return {'present':False}
+        value=node[key]
+        if not isinstance(value,str) or len(value.encode())>16384 or '\0' in value:raise ValueError('direct_time/no_chapter')
+        return {'present':True,'value':value}
+    return native_digest(dict(contract='historical-time-no-chapter-presence-v1',state=no_chapter(raw,book),
+        summary=optional('summary'),chapter_title=optional('chapterTitle')))
 
 
 def validate_selection(selection,reference,expected,seconds,now=None):
@@ -93,11 +106,14 @@ def validate_claim(event,selection,reference,expected,baseline,grant,now=None):
         inner.get('random'),body.get('timestamp'),body.get('random'),current_zone='+08:00')
     if not equivalent(calculated,body):raise ValueError('direct_time/signature')
     request_hash=native_digest(body)
-    values={'protocol':'native-current-time-cst-v1','position_contract':'historical-time-point-presence-v1',
+    unstarted=baseline.get('unstarted') is True
+    point_contract='historical-time-no-chapter-presence-v1' if unstarted else 'historical-time-point-presence-v1'
+    native_hash=no_chapter_hash(baseline['native_point'],expected['book_id']) if unstarted else point_hash(baseline['native_point'],expected['book_id'])
+    web_hash=no_chapter_hash(baseline['web_point'],expected['book_id']) if unstarted else point_hash(baseline['web_point'],expected['book_id'])
+    values={'protocol':'native-current-time-cst-v1','position_contract':point_contract,
         'book_id':expected['book_id'],'file_id':selection['file_id'],'book_version':expected['version'],
         'seconds':selection['seconds'],'day':day(stamp),'created_at':stamp,'device_hash':native_digest(grant['deviceId']),
-        'native_hash':point_hash(baseline['native_point'],expected['book_id']),
-        'web_hash':point_hash(baseline['web_point'],expected['book_id']),'counts':baseline['counts'],
+        'native_hash':native_hash,'web_hash':web_hash,'counts':baseline['counts'],
         'shelf_hash':baseline['shelf_hash'],'months':baseline['months'],'request_hash':request_hash}
     if (record['request_hash']!=request_hash or any(not equivalent(metadata.get(key),value) for key,value in values.items())
             or set(metadata)!=set(values)|{'source'}):raise ValueError('direct_time/baseline')

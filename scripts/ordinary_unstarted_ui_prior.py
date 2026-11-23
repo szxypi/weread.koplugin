@@ -43,6 +43,14 @@ class OrdinaryUnstartedUiPositionStore(OrdinaryUnstartedUiTimeStore):
             lock=(lambda:project_lock(path)) if backend is None else None)
 
 
+class NativeDirectUnstartedTimeStore(OrdinaryUnstartedUiTimeStore):
+    service='org.codex.weread.native-direct-unstarted-time-v1'
+    def __init__(self,backend=None):
+        path=Path(tempfile.gettempdir())/('codex-native-direct-unstarted-time-'+ACCOUNT+'.lock')
+        Intent.__init__(self,backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT),
+            lock=(lambda:project_lock(path)) if backend is None else None)
+
+
 class PreviousSamples:
     def __init__(self,time_store,position_store):
         self.time_store=time_store;self.position_store=position_store

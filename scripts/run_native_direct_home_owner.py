@@ -229,7 +229,7 @@ def main(argv=None):
                         report['preflight_point_failure']=observed['point_failure']
                     if (code or repaint or observed.get('ok') is not True or observed.get('blocked_before_dispatch') is not True
                             or observed.get('ledger_unchanged') is not True or observed.get('write_guard_verified') is not True
-                            or observed.get('position_required') is not args.no_position_guidance
+                            or observed.get('unstarted_time_ready') is not args.no_position_guidance
                             or type(observed.get('requests')) is not int
                             or not 1<=observed['requests']<=100):
                         raise ValueError('offline_time_preflight')

@@ -32,12 +32,15 @@ class StoreHandler(Handler):
                 value=dict(timestamp=int(time.time()),bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,
                     summary='Synthetic point',readingTime=100+getattr(self.server,'time_delta',0),recordReadingTime=0,ttsTime=0)
                 if self.server.no_position:
-                    value.update(chapterUid=0,chapterOffset=0,progress=0,readingTime=0)
+                    value.update(chapterUid=0,chapterOffset=0,progress=0,
+                        readingTime=getattr(self.server,'time_initial',0)+getattr(self.server,'time_delta',0))
                     value.pop('chapterIdx');value.pop('summary')
             elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET':
                 value=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,summary='Synthetic point')
                 if self.server.no_position:
-                    value.update(chapterUid=0,chapterOffset=0,progress=0);value.pop('chapterIdx');value.pop('summary')
+                    value.update(chapterUid=0,chapterOffset=0,progress=0,
+                        readingTime=getattr(self.server,'time_initial',0)+getattr(self.server,'time_delta',0),
+                        recordReadingTime=0,ttsTime=0);value.pop('chapterIdx');value.pop('summary')
             elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
                 body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 self.server.valid &= body==dict(bookIds=['42'])

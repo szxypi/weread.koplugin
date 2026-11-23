@@ -24,7 +24,8 @@ from shelf_flag_change_contract import state_hash
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--ko2',action='store_true');parser.add_argument('--automatic',action='store_true')
-    parser.add_argument('--full-interval',action='store_true');args=parser.parse_args()
+    parser.add_argument('--full-interval',action='store_true');parser.add_argument('--unstarted',action='store_true')
+    args=parser.parse_args()
     if args.full_interval and not args.automatic:parser.error('full interval requires automatic mode')
     server=ThreadingHTTPServer(('127.0.0.1',0),StoreHandler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -34,17 +35,20 @@ def main():
             subprocess.run(['bash',str(REPO/'scripts/package_release.sh'),str(candidate)],cwd=REPO,check=True,capture_output=True)
             cases=((False,True,False),) if args.full_interval else ((False,True,False),(True,True,False),(True,True,True),(True,False,False))
             for armed,ack,add_zero in cases:
-                server.time_preflight=True;server.no_position=False;server.live_time=True;server.time_delta=0;server.time_ack=ack
+                server.time_preflight=True;server.no_position=args.unstarted;server.live_time=True;server.time_delta=0;server.time_ack=ack
+                server.time_initial=20 if args.unstarted else 0
                 server.time_add_zero=add_zero
                 server.mode='preview';server.calls=[];server.leaked=False;server.valid=True;server.review=None
                 fixture.BODY=BODY
                 token=secrets.token_hex(16)
                 raw_point=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,summary='Synthetic point')
                 point=full_point(raw_point,'42','native');month=period('monthly',int(time.time()))[0]
-                baseline=dict(native_point=point,web_point=point,counts=dict(readingTime=100,recordReadingTime=0,ttsTime=0),
+                if args.unstarted:point=dict(bookId='42',chapterUid=0,chapterOffset=0,progress=0)
+                baseline=dict(native_point=point,web_point=point,counts=dict(readingTime=20 if args.unstarted else 100,recordReadingTime=0,ttsTime=0),
                     shelf_hash=state_hash(dict(books=[dict(bookId='42',finishReading=0,secret=0)],archive=[])),
                     months={str(month):dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0)},
                     guest='5ecdcfd7f',config_token='synthetic-config')
+                if args.unstarted:baseline['unstarted']=True
                 expected=dict(book_id='42',uid='37',version=1,source_sha256=hashlib.sha256(BODY.encode()).hexdigest())
                 payload=dict(token=token,armed=armed,credentials=dict(vid='12345678',accessToken='synthetic-access',
                     refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19),

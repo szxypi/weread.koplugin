@@ -16,6 +16,9 @@ from urllib.parse import urlencode
 
 from native_direct_time_trial_contract import day,validate_claim,validate_selection
 from native_direct_time_trial_store import Intent
+from native_direct_unstarted_prior import PriorSamples
+from native_initial_position import no_chapter,counts as no_chapter_counts
+from ordinary_unstarted_ui_prior import OrdinaryUnstartedUiTimeStore,OrdinaryUnstartedUiPositionStore,NativeDirectUnstartedTimeStore,inspect_book
 from native_trial_pipe import Frames,reply,stop,write_initial
 from readtime_statistics import compare,validate as validate_statistics
 from readtime_upload_model import confirmed,guest_token
@@ -32,6 +35,7 @@ from verify_native_txt_position import Native
 from verify_native_statistics import period
 from verify_readtime_upload import counters,expected_statistics
 from verify_web_source_progress import BASE as WEB,WebSourceProbe
+from verify_reader_progress import find_node
 
 
 def trusted_command(armed,automatic=False):
@@ -51,11 +55,22 @@ def web_cookies(probe,owner):
     return values
 
 
-def snapshot(grant,book,web):
+def snapshot(grant,book,web,*,unstarted=False):
     api=NativeRead(grant,book);native_raw=api.progress();stats=api.stats()
     web.book_id=book;web_raw=web.request('progress_after',WEB+'/web/book/getProgress?'+urlencode({'bookId':book}))
     shelf=ChapterProbe().request('shelf',BASE+'/shelf/sync',credentials=grant)
     month=str(stats['baseTime'])
+    if unstarted:
+        def point(raw):
+            value=no_chapter(raw,book);node=find_node(raw,book)
+            result=dict(bookId=book,chapterUid=0,chapterOffset=0,progress=0)
+            if value['index_present']:result['chapterIdx']=0
+            for key in ('summary','chapterTitle'):
+                if key in node:result[key]=node[key]
+            return result
+        return dict(native_point=point(native_raw),web_point=point(web_raw),counts=no_chapter_counts(native_raw,book),
+            web_counts=no_chapter_counts(web_raw,book),shelf_hash=state_hash(shelf),
+            web_shelf_hash=state_hash(web.request('shelf',WEB+'/web/shelf/sync')),months={month:stats},unstarted=True)
     return dict(native_point=full_point(native_raw,book,'native'),web_point=full_point(web_raw,book,'web'),
         counts=counters(native_raw,book),shelf_hash=state_hash(shelf),months={month:stats})
 
@@ -64,6 +79,9 @@ def matching_target(before,after,seconds,start,*,allow_added_zero=False):
     if any(before[key]!=after[key] for key in ('native_point','web_point','shelf_hash')):return False
     counts=dict(before['counts']);counts['readingTime']+=seconds
     if after['counts']!=counts:return False
+    if before.get('unstarted') is True:
+        if after.get('unstarted') is not True or before['web_counts']!=before['counts'] or after['web_counts']!=counts \
+                or before['web_shelf_hash']!=after['web_shelf_hash']:return False
     month=str(period('monthly',start)[0])
     if set(before['months'])!={month} or set(after['months'])!={month}:return False
     validate_statistics(after['months'])
@@ -84,35 +102,55 @@ def matching_target(before,after,seconds,start,*,allow_added_zero=False):
     return False
 
 
-def run(*,apply=False,intent=None,predecessor=None,automatic=False):
-    if type(apply) is not bool or type(automatic) is not bool:raise ValueError('direct_time/mode')
+def run(*,apply=False,intent=None,predecessor=None,automatic=False,unstarted=False):
+    if type(apply) is not bool or type(automatic) is not bool or type(unstarted) is not bool:raise ValueError('direct_time/mode')
     report=dict(result='UNVERIFIED',phase='start',account_data_posts=0,authentication_posts=0,
         dispatch_may_have_occurred=False,private_data_in_report=False)
     child=web=saved=grant=None;receipt=None;awaiting=None
     try:
-        intent=Intent() if intent is None else intent
+        intent=(NativeDirectUnstartedTimeStore() if unstarted else Intent()) if intent is None else intent
         if intent.read()!=(None,None) or other_pending():raise ValueError('direct_time/pending')
         command=trusted_command(apply,automatic)
         saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
+        if unstarted:
+            from verify_ordinary_unstarted_time import store as old_time
+            from verify_ordinary_unstarted_initial import store as old_position
+            prior=PriorSamples(old_time(),old_position(),OrdinaryUnstartedUiTimeStore(),OrdinaryUnstartedUiPositionStore())
+            prior.check(grant)
+        else:prior=None
         def current():return SessionStore().load()==saved and NativeSessionStore().load(saved['vid'])==grant
         if grant['vid']!=saved['vid'] or not current():raise ValueError('direct_time/session')
         if predecessor is not None:predecessor.check(grant)
-        report['phase']='sample';probe=ChapterProbe();sample,chapter,source=probe.inspect(grant,1)
+        report['phase']='sample';probe=ChapterProbe();sample,chapter,source=probe.inspect(grant,3 if unstarted else 1)
         book=sample['book_id'];uid=str(chapter['uid']);version=sample['expected']['version']
+        if prior:prior.check(grant,book)
         if sample['expected']['format']!='epub' or not source['html'] or type(version) is not int or version<=0:
             raise ValueError('direct_time/source')
         expected=dict(book_id=book,uid=uid,version=version,source_sha256=hashlib.sha256(source['source']).hexdigest())
         web=WebSourceProbe();web.vid=saved['vid']
         for key,value in saved['cookies'].items():web.set_cookie(key,value)
-        web.verify_account();cookies=web_cookies(web,saved['vid'])
-        initial=snapshot(grant,book,web)
+        web.verify_account();web.book_id=book;cookies=web_cookies(web,saved['vid'])
+        if unstarted:
+            from verify_ordinary_unstarted_initial import chapter_index
+            from verify_native_direct_roundtrip import catalog,current_source
+            web.chapter=uid;index=chapter_index(web,book,uid);catalog_hash=catalog(web,book,uid,index)
+            def unchanged_source():
+                chosen,chosen_chapter,raw=inspect_book(grant,book)
+                return (chosen['expected']['version']==version and str(chosen_chapter['uid'])==uid
+                    and hashlib.sha256(raw['source']).hexdigest()==expected['source_sha256']
+                    and catalog(web,book,uid,index)==catalog_hash
+                    and hashlib.sha256(current_source(chosen,uid,grant,web)).hexdigest()==expected['source_sha256'])
+            if not unchanged_source():raise ValueError('direct_time/source')
+        initial=snapshot(grant,book,web,unstarted=unstarted)
+        if unstarted and (initial['counts']!=initial['web_counts'] or initial['counts']['recordReadingTime']!=0
+                or initial['counts']['ttsTime']!=0):raise ValueError('direct_time/counts')
         native=Native(grant,book)
         config=native.request('time_config',BASE+'/config?token=1',credentials=grant)
         feature=native.request('time_feature',BASE+'/feature?synckey=0',credentials=grant)
         guest,_=guest_token(feature);config_token=config.get('token')
         if not isinstance(config_token,str) or not 1<=len(config_token)<=4096:raise ValueError('direct_time/config')
         baseline=dict(initial,guest=guest,config_token=config_token)
-        if not current() or web_cookies(web,saved['vid'])!=cookies or snapshot(grant,book,web)!=initial:
+        if not current() or web_cookies(web,saved['vid'])!=cookies or snapshot(grant,book,web,unstarted=unstarted)!=initial:
             raise ValueError('direct_time/changed')
         stamp=int(time.time());month=period('monthly',stamp)[0]
         if set(initial['months'])!={str(month)} or day(stamp)!=day(stamp+240):raise ValueError('direct_time/clock')
@@ -134,14 +172,18 @@ def run(*,apply=False,intent=None,predecessor=None,automatic=False):
                 selection,reference=event.get('selection'),event.get('reference')
                 validate_selection(selection,reference,expected,seconds,now=int(time.time()))
                 if predecessor is not None:predecessor.check(grant,selection)
+                if prior:prior.check(grant,book,selection)
                 start=selection['protocol_rows'][0]['start_time'];permitted=current()
             elif name=='claim' and sequence==['ready','selection']:
                 validate_selection(selection,reference,expected,seconds,now=int(time.time()))
                 validate_claim(event,selection,reference,expected,baseline,grant,now=int(time.time()))
-                if not current() or web_cookies(web,saved['vid'])!=cookies or snapshot(grant,book,web)!=initial:
+                if (not current() or web_cookies(web,saved['vid'])!=cookies
+                        or snapshot(grant,book,web,unstarted=unstarted)!=initial
+                        or unstarted and not unchanged_source()):
                     raise ValueError('direct_time/changed')
                 validate_claim(event,selection,reference,expected,baseline,grant,now=int(time.time()))
                 if predecessor is not None:predecessor.check(grant,selection,event['record'])
+                if prior:prior.check(grant,book,selection)
                 if apply:
                     plan=dict(selection=deepcopy(selection),record=deepcopy(event['record']),body=deepcopy(event['body']),
                         baseline=deepcopy(initial))
@@ -167,12 +209,13 @@ def run(*,apply=False,intent=None,predecessor=None,automatic=False):
             report['phase']='readback';previous=None;stable=0
             for attempt in range(4):
                 if attempt:time.sleep(2)
-                after=snapshot(grant,book,web)
+                after=snapshot(grant,book,web,unstarted=unstarted)
                 if matching_target(initial,after,seconds,start,allow_added_zero=True):
                     stable=stable+1 if after==previous else 1;previous=after
                     if stable>=2:break
                 else:stable=0;previous=None
-            if stable<2 or not current():raise ValueError('direct_time/readback')
+            if (stable<2 or not current() or unstarted and (not unchanged_source() or not prior.check(grant,book,selection))):
+                raise ValueError('direct_time/readback')
             receipt=intent.advance(receipt,'verified')
             report.update(result='DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED',phase='complete',profile_removed=True,
                 seconds=seconds,independent_readbacks=stable,position_unchanged=True,shelf_unchanged=True,
@@ -193,11 +236,11 @@ def run(*,apply=False,intent=None,predecessor=None,automatic=False):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
-    parser.add_argument('--apply',action='store_true');args=parser.parse_args(argv)
+    parser.add_argument('--apply',action='store_true');parser.add_argument('--unstarted',action='store_true');args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('--apply requires --saved-session')
     if not args.saved_session:
         print(json.dumps(dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0)));return 0
-    resource.setrlimit(resource.RLIMIT_CORE,(0,0));report=run(apply=args.apply);print(json.dumps(report))
+    resource.setrlimit(resource.RLIMIT_CORE,(0,0));report=run(apply=args.apply,unstarted=args.unstarted);print(json.dumps(report))
     return int(report['result'] not in ('DIRECT_NATIVE_TIME_DRY_VERIFIED','DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED'))
 
 
