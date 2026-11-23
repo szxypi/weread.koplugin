@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-24",
+  "result": "NATIVE_DIRECT_DRAFT_BACKGROUND_CHECK_VERIFIED",
+  "synthetic_installed_plugin_resolutions": [[600, 800], [1264, 1680]],
+  "synthetic_slow_source_check_seconds": 4,
+  "ui_event_processed_while_source_check_running": true,
+  "source_lease_held_until_editor_closes": true,
+  "cancel_and_late_result_guarded_in_component_tests": true,
+  "offline_draft_saved_and_resumed": true,
+  "online_mock_roundtrip": true,
+  "real_owner_reader_resolution": [1264, 1680],
+  "real_owner_isolated_reader_offline_draft_save_resume": true,
+  "real_owner_account_data_writes": 0,
+  "real_owner_authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "temporary_profile_removed": true,
+  "physical_kindle_tested": false
+}

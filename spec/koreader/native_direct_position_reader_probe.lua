@@ -166,7 +166,16 @@ if input.mode:find('^selection_direct') then
                     action();assert(not owner.editor and host.checked_message==tr('This chapter is being updated or cleaned. Try opening the thought again.'))
                     lease:release();host.checked_message=nil
                 end
-                action()
+                if input.mode=='selection_direct_thought_offline_slow_check' then
+                    local cache=require('weread.lib.native_direct_cache');local identify=cache.identify
+                    cache.identify=function(...) socket.sleep(4);return identify(...) end
+                    local started=socket.gettime();action();cache.identify=identify
+                    assert(socket.gettime()-started<2 and owner.editor and not owner.editor.input,'source check blocked UI')
+                    local pulse=false;UI:scheduleIn(.1,function() pulse=true end)
+                    wait(function() return pulse end)
+                    assert(socket.gettime()-started<3 and not owner.editor.input,'UI stalled while checking source')
+                else action() end
+                if thought then wait(function() return owner.editor and owner.editor.input or host.checked_message end) end
                 local function tap(id)
                     UI:forceRePaint();local popup=assert(owner.menu._shelf_popup)
                     assert(popup.button_table:getButtonById(id),'missing '..id):onTapSelectButton()
@@ -182,14 +191,14 @@ if input.mode:find('^selection_direct') then
                         assert(not cache.acquire(host.settings,owner.scope.vid,owner.id),'open thought editor did not protect its chapter')
                     end
                     if input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
-                        or input.mode=='selection_direct_thought_offline_locked' then
+                        or input.mode=='selection_direct_thought_offline_locked' or input.mode=='selection_direct_thought_offline_slow_check' then
                         tap('save_thought_draft');wait(function() return not owner.editor end)
                         assert(host.checked_message==tr('Thought draft saved on this device.'));host.checked_message=nil
                         local drafts_action
                         for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Local thought drafts') then drafts_action=item.callback;break end end
                         assert(drafts_action);drafts_action();assert(owner.editor and owner.editor.dialog.item_table[1])
                         owner.editor.dialog.item_table[1].callback();tap('resume_thought_draft')
-                        wait(function() return owner.editor and owner.editor.input end)
+                        wait(function() return owner.editor and owner.editor.input or host.checked_message end)
                         assert(owner.editor.input:getInputText()=='Synthetic private thought','direct draft did not restore')
                         require('weread.ui.thought_editor').cancel(host,owner)
                         if input.mode=='selection_direct_thought_offline_locked' then
@@ -209,7 +218,8 @@ if input.mode:find('^selection_direct') then
                 local changed=input.mode:find('_changed$')~=nil
                 local pending=input.mode:find('_no_effect$')~=nil
                 assert(input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
-                    or input.mode=='selection_direct_thought_offline_locked' or host.checked_message==tr(pending and (thought
+                    or input.mode=='selection_direct_thought_offline_locked' or input.mode=='selection_direct_thought_offline_slow_check'
+                    or host.checked_message==tr(pending and (thought
                     and 'A thought change needs checking. Use Check last thought change before submitting again.'
                     or 'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.')
                     or changed and (thought

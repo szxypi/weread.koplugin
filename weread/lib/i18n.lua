@@ -265,6 +265,7 @@ local zh = {
     ["No local thought drafts."] = "暂无本机想法草稿。",
     ["This draft refers to an older cloud version. View or delete it in Local thought drafts; refresh before editing again."] = "草稿对应的云端内容已变化。可在“本机想法草稿”中查看或删除，刷新后再编辑。",
     ["Closing this window stops the check. Any submitted change will only be checked, never sent again."] = "关闭此窗口将停止核对。已提交的修改只会继续核对，不会重复提交。",
+    ["Closing this window stops the check."] = "关闭此窗口将停止核对。",
     ["A thought change needs checking. Use Check last thought change before submitting again."] = "有一条想法修改需要核对。请先使用“核对上次想法修改”。",
     ["The thought or quoted highlight changed, or could not be checked. Your local draft is kept. Refresh and try again."] = "想法或引用划线已变化，或暂时无法核对。已保留本机草稿，请刷新后重试。",
     ["Cloud thought change verified."] = "已核对云端想法修改成功。",

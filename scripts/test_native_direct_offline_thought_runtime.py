@@ -42,6 +42,7 @@ def run(runtime):
                     reader('selection_direct_offline_missing',True)
                     native_source.write_bytes(native_raw)
                     reader('selection_direct_thought_offline_locked',True)
+                    reader('selection_direct_thought_offline_slow_check',True)
                     reader('selection_direct_thought_offline_draft',True)
                     reader('selection_direct_thought_offline_draft',True)
                     calls=reader('selection_direct',False)

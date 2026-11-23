@@ -146,7 +146,8 @@ if input.selection then
             if item.text==tr('Local thought drafts') then drafts=item.callback end
             assert(item.text~=tr('Save highlight'))
         end
-        assert(write and drafts);write();assert(offline.editor and offline.editor.input)
+        assert(write and drafts);write();wait(function() return offline.editor and offline.editor.input or host.checked_message end)
+        assert(offline.editor and offline.editor.input)
         offline.editor.input:setInputText('Synthetic offline draft')
         UI:forceRePaint();assert(offline.menu._shelf_popup.button_table:getButtonById('save_thought_draft')):onTapSelectButton()
         wait(function() return not offline.editor end);assert(host.checked_message==tr('Thought draft saved on this device.'))

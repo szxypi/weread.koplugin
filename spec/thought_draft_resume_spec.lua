@@ -31,7 +31,8 @@ package.preload['weread.ui.thought_text']=function() return {
     viewer=function(v) return v end,menu=function(v) return v end,input=function(v) function v:getInputText() return self.input end;return v end} end
 package.preload['weread.lib.protocol']=function() return {utf8_substr=function(v) return v end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function() return {
-    start=function(_self,task,callback) state.task=task;state.complete=callback;return not state.worker_failed end,
+    start=function(_self,task,callback) state.task=task;state.complete=callback
+        if state.worker_throws then error('synthetic worker failure') end;return not state.worker_failed end,
     cancel=function() state.cancelled=true end} end} end
 package.preload['weread.ui.my_cloud_marks']=function() return {show=function(host,id,variant,options)
     state.opened={id=id,variant=variant,options=options};host._my_marks_owner={id=id};return true end} end
@@ -123,19 +124,41 @@ state.busy=true
 expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
     'busy chapter opened a draft editor')
 state.busy=false;state.bad_entry=true
-expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
-    'missing chapter opened editor or leaked its lease')
+expect(Editor.start(host,owner,'create',row,current) and owner.editor and not owner.editor.input,
+    'chapter check blocked or skipped the pending state')
+state.complete(state.task())
+expect(not owner.editor and not state.lease_held,'missing chapter opened editor or leaked its lease')
 state.bad_entry=false
-expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'draft editor did not protect its chapter')
+expect(Editor.start(host,owner,'create',row,current) and state.lease_held and not owner.editor.input,
+    'chapter was not protected while checked in background')
+state.complete(state.task());expect(owner.editor and owner.editor.input,'verified chapter did not open editor')
 owner.editor.input.input='Protected draft';owner.editor.input.buttons[1][1].callback()
 expect(not owner.editor and not state.lease_held and state.save_expected==false,
     'draft did not commit before releasing its chapter lease')
 state.draft=nil
 expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'second draft editor did not acquire lease')
+state.complete(state.task());expect(owner.editor and owner.editor.input,'second verified chapter did not open editor')
 owner.editor.input.input='Cancelled draft';Editor.cancel(host,owner)
 expect(not owner.editor and not state.lease_held and state.save_expected==false,
     'cancel did not save before releasing its chapter lease')
 state.draft=nil;owner.direct_entry={file_id='different'}
+expect(Editor.start(host,owner,'create',row,current),'changed chapter check did not start')
+state.complete(state.task())
+expect(not owner.editor and not state.lease_held,'changed chapter identity opened editor or leaked its lease')
+owner.direct_entry=nil
+expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'cancellable chapter check did not start')
+local late=state.complete;Editor.cancel(host,owner)
+expect(not owner.editor and not state.lease_held and state.cancelled,'cancel did not stop check and release lease')
+late({entry=entry});expect(not owner.editor and not state.lease_held,'late chapter result reopened editor')
+state.worker_failed=true
 expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
-    'changed chapter identity opened editor or leaked its lease')
+    'failed source worker leaked its chapter lease')
+state.worker_failed=false
+state.worker_throws=true
+expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
+    'throwing source worker leaked its chapter lease')
+state.worker_throws=false
+expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'stale account check did not start')
+late=state.complete;host.owner={};late({entry=entry})
+expect(not owner.editor and not state.lease_held,'stale account left source check or lease active')
 print('thought_draft_resume_spec: '..checks..' checks')

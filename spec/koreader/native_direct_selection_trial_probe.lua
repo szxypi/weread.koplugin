@@ -101,7 +101,7 @@ end
 if trial.offline_draft then
     assert(owner.offline_source and require('weread.lib.native_direct_cache').read_raw_source(input.path,entry))
     local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Write private thought') then action=item.callback end end
-    assert(action);action();assert(owner.editor and owner.editor.input)
+    assert(action);action();wait(function() return owner.editor and owner.editor.input or host.checked_message end);assert(owner.editor and owner.editor.input)
     owner.editor.input:setInputText(cfg.body.content);tap('save_thought_draft')
     wait(function() return not owner.editor end);assert(host.checked_message==tr('Thought draft saved on this device.'))
     Selection.cancel(host);online=true;host.checked_message=nil
@@ -113,7 +113,7 @@ local function perform(kind,content,reference)
     host.checked_message=nil
     if kind=='create' then
         local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Write private thought') then action=item.callback end end
-        assert(action);action()
+        assert(action);action();wait(function() return owner.editor and owner.editor.input or host.checked_message end)
     else
         local editor=require('weread.ui.thought_editor')
         assert(editor.start(host,owner,kind,reference,function(h,o) return h._selection_thought_owner==o end))
