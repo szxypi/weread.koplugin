@@ -1,0 +1,24 @@
+{
+  "scope": "default automatic native-chapter time scheduling using the complete five-minute interval",
+  "environment": "KOReader emulator with isolated temporary profiles and local loopback mock service",
+  "display_sizes": ["600x800", "1264x1680"],
+  "timer": {
+    "production_default_seconds": 300,
+    "timer_override": false,
+    "minimum_verified_wait_seconds": 299,
+    "maximum_allowed_wait_seconds": 420,
+    "selection_and_source_scan_completed": true
+  },
+  "capture": "A separate isolated reader process captured six seconds using the real KOReader statistics plugin; the automatic-stage active session was provided by the test harness.",
+  "transport": {
+    "target": "loopback synthetic service only",
+    "claim": "denied by the external supervisor",
+    "time_posts": 0,
+    "authentication_posts": 0,
+    "pending_record": "retained until the isolated temporary profile was removed",
+    "automatic_resend": false
+  },
+  "temporary_profiles_removed": true,
+  "real_account_accessed": false,
+  "physical_kindle_tested": false
+}

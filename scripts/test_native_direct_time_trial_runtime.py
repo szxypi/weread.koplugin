@@ -23,14 +23,17 @@ from shelf_flag_change_contract import state_hash
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--ko2',action='store_true');parser.add_argument('--automatic',action='store_true');args=parser.parse_args()
+    parser.add_argument('--ko2',action='store_true');parser.add_argument('--automatic',action='store_true')
+    parser.add_argument('--full-interval',action='store_true');args=parser.parse_args()
+    if args.full_interval and not args.automatic:parser.error('full interval requires automatic mode')
     server=ThreadingHTTPServer(('127.0.0.1',0),StoreHandler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='direct-time-trial-test-',dir='/dev/shm') as directory:
             candidate=Path(directory)/'candidate.zip'
             subprocess.run(['bash',str(REPO/'scripts/package_release.sh'),str(candidate)],cwd=REPO,check=True,capture_output=True)
-            for armed,ack,add_zero in ((False,True,False),(True,True,False),(True,True,True),(True,False,False)):
+            cases=((False,True,False),) if args.full_interval else ((False,True,False),(True,True,False),(True,True,True),(True,False,False))
+            for armed,ack,add_zero in cases:
                 server.time_preflight=True;server.no_position=False;server.live_time=True;server.time_delta=0;server.time_ack=ack
                 server.time_add_zero=add_zero
                 server.mode='preview';server.calls=[];server.leaked=False;server.valid=True;server.review=None
@@ -49,26 +52,34 @@ def main():
                     source_sha256=expected['source_sha256'],months=[month],
                     mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                 if args.automatic:payload['automatic']=True
+                if args.full_interval:payload['full_interval']=True
                 width,height,dpi=('1264','1680','300') if args.ko2 else ('600','800','167')
                 command=[sys.executable,str(REPO/'scripts/run_native_direct_time_trial.py'),'--koreader',str(args.koreader),
                     '--candidate',str(candidate),'--width',width,'--height',height,'--dpi',dpi]
                 if armed:command.append('--armed')
                 if args.automatic:command.append('--automatic')
+                if args.full_interval:command.append('--full-interval')
                 child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
                 events=[];result=None;seconds=None
                 try:
-                    write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=360,max_frame=65536)
+                    write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=540 if args.full_interval else 360,max_frame=65536)
                     while True:
                         kind,event=frames.next()
                         if kind=='RESULT':result=event;break
                         name=event['kind'];events.append(name);ok=True
                         if name=='ready':
                             seconds=event['seconds'];assert 5<=seconds<=20
+                            ready_at=time.monotonic()
                         elif name=='selection':
                             selection=event['selection'];ref=event['reference']
                             assert selection['book_id']=='42' and selection['current_day'] and selection['native_direct']
                             assert selection['seconds']==seconds and ref['chapter_uid']=='37'
-                            validate_selection(selection,ref,expected,seconds)
+                            validation_now=None
+                            if args.full_interval:
+                                assert 299<=time.monotonic()-ready_at<=420,'default timer did not wait five minutes'
+                                validation_now=max(row['start_time']+row['duration'] for row in selection['protocol_rows'])
+                                assert 299<=time.time()-validation_now<=420,'selected interval age unexpected'
+                            validate_selection(selection,ref,expected,seconds,now=validation_now)
                         elif name=='claim':
                             assert event['record']['phase']=='claimed' and event['body']['books'][0]['readingTime']==seconds
                             validate_claim(event,selection,ref,expected,baseline,payload['credentials'])
@@ -90,7 +101,10 @@ def main():
                     assert result['profile_removed'] and server.valid and not server.leaked
                     assert sum(path=='/book/batchUploadProgress' for _,_,path in server.calls)==int(armed)
                 finally:stop(child)
-        print('PASS: supervised native chapter time dry, success, new zero bucket, and missing receipt on loopback')
+        if args.full_interval:
+            print('PASS: default five-minute automatic timer and denied dispatch on loopback')
+        else:
+            print('PASS: supervised native chapter time dry, success, new zero bucket, and missing receipt on loopback')
     finally:
         server.shutdown();server.server_close();thread.join()
 

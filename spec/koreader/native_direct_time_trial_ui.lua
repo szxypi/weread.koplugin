@@ -27,6 +27,7 @@ local worked,reason=pcall(function()
             and input.book_id=='42' and input.credentials.accessToken=='synthetic-access'
             and input.cookies.wr_skey=='synthetic-web-access')
     end
+    assert(not input.full_interval or input.automatic and not input.armed and input.mock_endpoint,'direct_time/full_interval_scope')
     pcall(ffi.cdef,'int memfd_create(const char *, unsigned int);')
     local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=input.credentials.vid,name=''},cookies=input.cookies,api_key=''}
     local fd=tonumber(ffi.C.memfd_create('weread-direct-time-auth',1));assert(fd>=0)
@@ -73,7 +74,7 @@ local worked,reason=pcall(function()
     assert(#Loader.enabled_plugins==1)
     local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
     local function pump(predicate)
-        local deadline=socket.gettime()+180
+        local deadline=socket.gettime()+(input.full_interval and 420 or 180)
         while not predicate() do assert(socket.gettime()<deadline,'direct_time/timeout');UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
     end
     Reader:showReader(input.path);pump(function() return Reader.instance and Reader.instance.weread end)
@@ -133,7 +134,9 @@ local worked,reason=pcall(function()
         local Auto=require('weread.lib.native_direct_time_auto');Auto.cancel(host)
         host.settings:set('offline_time',{enabled=true,auto_native=true})
         host.offline_time.active={account=account,book_id=input.book_id,document=reader.document,native_time_file_id=rows[1].file_id}
-        assert(Auto.start(host,true,{interval=1,service_factory=function() return service end}),'direct_time/auto_start')
+        local options={service_factory=function() return service end}
+        if not input.full_interval then options.interval=1 end
+        assert(Auto.start(host,true,options),'direct_time/auto_start')
         pump(function() return automatic_result~=nil and service.job==nil end)
         assert(automatic_result.kind==(input.armed and 'confirmed' or 'unconfirmed'),'direct_time/auto_result')
         Auto.cancel(host);host.offline_time.active=nil

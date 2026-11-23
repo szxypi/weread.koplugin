@@ -25,6 +25,7 @@ def main(argv=None):
     parser.add_argument('--width',type=int,default=1264);parser.add_argument('--height',type=int,default=1680)
     parser.add_argument('--dpi',type=int,default=300);parser.add_argument('--armed',action='store_true')
     parser.add_argument('--automatic',action='store_true')
+    parser.add_argument('--full-interval',action='store_true')
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or not args.candidate.is_file()
             or not all(1<=value<=4096 for value in (args.width,args.height,args.dpi))
@@ -38,6 +39,8 @@ def main(argv=None):
         if (not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token)
                 or type(payload.get('armed')) is not bool or payload['armed'] is not args.armed
                 or payload.get('automatic',False) is not args.automatic
+                or payload.get('full_interval',False) is not args.full_interval
+                or args.full_interval and (not args.automatic or args.armed or not payload.get('mock_endpoint'))
                 or not synthetic_endpoint_allowed(payload,payload.get('mock_endpoint'))):raise ValueError('input')
         grant=payload['credentials'];validate_credentials(grant);validate_cookies(payload['web_cookies'],grant['vid'])
         if not isinstance(payload.get('months'),list) or not 1<=len(payload['months'])<=2:
@@ -70,6 +73,7 @@ def main(argv=None):
                 book_version=payload['book_version'],credentials=grant,cookies=payload['web_cookies'],months=payload['months'],
                 ledger_hash=captured['snapshot'])
             if args.automatic:private['automatic']=True
+            if args.full_interval:private['full_interval']=True
             if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']
             def emit(kind,value):
                 raw=json.dumps(value,separators=(',',':')).encode()
@@ -80,7 +84,7 @@ def main(argv=None):
             if answer!=dict(kind='ready',ok=True):raise ValueError('ready')
             stage='ui';child=subprocess.Popen([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_time_trial_ui.lua'),str(REPO)],
                 cwd=runtime,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
-            write_initial(child.stdin,private);frames=Frames(child.stdout,token,timeout=300,max_frame=65536)
+            write_initial(child.stdin,private);frames=Frames(child.stdout,token,timeout=480 if args.full_interval else 300,max_frame=65536)
             seen=[];reported=None
             while True:
                 kind,event=frames.next()
