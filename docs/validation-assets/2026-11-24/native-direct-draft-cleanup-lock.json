@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-24",
+  "result": "NATIVE_DIRECT_DRAFT_CLEANUP_LOCK_VERIFIED",
+  "synthetic_installed_plugin_resolutions": [[600, 800], [1264, 1680]],
+  "busy_chapter_rejected_without_opening_editor": true,
+  "open_editor_blocks_book_cleanup_lease": true,
+  "save_and_cancel_release_lease": true,
+  "offline_draft_save_resume_and_online_simulation": true,
+  "real_owner_reader_resolution": [1264, 1680],
+  "real_owner_offline_draft_save_resume": true,
+  "real_owner_uses_isolated_reader": true,
+  "real_owner_account_data_writes": 0,
+  "real_owner_authentication_posts_during_reader_check": 0,
+  "native_authorization_renewals_before_reader_check": 1,
+  "credentials_written_to_files": false,
+  "temporary_profile_removed": true,
+  "physical_kindle_tested": false
+}

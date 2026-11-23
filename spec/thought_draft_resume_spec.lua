@@ -14,6 +14,7 @@ package.preload['weread.lib.thought_edit_store']=function() return {new=function
     draft=function(_self,key) if state.error then return nil,'storage' end;if state.draft and state.draft.draft_key==key then return copy(state.draft) end end,
     drafts=function() return state.draft and {copy(state.draft)} or {} end,
     save_draft=function(_self,_book,_operation,_reference,_base,_content,expected)
+        if state.require_lease then assert(state.lease_held,'chapter lease missing while saving draft') end
         state.save_expected=expected;if state.save_failed then return nil end;return {token='new'} end,
     delete_draft=function() return false end,
 } end,draft_key=function() return 'draft' end} end
@@ -106,4 +107,35 @@ Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback();v
 viewer.buttons_table[1][2].callback()
 expect(state.opened and state.opened.id=='42' and state.opened.variant==nil,
     'same-book mark draft could not switch from the thoughts list')
+host,owner,current=fixture();state.draft=nil;state.require_lease=true
+host.settings.data_dir='/synthetic';owner.source_file='/synthetic/native-reader-v1/chapter.epub';owner.scope.vid='123'
+local source={book_id='42',chapter_uid='7',raw_sha256=string.rep('a',64)}
+local row={selection=true,source=source,bookmarkId='selection',hash='source'}
+local entry={book_id='42',chapter_uid='7',source_sha256=source.raw_sha256,file_id='file'}
+package.loaded['weread.lib.native_direct_cache']={acquire=function()
+    if state.lease_held or state.busy then return nil end
+    state.lease_held=true
+    return {owns=function() return state.lease_held end,release=function() state.lease_held=false end}
+end,identify=function(_,vid,file,live)
+    assert(vid=='123' and file==owner.source_file and live());if state.bad_entry then return nil end;return entry
+end}
+state.busy=true
+expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
+    'busy chapter opened a draft editor')
+state.busy=false;state.bad_entry=true
+expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
+    'missing chapter opened editor or leaked its lease')
+state.bad_entry=false
+expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'draft editor did not protect its chapter')
+owner.editor.input.input='Protected draft';owner.editor.input.buttons[1][1].callback()
+expect(not owner.editor and not state.lease_held and state.save_expected==false,
+    'draft did not commit before releasing its chapter lease')
+state.draft=nil
+expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'second draft editor did not acquire lease')
+owner.editor.input.input='Cancelled draft';Editor.cancel(host,owner)
+expect(not owner.editor and not state.lease_held and state.save_expected==false,
+    'cancel did not save before releasing its chapter lease')
+state.draft=nil;owner.direct_entry={file_id='different'}
+expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
+    'changed chapter identity opened editor or leaked its lease')
 print('thought_draft_resume_spec: '..checks..' checks')

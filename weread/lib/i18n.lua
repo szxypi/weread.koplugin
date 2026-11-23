@@ -3,6 +3,7 @@ local I18n = {}
 local zh = {
     ["Offline draft uses cached chapter text. The source is checked again before submission."] = "离线草稿使用缓存的章节原文，提交前会再次核对。",
     ["The offline chapter source is unavailable. Reconnect and select this text again."] = "离线章节原文不可用，请联网后重新选择文字。",
+    ["This chapter is being updated or cleaned. Try opening the thought again."] = "本章正在更新或清理，请稍后重新打开想法。",
     ["Save current page instead"] = "改为保存当前页",
     ["This chapter already has an offline reminder. Save the current page and replace that reminder? The cloud position will not change."] = "本章已有离线提醒。要保存当前页并替换旧提醒吗？云端进度不会改变。",
     ["Save current page"] = "保存当前页",

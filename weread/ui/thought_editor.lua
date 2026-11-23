@@ -30,6 +30,7 @@ local function detach(ctx)
     ctx.owner.editor=nil;ctx.dialog=nil
     ctx.service:cancel()
     if ctx.restore_worker then ctx.restore_worker:cancel() end
+    if ctx.source_lease then ctx.source_lease:release();ctx.source_lease=nil end
 end
 function M.cancel(_host,owner)
     local ctx=owner.editor;if not ctx then return end
@@ -144,6 +145,22 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
     local ctx=new_context(host,owner,current,redraw)
     ctx.operation,ctx.reference=operation,reference
     if reference.selection then ctx.source_file=owner.source_file or host.ui and host.ui.document and host.ui.document.file end
+    if reference.selection and require('weread.lib.native_direct_path').contains(host.settings,ctx.source_file) then
+        local cache=require('weread.lib.native_direct_cache')
+        local vid=type(owner.scope)=='table' and owner.scope.vid
+        local opened,lease=pcall(cache.acquire,host.settings,vid,owner.id)
+        if not opened then lease=nil end
+        if not lease then message(ctx,'This chapter is being updated or cleaned. Try opening the thought again.');return false end
+        ctx.source_lease=lease
+        local identified,entry=pcall(cache.identify,host.settings,vid,ctx.source_file,function()
+            return local_current(ctx) and current(host,owner) and lease:owns()
+        end)
+        if not identified or not entry or not lease:owns() or entry.book_id~=owner.id
+            or entry.chapter_uid~=reference.source.chapter_uid or entry.source_sha256~=reference.source.raw_sha256
+            or owner.direct_entry and entry.file_id~=owner.direct_entry.file_id then
+            message(ctx,'The selected source is unavailable or changed. Your local draft is kept.');return false
+        end
+    end
     ctx.reference_id=operation=='create' and reference.bookmarkId or reference.reviewId
     ctx.base_hash=Contract.reference_hash(operation,reference)
     if operation=='delete' then submit(ctx);return true end

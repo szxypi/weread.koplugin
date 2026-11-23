@@ -159,7 +159,14 @@ if input.mode:find('^selection_direct') then
                 local tr=require('weread.lib.plugin_util').tr
                 local label=tr(bookmark and 'Save cloud bookmark' or thought and 'Write private thought' or 'Save highlight');local action
                 for _,item in ipairs(owner.menu.item_table) do if item.text==label then action=item.callback;break end end
-                assert(action,'selection action missing');action()
+                assert(action,'selection action missing')
+                if input.mode=='selection_direct_thought_offline_locked' then
+                    local cache=require('weread.lib.native_direct_cache')
+                    local lease=assert(cache.acquire(host.settings,owner.scope.vid,owner.id))
+                    action();assert(not owner.editor and host.checked_message==tr('This chapter is being updated or cleaned. Try opening the thought again.'))
+                    lease:release();host.checked_message=nil
+                end
+                action()
                 local function tap(id)
                     UI:forceRePaint();local popup=assert(owner.menu._shelf_popup)
                     assert(popup.button_table:getButtonById(id),'missing '..id):onTapSelectButton()
@@ -170,7 +177,12 @@ if input.mode:find('^selection_direct') then
                         assert(owner.editor.input:getInputText()=='Synthetic private thought','offline draft was not retained after restart')
                     end
                     owner.editor.input:setInputText('Synthetic private thought')
-                    if input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft' then
+                    if input.mode=='selection_direct_thought_offline_locked' then
+                        local cache=require('weread.lib.native_direct_cache')
+                        assert(not cache.acquire(host.settings,owner.scope.vid,owner.id),'open thought editor did not protect its chapter')
+                    end
+                    if input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
+                        or input.mode=='selection_direct_thought_offline_locked' then
                         tap('save_thought_draft');wait(function() return not owner.editor end)
                         assert(host.checked_message==tr('Thought draft saved on this device.'));host.checked_message=nil
                         local drafts_action
@@ -180,6 +192,10 @@ if input.mode:find('^selection_direct') then
                         wait(function() return owner.editor and owner.editor.input end)
                         assert(owner.editor.input:getInputText()=='Synthetic private thought','direct draft did not restore')
                         require('weread.ui.thought_editor').cancel(host,owner)
+                        if input.mode=='selection_direct_thought_offline_locked' then
+                            local lease=assert(require('weread.lib.native_direct_cache').acquire(host.settings,owner.scope.vid,owner.id))
+                            lease:release()
+                        end
                     else
                         tap('submit_thought');wait(function() return not owner.editor or owner.editor.service.preview end)
                         assert(owner.editor and owner.editor.service.preview,'direct thought preflight failed')
@@ -192,7 +208,8 @@ if input.mode:find('^selection_direct') then
                 end
                 local changed=input.mode:find('_changed$')~=nil
                 local pending=input.mode:find('_no_effect$')~=nil
-                assert(input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft' or host.checked_message==tr(pending and (thought
+                assert(input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
+                    or input.mode=='selection_direct_thought_offline_locked' or host.checked_message==tr(pending and (thought
                     and 'A thought change needs checking. Use Check last thought change before submitting again.'
                     or 'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.')
                     or changed and (thought
