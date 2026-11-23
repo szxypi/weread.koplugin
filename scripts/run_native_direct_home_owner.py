@@ -29,6 +29,7 @@ def main(argv=None):
     parser.add_argument('--quick-search', action='store_true')
     parser.add_argument('--progress-estimate', action='store_true')
     parser.add_argument('--offline-reminder', action='store_true')
+    parser.add_argument('--offline-time', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
@@ -38,6 +39,8 @@ def main(argv=None):
         parser.error('progress estimate requires full UI')
     if args.offline_reminder and not args.full_ui:
         parser.error('offline reminder requires full UI')
+    if args.offline_time and not args.full_ui:
+        parser.error('offline time requires full UI')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -146,6 +149,30 @@ def main(argv=None):
                 if args.progress_estimate: expected['progress_estimate']=True
                 if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != expected:
                     raise ValueError('home')
+            if args.offline_time:
+                phase = 'offline_time'
+                saved = None
+                for stage in ('capture', 'reopen'):
+                    private = dict(stage=stage, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                    code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO), str(REPO/'spec/koreader/native_direct_time_owner_probe.lua')], env,
+                        json.dumps(private).encode(), runtime, timeout=150)
+                    if code:
+                        match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                        if match: report['probe_line'] = int(match.group(1))
+                        diagnostic = re.search(rb'WEREAD_DIRECT_TIME_DIAGNOSTIC=((?:reader|collector)_(?:none|disabled|reader_hidden|native_time_checking|native_time_unavailable|recording_native|statistics_unavailable|paused|no_book|error))', out)
+                        if diagnostic: report['time_diagnostic'] = diagnostic.group(1).decode()
+                    observed = frame(out, b'WEREAD_DIRECT_TIME_OWNER=')
+                    if (code or repaint or observed.get('ok') is not True or observed.get('stage') != stage
+                            or observed.get('network_blocked') is not True
+                            or type(observed.get('rows')) is not int or observed['rows'] < 1
+                            or type(observed.get('seconds')) is not int or observed['seconds'] < 5
+                            or not isinstance(observed.get('snapshot'), str)
+                            or re.fullmatch(r'[0-9a-f]{64}', observed['snapshot']) is None):
+                        raise ValueError('offline_time')
+                    point = observed['rows'], observed['seconds'], observed['snapshot']
+                    if saved is not None and point != saved: raise ValueError('offline_time_changed')
+                    saved = point
             if args.offline_reminder:
                 phase='offline_reminder'
                 for stage in ('save','conflict_cancel_close','reopen_replace','save','manual_conflict','save','manual_offline','discard_cancel','different','restore','manual_restore',
@@ -189,6 +216,8 @@ def main(argv=None):
                 report['progress_estimate_verified'] = True
             if args.offline_reminder:
                 report['offline_reminder_verified'] = True
+            if args.offline_time:
+                report['offline_time_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

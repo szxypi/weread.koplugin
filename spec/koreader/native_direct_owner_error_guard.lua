@@ -9,6 +9,7 @@ if not ok then
         or value:match('native_direct_owner_search_offline%.lua:(%d+)')
         or value:match('native_direct_batch_owner_probe%.lua:(%d+)')
         or value:match('native_direct_pending_reader_probe%.lua:(%d+)')
+        or value:match('native_direct_time_owner_probe%.lua:(%d+)')
         or value:match('native_direct_batch_shelf_owner_probe%.lua:(%d+)')
         or value:match('native_direct_owner_search_online%.lua:(%d+)'))
     if type(_G._direct_trial_error_token)=='string' then
