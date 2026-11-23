@@ -22,10 +22,10 @@ local function fixture(options)
         return options.mismatch and self:json_encode({succ=1}) or nil,options.code or 200,response_headers
     end
     local guard=Guard.install(client,{grant=grant,book_id=options.book or (options.imported and 'CB_Synthetic' or '900001'),imported=options.imported,
-        native_direct=options.direct,book_version=options.version,
+        native_direct=options.direct,position_write=options.position,book_version=options.version,
         chapter_uid='11',cookies=cookies,months={1698796800},now=function() return 1700000000 end,
         current=function() return state.current end,selection=function() return {synthetic=true} end,
-        record=function() return {phase='claimed',synthetic=true} end,rpc=function(kind,value)
+        record=function() return {phase=options.position and 'pending' or 'claimed',synthetic=true} end,rpc=function(kind,value)
             state.events[#state.events+1]={kind=kind,value=value}
             if kind=='claim' then return not options.deny end
             return value.status==200 and value.response.succ==1
@@ -41,6 +41,29 @@ local function fixture(options)
             persist_response_cookies=false,sensitive=true,sink=function() return 1 end}
     end
     return client,guard,state,native,web,grant,cookies
+end
+
+do
+    expect(not pcall(fixture,{position=true}))
+    local client,guard,state,native,web=fixture({direct=true,position=true,version=7})
+    local reads={native('https://i.weread.qq.com/book/info?bookId=900001','GET','native_position_metadata'),
+        native('https://i.weread.qq.com/book/getProgress?bookId=900001','GET','native_position_progress'),
+        native('https://i.weread.qq.com/feature?synckey=0','GET','native_position_feature')}
+    for _,request in ipairs(reads) do expect(select(2,client:request(request))==200) end
+    local progress='https://weread.qq.com/web/book/getProgress?bookId=900001&_=1700000000000'
+    expect(select(2,client:request(web(progress,'GET',nil,'source_currentness')))==200)
+    expect(not pcall(client.request,client,web(progress:gsub('900001','900002'),'GET',nil,'source_currentness')))
+    expect(not pcall(client.request,client,web(progress:gsub('1700000000000','1600000000000'),'GET',nil,'source_currentness')))
+    local wrong=native('https://i.weread.qq.com/book/batchUploadProgress','POST','native_time_write',client:json_encode({}))
+    expect(not pcall(client.request,client,wrong) and state.calls==4)
+    local write=native('https://i.weread.qq.com/book/read','POST','native_position_write',client:json_encode({bookId='900001'}))
+    expect(select(2,client:request(write))==200 and guard.acknowledged and state.calls==5)
+    expect(#state.events==2 and state.events[1].kind=='claim' and state.events[2].kind=='ack')
+    expect(not pcall(client.request,client,write) and state.calls==5)
+    local time,_,time_state,time_native,time_web=fixture({direct=true,version=7})
+    expect(not pcall(time.request,time,time_web(progress,'GET',nil,'source_currentness')))
+    expect(not pcall(time.request,time,time_native('https://i.weread.qq.com/book/read','POST','native_position_write',time:json_encode({})))
+        and time_state.calls==0)
 end
 
 do

@@ -37,11 +37,13 @@ local OPTION_KEYS={url=true,method=true,body=true,headers=true,skip_cookie=true,
 function M.install(client,config)
     local imported=type(config)=='table' and config.imported==true
     local direct=type(config)=='table' and config.native_direct==true
+    local position=type(config)=='table' and config.position_write==true
     local book_valid=type(config)=='table' and (imported and Contract.cb_id(config.book_id)
         or not imported and Position.id(config.book_id) and Position.id(config.book_id)==config.book_id)
     if type(client)~='table' or type(client.request)~='function' or type(client.json_decode)~='function'
         or type(config)~='table' or config.imported~=nil and type(config.imported)~='boolean'
         or config.native_direct~=nil and type(config.native_direct)~='boolean' or direct and imported
+        or config.position_write~=nil and type(config.position_write)~='boolean' or position and not direct
         or direct and not Contract.integer(config.book_version,1,2147483647)
         or not Position.credentials(config.grant) or not book_valid
         or not Position.id(config.chapter_uid)
@@ -65,7 +67,7 @@ function M.install(client,config)
     local function binding()
         return Contract.digest({vid=config.grant.vid,accessToken=config.grant.accessToken,refreshToken=config.grant.refreshToken,
             deviceId=config.grant.deviceId,cookies=config.cookies,book_id=config.book_id,chapter_uid=config.chapter_uid,months=config.months,
-            imported=config.imported==true,native_direct=direct,book_version=config.book_version})
+            imported=config.imported==true,native_direct=direct,position_write=position,book_version=config.book_version})
     end
     local bound=binding()
     local original=client.request
@@ -143,12 +145,19 @@ function M.install(client,config)
         local url,method,api=options.url,options.method,options.diagnostic_api
         local book=config.book_id
         if type(url)~='string' or type(method)~='string' or type(api)~='string' then fail('route') end
-        if url==NATIVE..'/book/batchUploadProgress' then
-            if method~='POST' or api~='native_time_write' then fail('route') end
+        if url==NATIVE..'/book/batchUploadProgress' or url==NATIVE..'/book/read' then
+            if position then
+                if url~=NATIVE..'/book/read' or method~='POST' or api~='native_position_write' then fail('route') end
+            elseif url~=NATIVE..'/book/batchUploadProgress' or method~='POST' or api~='native_time_write' then fail('route') end
             native_headers(h);return 'write'
         end
         if method=='GET' and options.body==nil then
             if direct and api=='native_chapter_info' and url==NATIVE..'/book/info?bookId='..book then
+                native_headers(h);return 'read'
+            end
+            if position and (api=='native_position_metadata' and url==NATIVE..'/book/info?bookId='..book
+                or api=='native_position_progress' and url==NATIVE..'/book/getProgress?bookId='..book
+                or api=='native_position_feature' and url==NATIVE..'/feature?synckey=0') then
                 native_headers(h);return 'read'
             end
             if direct and api=='native_chapter_download' then
@@ -175,7 +184,7 @@ function M.install(client,config)
                 web_headers(h,false);return 'read'
             end
             local prefix=WEB..'/web/book/getProgress?bookId='..book..'&_='
-            if api=='shelf_progress' and url:sub(1,#prefix)==prefix then
+            if (api=='shelf_progress' or position and api=='source_currentness') and url:sub(1,#prefix)==prefix then
                 local stamp=url:sub(#prefix+1)
                 if #stamp<10 or #stamp>16 or not stamp:match('^%d+$') or math.abs(tonumber(stamp)/1000-config.now())>60 then fail('route') end
                 web_headers(h,false);return 'read'
@@ -233,7 +242,7 @@ function M.install(client,config)
         if state.write_attempted then fail('replay') end
         state.write_attempted=true
         local body=decoded(client,options.body);local record=config.record();local selection=config.selection()
-        if type(record)~='table' or record.phase~='claimed' or type(selection)~='table' then fail('record') end
+        if type(record)~='table' or record.phase~=(position and 'pending' or 'claimed') or type(selection)~='table' then fail('record') end
         if config.rpc('claim',{body=body,selection=selection,record=record})~=true then fail('denied') end
         current();state.write_forwarded=true
         local chunks,size={},0;local sink=options.sink;local forwarded={}
