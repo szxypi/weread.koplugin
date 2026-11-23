@@ -1,0 +1,68 @@
+-- The shelf-status menu owns this on-demand, read-only background check.
+local UI=require('ui/uimanager')
+local Access=require('weread.lib.native_read_access')
+local Data=require('weread.lib.reading_state')
+local Crypto=require('weread.lib.crypto')
+local _=require('weread.lib.plugin_util').tr
+local M={}
+
+function M.cancel(host)
+    local ctx=host._reading_state_ui
+    host._reading_state_ui=nil
+    if not ctx then return end
+    if ctx.worker then ctx.worker:cancel() end
+    if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+end
+
+function M.open(host,id,menu)
+    if not Data.id(id) or host._shelf_state_menu~=menu or not host.client or not host.library_db then return false end
+    M.cancel(host)
+    if not host:isNetworkOnline() then host:showOffline(_('Shelf status'));return false end
+    local selected=Access.capture(host.settings)
+    local account=host.library_db:accountKey()
+    if not selected or selected.renewal_pending or not account
+        or Crypto.sha256_hex('weread-library:'..selected.scope.vid):sub(1,20)~=account then
+        host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false
+    end
+    local ctx={menu=menu,account=account,selected=selected,epoch=host.discovery_epoch or 0,
+        session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view}
+    host._reading_state_ui=ctx
+    local function current()
+        return host._reading_state_ui==ctx and host._shelf_state_menu==menu
+            and host.library_db:accountKey()==account and (host.discovery_epoch or 0)==ctx.epoch
+            and host._reader_session_gen==ctx.session and (host.ui and host.ui.document)==ctx.document
+            and host._book_detail_view==ctx.parent and Access.matches(host.settings,selected)
+    end
+    host:showBusy(_('Checking started-reading status…\nTap or press a key to cancel.'),function()
+        if host._reading_state_ui==ctx then M.cancel(host) end
+    end)
+    ctx.busy=host.busy_message
+    local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
+        scheduler=UI,codec=host.client,timeout=30} end)
+    if not ok or not worker then M.cancel(host);host:showInfo(_('Could not check started-reading status.'));return false end
+    ctx.worker=worker
+    local started_ok,started=pcall(worker.start,worker,function()
+        return Data.read(host.client,host.settings,selected,id)
+    end,function(result)
+        local active=current()
+        if host._reading_state_ui==ctx then M.cancel(host) end
+        if not active then return end
+        if type(result)=='table' and result.kind=='known' and type(result.started)=='boolean' then
+            host:showInfo(_(result.started and 'WeRead records this book as started.'
+                or 'WeRead has not marked this book as started. Its saved position and finished status may be different.'))
+        elseif type(result)=='table' and result.kind=='missing' then
+            host:showInfo(_('WeRead did not provide a started-reading status for this book.'))
+        elseif type(result)=='table' and result.kind=='login' then
+            host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'))
+        elseif type(result)~='table' or result.kind~='stale' then
+            host:showInfo(_('Could not check started-reading status.'))
+        end
+    end)
+    if not started_ok or not started then
+        local active=current();if host._reading_state_ui==ctx then M.cancel(host) end
+        if active then host:showInfo(_('Could not check started-reading status.')) end
+        return false
+    end
+    return true
+end
+return M

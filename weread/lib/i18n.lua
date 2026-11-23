@@ -1,6 +1,12 @@
 local I18n = {}
 
 local zh = {
+    ["Check started-reading status"] = "查询开始阅读状态",
+    ["Checking started-reading status…\nTap or press a key to cancel."] = "正在查询开始阅读状态……\n点击或按键取消。",
+    ["Could not check started-reading status."] = "无法查询开始阅读状态，请检查网络和墨水屏登录。",
+    ["WeRead records this book as started."] = "微信读书记录本书已开始阅读。",
+    ["WeRead has not marked this book as started. Its saved position and finished status may be different."] = "微信读书未标记本书已开始阅读。阅读位置和读完状态可能不同。",
+    ["WeRead did not provide a started-reading status for this book."] = "微信读书未提供本书的开始阅读状态。",
     ["Offline draft uses cached chapter text. The source is checked again before submission."] = "离线草稿使用缓存的章节原文，提交前会再次核对。",
     ["The offline chapter source is unavailable. Reconnect and select this text again."] = "离线章节原文不可用，请联网后重新选择文字。",
     ["This chapter is being updated or cleaned. Try opening the thought again."] = "本章正在更新或清理，请稍后重新打开想法。",

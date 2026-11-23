@@ -71,4 +71,21 @@ local cancelled=0
 package.loaded['weread.ui.shelf_membership_write']={cancel=function(target) cancelled=cancelled+1;target._shelf_membership_ui=nil end}
 menu:onCloseWidget()
 expect(cancelled==1 and not host._shelf_membership_ui and not host._shelf_state_menu,'native menu dismissal retained its membership task')
+package.loaded['weread.ui.finish_offline']={get=function() end,cancel_dialog=function() end}
+package.loaded['weread.ui.membership_offline']={get=function() end,cancel_dialog=function() end}
+package.loaded['weread.ui.finish_change']={pending=function() end}
+package.loaded['weread.ui.shelf_flag_change']={pending=function() end}
+local opened,stopped
+package.loaded['weread.ui.reading_state']={open=function(_target,id,owned) opened={id=id,menu=owned} end,
+    cancel=function() stopped=(stopped or 0)+1 end}
+for _,id in ipairs({'42','CB_abc'}) do
+    host,value=fixture();host.client={};host.library_db.open=function() end
+    host.library_db.getShelfStatus=function() return value.entry end
+    State.show(host,id);menu=host._shelf_state_menu
+    row(menu,'Check started-reading status').callback()
+    expect(opened and opened.id==id and opened.menu==menu,'reading state action lost target')
+    opened=nil;menu:onCloseWidget()
+    row(menu,'Check started-reading status').callback()
+    expect(not opened and stopped>0,'dismissed status menu retained reading action')
+end
 print('PASS: shelf status native menu coordination ('..checks..' checks)')

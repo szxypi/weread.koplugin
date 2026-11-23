@@ -1,0 +1,17 @@
+{
+  "packaged_koreader_synthetic": [
+    {"width": 600, "height": 800, "result": "PASS", "screenshots": 5, "account_data_writes": 0},
+    {"width": 1264, "height": 1680, "result": "PASS", "screenshots": 5, "account_data_writes": 0}
+  ],
+  "owner_read_only": {
+    "ordinary_books": 5,
+    "imported_books": 5,
+    "lua_projection_matches": true,
+    "native_https_readback_matches": true,
+    "account_data_writes": 0,
+    "shelf_unchanged": true,
+    "refreshed_web_session_saved": true
+  },
+  "owner_full_plugin_ui_verified": false,
+  "physical_device_verified": false
+}
