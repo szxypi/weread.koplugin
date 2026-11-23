@@ -24,7 +24,11 @@ end} end
 package.preload['weread.lib.source_currentness']=function() return {
     matches=function() return live end,
     expected=function(value) return value end,
-    fetch=function(_,expected) web_requests=web_requests+1;if web_error then error(web_error,0) end;return expected end,
+    fetch=function(_,expected,_selected,_format,options)
+        web_requests=web_requests+1;if web_error then error(web_error,0) end
+        if options and options.verify_catalog then options.verify_catalog({version=7});options.verify_catalog({version=7}) end
+        return expected
+    end,
     packet=function(actual,expected) return actual==expected end,
 } end
 package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {
@@ -66,6 +70,10 @@ context.identity.file_id=entry.file_id;web.web.cookies.wr_vid='456';value,reason
 web.web.cookies.wr_vid='123';live=false;value,reason=check();expect(not value and reason=='invalid','stale session accepted')
 live=true;local verified=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
 expect(verified==body,'dual-source proof did not return verified raw bytes')
+local catalog_checks=0
+verified=Position.verified_source({}, {},entry,context.file,native,web,function() return live end,
+    {verify_catalog=function(catalog) expect(catalog.version==7,'wrong catalog');catalog_checks=catalog_checks+1 end})
+expect(verified==body and catalog_checks==2,'source proof did not check both catalog reads')
 source_changed=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
 expect(not verified and reason=='source_changed','changed direct source was exposed');source_changed=false
 web_error='source_currentness/web_expired';verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)

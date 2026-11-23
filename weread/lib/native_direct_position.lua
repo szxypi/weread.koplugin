@@ -34,11 +34,11 @@ local function source_map(client,settings,entry,file,native,web,active,options)
     if not Currentness.packet(checked,expected) or not active() then return nil,'source_changed' end
     local map=Coordinates.build(source.body,{format='web_xhtml',allow_multiple_bodies=true})
     if not map then return nil,'source_unsupported' end
-    return map,nil,source.body
+    return map,nil,source.body,checked.catalog_stamp
 end
 -- Worker-only, read-only source proof for native chapter selections. The
 -- caller must still bind endpoints to its live ReaderUI and recheck at send.
-function M.verified_source(client,settings,entry,file,native,web,current)
+function M.verified_source(client,settings,entry,file,native,web,current,options)
     local function active()
         local ok,value=pcall(current)
         return ok and value==true and NativeAccess.matches(settings,native) and Currentness.matches(settings,web)
@@ -47,7 +47,7 @@ function M.verified_source(client,settings,entry,file,native,web,current)
         or type(web)~='table' or type(web.web)~='table' or type(web.web.cookies)~='table'
         or web.web.cookies.wr_vid~=native.scope.vid or not Cache.valid_entry(entry,entry and entry.book_id,native.scope.vid)
         or not hash(entry.file_id) or not Protocol.integer(entry.chapter_idx,0,1000000) or not active() then return nil,'invalid' end
-    local ok,map,reason,raw=pcall(source_map,client,settings,entry,file,native,web,active)
+    local ok,map,reason,raw,stamp=pcall(source_map,client,settings,entry,file,native,web,active,options)
     if not ok then
         if not active() then return nil,'session_changed' end
         if map=='source_currentness/web_expired' then return nil,'web_expired' end
@@ -57,7 +57,7 @@ function M.verified_source(client,settings,entry,file,native,web,current)
     if not map or type(raw)~='string' then return nil,reason or 'unavailable' end
     local checked,later=pcall(Cache.identify,settings,native.scope.vid,file,active)
     if not checked or not same(entry,later) or not active() then return nil,'file_changed' end
-    return raw
+    return raw,nil,stamp
 end
 local function target_anchor(map,offset)
     local anchor=map:anchor(offset,{segment_only=true}) or map:anchor(offset)
