@@ -62,7 +62,11 @@ else
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         os.exit(0)
     end
-    assert(selected and selected.title=='Synthetic book','native chapter not listed on home')
+    if input.store_search then
+        local saved=assert(host.settings:get_book(id))
+        assert(selected and type(saved.title)=='string' and saved.title~='' and selected.title==saved.title,
+            'native search book not listed on home')
+    else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
     local message
     if input.mode=='damage' then host.showInfo=function(_,text) message=text end end
     view.on_select(selected,'books')

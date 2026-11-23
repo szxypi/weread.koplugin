@@ -25,7 +25,10 @@ def main(argv=None):
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--full-ui', action='store_true')
+    parser.add_argument('--store-search', action='store_true')
     args = parser.parse_args(argv)
+    if args.store_search and not args.full_ui:
+        parser.error('store search requires full UI')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -42,6 +45,12 @@ def main(argv=None):
         payload = json.loads(raw)
         if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
             raise ValueError('endpoint')
+        if args.store_search != (isinstance(payload.get('store_search_keyword'), str)
+                and 0 < len(payload['store_search_keyword'].encode()) <= 512):
+            raise ValueError('search_keyword')
+        if args.store_search and (not isinstance(payload.get('inline_style'),str)
+                or not 0<len(payload['inline_style'].encode())<=32768):
+            raise ValueError('inline_style')
         with tempfile.TemporaryDirectory(prefix='weread-native-home-owner-', dir='/dev/shm') as directory:
             root = Path(directory)
             profile, xdg = root/'profile', root/'xdg'
@@ -64,6 +73,30 @@ def main(argv=None):
                 match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                 if match:
                     report['probe_line'] = int(match.group(1))
+                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|home_record)$',out)
+                if stage:
+                    report['probe_stage'] = stage.group(1).decode()
+                reason = re.search(rb'(?m)^WEREAD_DIRECT_HOME_REASON=(not_entitled|auth_expired|rate_limited|service_rejected|session_changed|catalog_changed|unavailable|invalid_source|invalid_image|remote_unsupported|storage|resource_[a-z_]+)$',out)
+                if reason:
+                    value=reason.group(1).decode()
+                    resources={'missing','unsupported','ambiguous','inline_style','css','css_import','css_url','html','body',
+                               'link_tag','style_tag','unsupported_markup','background_attribute','other_source_attribute',
+                               'multiple_styles','source','source_changed','asset','assets','remote_limit','missing_limit','options','unavailable'}
+                    if not value.startswith('resource_') or value[9:] in resources:
+                        report['reason'] = value
+                for name,allowed in (('archive',{'ok','filename','entry_limit','password','checksum','manifest_chapter',
+                                                  'body_selection','manifest_parse','body_limit','other'}),
+                                     ('download',{'http_200','http_401','http_429','http_other','transport'})):
+                    item=profile/('native-home-'+name)
+                    if item.is_file() and item.stat().st_size<=32:
+                        value=item.read_text()
+                        if value in allowed:
+                            report[name+'_status']=value
+                item=profile/'native-home-payload'
+                if item.is_file() and item.stat().st_size<=32:
+                    value=item.read_text()
+                    if value in {kind+'_'+key for kind in ('empty','zip','json','other') for key in ('key','nokey','duplicate')}:
+                        report['payload_status']=value
             prepared = frame(out, probe_marker)
             if prepared.get('reason') in {'not_entitled', 'auth_expired', 'rate_limited', 'service_rejected',
                                          'session_changed', 'catalog_changed', 'unavailable', 'invalid_source',
@@ -72,11 +105,14 @@ def main(argv=None):
             path = Path(prepared.get('path', ''))
             if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
                     or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
+                    or args.full_ui and prepared.get('store_search') is not args.store_search
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
             for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
                 phase = mode
                 private = dict(mode=mode, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                if args.store_search:
+                    private['store_search'] = True
                 code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                                                 str(REPO), str(REPO/'spec/koreader/native_home_resume_probe.lua')], env,
                                                json.dumps(private).encode(), runtime, timeout=150)
@@ -107,6 +143,9 @@ def main(argv=None):
                           credential_file_audit=True, installed_bytes_match=True)
             if args.full_ui:
                 report['full_ui'] = True
+            if args.store_search:
+                report['store_search'] = True
+                report['inline_style_verified'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

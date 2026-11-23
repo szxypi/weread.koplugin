@@ -210,9 +210,10 @@ local function tag_end(text,start)
     end
     fail('html')
 end
+local concatenable
 local function html_rewrite(body,owner,index,style_index,summary)
     if not valid_text(body) then fail('body') end
-    local out,at={},1
+    local out,at,lower_body={},1,nil
     while at<=#body do
         local start=body:find('<',at,true)
         if not start then out[#out+1]=body:sub(at);break end
@@ -242,9 +243,31 @@ local function html_rewrite(body,owner,index,style_index,summary)
                 local style,kind=lookup(style_index,owner,attrs.href)
                 if kind~='local' then fail('link_tag') end
                 summary.style_links[#summary.style_links+1]=style
+                summary.style_sequence[#summary.style_sequence+1]={kind='sheet',path=style}
                 tag=''
             end
-            if name=='style' then fail('style_tag') end
+            if name=='style' then
+                local attrs={}
+                local remainder=tag:gsub('([%w_:%-]+)(%s*=%s*)(["\'])(.-)%3',function(key,_equals,_quote,value)
+                    key=key:lower()
+                    if attrs[key]~=nil then fail('ambiguous') end
+                    attrs[key]=value
+                    return ''
+                end):gsub('^<%s*[Ss][Tt][Yy][Ll][Ee]',''):gsub('%s*>$','')
+                if remainder:match('%S') or attrs.type and attrs.type:lower()~='text/css' then fail('style_tag') end
+                for key in pairs(attrs) do if key~='type' then fail('style_tag') end end
+                lower_body=lower_body or body:lower()
+                local close_start,close_end=lower_body:find('</%s*style%s*>',ending+1)
+                if not close_start then fail('style_tag') end
+                local css=body:sub(ending+1,close_start-1)
+                -- CSS escapes can hide URL functions or at-rules from the
+                -- resource parser. Reject them until they can be decoded.
+                if css:find('\\',1,true) or css:find('<',1,true) or not concatenable(css) then fail('style_tag') end
+                local rewritten=css_rewrite(css,owner,index,'',summary)
+                summary.style_sequence[#summary.style_sequence+1]={kind='inline',css=rewritten}
+                summary.has_inline_style=true
+                tag='';ending=close_end
+            end
             if name=='script' or name=='iframe' or name=='object' or name=='embed' or name=='video' or name=='audio'
                 or name=='source' or name=='picture' then fail('unsupported_markup') end
             local lower_tag=tag:lower()
@@ -285,7 +308,7 @@ end
 
 -- Combining separate CSS files is safe only at rule boundaries. At-rules can
 -- have sheet-level ordering semantics, so keep those on the existing path.
-local function concatenable(css)
+concatenable=function(css)
     if not valid_text(css) then return false end
     local at,depth,boundary=1,0,true
     while at<=#css do
@@ -342,10 +365,21 @@ function M.prepare(value,remote_assets,options)
         end
         local summary={localized=0,remote=0,remote_urls={},remote_seen={},style_links={}}
         local bodies,styles,style_order={}, {}, nil
+        local first_sequence,first_inline
         for _,part in ipairs(value.body_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('body') end
             summary.style_links={}
+            summary.style_sequence={};summary.has_inline_style=false
             bodies[#bodies+1]=html_rewrite(part.data,part.source,index,style_index,summary)
+            if not first_sequence then
+                first_sequence=summary.style_sequence;first_inline=summary.has_inline_style
+            elseif first_inline or summary.has_inline_style then
+                if #first_sequence~=#summary.style_sequence then fail('multiple_styles') end
+                for i,event in ipairs(first_sequence) do
+                    local other=summary.style_sequence[i]
+                    if event.kind~=other.kind or event.path~=other.path or event.css~=other.css then fail('multiple_styles') end
+                end
+            end
             if #value.style_parts>1 then
                 local links=summary.style_links
                 if #links~=#value.style_parts then fail('multiple_styles') end
@@ -367,6 +401,21 @@ function M.prepare(value,remote_assets,options)
         if style_order then
             styles={}
             for _,path in ipairs(style_order) do styles[#styles+1]=by_path[path] end
+        end
+        if first_inline then
+            local ordered,seen,links={}, {}, 0
+            for _,event in ipairs(first_sequence) do
+                if event.kind=='sheet' then
+                    if seen[event.path] or not by_path[event.path] then fail('multiple_styles') end
+                    seen[event.path]=true;links=links+1
+                end
+            end
+            if links==0 and #value.style_parts==1 then ordered[1]=styles[1]
+            elseif links~=#value.style_parts then fail('multiple_styles') end
+            for _,event in ipairs(first_sequence) do
+                ordered[#ordered+1]=event.kind=='sheet' and by_path[event.path] or event.css
+            end
+            styles=ordered
         end
         local original_bodies,original_styles={},{}
         for _,part in ipairs(value.body_parts) do original_bodies[#original_bodies+1]=part.data end

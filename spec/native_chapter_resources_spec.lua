@@ -76,6 +76,41 @@ local with_link=input('<html><head><link rel="stylesheet" type="text/css" href="
     'p{color:black}',{})
 local linked=assert(Resources.prepare(with_link));assert(not linked.xhtml:find('<link',1,true) and linked.css=='p{color:black}')
 denied(input('<link rel="stylesheet" href="https://example.invalid/a.css"/>','',{}),'link_tag')
+local inline_sheet=input('<html><head><style type="text/css">/* safe */ p{color:red}</style></head><body>Text</body></html>',
+    '',{})
+local inline_result=assert(Resources.prepare(inline_sheet))
+assert(inline_result.css=='\n/* safe */ p{color:red}' and not inline_result.xhtml:find('<style',1,true)
+    and inline_result.xhtml:find('Text',1,true),'inline stylesheet was not retained outside the source body')
+local inline_image_sheet=input('<style>p{background:url(../images/cover.png)}</style><p>Text</p>','',assets)
+local inline_image_result=assert(Resources.prepare(inline_image_sheet))
+assert(inline_image_result.css:find(inline_image_result.assets[1].href,1,true)
+    and inline_image_result.localized_references==1,'inline stylesheet image did not resolve from the original chapter')
+local remote_inline=input('<style>body > p{background:url(https://example.invalid/x.png)}</style><p>Text</p>','',{})
+local remote_first=assert(Resources.prepare(remote_inline))
+assert(remote_first.remote_references==1 and remote_first.remote_urls[1]=='https://example.invalid/x.png',
+    'inline stylesheet remote resource was not identified')
+local remote_second=assert(Resources.prepare(remote_inline,{{source='https://example.invalid/x.png',data=png,media_type='image/png'}}))
+assert(remote_second.remote_references==0 and remote_second.css:find(remote_second.assets[1].href,1,true)
+    and not remote_second.css:find('https://',1,true),'inline stylesheet remote resource was not localized')
+local ordered_inline=input('<style>p{color:red}</style><link rel="stylesheet" href="../style/book.css"/><p>Text</p>',
+    'p{color:blue}',{})
+assert(assert(Resources.prepare(ordered_inline)).css=='p{color:red}\np{color:blue}',
+    'stylesheet following inline CSS lost its cascade order')
+ordered_inline.body='<link rel="stylesheet" href="../style/book.css"/><style>p{color:red}</style><p>Text</p>'
+ordered_inline.body_parts[1].data=ordered_inline.body
+assert(assert(Resources.prepare(ordered_inline)).css=='p{color:blue}\np{color:red}',
+    'inline CSS following a stylesheet lost its cascade order')
+local different_inline=input('<style>p{color:red}</style><p>A</p>','',{})
+different_inline.body_parts[2]={source='text/8.xhtml',data='<style>p{color:blue}</style><p>B</p>'}
+different_inline.body=different_inline.body_parts[1].data..'\n'..different_inline.body_parts[2].data
+denied(different_inline,'multiple_styles')
+for _,tag in ipairs({'<style>@import "https://example.invalid/x";</style>',
+    '<style>p{background:u\\72l(https://example.invalid/x)}</style>',
+    '<style media="screen">p{color:red}</style>', '<style type="text/css" type="text/css">p{color:red}</style>',
+    '<style>p{color:red}', '<style/>', '<style>p{color:<script>}</style>'}) do
+    local _,why=Resources.prepare(input(tag,'',{}))
+    assert(why=='native_resources/style_tag' or why=='native_resources/ambiguous',tostring(why))
+end
 local multi=input('<p>Text</p>','a\nb',{})
 multi.style_parts={{source='style/a.css',data='a'},{source='style/b.css',data='b'}};denied(multi,'multiple_styles')
 local ordered_body='<html><head><link rel="stylesheet" href="../style/b.css"/>'
