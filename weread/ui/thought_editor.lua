@@ -151,7 +151,15 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
     local function open_editor()
     if not alive(ctx) then return end
     if operation=='delete' then submit(ctx);return end
-    local draft=restore or ctx.journal:draft(Store.draft_key(owner.id,operation,ctx.reference_id))
+    local draft
+    if restore then
+        local latest,why=ctx.journal:draft(restore.draft_key)
+        if why or not latest or latest.token~=restore.token or latest.book_id~=owner.id
+            or latest.operation~=operation or latest.reference_id~=ctx.reference_id then
+            message(ctx,'This draft changed or is unavailable. Open local thought drafts again.');return
+        end
+        draft=latest
+    else draft=ctx.journal:draft(Store.draft_key(owner.id,operation,ctx.reference_id)) end
     if draft and draft.base_hash~=ctx.base_hash then
         message(ctx,'This draft refers to an older cloud version. View or delete it in Local thought drafts; refresh before editing again.');return
     end

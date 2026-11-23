@@ -6,6 +6,7 @@
   "ui_event_processed_while_source_check_running": true,
   "source_lease_held_until_editor_closes": true,
   "cancel_and_late_result_guarded_in_component_tests": true,
+  "draft_replacement_during_check_guarded_in_component_tests": true,
   "offline_draft_saved_and_resumed": true,
   "online_mock_roundtrip": true,
   "real_owner_reader_resolution": [1264, 1680],

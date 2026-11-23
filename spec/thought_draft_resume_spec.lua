@@ -161,4 +161,11 @@ state.worker_throws=false
 expect(Editor.start(host,owner,'create',row,current) and state.lease_held,'stale account check did not start')
 late=state.complete;host.owner={};late({entry=entry})
 expect(not owner.editor and not state.lease_held,'stale account left source check or lease active')
+host.owner=owner;state.draft={draft_key='draft',token='v1',book_id='42',operation='create',
+    reference_id='selection',base_hash='source',content='Earlier draft'}
+local saved_draft=copy(state.draft)
+expect(Editor.start(host,owner,'create',row,current,nil,saved_draft),'draft recheck did not start')
+state.draft.token='v2';state.complete(state.task())
+expect(not owner.editor and not state.lease_held and state.message:find('draft changed',1,true),
+    'replacement during chapter check opened an older draft')
 print('thought_draft_resume_spec: '..checks..' checks')
