@@ -164,5 +164,31 @@ class NativeDirectOwnerTests(unittest.TestCase):
             self.assertNotIn('private-token',output.getvalue())
             self.assertIn('store_search_keyword',run.call_args.kwargs['input'].decode())
 
+    def test_quick_search_requires_explicit_runner_result(self):
+        sample={'book_id':'42','expected':{'format':'epub','version':1}}
+        probe=SimpleNamespace(request=lambda *_args,**_kwargs:{'books':[]})
+        result=dict(result='PASS',profile_removed=True,native_requests=8,source_matches=True,home_record=True,
+            offline_home_resume=True,page_restored=True,network_blocked=True,credential_file_audit=True,installed_bytes_match=True,
+            full_ui=True,store_search=True,inline_style_verified=True)
+        for checked in (False,True):
+            if checked:result['quick_search']=True
+            child=SimpleNamespace(returncode=0,stdout=b'\nWEREAD_DIRECT_HOME_OWNER_RUN='+json.dumps(result).encode()+b'\n')
+            web=SimpleNamespace(cookies=SimpleNamespace(clear=lambda:None),set_cookie=lambda *_args:None,
+                verify_account=lambda:None,request=lambda *_args:{})
+            with patch.object(task,'SessionStore') as saved,patch.object(task,'NativeSessionStore') as native,\
+                    patch.object(task,'ChapterProbe',return_value=probe),patch.object(task,'state_hash',return_value='same'),\
+                    patch.object(task,'shelf_ids',return_value=['2']),patch.object(task,'WebSourceProbe',return_value=web),\
+                    patch.object(task,'observation',return_value={'position_present':False}),\
+                    patch.object(task,'select_public_sample',return_value=(sample,{'uid':37},
+                        {'html':True,'source':b'<style>p{color:red}</style><p>private</p>'},'Synthetic')),\
+                    patch.object(task,'search_token',return_value='private text'),patch.object(task.subprocess,'run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as output:
+                saved.return_value.load.return_value={'vid':'123','cookies':{'wr_skey':'private-token'}}
+                native.return_value.load.return_value={'vid':'123','accessToken':'private-token'}
+                code=task.main(['--saved-session','--home','--home-full-ui','--compare-web-progress','--store-search',
+                                '--quick-search','--lua-command','runner'])
+            self.assertEqual(code,0 if checked else 1)
+            self.assertEqual(json.loads(output.getvalue()).get('quick_search_verified'),True if checked else None)
+
 
 if __name__=='__main__':unittest.main()

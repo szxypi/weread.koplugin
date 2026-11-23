@@ -140,4 +140,16 @@ host:closeWeReadUI()
 expect(closed[1] == picker and closed[2] == shelf_view and host._discovery_menu == nil,
     "closing WeRead retained the category picker over the reader")
 
+local events={}
+local search_host=setmetatable({
+    closeWeReadUI=function(self) events[#events+1]='close';self.shelf_view=nil end,
+    showBookstore=function(self) events[#events+1]='store';self.shelf_view={} end,
+    showDiscoverySearch=function() events[#events+1]='input' end,
+    requireLogin=function() error('quick search required a legacy API key') end,
+}, {__index=Library})
+search_host:showSearch()
+expect(table.concat(events,',')=='store,input','reader search cancelled active work or bypassed bookstore')
+events={};search_host:showSearch()
+expect(table.concat(events,',')=='close,store,input','previous bookstore view was not replaced before search')
+
 print(("library_ui_cleanup_spec: %d checks"):format(checks))

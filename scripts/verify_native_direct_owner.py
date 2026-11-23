@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('--home-full-ui',action='store_true',help='Require entry through the installed book details')
     parser.add_argument('--compare-web-progress',action='store_true',help='Independently compare the selected book before and after')
     parser.add_argument('--store-search',action='store_true',help='Select an off-shelf book through a public search')
+    parser.add_argument('--quick-search',action='store_true',help='Search the bookstore from the native reader')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('saved session and private command are required together')
@@ -64,6 +65,7 @@ def main(argv=None):
     if args.compare_web_progress and not args.home:parser.error('Web comparison requires --home')
     if args.store_search and (not args.home_full_ui or not args.compare_web_progress or args.book_offset):
         parser.error('store search requires full home UI and Web comparison')
+    if args.quick_search and not args.store_search:parser.error('quick search requires store search')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,credentials_written_to_files=False)
     saved=credentials=web=None
     phase='start'
@@ -130,7 +132,8 @@ def main(argv=None):
             result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
             if child.returncode or result.get('result')!='PASS':
                 if result.get('phase') in {'input','native_chapter','record','reopen','audit'}:report['runner_phase']=result['phase']
-                if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record'}:
+                if result.get('probe_stage') in {'search_dialog','search_results','details','catalog','reader','home_record',
+                                                 'quick_menu','quick_input','quick_results'}:
                     report['runner_stage']=result['probe_stage']
                 if type(result.get('probe_line')) is int and 0<=result['probe_line']<=10000:report['runner_line']=result['probe_line']
                 if result.get('archive_status') in {'ok','filename','entry_limit','password','checksum','manifest_chapter',
@@ -154,6 +157,7 @@ def main(argv=None):
                           'page_restored','network_blocked','credential_file_audit','installed_bytes_match'}
                 if args.home_full_ui:required.add('full_ui')
                 if args.store_search:required|={'store_search','inline_style_verified'}
+                if args.quick_search:required.add('quick_search')
                 if (set(result)!=required or type(result['native_requests']) is not int or not 5<=result['native_requests']<=69
                         or any(result[key] is not True for key in required-{'result','native_requests'})):
                     raise ValueError('result')
@@ -175,6 +179,7 @@ def main(argv=None):
                 if args.home_full_ui:report['full_ui']=True
                 if args.compare_web_progress:report['web_position_unchanged']=True
                 if args.store_search:report.update(store_search=True,off_shelf=True,web_shelf_unchanged=True,inline_style_verified=True)
+                if args.quick_search:report['quick_search_verified']=True
             else:
                 required={'result','profile_removed','native_requests','source_matches','offline_reopen','offline_network_guard',
                           'web_coordinates','manual_time_blocked','credential_file_audit','installed_bytes_match','missing_images','warning_verified'}

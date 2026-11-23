@@ -2657,71 +2657,14 @@ function M:pullProgressWithUI(book_id)
 end
 
 function M:showSearch()
-    if not self:requireLogin(true, true) then
-        return
+    -- Use the same cancellable, native-first search as the bookstore. Keep the
+    -- reader's background work alive when there is no existing WeRead view.
+    if self.shelf_view or self._book_detail_view or self._profile_view or self._chapter_list_view
+        or self._read_stats_view or self._mp_article_list_view or self._discovery_menu then
+        self:closeWeReadUI()
     end
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Search WeRead"),
-        input = "",
-        input_type = "text",
-        buttons = {
-            {
-                {
-                    text = _("Cancel"),
-                    id = "close",
-                    callback = self:safeCallback(_("Cancel"), function()
-                        UIManager:close(dialog)
-                    end),
-                },
-                {
-                    text = _("Search"),
-                    is_enter_default = true,
-                    callback = self:safeCallback(_("Search"), function()
-                        local keyword = dialog:getInputText()
-                        UIManager:close(dialog)
-                        self:searchWithUI(keyword)
-                    end),
-                },
-            },
-        },
-    }
-    self:showInputDialog(dialog)
-end
-
-function M:searchWithUI(keyword)
-    keyword = require("weread.lib.search_query").trim(keyword)
-    if keyword == "" then
-        return
-    end
-    self:runOnlineTask(_("Search"), function()
-        local ok, result = pcall(function()
-            return self.client:gateway("/store/search", {
-                keyword = keyword,
-                count = 10,
-            })
-        end)
-        if not ok then
-            logger.err("search failed:", log_error(result))
-            self:showInfo(T(_("Search failed:\n%1"), display_error(result)))
-            return
-        end
-        local items = {}
-        for group_index, group in ipairs(result.results or {}) do
-            for book_index, entry in ipairs(group.books or {}) do
-                local book = entry.bookInfo or entry
-                table.insert(items, {
-                    text = book.title or book.bookId or _("Untitled"),
-                    post_text = book.author or "",
-                    mandatory = book.category or "",
-                    callback = self:safeCallback(book.title or book.bookId or _("Untitled"), function()
-                        self:showBookRecord(book)
-                    end),
-                })
-            end
-        end
-        self:showList(T(_("Search: %1"), keyword), items, _("No search results."))
-    end)
+    self:showBookstore()
+    self:showDiscoverySearch()
 end
 
 function M:showImportedBooks()

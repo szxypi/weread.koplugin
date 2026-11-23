@@ -26,9 +26,12 @@ def main(argv=None):
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--full-ui', action='store_true')
     parser.add_argument('--store-search', action='store_true')
+    parser.add_argument('--quick-search', action='store_true')
     args = parser.parse_args(argv)
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
+    if args.quick_search and not args.store_search:
+        parser.error('quick search requires store search')
     runtime = args.koreader.resolve()
     if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
             or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
@@ -63,7 +66,7 @@ def main(argv=None):
                        EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
                        EMULATE_READER_DPI=str(args.dpi), WEREAD_DIRECT_OWNER_TMPFS='1')
             phase = 'native_chapter'
-            prepare = dict(payload, plugin_home=True)
+            prepare = dict(payload, plugin_home=True, quick_search=args.quick_search)
             probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
             probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
             code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -73,7 +76,7 @@ def main(argv=None):
                 match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                 if match:
                     report['probe_line'] = int(match.group(1))
-                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|home_record)$',out)
+                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|home_record|quick_menu|quick_input|quick_results)$',out)
                 if stage:
                     report['probe_stage'] = stage.group(1).decode()
                 reason = re.search(rb'(?m)^WEREAD_DIRECT_HOME_REASON=(not_entitled|auth_expired|rate_limited|service_rejected|session_changed|catalog_changed|unavailable|invalid_source|invalid_image|remote_unsupported|storage|resource_[a-z_]+)$',out)
@@ -106,6 +109,7 @@ def main(argv=None):
             if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
                     or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
                     or args.full_ui and prepared.get('store_search') is not args.store_search
+                    or args.full_ui and prepared.get('quick_search') is not args.quick_search
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
             for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
@@ -146,6 +150,8 @@ def main(argv=None):
             if args.store_search:
                 report['store_search'] = True
                 report['inline_style_verified'] = True
+            if args.quick_search:
+                report['quick_search'] = True
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

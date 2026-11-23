@@ -107,12 +107,20 @@ FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
 if input.store_search_keyword then
     host.fetchVisibleShelfCovers=function() end
-    host:showBookstore()
-    local search
-    for _,item in ipairs(host.shelf_view._action_buttons or {}) do
-        if item.text==require('weread.lib.plugin_util').tr('Search WeRead') then search=item end
+    if input.quick_search then
+        local entry
+        for _,item in ipairs(host:getMainMenuItems()) do
+            if item.text==require('weread.lib.plugin_util').tr('Search') then entry=item end
+        end
+        assert(entry and type(entry.callback)=='function');entry.callback()
+    else
+        host:showBookstore()
+        local search
+        for _,item in ipairs(host.shelf_view._action_buttons or {}) do
+            if item.text==require('weread.lib.plugin_util').tr('Search WeRead') then search=item end
+        end
+        assert(search);search.callback()
     end
-    assert(search);search.callback()
     stage='search_dialog';pump(function() local top=UI:getTopmostVisibleWidget();return top and type(top.setInputText)=='function' end)
     local dialog=UI:getTopmostVisibleWidget();dialog:setInputText(input.store_search_keyword);dialog.buttons[1][2].callback()
     stage='search_results';pump(function() return not host.discovery_loading and host.discovery_state and host.discovery_state.kind=='search' end)
@@ -174,9 +182,40 @@ if reader.document:getPageCount()<2 then assert(reader.font:onSetFontSize(48));U
 assert(reader.document:getPageCount()>=2)
 local first=assert(reader.document:getXPointer());reader.rolling:onGotoPage(2);UI:forceRePaint()
 local anchor=assert(reader.document:getXPointer());assert(anchor~=first)
+if input.quick_search then
+    local active=reader.weread;active.settings.mock_endpoint=input.mock_endpoint
+    assert(active.settings:get('api_key','')=='' and not next(active.settings:get('cookies',{})),
+        'quick search fixture unexpectedly contains a gateway key or Web cookies')
+    active.fetchVisibleShelfCovers=function() end
+    assert(active:onShowWeReadQuickMenu())
+    local quick_button
+    stage='quick_menu';pump(function()
+        local top=UI:getTopmostVisibleWidget()
+        if top and type(top.buttons)=='table' then
+            for _,row in ipairs(top.buttons) do for _,item in ipairs(row) do
+                if item.text==require('weread.lib.plugin_util').tr('Search bookstore') then quick_button=item end
+            end end
+        end
+        return quick_button~=nil
+    end)
+    assert(quick_button.enabled~=false);quick_button.callback()
+    stage='quick_input';pump(function() return active.shelf_view and active.shelf_view._shelf_popup end)
+    local input_dialog=active.shelf_view._shelf_popup
+    assert(type(input_dialog.setInputText)=='function');input_dialog:setInputText(input.store_search_keyword)
+    input_dialog.buttons[1][2].callback()
+    stage='quick_results';pump(function() return not active.discovery_loading and active.discovery_state
+        and active.discovery_state.kind=='search' end)
+    assert(active.discovery_state.source_kind=='native' and active.discovery_state.keyword==input.store_search_keyword)
+    local found=false
+    for _,book in ipairs(active.discovery_state.books) do if tostring(book.bookId)==input.book_id then found=true end end
+    assert(found,'quick search did not return the selected book')
+    active:closeWeReadUI();UI:forceRePaint()
+    assert(Reader.instance==reader and reader.document.file==path and reader.document:isXPointerInCurrentPage(anchor),
+        'closing bookstore search changed the open reading page')
+end
 local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));assert(file:close())
 while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
 reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
 local count=assert(io.open(home..'/request-count','rb'));local requests=#assert(count:read('*a'));assert(count:close())
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
-    store_search=input.store_search_keyword~=nil})
+    store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true})

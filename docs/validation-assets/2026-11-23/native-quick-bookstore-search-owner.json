@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-23",
+  "scope": "one real account, one public search and one off-shelf native chapter",
+  "screens": ["600x800", "1264x1680"],
+  "main_menu_search": true,
+  "native_reader_quick_search": true,
+  "native_store_results_verified": true,
+  "reader_web_cookies_supplied": false,
+  "reader_skill_key_supplied": false,
+  "reader_page_preserved": true,
+  "fresh_process_offline_home_resume": true,
+  "native_and_web_shelves_observed_state_unchanged": true,
+  "web_progress_observation_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "limitations": ["one account and one search query", "physical Kindle untested"]
+}

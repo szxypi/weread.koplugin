@@ -15,8 +15,7 @@ return function(plugin,flush,paint)
             flush();socket.sleep(.01)
         end
     end
-    plugin:showBookstore()
-    plugin.shelf_view.on_search()
+    plugin:showSearch()
     local dialog=assert(plugin.shelf_view._shelf_popup)
     dialog.getInputText=function() return '合成读物' end
     dialog.buttons[1][2].callback()

@@ -37,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--koreader', type=Path, required=True)
     parser.add_argument('--store-only', action='store_true')
+    parser.add_argument('--quick-only', action='store_true')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', 0), StoreHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -46,11 +47,14 @@ def main():
             candidate = Path(directory)/'candidate.zip'
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
-            cases=((600, 800, 167, False, False), (1264, 1680, 300, False, False),
-                (600, 800, 167, True, False), (1264, 1680, 300, True, False),
-                (600, 800, 167, True, True), (1264, 1680, 300, True, True))
-            for width, height, dpi, full_ui, store_search in cases:
+            cases=((600, 800, 167, False, False, False), (1264, 1680, 300, False, False, False),
+                (600, 800, 167, True, False, False), (1264, 1680, 300, True, False, False),
+                (600, 800, 167, True, True, False), (1264, 1680, 300, True, True, False),
+                (600, 800, 167, True, True, True), (1264, 1680, 300, True, True, True))
+            for width, height, dpi, full_ui, store_search, quick_search in cases:
                 if args.store_only and not store_search:
+                    continue
+                if args.quick_only and not quick_search:
                     continue
                 server.mode = 'selection_direct_overlay'
                 server.calls, server.leaked, server.valid, server.review = [], False, True, None
@@ -69,6 +73,8 @@ def main():
                     command.append('--store-search')
                     payload['store_search_keyword']='Synthetic'
                     payload['inline_style']='/* synthetic */ p{margin-left:7px}'
+                if quick_search:
+                    command.append('--quick-search')
                 child = subprocess.run(command, input=json.dumps(payload).encode(),
                     capture_output=True, timeout=480)
                 marker = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
@@ -80,9 +86,12 @@ def main():
                 assert result.get('full_ui', False) is full_ui
                 assert result.get('store_search', False) is store_search
                 assert result.get('inline_style_verified', False) is store_search
+                assert result.get('quick_search', False) is quick_search
                 assert server.valid and not server.leaked
                 assert all(path in ('/store/search','/book/info','/book/chapterInfos','/book/chapterdownload') for _,_,path in server.calls)
                 assert any(path=='/store/search' for _,_,path in server.calls) is store_search
+                if quick_search:
+                    assert sum(path=='/store/search' for _,_,path in server.calls)==2
         print('PASS: owner home runner against synthetic service at both screen sizes')
     finally:
         server.shutdown()

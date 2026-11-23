@@ -499,7 +499,7 @@ def main():
                     assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content, 'missing native search result'
                     value=json.loads(content.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',scope=args.search_scope,reopen=reopened,quick_menu=True,native_search=True,
-                                       target_page_after_start=True,requests=0), 'native search result mismatch'
+                                       target_page_after_start=True,store_search=True,reader_page_preserved=True,requests=0), 'native search result mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'native search made a mock request'
             if args.probe == 'book-search':

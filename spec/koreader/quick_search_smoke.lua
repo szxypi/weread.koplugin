@@ -75,7 +75,24 @@ for _i=1,5 do flush() end
 local after=reader.document:getCurrentPage()
 assert(after>before and after>=math.floor(reader.document:getPageCount()*.85),
     'native search did not reach the target near the end of the document')
+local anchor=assert(reader.document:getXPointer())
+for _i=1,10 do
+    local top=UI:getTopmostVisibleWidget()
+    if not top or top==reader then break end
+    UI:close(top);flush()
+end
+assert(plugin:showEndOfBookDialog('900001'));flush()
+quick=assert(UI:getTopmostVisibleWidget());store_button=nil
+for _row,buttons in ipairs(quick.buttons) do for _column,button in ipairs(buttons) do
+    if button.text==I18n.tr('Search bookstore') then store_button=button end
+end end
+assert(store_button and store_button.enabled~=false);store_button.callback();flush()
+local store=assert(plugin.shelf_view);local store_input=assert(store._shelf_popup)
+assert(type(store_input.setInputText)=='function','bookstore search input not opened')
+store_input.buttons[1][1].callback();plugin:closeWeReadUI();flush()
+assert(reader.document:isXPointerInCurrentPage(anchor),'bookstore search changed the reader page')
 assert(requests==0,'native search attempted a network request')
 print('\nWEREAD_QUICK_SEARCH_RESULT='..require('json').encode({result='PASS',scope=scope,
-    reopen=reopen,quick_menu=true,native_search=true,target_page_after_start=true,requests=requests}))
+    reopen=reopen,quick_menu=true,native_search=true,target_page_after_start=true,store_search=true,
+    reader_page_preserved=true,requests=requests}))
 os.exit(0)
