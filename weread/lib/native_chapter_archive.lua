@@ -4,6 +4,7 @@
 -- ZIP decryption and CRC verification. Archive names never become disk paths.
 local bit = require("bit")
 local Crypto = require("weread.lib.native_chapter_crypto")
+local crc32 = require("weread.lib.native_crc32")
 local M = {}
 local MAX_ENTRY, MAX_ARCHIVE = 8*1024*1024, 32*1024*1024
 local MAX_MANIFEST, MAX_DEPTH = 1024*1024,32
@@ -55,11 +56,6 @@ for i = 0, 255 do
     crc_table[i] = c
 end
 local function step(crc, value) return bit.bxor(bit.rshift(crc,8), crc_table[bit.band(bit.bxor(crc,value),255)]) end
-local function crc32(data)
-    local c = -1
-    for i = 1, #data do c = step(c, data:byte(i)) end
-    return bit.bnot(c)
-end
 local function multiply(a,b)
     local low, high = bit.band(a,65535), bit.rshift(a,16)
     return bit.tobit(low*bit.band(b,65535) + bit.lshift(bit.tobit(high*bit.band(b,65535)+low*bit.rshift(b,16)),16))
@@ -73,6 +69,14 @@ local function decrypt(data, password, check)
         c = step(c,bit.rshift(b,24))
     end
     for i = 1, #password do update(password:byte(i)) end
+    -- Avoid allocating a Lua string and table slot for every decrypted byte.
+    -- Retain the bounded chunked implementation if an FFI buffer is unavailable.
+    local ffi_ok, ffi = pcall(require, "ffi")
+    local buffer
+    if ffi_ok then
+        local ok, value = pcall(ffi.new, "uint8_t[?]", #data-12)
+        if ok then buffer = value end
+    end
     local chunks, chunk = {}, {}
     for i = 1, #data do
         local t = bit.bor(c,2)
@@ -80,10 +84,15 @@ local function decrypt(data, password, check)
         update(value)
         if i == 12 and value ~= check then error("E-Ink ZIP 密码校验失败") end
         if i > 12 then
-            chunk[#chunk+1] = string.char(value)
-            if #chunk == 4096 then chunks[#chunks+1] = table.concat(chunk); chunk = {} end
+            if buffer then
+                buffer[i-13] = value
+            else
+                chunk[#chunk+1] = string.char(value)
+                if #chunk == 4096 then chunks[#chunks+1] = table.concat(chunk); chunk = {} end
+            end
         end
     end
+    if buffer then return ffi.string(buffer, #data-12) end
     chunks[#chunks+1] = table.concat(chunk)
     return table.concat(chunks)
 end

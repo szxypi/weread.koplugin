@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 
 from test_native_chapter_package import ENCRYPTED, archive
@@ -38,15 +39,23 @@ def fixtures():
     index = bad_crc.find(b'PK\x01\x02')
     assert index >= 0
     bad_crc[index + 16] ^= 1
-    entries = [sample(base64.b64decode(ENCRYPTED)), sample(good), sample(good, uid='38'), sample(missing),
+    bad_encrypted = bytearray(base64.b64decode(ENCRYPTED))
+    name_size, extra_size = struct.unpack_from('<HH', bad_encrypted, 26)
+    payload = 30 + name_size + extra_size
+    bad_encrypted[payload + 13] ^= 1  # Keep the password check byte intact.
+    fallback = sample(base64.b64decode(ENCRYPTED))
+    fallback['buffer_fallback'] = True
+    entries = [sample(base64.b64decode(ENCRYPTED)), fallback, sample(good), sample(good, uid='38'), sample(missing),
                sample(archive([('../escape.txt', 'unsafe')])), sample(b'bad zip'),
                sample(base64.b64decode(ENCRYPTED), envelope='AAAAAAAAAAAAAAAAAAAAAA=='),
                sample(archive([('37.html', first), ('unused.png', 'not-an-image')])),
                sample(archive([('37.html', first), ('diagram.svg', '<svg/>')])),
                sample(archive([('info.txt', '{"chapters":[],"chapters":[]}'), ('37.html', first)])),
                sample(archive([('info.txt', '{"chapters":[{"chapterUid":9007199254740992,"files":["37.html"]}]}'),
-                               ('37.html', first)])), sample(bytes(bad_crc))]
+                               ('37.html', first)])), sample(bytes(bad_crc)), sample(bytes(bad_encrypted))]
     expected = [dict(ok=True, body_sha256=digest(b'<p>Synthetic</p>'), css_sha256=digest(b''), is_text=False,
+                     web_coordinate_authority=False, assets=[], image_signatures_recognized=True, unusable_resources=0),
+                dict(ok=True, body_sha256=digest(b'<p>Synthetic</p>'), css_sha256=digest(b''), is_text=False,
                      web_coordinate_authority=False, assets=[], image_signatures_recognized=True, unusable_resources=0),
                 dict(ok=True, body_sha256=digest(second + b'\n' + first), css_sha256=digest(css), is_text=False,
                      web_coordinate_authority=False, image_signatures_recognized=True, unusable_resources=0,
@@ -56,7 +65,7 @@ def fixtures():
                      web_coordinate_authority=False, assets=[], image_signatures_recognized=False, unusable_resources=1),
                 dict(ok=True, body_sha256=digest(first), css_sha256=digest(b''), is_text=False,
                      web_coordinate_authority=False, assets=[], image_signatures_recognized=False, unusable_resources=1),
-                dict(ok=False), dict(ok=False), dict(ok=False)]
+                dict(ok=False), dict(ok=False), dict(ok=False), dict(ok=False)]
     return entries, expected
 
 

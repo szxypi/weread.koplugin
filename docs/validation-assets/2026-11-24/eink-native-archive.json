@@ -1,0 +1,40 @@
+{
+  "result": "PASS",
+  "baseline_commit": "93b1b84e7c9350a658376ccdb4f33aced3786cb4",
+  "fixture": "synthetic uncompressed ZIP containing one 2 MiB pseudo-random image and one HTML chapter",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "image_bytes": 2097160,
+  "reads_per_run": 3,
+  "runs_each": 3,
+  "cpu_ms_median": {
+    "plain_before": 14.132,
+    "plain_after": 1.875,
+    "zipcrypto_before": 279.401,
+    "zipcrypto_after": 114.98
+  },
+  "entry_digests_verified_against_python": true,
+  "encrypted_payload_corruption_rejected": true,
+  "crc_header_corruption_rejected": true,
+  "crc_native_and_fallback_binary_cases": 4098,
+  "unavailable_and_incompatible_crc_backend_fallback": true,
+  "decrypt_buffer_allocation_failure_fallback": true,
+  "owner_readonly": {
+    "result": "PASS",
+    "chapters": 4,
+    "unavailable_not_requested": 11,
+    "screen_sizes": 2,
+    "source_matches": true,
+    "repeat_skipped": true,
+    "fresh_offline_render": true,
+    "shelf_and_web_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "CPU time measures archive processing on a desktop emulator, not total download, page rendering, or physical Kindle speed.",
+    "The large image is synthetic and stored without compression to exercise decryption and integrity checking."
+  ]
+}

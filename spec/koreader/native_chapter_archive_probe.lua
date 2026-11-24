@@ -12,8 +12,19 @@ local ok,result=pcall(function()
     local crypto=require('weread.lib.crypto')
     local out={samples=json.decode('[]')}
     for _,sample in ipairs(input.samples) do
+        local ffi=require('ffi')
+        local original_new=ffi.new
+        local blocked=0
+        if sample.buffer_fallback then
+            ffi.new=function(kind,...)
+                if kind=='uint8_t[?]' then blocked=blocked+1;error('simulated allocation failure') end
+                return original_new(kind,...)
+            end
+        end
         local success,value=pcall(archive.read,require('mime').unb64(sample.archive),sample.envelope,sample.vid,
             {chapter_uid=sample.chapter_uid})
+        ffi.new=original_new
+        if sample.buffer_fallback then assert(blocked>0,'buffer fallback was not exercised') end
         if success then
             local assets=json.decode('[]')
             for _,asset in ipairs(value.assets) do
