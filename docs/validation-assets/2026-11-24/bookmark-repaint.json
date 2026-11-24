@@ -1,0 +1,17 @@
+{
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "runs": [
+    {"width": 600, "height": 800, "dpi": 167, "result": "PASS"},
+    {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS"}
+  ],
+  "synthetic_bookmarks": 512,
+  "initial_native_membership_checks": 512,
+  "same_page_repaints": 5,
+  "repeated_native_membership_checks": 0,
+  "page_turn_and_return": true,
+  "font_reflow": true,
+  "scroll_and_tap": true,
+  "real_account_data_posts": 0,
+  "physical_device_tested": false
+}

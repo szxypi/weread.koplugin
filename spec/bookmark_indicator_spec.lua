@@ -51,4 +51,41 @@ layer:setRecords({});layer:paintTo(bb,0,0);expect(not layer.rect)
 expect(ui.annotation.annotations==notes and notes[1].text=='native','native annotations changed')
 local big=Indicator:new{scale=function(n) return n*2 end,color=0};big.ui=ui;big.view=view
 big:setRecords({first});big:paintTo(bb,0,0);expect(big.rect.w==24 and big.rect.h==36,'DPI scaling lost')
+-- Repeated page paints must avoid native pointer scans without retaining stale
+-- membership across navigation, layout changes, errors, or record updates.
+do
+    local current,total,visible,pos=1,4,1,0
+    local starts={'a','b','c','d'};local scans=0;local fail=false
+    local cached_doc={getPageMargins=function() return {top=30,right=30} end,getHeaderHeight=function() return 0 end,
+        getCurrentPage=function() return current end,getPageCount=function() return total end,
+        getVisiblePageCount=function() return visible end,getCurrentPos=function() return pos end,
+        getPageXPointer=function(_,n) return starts[n] end,
+        isXPointerInCurrentPage=function(_,xp) scans=scans+1;if fail then error('transient') end;return xp==current end,
+        getScreenPositionFromXPointer=function() scans=scans+1;return 10,10 end}
+    local cache_ui={document=cached_doc,dimen={w=600,h=800}}
+    local cache_view={view_mode='page'}
+    local cache_layer=Indicator:new{color=0};cache_layer.ui=cache_ui;cache_layer.view=cache_view
+    local rows={};for i=1,100 do rows[i]={pos0=(i%4)+1} end
+    cache_layer:setRecords(rows);cache_layer:paintTo(bb,0,0);expect(scans==100 and #cache_layer.visible==25)
+    cache_layer:paintTo(bb,0,0);expect(scans==100 and #cache_layer.visible==25,'same page rescanned')
+    local hit=cache_layer.rect;cache_layer:hitTest{x=hit.x+1,y=hit.y+1};expect(scans==125,'tap must recheck membership')
+    current=2;cache_layer:paintTo(bb,0,0);expect(scans==225 and cache_layer.visible[1].pos0==2,'page change reused old membership')
+    starts[3]='changed';cache_layer:paintTo(bb,0,0);expect(scans==325,'reflow boundary did not invalidate')
+    pos=5;cache_layer:paintTo(bb,0,0);expect(scans==425,'viewport position did not invalidate')
+    visible=2;cache_layer:paintTo(bb,0,0);expect(scans==525,'spread change did not invalidate')
+    cache_layer:resetLayout();cache_layer:paintTo(bb,0,0);expect(scans==625,'layout reset did not invalidate')
+    cache_layer:setRecords(rows);cache_layer:paintTo(bb,0,0);expect(scans==725,'record update did not invalidate')
+    cache_view.view_mode='scroll';cache_layer:paintTo(bb,0,0);cache_layer:paintTo(bb,0,0)
+    expect(scans==925,'scroll mode reused membership')
+    cache_view.view_mode='page';cache_layer:invalidate();fail=true;cache_layer:paintTo(bb,0,0)
+    fail=false;cache_layer:paintTo(bb,0,0);expect(scans==1125 and #cache_layer.visible==25,'failed scan was cached')
+    cached_doc.getPageXPointer=function() return nil end
+    cache_layer:paintTo(bb,0,0);cache_layer:paintTo(bb,0,0);expect(scans==1325,'missing page bounds reused membership')
+    cached_doc.getPageXPointer=function(_,n) return starts[n] end
+    current=4;visible=1;cache_layer:paintTo(bb,0,0);cache_layer:paintTo(bb,0,0)
+    expect(scans==1425 and #cache_layer.visible==25,'last page could not be cached safely')
+    cache_ui.dimen.w=620;cache_layer:paintTo(bb,0,0);expect(scans==1525,'dimension change did not invalidate')
+    cached_doc.getCurrentPos=function() error('unavailable') end
+    cache_layer:paintTo(bb,0,0);cache_layer:paintTo(bb,0,0);expect(scans==1725,'failed page key reused membership')
+end
 print('bookmark_indicator_spec: '..checks..' checks passed')

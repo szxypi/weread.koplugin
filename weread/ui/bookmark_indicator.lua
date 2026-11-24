@@ -8,8 +8,34 @@ function M:new(options)
 end
 function M:setRecords(records) self.records=records or {};self:invalidate() end
 function M:setEnabled(value) self.enabled=value~=false;self:invalidate() end
-function M:invalidate() self.visible={};self.rect=nil;self.origin=nil end
+local function clear_visible(self) self.visible={};self.rect=nil;self.origin=nil end
+function M:invalidate() clear_visible(self);self.page_cache=nil end
 function M:resetLayout() self:invalidate() end
+-- Only reuse a result when the native renderer can identify the entire
+-- viewport. Scroll mode and incomplete/failed document APIs always rescan.
+local function page_key(self,document)
+    if self.view.view_mode~='page' or #self.records<8 then return end
+    if type(self.ui.dimen.w)~='number' or type(self.ui.dimen.h)~='number' then return end
+    local names={'getCurrentPage','getPageCount','getVisiblePageCount','getCurrentPos','getPageXPointer'}
+    for _,name in ipairs(names) do if type(document[name])~='function' then return end end
+    local page,total,count,pos=document:getCurrentPage(),document:getPageCount(),document:getVisiblePageCount(),document:getCurrentPos()
+    if type(page)~='number' or page%1~=0 or type(total)~='number' or total%1~=0
+        or type(count)~='number' or count%1~=0 or type(pos)~='number'
+        or page<1 or total<page or count<1 then return end
+    local first=document:getPageXPointer(page)
+    if type(first)~='string' or first=='' then return end
+    local last=false
+    if page+count<=total then
+        last=document:getPageXPointer(page+count)
+        if type(last)~='string' or last=='' then return end
+    end
+    return {document,page,total,count,pos,first,last,self.ui.dimen.w,self.ui.dimen.h}
+end
+local function same_key(a,b)
+    if not a or not b then return false end
+    for i=1,#a do if a[i]~=b[i] then return false end end
+    return true
+end
 local function onscreen(self,document,xp)
     if self.view.view_mode=='page' then
         return type(document.isXPointerInCurrentPage)=='function' and document:isXPointerInCurrentPage(xp)==true
@@ -41,12 +67,20 @@ function M:geometry()
     return {x=x,y=y,w=w,h=h}
 end
 function M:paintTo(bb,x,y)
-    self:invalidate()
+    clear_visible(self)
     if not self.enabled or not self.ui or self.ui.paging or not self.view then return end
     local document=self.ui.document;if not document or not self.ui.dimen then return end
-    for _i,row in ipairs(self.records) do
-        local ok,visible=pcall(onscreen,self,document,row.pos0)
-        if ok and visible then self.visible[#self.visible+1]=row end
+    local key_ok,key=pcall(page_key,self,document)
+    local cached=key_ok and same_key(key,self.page_cache and self.page_cache.key) and self.page_cache
+    if cached then
+        self.visible=cached.visible
+    else
+        local complete=true
+        for _i,row in ipairs(self.records) do
+            local ok,visible=pcall(onscreen,self,document,row.pos0)
+            if not ok then complete=false elseif visible then self.visible[#self.visible+1]=row end
+        end
+        self.page_cache=key_ok and key and complete and {key=key,visible=self.visible} or nil
     end
     if #self.visible==0 then return end
     local ok,r=pcall(self.geometry,self);if not ok or not r then self.visible={};return end
