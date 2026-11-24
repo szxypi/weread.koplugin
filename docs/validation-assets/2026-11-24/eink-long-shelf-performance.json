@@ -1,0 +1,56 @@
+{
+  "result": "PASS",
+  "baseline_commit": "880dd8c6",
+  "synthetic_only": true,
+  "screen_pixel_comparisons": 8,
+  "mirrored_screen_pixel_comparisons": 4,
+  "scenarios": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "before": {
+        "row_paints": 12000,
+        "initialization_ms": 51,
+        "repaint_wall_ms": 108,
+        "lua_kib": 24159
+      },
+      "after": {
+        "row_paints": 124,
+        "initialization_ms": 39,
+        "repaint_wall_ms": 108,
+        "lua_kib": 13195
+      },
+      "books": 1500,
+      "refreshes": 8,
+      "runs_each": 3,
+      "gestures_and_focus": "PASS"
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "before": {
+        "row_paints": 12000,
+        "initialization_ms": 55,
+        "repaint_wall_ms": 118,
+        "lua_kib": 24142
+      },
+      "after": {
+        "row_paints": 122,
+        "initialization_ms": 42,
+        "repaint_wall_ms": 122,
+        "lua_kib": 13221
+      },
+      "books": 1500,
+      "refreshes": 8,
+      "runs_each": 3,
+      "gestures_and_focus": "PASS"
+    }
+  ],
+  "limitations": [
+    "Desktop KOReader emulator, not an actual Kindle.",
+    "Lua heap after garbage collection, not total process memory.",
+    "Screen repaint timings include emulator overhead and do not establish hardware speedup."
+  ]
+}

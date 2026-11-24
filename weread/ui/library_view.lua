@@ -33,6 +33,7 @@ local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
 local CoverMask = require("weread.lib.cover_mask")
+local ShelfListPaint = require("weread.lib.shelf_list_paint")
 local CoverBitmapCache = require("weread.lib.shelf_cover_bitmap_cache")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -59,6 +60,14 @@ function CoverShadow:paintTo(bb, x, y)
 end
 
 local inside_rounded_rect = CoverMask.inside
+
+-- ScrollableContainer paints its full child on each scroll, even though it
+-- composites only the viewport. Skip offscreen list rows and dividers, but
+-- keep every row's geometry current for gestures and physical-key focus.
+local ShelfListGroup = VerticalGroup:extend{}
+function ShelfListGroup:paintTo(bb, x, y)
+    ShelfListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
+end
 
 -- FrameContainer does not clip its child to its radius. This card masks the
 -- four image corners before painting one anti-aliased border, so the cover,
@@ -1216,7 +1225,8 @@ end
 function LibraryView:content()
     local source = self.mode == "public_account"
         and (self.accounts or {}) or (self.books or {})
-    local content = VerticalGroup:new{
+    local group = not self.paged and not self.cover_mode and ShelfListGroup or VerticalGroup
+    local content = group:new{
         align = "left",
         HorizontalSpan:new{ width = self.list_width },
     }
@@ -1301,6 +1311,7 @@ function LibraryView:content()
                     self.on_hold(book, self.mode)
                 end or nil,
             }
+            shelf_row._shelf_list_row = not self.paged
             self._item_rows[#self._item_rows + 1] = shelf_row
             self._focus_item_rows[#self._focus_item_rows + 1] = { shelf_row }
             table.insert(content, shelf_row)

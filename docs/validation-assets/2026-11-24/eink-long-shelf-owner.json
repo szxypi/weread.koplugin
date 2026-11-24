@@ -1,0 +1,32 @@
+{
+  "result": "PASS",
+  "checked_at": "2026-11-24",
+  "runs": [
+    {
+      "width": 600,
+      "height": 800,
+      "shelf_entries": 140,
+      "online_and_offline_list_checked": true,
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "profile_removed": true
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "shelf_entries": 140,
+      "online_and_offline_list_checked": true,
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "profile_removed": true
+    }
+  ],
+  "native_expiry_http_401_observations": 2,
+  "native_renewal_posts": 1,
+  "renewed_owner_and_keychain_verified": true,
+  "screenshots": 0,
+  "limitations": [
+    "Real shelf used only in isolated simulator; no actual Kindle measurement.",
+    "Timing and long-list stress use synthetic data."
+  ]
+}

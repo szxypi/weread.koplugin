@@ -52,6 +52,8 @@ bash scripts/package_release.sh dist/weread.koplugin-eink-ui-dev.zip
 
 开发版沿用基线内部版本号。插件的在线更新只检查本项目的正式 Release；当前尚未发布正式版本，开发分支的后续改动需要重新打包安装。
 
+连续书架列表的墨水屏性能优化及模拟测试见[性能说明](docs/eink-performance.md)；实体 Kindle 测量仍待完成。
+
 ## 登录
 
 在插件中使用微信扫码登录。部分功能可使用手机微信读书 App“我 → 设置 → 微信读书 Skill”中的个人 API Key；公开书目浏览不需要登录。可阅读内容取决于账号的实际权限。

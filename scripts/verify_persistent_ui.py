@@ -32,7 +32,7 @@ PHASES = {'init', 'shelf', 'groups', 'home', 'book', 'audit', 'complete'}
 RUNNER_ERRORS |= {'persistent_ui_group_scope','persistent_ui_group_schema','persistent_ui_group_counts','persistent_ui_group_incomplete'}
 FLAGS = {'anonymous_credentials', 'credential_file_audit', 'file_backed_sqlite',
          'bookstore_readback', 'transport_guard_selftest', 'progress_display_matches',
-         'covers_visible', 'workers_reaped', 'preferences_readback', 'author_sort_checked', 'progress_sort_checked', 'progress_filters_checked'}
+         'covers_visible', 'workers_reaped', 'preferences_readback', 'author_sort_checked', 'progress_sort_checked', 'progress_filters_checked', 'long_list_checked'}
 COUNTS = {'shelf_books': 5000, 'shelf_groups': 1000, 'painted_views': 4,
           'cover_gets': 48, 'progress_gets': 24, 'cover_cells': 24,
           'cover_retries': 48,
