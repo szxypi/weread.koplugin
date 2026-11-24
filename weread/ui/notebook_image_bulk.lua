@@ -87,8 +87,7 @@ function M.start(host,owner,is_current)
     local function complete_book()
         job.snapshot=nil;job.row_index=nil;job.url_index=nil;job.urls=nil
         job.done=job.done+1;job.index=job.index+1
-        dialog:reportProgress(job.done)
-        dialog:setTitle(T(_('Saving thought images: %1/%2 books'),tostring(job.done),tostring(#ids)))
+        dialog:reportProgress(job.done,T(_('Saving thought images: %1/%2 books'),tostring(job.done),tostring(#ids)))
         if job.index>#ids then finish('complete') else later() end
     end
     launch=function()

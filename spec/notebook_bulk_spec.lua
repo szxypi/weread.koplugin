@@ -10,7 +10,7 @@ package.preload['weread.lib.plugin_util']=function() return {tr=function(s) retu
 end} end
 package.preload['weread.ui.download_dialog']=function() return {new=function(_,data)
     function data:show() end
-    function data:reportProgress(n) self.progress=n end
+    function data:reportProgress(n,title) self.progress=n;if title~=nil then self.title=title end end
     function data:setTitle(title) self.title=title end
     return data
 end} end

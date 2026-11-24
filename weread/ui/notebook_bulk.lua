@@ -130,8 +130,8 @@ function M.start(host,owner,is_current,missing_only)
             local changed
             if display then if thoughts then changed=display.thoughts_changed else changed=display.changed end end
             if success==true and type(changed)=='function' then pcall(changed,host,value) end
-            job.done=job.done+1;dialog:reportProgress(job.done)
-            dialog:setTitle(T(_('Saving cloud notes: %1/%2 sets'),tostring(job.done),tostring(job.total)))
+            job.done=job.done+1
+            dialog:reportProgress(job.done,T(_('Saving cloud notes: %1/%2 sets'),tostring(job.done),tostring(job.total)))
             if job.done==job.total then finish('complete') else later() end
         end)
         if (not started or not ok) and not delivered then finish('failed') end

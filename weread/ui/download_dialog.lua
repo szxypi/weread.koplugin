@@ -101,35 +101,85 @@ function DownloadDialog:init()
     }
 end
 
-function DownloadDialog:reportProgress(progress)
-    if not self.progress_bar then return end
+function DownloadDialog:_cancelProgressRefresh()
+    if self._progress_refresh then
+        UIManager:unschedule(self._progress_refresh)
+        self._progress_refresh = nil
+    end
+end
+
+function DownloadDialog:_paintProgress(now)
+    self:_cancelProgressRefresh()
+    self.last_redraw_time_ms = now or time.now()
+    UIManager:setDirty(self, function() return "fast", self.dimen end)
+    UIManager:forceRePaint()
+end
+
+-- A title supplied together with progress is one update. Rapid updates are
+-- coalesced, with a scheduled flush so a slow next operation cannot leave the
+-- last title and bar hidden indefinitely.
+function DownloadDialog:reportProgress(progress, title)
+    if self._progress_closed then return end
+    if not self.progress_bar then
+        if title ~= nil then self:setTitle(title) end
+        return
+    end
+    local changed = false
+    if title ~= nil and self.title ~= title then
+        self.title = title
+        if self.title_widget and self.title_widget.setText then self.title_widget:setText(title) end
+        changed = true
+    end
+    local previous = self.progress_bar.percentage
     self.progress_bar:setPercentage(progress / self.progress_max)
+    changed = changed or previous ~= self.progress_bar.percentage
     local now = time.now()
     local elapsed = now - self.last_redraw_time_ms
     if self.progress_bar.percentage >= 1 or elapsed >= self.refresh_time_seconds * 1000 * 1000 then
-        self.last_redraw_time_ms = now
-        UIManager:setDirty(self, function() return "fast", self.dimen end)
-        UIManager:forceRePaint()
+        if title == nil or changed or self._progress_refresh then self:_paintProgress(now) end
+    elseif title ~= nil and changed and not self._progress_refresh and not self._progress_closed then
+        local task
+        task = function()
+            if self._progress_refresh ~= task or self._progress_closed then return end
+            self._progress_refresh = nil
+            self:_paintProgress()
+        end
+        self._progress_refresh = task
+        local remaining = self.refresh_time_seconds * 1000 * 1000 - elapsed
+        UIManager:scheduleIn(math.max(0, time.to_s(remaining)), task)
     end
 end
 
 function DownloadDialog:setTitle(title)
+    if self._progress_closed then return end
     title = title or ""
     if self.title == title then return end
     self.title = title
     if self.title_widget and self.title_widget.setText then
         self.title_widget:setText(self.title)
-        UIManager:setDirty(self, function() return "fast", self.dimen end)
-        UIManager:forceRePaint()
+        if self._progress_refresh then self:_paintProgress()
+        else
+            UIManager:setDirty(self, function() return "fast", self.dimen end)
+            UIManager:forceRePaint()
+        end
     end
 end
 
 function DownloadDialog:show()
+    self._progress_closed = false
     UIManager:show(self, "ui")
 end
 
 function DownloadDialog:close()
+    self._progress_closed = true
+    self:_cancelProgressRefresh()
     UIManager:close(self, "ui")
+end
+
+function DownloadDialog:onCloseWidget()
+    self._progress_closed = true
+    self:_cancelProgressRefresh()
+    if InputContainer.onCloseWidget then return InputContainer.onCloseWidget(self) end
 end
 
 return DownloadDialog

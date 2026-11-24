@@ -165,8 +165,7 @@ function M.start(host,origin,on_done)
                     if not saved or committed~=true then finish('failed');return end
                 end
                 job.done=job.done+#values
-                dialog:reportProgress(job.done)
-                dialog:setTitle(T(_('Updating bookshelf progress: %1/%2'),tostring(job.done),tostring(#ids)))
+                dialog:reportProgress(job.done,T(_('Updating bookshelf progress: %1/%2'),tostring(job.done),tostring(#ids)))
                 if value.web_expired and not job.renewed then
                     if value.next_index~=#values+1 or value.next_index>#batch then finish('failed');return end
                     job.renewed=true

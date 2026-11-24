@@ -648,10 +648,15 @@ function M:_runAnnotationJob(context, options)
                 title = T(_("%1 · chapter %2/%3"), _("Downloading"),
                     tostring(state.index), tostring(state.total))
             end
-            -- Update the bar before setTitle repaints the dialog, so the text
-            -- and bar always describe the same point in the current chapter.
-            request.progress:reportProgress(annotation_progress(state))
-            request.progress:setTitle(title)
+            if request.trapper then
+                -- The network worker yields to the UI, allowing a delayed flush.
+                request.progress:reportProgress(annotation_progress(state),title)
+            else
+                -- A synchronous next step could block the event loop; show its
+                -- status immediately before entering it.
+                request.progress:reportProgress(annotation_progress(state))
+                request.progress:setTitle(title)
+            end
         end
         UIManager:scheduleIn(math.max(0.1, state.delay or 0.1), safe_step)
     end

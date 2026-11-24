@@ -9,7 +9,7 @@ package.preload['weread.lib.plugin_util']=function() return {tr=function(s) retu
     local args={...};return (s:gsub('%%(%d+)',function(i) return tostring(args[tonumber(i)] or '') end))
 end} end
 package.preload['weread.ui.download_dialog']=function() return {new=function(_,value)
-    function value:show() end;function value:reportProgress(n) self.progress=n end
+    function value:show() end;function value:reportProgress(n,title) self.progress=n;if title~=nil then self.title=title end end
     function value:setTitle(title) self.title=title end;return value end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_,value) return value end} end
 local saved,prefetched,fail_cache,fail_image,change_during={}, {},false,false,false

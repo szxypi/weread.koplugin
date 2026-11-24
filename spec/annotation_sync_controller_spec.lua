@@ -23,8 +23,9 @@ package.preload["weread.ui.download_dialog"] = function()
                 progress = dialog.current_progress,
             }
         end
-        args.reportProgress = function(dialog, progress)
+        args.reportProgress = function(dialog, progress, title)
             dialog.current_progress = progress
+            if title ~= nil then dialog:setTitle(title) end
         end
         return args
     end }
