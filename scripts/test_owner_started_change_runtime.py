@@ -16,9 +16,9 @@ from verify_owner_started_change_preview import decode_runner
 
 
 class Server(ThreadingHTTPServer):
-    def __init__(self):
+    def __init__(self, identity):
         super().__init__(('127.0.0.1', 0), Handler)
-        self.flag = 0;self.posts = [];self.gets = 0;self.denied = 0;self.mode = 'normal'
+        self.flag = 0;self.posts = [];self.gets = 0;self.denied = 0;self.mode = 'normal';self.identity = identity
 
     def __enter__(self):
         self.thread = threading.Thread(target=self.serve_forever, daemon=True);self.thread.start();return self
@@ -42,14 +42,14 @@ class Handler(BaseHTTPRequestHandler):
             if urlsplit(self.path).path != '/__proxy' or path.netloc != 'i.weread.qq.com' or path.scheme != 'https':
                 raise ValueError('route')
             if not post and path.path == '/shelf/sync' and not path.query:
-                value = shelf();server.gets += 1
-            elif not post and path.path == '/book/getProgress' and parse_qs(path.query) == {'bookId': ['41']}:
-                value = point();value['book']['isStartReading'] = server.flag
+                value = shelf();value['books'][0]['bookId'] = server.identity;server.gets += 1
+            elif not post and path.path == '/book/getProgress' and parse_qs(path.query) == {'bookId': [server.identity]}:
+                value = point();value['book']['bookId'] = server.identity;value['book']['isStartReading'] = server.flag
                 value['book']['startReadingTime'] = 123 if server.flag else 0;server.gets += 1
             elif post and path.path == '/book/markstatus' and not path.query:
                 size = int(self.headers.get('Content-Length', 0));assert 1 <= size <= 1024
                 body = json.loads(self.rfile.read(size))
-                if (set(body) != {'auto', 'bookId', 'finishInfo', 'isCancel', 'status'} or body['bookId'] != '41'
+                if (set(body) != {'auto', 'bookId', 'finishInfo', 'isCancel', 'status'} or body['bookId'] != server.identity
                         or body['auto'] != 0 or body['finishInfo'] != 0 or body['status'] != 2 or body['isCancel'] not in (0, 1)):
                     raise ValueError('body')
                 server.posts.append(body['isCancel'])
@@ -68,14 +68,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', required=True, type=Path)
     parser.add_argument('--width', type=int, default=600);parser.add_argument('--height', type=int, default=800)
-    parser.add_argument('--dpi', type=int, default=167);args = parser.parse_args()
+    parser.add_argument('--dpi', type=int, default=167);parser.add_argument('--kind', choices=('ordinary','imported'), default='ordinary')
+    args = parser.parse_args();identity = '41' if args.kind == 'ordinary' else 'CB_synthetic123'
     report = {'result': 'UNVERIFIED'}
     try:
-        with Server() as server:
+        with Server(identity) as server:
             port = server.server_address[1]
             def invoke(desired, armed, mode='normal'):
                 server.mode = mode
                 value = payload(armed);value['mock_port'] = port;value['desired'] = desired
+                value['book_id'] = identity;value['shelf']['books'][0]['bookId'] = identity;value['progress']['book']['bookId'] = identity
                 value['progress']['book']['isStartReading'] = server.flag
                 value['progress']['book']['startReadingTime'] = 123 if server.flag else 0
                 command = [sys.executable, str(Path(__file__).with_name('run_owner_reading_state_change_ui.py')),

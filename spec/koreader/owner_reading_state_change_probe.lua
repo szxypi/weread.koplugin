@@ -26,7 +26,7 @@ local ok,reason=pcall(function()
     profile=dofile(path..'native_account_profile.lua');profile.start(home,grant,#input.shelf.books)
     if input.mock_port~=nil then
         assert(type(input.mock_port)=='number' and input.mock_port%1==0 and input.mock_port>=1 and input.mock_port<=65535
-            and os.getenv('WEREAD_STARTED_CHANGE_MOCK')==tostring(input.mock_port) and id=='41' and grant.vid=='900000'
+            and os.getenv('WEREAD_STARTED_CHANGE_MOCK')==tostring(input.mock_port) and (id=='41' or id=='CB_synthetic123') and grant.vid=='900000'
             and grant.accessToken=='synthetic-native-access' and grant.refreshToken=='synthetic-native-refresh'
             and grant.deviceId=='eink334691225'..string.rep('1',19))
         local Settings=require('weread.lib.settings');local new=Settings.new

@@ -27,7 +27,7 @@ def validate_input(value, armed, mock_port=None):
     identity = value['book_id']
     if not isinstance(identity, str) or not re.fullmatch(r'(?:[1-9][0-9]{0,19}|CB_[A-Za-z0-9_-]{1,253})', identity):
         raise ValueError('started_ui/identity')
-    if mock_port is not None and (type(mock_port) is not int or not 1 <= mock_port <= 65535 or identity != '41'
+    if mock_port is not None and (type(mock_port) is not int or not 1 <= mock_port <= 65535 or identity not in ('41', 'CB_synthetic123')
             or value['credentials'] != dict(vid='900000', accessToken='synthetic-native-access',
                 refreshToken='synthetic-native-refresh', deviceId='eink334691225' + '1'*19)):
         raise ValueError('started_ui/mock')
