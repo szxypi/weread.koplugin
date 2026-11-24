@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--max-private-badge-paint-calls', type=int,
+                        help='Fail if the 20 repeated synthetic badge paints exceed this limit')
     args = parser.parse_args()
     root = args.run_dir.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -51,6 +53,9 @@ def main():
             report['stage'] = stage
             if code or repaint or stage['result'] != 'PASS':
                 raise ValueError('native_acceptance')
+            if (args.max_private_badge_paint_calls is not None
+                    and stage['private_badge_paint_calls'] > args.max_private_badge_paint_calls):
+                raise ValueError('private_badge_paint_limit')
             with zipfile.ZipFile(candidate) as archive:
                 for item in archive.infolist():
                     if not item.is_dir():

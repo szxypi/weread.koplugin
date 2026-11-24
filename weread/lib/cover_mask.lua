@@ -51,4 +51,25 @@ function M.spans(width, height, radius, offset, shadow)
     return spans
 end
 
+-- Cache the clipped pennant as exact horizontal runs. A row can contain
+-- several runs for unusual geometry, so do not assume a convex mask.
+function M.triangle_spans(size, width, height, radius, offset_x, offset_y)
+    local spans = {}
+    for y = 0, size - 1 do
+        local run
+        for x = 0, y do
+            if M.inside(offset_x + x, offset_y + y, width, height, radius) then
+                if run then run.width = run.width + 1
+                else
+                    run = { x = x, y = y, width = 1 }
+                    spans[#spans + 1] = run
+                end
+            else
+                run = nil
+            end
+        end
+    end
+    return spans
+end
+
 return M

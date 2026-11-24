@@ -15,7 +15,7 @@ local ok,reason=pcall(function()
     function render:scaleBlitBuffer(...) scales=scales+1;return old_scale(self,...) end
     local books,paths={},{}
     for index=1,18 do
-        local book={bookId=tostring(1000+index),title='合成书籍 '..index,author='测试作者',_shelf_progress=index*4}
+        local book={bookId=tostring(1000+index),title='合成书籍 '..index,author='测试作者',_shelf_progress=index*4,secret=1}
         books[index]=book
         if index~=3 then
             local path=home..'/synthetic-cover-'..index..'.thumb.png'
@@ -25,13 +25,18 @@ local ok,reason=pcall(function()
         end
     end
     local layout=View.getLayout(true,#books,'books',108,{store=true})
-    local wall,cpu,draw=0,0,0;local cache_stats={}
+    local wall,cpu,draw=0,0,0;local cache_stats={};local private_paint_calls,private_size
     collectgarbage('collect');local lua_before=collectgarbage('count')
     for iteration=1,8 do
         local started=socket.gettime();local cpu_start=os.clock()
         local view=View.show({mode='books',title='合成书架',books=books,cover_paths=paths,paged=true,page=1,
             cover_mode=true,page_size=layout.page_size,cover_columns=layout.columns,cover_rows=layout.rows,
             navigation={{text='Home'},{text='Bookshelf'},{text='Bookstore'},{text='My WeRead'}}}, {})
+        if iteration==1 then
+            local badge=assert(view._item_rows[1]._private_badge);private_size=badge.size;private_paint_calls=0
+            local counter={paintRect=function() private_paint_calls=private_paint_calls+1 end}
+            for _=1,20 do badge:paintTo(counter,0,0) end
+        end
         wall=wall+(socket.gettime()-started);cpu=cpu+(os.clock()-cpu_start)
         local paint_start=socket.gettime();UI:forceRePaint();draw=draw+(socket.gettime()-paint_start)
         if iteration==8 then Screen:shot(assert(os.getenv('WEREAD_BENCH_SHOTS'))..'/shelf.png') end
@@ -70,7 +75,8 @@ local ok,reason=pcall(function()
         initialization_wall_ms=math.floor(wall*1000+.5),initialization_cpu_ms=math.floor(cpu*1000+.5),
         paint_wall_ms=math.floor(draw*1000+.5),image_reads=image_reads,scales=scales,
         lua_kib_before=math.floor(lua_before),lua_kib_after=math.floor(lua_after),cache_stats=cache_stats,
-        invalidation_checked=invalidation_checked}
+        invalidation_checked=invalidation_checked,private_badge_size=private_size,private_badge_paints=20,
+        private_badge_paint_calls=private_paint_calls}
 end)
 if not ok then report.reason=tostring(reason):gsub('[\r\n]',' '):sub(1,160) end
 print('\nWEREAD_EINK_BENCHMARK='..json.encode(report))

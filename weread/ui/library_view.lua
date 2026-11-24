@@ -60,8 +60,6 @@ function CoverShadow:paintTo(bb, x, y)
     bb:paintRoundedRect(x, y, self.width, self.height, Blitbuffer.gray(0.5), self.radius)
 end
 
-local inside_rounded_rect = CoverMask.inside
-
 -- ScrollableContainer paints its full child on each scroll, even though it
 -- composites only the viewport. Skip offscreen list rows and dividers, but
 -- keep every row's geometry current for gestures and physical-key focus.
@@ -171,11 +169,8 @@ local PrivateReadingBadge = Widget:extend{
 function PrivateReadingBadge:init()
     self.size = math.max(1, math.floor(tonumber(self.size) or 1))
     self.dimen = Geom:new{ w = self.size, h = self.size }
-end
-
-function PrivateReadingBadge:_inside_cover(px, py)
-    return inside_rounded_rect(self.card_offset_x + px, self.card_offset_y + py,
-        self.card_width, self.card_height, self.card_radius)
+    self.triangle_spans = CoverMask.triangle_spans(self.size, self.card_width, self.card_height,
+        self.card_radius, self.card_offset_x, self.card_offset_y)
 end
 
 -- Paint one horizontal glyph run, clipped to the lower-left pennant triangle:
@@ -208,12 +203,8 @@ end
 
 function PrivateReadingBadge:paintTo(bb, x, y)
     -- The lower-left right triangle, clipped against the cover's corner arc.
-    for row = 0, self.size - 1 do
-        for column = 0, row do
-            if self:_inside_cover(column, row) then
-                bb:paintRect(x + column, y + row, 1, 1, Blitbuffer.COLOR_BLACK)
-            end
-        end
+    for _, span in ipairs(self.triangle_spans) do
+        bb:paintRect(x + span.x, y + span.y, span.width, 1, Blitbuffer.COLOR_BLACK)
     end
     -- The corner pennant and its glyph intentionally use separate scales:
     -- shrinking the full pennant previously left too little room for a
