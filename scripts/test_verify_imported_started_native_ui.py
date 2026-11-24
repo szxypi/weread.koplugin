@@ -54,14 +54,14 @@ class Tests(unittest.TestCase):
         grant = credentials();saved = {'vid': grant['vid'], 'cookies': {'synthetic': 'cookie'}}
         journal = Journal(Backend());receipt = TargetReceipt('epub', backend=Backend(), scope='group-fixture')
         intents = {name: Intent(backend=Backend()) for name in ('baseline', 'mark', 'mark-proof', 'restore', 'restore-proof')}
-        fake = FakeProbe();flag = {'value': 0};sent = []
+        fake = FakeProbe();flag = {'value': 0};sent = [];web_override = {'value': None}
         class Store:
             def load(self, *_): return deepcopy(saved)
         class NativeStore:
             def load(self, *_): return deepcopy(grant)
         class Web:
             def verify_account(self): pass
-            def request(self, *_): return deepcopy(fake.state)
+            def request(self, *_): return deepcopy(web_override['value'] if web_override['value'] is not None else fake.state)
         def point(_self, target):
             return {'book': {'bookId': target, 'isStartReading': flag['value'],
                 'startReadingTime': 123 if flag['value'] else 0, 'chapterUid': 0, 'chapterIdx': 0,
@@ -103,6 +103,13 @@ class Tests(unittest.TestCase):
             self.assertEqual(journal.read()[0]['phase'], 'restored');self.assertEqual(sent, ['mark','restore'])
             result = task.audit(saved, NativeStore(), Web(), journal, receipt, intents)
             self.assertEqual(result['result'], 'RESTORED_READ_ONLY');self.assertEqual(result['account_data_writes'], 0)
+            self.assertTrue(result['native_full_snapshot_matches_initial'])
+            web_override['value'] = deepcopy(fake.state);fake.state['archive'][0]['syntheticMetadata'] = 1
+            result = task.audit(saved, NativeStore(), Web(), journal, receipt, intents)
+            self.assertEqual(result['result'], 'CORE_RESTORED_NATIVE_SNAPSHOT_CHANGED')
+            self.assertFalse(result['native_full_snapshot_matches_initial']);self.assertTrue(result['web_full_snapshot_matches_initial'])
+            fake.state['archive'][0]['name'] = 'changed core group'
+            with self.assertRaises(ValueError): task.audit(saved, NativeStore(), Web(), journal, receipt, intents)
 
     def test_full_roundtrip_claims_each_write_then_saves_readback_proof(self):
         native, identity, value, sent, intents, child = setup()

@@ -212,13 +212,20 @@ def audit(saved, native_store, web, journal, receipt, intents):
             other = web.request('shelf', 'https://weread.qq.com/web/shelf/sync')
             check_upload(state['plan'], grant, native, state['target'], False)
             n, w = project(native), project(other)
-            if not _cross_channel(n, w) or {'native': hash_value(n), 'web': hash_value(w)} != base['plan']['baseline']:
+            if not _cross_channel(n, w) or hash_value(w) != base['plan']['baseline']['web']:
                 raise ValueError('imported_started/audit')
-        once();once()
+            return n, w
+        first, second = once(), once()
+        if first != second: raise ValueError('imported_started/audit')
         if SessionStore().load() != saved or native_store.load(saved['vid']) != grant or not no_other_pending():
             raise ValueError('imported_started/audit')
-        return dict(result='RESTORED_READ_ONLY', account_data_writes=0, both_channels_match=True,
-                    original_bookshelf_and_groups_restored=True, native_ui_roundtrip_proofs_verified=True)
+        native_equal = hash_value(second[0]) == base['plan']['baseline']['native']
+        return dict(result='RESTORED_READ_ONLY' if native_equal else 'CORE_RESTORED_NATIVE_SNAPSHOT_CHANGED',
+                    account_data_writes=0, shelf_membership_and_group_members_match_between_channels=True,
+                    original_shelf_membership_flags_and_core_group_fields_restored=True,
+                    web_full_snapshot_matches_initial=True, native_full_snapshot_matches_initial=native_equal,
+                    native_current_full_snapshot_matches_web=second[0] == second[1],
+                    native_ui_roundtrip_proofs_verified=True)
     finally: grant.clear()
 
 
@@ -246,7 +253,8 @@ def main(argv=None):
             except Exception: report.update(result='UNVERIFIED', session_preservation_failed=True)
         if web: web.close()
         if saved: saved.clear()
-    print(json.dumps(report, indent=2));return int(report['result'] not in ('READ_ONLY_PREVIEW','PASS','RESTORED_READ_ONLY'))
+    print(json.dumps(report, indent=2));return int(report['result'] not in ('READ_ONLY_PREVIEW','PASS','RESTORED_READ_ONLY',
+                                                                            'CORE_RESTORED_NATIVE_SNAPSHOT_CHANGED'))
 
 
 if __name__ == '__main__': raise SystemExit(main())
