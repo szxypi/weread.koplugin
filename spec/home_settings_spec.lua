@@ -194,6 +194,20 @@ for _event_index,event in ipairs({'closed','replaced','page','session'}) do
     expect(prefetch==nil and host._home_controls_menu==active,'old prefetch confirmation: '..event)
     host:closeHomeControls(false)
 end
+do
+    local stats=require('weread.lib.read_stats')
+    local base=stats.period_start('monthly',os.time())
+    local today=require('weread.lib.profile').day(os.time())
+    local snapshot={months={[tostring(base)]={daily={[tostring(today)]=600},total=600}},fetched_at=os.time()}
+    local goal={minutes=30};local calls=0
+    host.library_db={getHomeProfileState=function() calls=calls+1;return snapshot,goal end}
+    local first=host:homeReadingSummary()
+    goal={minutes=45};local second=host:homeReadingSummary()
+    expect(calls==2 and first~=second,'home overview failed to observe a changed reading goal')
+    host.library_db={getProfileState=function(_,key) return key=='goal' and goal or snapshot end}
+    expect(host:homeReadingSummary()==second,'single-query and legacy profile reads disagree')
+    host.library_db=nil
+end
 host.homeReadingSummary = function() return summary end
 local view = { home_layout = Layout.normalize(nil),
     updateHomeStatus = function(_self, text) status_text = text end,

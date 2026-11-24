@@ -31,6 +31,25 @@ expect(model.has_data and model.today_seconds == 900 and model.month_seconds == 
     and model.month_read_days == 2 and model.streak == 3, "dashboard totals incorrect")
 expect(#model.days == 31 and model.first_weekday == 3 and model.days[2].today and model.days[3].future,
     "monthly heatmap date alignment failed")
+for delta=-70,70 do
+    local stamp=now+delta*86400
+    for _,goal in ipairs({0,30,60,1441}) do
+        local full,brief=Data.build(snapshot,goal,stamp),Data.summary(snapshot,goal,stamp)
+        for _,key in ipairs({'has_data','goal_minutes','today_seconds','streak','streak_lower_bound','fetched_at'}) do
+            expect(full[key]==brief[key],'home summary disagrees with calendar: '..key)
+        end
+        expect(brief.days==nil and brief.period_label==nil,'home summary built calendar-only fields')
+    end
+end
+local original_format=Stats.cst_fmt
+local formatted=0
+Stats.cst_fmt=function(...) formatted=formatted+1;return original_format(...) end
+Data.summary(snapshot,30,now);expect(formatted==0,'home summary formatted the monthly calendar')
+Data.build(snapshot,30,now);expect(formatted>0,'full calendar lost date formatting')
+Stats.cst_fmt=original_format
+local malformed={months={[tostring(jan)]={daily={[tostring(jan)]='invalid'}}}}
+expect(not pcall(Data.build,malformed,30,now) and not pcall(Data.summary,malformed,30,now),
+    'home summary accepted a malformed past daily value')
 january.daily[tostring(time(2025, 1, 2))] = 0
 expect(Data.streak(months, now) == 2, "unread today erased yesterday's streak")
 months[tostring(dec)] = nil

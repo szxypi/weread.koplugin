@@ -78,30 +78,37 @@ function M.fetch(client, context, now, selected, options)
     return { months = months, fetched_at = now, source_kind = source }
 end
 
-function M.build(snapshot, goal, now)
+local function build(snapshot, goal, now, summary_only)
     now = now or os.time()
     local base, today = Stats.period_start("monthly", now), M.day(now)
     local months = type(snapshot) == "table" and type(snapshot.months) == "table" and snapshot.months or {}
     local month = months[tostring(base)]
     if type(month) ~= "table" or type(month.daily) ~= "table" then month = nil end
-    local days, read_days, first_weekday = {}, 0
+    local days, read_days, first_weekday = nil, 0, nil
+    if not summary_only then days = {} end
     local next_base = Stats.shift_period("monthly", base, 1)
     for stamp = base, next_base - DAY, DAY do
         local seconds = month and month.daily[tostring(stamp)] or 0
-        local weekday = tonumber(Stats.cst_fmt("%w", stamp))
-        weekday = weekday == 0 and 7 or weekday
-        first_weekday = first_weekday or weekday
         if stamp <= today and seconds > 0 then read_days = read_days + 1 end
-        days[#days + 1] = { day = tonumber(Stats.cst_fmt("%d", stamp)), seconds = stamp <= today and seconds or 0,
-            future = stamp > today, today = stamp == today, known = month ~= nil and stamp <= today }
+        if not summary_only then
+            local weekday = tonumber(Stats.cst_fmt("%w", stamp))
+            weekday = weekday == 0 and 7 or weekday
+            first_weekday = first_weekday or weekday
+            days[#days + 1] = { day = tonumber(Stats.cst_fmt("%d", stamp)), seconds = stamp <= today and seconds or 0,
+                future = stamp > today, today = stamp == today, known = month ~= nil and stamp <= today }
+        end
     end
     local count, lower_bound = M.streak(months or {}, now)
     if month and number(month.read_days) then read_days = month.read_days end
-    return { profile = true, has_data = month ~= nil, mode = "monthly", period_label = Stats.cst_fmt("%Y-%m", base),
+    return { profile = true, has_data = month ~= nil, mode = "monthly",
+        period_label = not summary_only and Stats.cst_fmt("%Y-%m", base) or nil,
         goal_minutes = M.goal(goal) or M.DEFAULT_GOAL, today_seconds = month and month.daily[tostring(today)] or 0,
         month_seconds = month and month.total or 0, month_read_days = read_days,
         streak = count, streak_lower_bound = lower_bound, days = days, first_weekday = first_weekday,
         fetched_at = type(snapshot) == "table" and number(snapshot.fetched_at) or nil }
 end
+
+function M.build(snapshot, goal, now) return build(snapshot, goal, now, false) end
+function M.summary(snapshot, goal, now) return build(snapshot, goal, now, true) end
 
 return M

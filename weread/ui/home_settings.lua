@@ -55,9 +55,14 @@ function M:startHomeStatusTimer(view, refresh_now)
 end
 
 function M:homeReadingSummary()
-    local snapshot = self.library_db and self.library_db.getProfileState and self.library_db:getProfileState("statistics")
-    local goal = self.library_db and self.library_db.getProfileState and self.library_db:getProfileState("goal") or {}
-    local data = Profile.build(snapshot, goal.minutes)
+    local snapshot, goal
+    if self.library_db and self.library_db.getHomeProfileState then
+        snapshot, goal = self.library_db:getHomeProfileState()
+    elseif self.library_db and self.library_db.getProfileState then
+        snapshot, goal = self.library_db:getProfileState("statistics"), self.library_db:getProfileState("goal")
+    end
+    goal = goal or {}
+    local data = Profile.summary(snapshot, goal.minutes)
     if not data.has_data then return _("Reading overview · Open My WeRead to load statistics") end
     local text = T(_("Today %1 / %2 min · %3 consecutive days"),
         math.floor(data.today_seconds / 60), data.goal_minutes, (data.streak_lower_bound and "≥" or "") .. tostring(data.streak))

@@ -152,6 +152,22 @@ local ok,reason=pcall(function()
     if concurrent then
         local snapshot=assert(plugin.library_db:getProfileState('statistics'))
         assert(view.data.has_data and snapshot.source_kind=='native')
+        local goal=plugin.library_db:getProfileState('goal') or {}
+        local Profile=require('weread.lib.profile')
+        local full=Profile.build(snapshot,goal.minutes)
+        local Util=require('weread.lib.plugin_util')
+        local expected=Util.T(Util.tr('Today %1 / %2 min · %3 consecutive days'),
+            math.floor(full.today_seconds/60),full.goal_minutes,
+            (full.streak_lower_bound and '≥' or '')..tostring(full.streak))
+        local now=os.time()
+        if not full.fetched_at or now-full.fetched_at>=Profile.TTL or now<full.fetched_at then
+            expected=expected..' · '..Util.tr('Cached')
+        end
+        local reads=0;local original_read=plugin.library_db.openRead
+        plugin.library_db.openRead=function(self,...) reads=reads+1;return original_read(self,...) end
+        local summary=plugin:homeReadingSummary()
+        plugin.library_db.openRead=original_read
+        assert(reads==1 and summary==expected,'home summary differs from full profile')
         local digest=require('weread.lib.readtime_transfer_contract').digest(snapshot)
         local path=home..'/statistics-fingerprint';local file
         if mode=='live' then file=assert(io.open(path,'wb'));assert(file:write(digest));assert(file:close())
