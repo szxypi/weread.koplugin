@@ -3,7 +3,7 @@ local pending, started, views, failures, cancellations, closes = {}, {}, {}, 0, 
 local access_valid, source_error = true, nil
 local allow_recovery, recovery_callback = false, nil
 local reply_opens, reply_cancels = 0, 0
-local saved_reviews,cache_writes,cache_reads=nil,0,0
+local saved_reviews,cache_writes,cache_reads,fetch_calls=nil,0,0,0
 package.preload['weread.lib.native_book_reviews_cache']=function() return {validate=function(_codec,page)
     assert(type(page)=='table' and type(page.items)=='table');return page
 end,new=function()
@@ -16,9 +16,10 @@ local selected = {native = {scope = {vid = '123'}, revision = 1}}
 local source = {capture = function() return selected end, matches = function(_, value) return access_valid and value == selected end}
 source.fetch = function(_, book, limit, previous, value)
     assert(book == '42' and value == selected)
+    fetch_calls = fetch_calls + 1
     if source_error then error(source_error, 0) end
     local items, ids = {}, {}
-    for i = 1, limit do items[i] = {review_id = 'r' .. i}; ids[i] = 'r' .. i end
+    for i = 1, limit do items[i] = {review_id = 'r' .. i, rating = i % 2 == 0 and 5 or 4}; ids[i] = 'r' .. i end
     if previous then for i, id in ipairs(previous) do assert(id == ids[i]) end end
     return {items = items, ids = ids, limit = limit, has_more = limit < 40}
 end
@@ -137,4 +138,33 @@ saved_reviews=nil;UI.open(host,{book_id='42'},nil);tick()
 expect(not host._native_reviews_owner and host.last_info=='No saved book reviews. Connect and try again.',
     'missing offline cache was not explained')
 expect(cache_writes>0 and cache_reads>=4,'review cache was not used')
+online=true;source_error=nil
+expect(UI.open(host,{book_id='42',title='Book'},selected),'filter review open failed');schedule();tick()
+local latest=views[#views];local calls,writes=fetch_calls,cache_writes
+expect(latest.data.mode=='latest' and latest.data.native_filters and #latest.result.items==20,'latest filter missing')
+latest.callbacks.on_switch('five_stars')
+local filtered=views[#views]
+expect(filtered~=latest and filtered.data.mode=='five_stars' and #filtered.result.items==10
+    and filtered.result.items[1].review_id=='r2' and filtered.result.has_more
+    and filtered.data.incomplete_text=='Only loaded reviews are filtered; more may be available.',
+    'five-star view did not filter only loaded results')
+expect(fetch_calls==calls and cache_writes==writes and #pending==0,'local filter fetched or saved data')
+latest.callbacks.on_load_more();latest.callbacks.on_select(latest.result.items[1]);latest.callbacks.on_switch('latest')
+expect(#pending==0 and not host._native_reviews_owner.detail and views[#views]==filtered,'stale review view acted')
+filtered.callbacks.on_select(filtered.result.items[1]);expect(host.selected_review.review_id=='r2','filtered review did not open')
+detail=host._native_reviews_owner.detail;filtered.callbacks.on_switch('latest')
+expect(views[#views]==filtered,'filter switched while review detail was open')
+detail.options.on_close();filtered.callbacks.on_load_more();schedule();tick()
+local more=views[#views]
+expect(more.data.mode=='five_stars' and #more.result.items==20 and more.result.items[20].review_id=='r40'
+    and not more.result.has_more,'filtered pagination did not extend raw results')
+more.callbacks.on_switch('latest');latest=views[#views]
+expect(latest.data.mode=='latest' and #latest.result.items==40,'switching back lost loaded results')
+UI.cancel(host);online=false
+expect(UI.open(host,{book_id='42',title='Book'},nil),'offline filtered reviews did not open');tick()
+local saved=views[#views];saved.callbacks.on_switch('five_stars');filtered=views[#views]
+expect(filtered.data.mode=='five_stars' and #filtered.result.items==20 and not filtered.result.has_more
+    and filtered.data.incomplete_text:find('only loaded reviews are filtered.',1,true),
+    'offline filter lost cached results or scope notice')
+UI.cancel(host)
 print('native_book_reviews_ui_spec: ' .. checks .. ' checks')

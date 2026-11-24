@@ -32,7 +32,7 @@ function M.open(host, book, selected)
         return false
     end
     M.cancel(host)
-    local owner = { account = host.library_db:accountKey(), parent = host._book_detail_view,
+    local owner = { account = host.library_db:accountKey(), parent = host._book_detail_view, mode = 'latest',
         epoch = host.discovery_epoch or 0, session = host._reader_session_gen,
         document = host.ui and host.ui.document, selected = selected,
         auth_epoch = type(host.settings.get)=='function' and host.settings:get('auth_epoch',0) or nil,
@@ -63,7 +63,7 @@ function M.open(host, book, selected)
         owner.busy = nil
     end
     local fetch,show_cached
-    local function render(page,from_cache)
+    local function render(page,from_cache,mode_changed)
         local saved_time
         if from_cache then
             local ok,value=pcall(os.date,'%Y-%m-%d %H:%M',page.saved_at)
@@ -72,19 +72,44 @@ function M.open(host, book, selected)
         local offset, focus_row
         if owner.view then
             local scroll = owner.view._review_scroll
-            if scroll and scroll.getScrolledOffset then offset = scroll:getScrolledOffset() end
-            focus_row = #owner.view.result.items + 2
+            if not mode_changed then
+                if scroll and scroll.getScrolledOffset then offset = scroll:getScrolledOffset() end
+                focus_row = #owner.view.result.items + 2
+            end
             owner.replacing = true
             UI:close(owner.view)
             owner.replacing = false
         end
+        local display = page
+        if owner.mode == 'five_stars' then
+            display = {}
+            for key,value in pairs(page) do display[key] = value end
+            display.items = {}
+            for _i,item in ipairs(page.items) do
+                if item.rating == 5 then display.items[#display.items+1] = item end
+            end
+        end
+        local incomplete
+        if owner.mode == 'five_stars' then
+            incomplete = from_cache and T(_('Saved %1; only loaded reviews are filtered.'),saved_time)
+                or _('Only loaded reviews are filtered; more may be available.')
+        elseif from_cache then
+            incomplete = T(_('Saved %1; reviews may be incomplete.'),saved_time)
+        end
         local view
         view = require('weread.ui.book_reviews_view').show({ book_title = book.title,
-            mode = 'latest', result = page, latest_only = true, scroll_offset = offset, focus_row = focus_row,
+            mode = owner.mode, result = display, latest_only = true, native_filters = true, scroll_offset = offset, focus_row = focus_row,
             tab_text = from_cache and 'Saved latest reviews' or nil,
-            incomplete_text = from_cache and T(_('Saved %1; reviews may be incomplete.'),saved_time) or nil }, {
+            empty_text = owner.mode == 'five_stars' and 'No five-star reviews in loaded results.' or nil,
+            incomplete_text = incomplete }, {
+            on_switch = function(mode)
+                if current_view() and owner.view == view and not owner.context and not owner.detail
+                    and (mode == 'latest' or mode == 'five_stars') and mode ~= owner.mode then
+                    owner.mode = mode;render(page,from_cache,true)
+                end
+            end,
             on_select = function(review)
-                if not current_view() or owner.context or owner.detail then return end
+                if not current_view() or owner.view ~= view or owner.context or owner.detail then return end
                 local detail
                 detail = host:showBookReviewDetail(book, review, 'latest', {
                     on_image = function(index)
@@ -110,7 +135,7 @@ function M.open(host, book, selected)
                 owner.detail = detail
             end,
             on_load_more = function()
-                if current_view() and not owner.context and page.has_more then
+                if current_view() and owner.view == view and not owner.context and page.has_more then
                     fetch(math.min(Data.MAX_ITEMS, page.limit + Data.PAGE_SIZE), page.ids)
                 end
             end,

@@ -63,7 +63,7 @@ wait(function() return heartbeat end)
 assert(host._native_reviews_owner.context, 'worker blocked UI heartbeat')
 wait(function() return host._native_reviews_owner.view ~= nil end)
 local view = host._native_reviews_owner.view
-assert(view.latest_only and #view._tab_buttons == 1 and #view._review_buttons == 21)
+assert(view.latest_only and #view._tab_buttons == 2 and #view._review_buttons == 21)
 UI:forceRePaint()
 view._review_buttons[1].callback()
 local detail = assert(host._native_reviews_owner.detail)

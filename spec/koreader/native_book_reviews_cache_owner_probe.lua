@@ -81,6 +81,14 @@ local ok=pcall(function()
         assert(host.chosen==second.items[1].review_id)
         host._native_reviews_owner.detail=nil
     end
+    phase='filter';UI:forceRePaint()
+    local count=tonumber(counter[0]);assert(#view._tab_buttons==2)
+    view._tab_buttons[2].callback();view=host._native_reviews_owner.view
+    local expected={}
+    for _,item in ipairs(second.items) do if item.rating==5 then expected[#expected+1]=item end end
+    compare(view.result,{items=expected});assert(tonumber(counter[0])==count)
+    UI:forceRePaint();view._tab_buttons[1].callback();view=host._native_reviews_owner.view
+    compare(view.result,second);assert(tonumber(counter[0])==count)
     UI:forceRePaint();painted=true;view:onClose();assert(not host._native_reviews_owner and not host.busy_message)
     phase='complete'
 end)

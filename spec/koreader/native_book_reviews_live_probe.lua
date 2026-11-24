@@ -73,7 +73,7 @@ local ok = pcall(function()
     phase = 'first_compare'
     local expected = Model.project(client, input.first, book, 20)
     compare(view.result, expected)
-    assert(view.latest_only and #view._tab_buttons == 1 and view.result.has_more)
+    assert(view.latest_only and #view._tab_buttons == 2 and view.result.has_more)
     UI:forceRePaint(); painted = true
     phase = 'second_load'
     view._review_buttons[#view._review_buttons].callback()

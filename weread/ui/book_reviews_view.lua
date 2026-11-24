@@ -23,6 +23,21 @@ local T = require("ffi/util").template
 
 local BookReviews = require("weread.lib.book_reviews")
 local I18n = require("weread.lib.i18n")
+local ListPaint = require("weread.lib.shelf_list_paint")
+local ListEvents = require("weread.lib.shelf_list_events")
+
+-- Keep every button's position available to focus navigation while avoiding
+-- text rendering for review rows that cannot appear on the screen.
+local ReviewListGroup = VerticalGroup:extend{}
+function ReviewListGroup:paintTo(bb, x, y)
+    ListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
+    self._review_rows_positioned = true
+end
+function ReviewListGroup:propagateEvent(event)
+    local routed, consumed = ListEvents.dispatch(self._review_rows, self._review_rows_positioned, event)
+    if routed then return consumed end
+    return VerticalGroup.propagateEvent(self, event)
+end
 
 local function _(text)
     return I18n.tr(text)
@@ -31,6 +46,10 @@ end
 local TABS = {
     { mode = "recommended", text = "Recommended reviews" },
     { mode = "latest", text = "Latest reviews" },
+}
+local NATIVE_TABS = {
+    TABS[2],
+    { mode = "five_stars", text = "Five-star reviews" },
 }
 
 local BookReviewsView = FocusManager:extend{
@@ -42,6 +61,7 @@ local BookReviewsView = FocusManager:extend{
     on_load_more = nil,
     on_close = nil,
     latest_only = false,
+    native_filters = false,
     scroll_offset = nil,
     focus_row = nil,
     title_text = nil,
@@ -52,14 +72,14 @@ local BookReviewsView = FocusManager:extend{
 }
 
 function BookReviewsView:buildTabBar()
-    local tabs = self.latest_only and { TABS[2] } or TABS
+    local tabs = self.native_filters and NATIVE_TABS or self.latest_only and { TABS[2] } or TABS
     local first_width = math.floor(self.screen_w / #tabs)
     local row = HorizontalGroup:new{}
     self._tab_buttons = {}
     for index, tab in ipairs(tabs) do
         local active = tab.mode == self.mode
         local button = Button:new{
-            text = _(self.latest_only and self.tab_text or tab.text),
+            text = _(tab.mode == 'latest' and self.latest_only and self.tab_text or tab.text),
             width = index == #tabs
                 and self.screen_w - first_width * (#tabs - 1)
                 or first_width,
@@ -113,11 +133,12 @@ function BookReviewsView:reviewText(review)
 end
 
 function BookReviewsView:buildContent()
-    local content = VerticalGroup:new{
+    local content = ReviewListGroup:new{
         align = "left",
         HorizontalSpan:new{ width = self.content_width },
     }
     self._review_buttons = {}
+    content._review_rows = self._review_buttons
     local items = self.result and self.result.items or {}
     if #items == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
@@ -149,6 +170,7 @@ function BookReviewsView:buildContent()
                 end
             end,
         }
+        button._shelf_list_row = true
         self._review_buttons[#self._review_buttons + 1] = button
         table.insert(content, button)
         table.insert(content, VerticalSpan:new{ width = Size.padding.small })
@@ -160,6 +182,7 @@ function BookReviewsView:buildContent()
             show_parent = self,
             callback = self.on_load_more,
         }
+        button._shelf_list_row = true
         self._review_buttons[#self._review_buttons + 1] = button
         table.insert(content, button)
     end
@@ -179,6 +202,7 @@ function BookReviewsView:buildContent()
             face = Font:getFace("cfont", 16), max_width = self.content_width,
         })
     end
+    self._review_content = content
     return content
 end
 
@@ -271,6 +295,7 @@ function M.show(data, callbacks)
         on_load_more = callbacks.on_load_more,
         on_close = callbacks.on_close,
         latest_only = data.latest_only == true,
+        native_filters = data.native_filters == true,
         scroll_offset = data.scroll_offset,
         focus_row = data.focus_row,
         title_text = data.title_text,

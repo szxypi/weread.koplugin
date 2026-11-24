@@ -37,7 +37,7 @@ Source.fetch=function(c,id,limit,previous)
     for i=1,limit+1 do
         local key='synthetic-'..i
         raw.reviews[i]={reviewId=key,review={reviewId=key,bookId=id,type=4,createTime=1700001000-i,
-            author={name='合成读者'},content='合成书评 '..i,star=100}}
+            author={name='合成读者'},content='合成书评 '..i,star=i%2==1 and 100 or 80}}
         if i==1 then raw.reviews[i].review.pictures={{url=image_url,width=32,height=32}} end
         if i==2 then raw.reviews[i].review.pictures={{url='https://untrusted.invalid/image'}} end
     end
@@ -121,6 +121,18 @@ if mode=='online' then
     view=host._native_reviews_owner.view
     assert(#view.result.items==40 and calls[0]==2)
 end
+-- Both tabs use the same fetched/cached snapshot and retain its pagination.
+local prior_calls=calls[0];assert(#view._tab_buttons==2)
+assert(view._tab_buttons[1]:getSize().w+view._tab_buttons[2]:getSize().w==Device.screen:getWidth())
+view._tab_buttons[2].callback()
+local filtered=host._native_reviews_owner.view
+assert(filtered~=view and filtered.mode=='five_stars' and #filtered.result.items==20 and calls[0]==prior_calls)
+assert(filtered.result.items[1].review_id=='synthetic-1' and filtered.result.items[20].review_id=='synthetic-39')
+assert(filtered.incomplete_text:find('仅筛选已加载',1,true),'filtered scope notice missing')
+UI:forceRePaint();filtered._review_buttons[1].callback();detail=assert(host._native_reviews_owner.detail)
+assert(detail.text:find('合成书评 1',1,true));detail:onClose()
+filtered._tab_buttons[1].callback();view=host._native_reviews_owner.view
+assert(view.mode=='latest' and #view.result.items==40 and calls[0]==prior_calls)
 UI:forceRePaint();view:onClose();assert(not host._native_reviews_owner and not host.busy_message)
 local Store=require('weread.lib.native_book_reviews_cache')
 local original=Store:new(library,client,library:accountKey());assert(original:read('42'))
