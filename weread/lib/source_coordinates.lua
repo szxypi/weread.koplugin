@@ -200,9 +200,20 @@ end
 
 function Map:_index()
     if self.flat then return end
-    local chunks, points, total = {}, {}, 0
+    local chunks, points, blocks, ranges, total = {}, {}, {}, {}, 0
     for index, segment in ipairs(self.segments) do
         local co, text, at, pieces, count = segment[1], segment[2], 1, {}, 0
+        local first_flat = total + 1
+        local block_at, block_co, block_flat, block_count = at, co, first_flat, 0
+        local function close_block()
+            if block_count == 0 then return end
+            -- Store six consecutive numbers per block to bound table overhead:
+            -- segment, first/after source byte, first/last co, first flat byte.
+            local n = #blocks
+            blocks[n+1], blocks[n+2], blocks[n+3] = index, block_at, at
+            blocks[n+4], blocks[n+5], blocks[n+6] = block_co, co, block_flat
+            block_at, block_co, block_flat, block_count = at, co, total + 1, 0
+        end
         local function checkpoint()
             if #pieces > 0 then chunks[#chunks + 1] = table.concat(pieces) pieces, count = {}, 0 end
             points[#points + 1] = { flat = total + 1, segment = index, at = at, co = co }
@@ -212,11 +223,15 @@ function Map:_index()
             local clean, next_at, n = self:_token(text, at)
             if clean ~= "" then pieces[#pieces + 1], count, total = clean, count + 1, total + #clean end
             at, co = next_at, co + n
+            block_count = block_count + 1
+            if block_count >= 256 then close_block() end
             if count >= 256 then checkpoint() end
         end
+        close_block()
+        ranges[index*2-1], ranges[index*2] = first_flat, total + 1
         if #pieces > 0 then chunks[#chunks + 1] = table.concat(pieces) end
     end
-    self.flat, self.points = table.concat(chunks), points
+    self.flat, self.points, self.anchor_blocks, self.segment_ranges = table.concat(chunks), points, blocks, ranges
 end
 
 function Map:_point(byte, ending, include_location)
@@ -340,22 +355,25 @@ function Map:anchor(co, options)
     local ok, result = pcall(function()
         if type(co) ~= "number" or co ~= co or co % 1 ~= 0 or co < 0 or co > M.MAX_BYTES * 8 then fail("invalid_offset") end
         self:_index()
-        local candidates, interior, flat = {}, false, 1
-        local ranges={}
+        local candidates, interior = {}, false
         local function candidate(byte, visible)
             candidates[byte] = candidates[byte] == true or visible
         end
-        for _, segment in ipairs(self.segments) do
-            local first=flat
-            local cursor, text, at = segment[1], segment[2], 1
-            while at <= #text do
+        local blocks = self.anchor_blocks
+        -- Include both adjacent blocks at shared boundaries, and examine all
+        -- overlapping source intervals: otherwise ambiguous offsets can be
+        -- mistaken for a unique position.
+        for block=1,#blocks,6 do
+          if co >= blocks[block+3] and co <= blocks[block+4] then
+            local cursor, text, at, flat = blocks[block+3], self.segments[blocks[block]][2], blocks[block+1], blocks[block+5]
+            while at < blocks[block+2] do
                 local clean, next_at, n = self:_token(text, at)
                 if co == cursor then candidate(flat, clean ~= "") end
                 if co == cursor + n and clean ~= "" then candidate(flat + #clean, true) end
                 if co > cursor and co < cursor + n then interior = true end
                 at, cursor, flat = next_at, cursor + n, flat + #clean
             end
-            ranges[#ranges+1]={first,flat}
+          end
         end
         local byte, count, visible
         count = 0
@@ -371,8 +389,10 @@ function Map:anchor(co, options)
         local windows={{1,#self.flat+1}}
         if options and options.segment_only then
             windows={}
-            for _i,range in ipairs(ranges) do
-                if range[1]<=byte and byte<=range[2] and range[1]<range[2] then windows[#windows+1]=range end
+            local ranges = self.segment_ranges
+            for i=1,#ranges,2 do
+                local first,last=ranges[i],ranges[i+1]
+                if first<=byte and byte<=last and first<last then windows[#windows+1]={first,last} end
             end
         end
         for _window_index,window in ipairs(windows) do

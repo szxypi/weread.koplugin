@@ -188,4 +188,21 @@ eq(nearby:next_visible(12,1025),nil)
 eq(nearby:next_visible(-1,10),nil)
 eq(txt_map:next_visible(0,10),nil)
 
+-- Anchor lookup blocks include both sides of a boundary, even when a long
+-- whitespace run crosses several blocks or a scalar consumes two UTF-16 units.
+local long_raw='<body><p>'..('甲'):rep(254)..'😀'..(' '):rep(530)
+    ..'一个独立且足够长的结尾用于核对反向位置。</p></body>'
+local long_map=build(long_raw)
+local long_target='一个独立且足够长的结尾用于核对反向位置。'
+local long_position=assert(long_map:locate(long_target))
+local long_anchor=assert(long_map:anchor(long_position.co,{segment_only=true}))
+eq(assert(long_map:locate_point(long_anchor.text,long_anchor.point_offset)).co,long_position.co)
+local emoji_byte=assert(long_map.flat:find('😀',1,true))
+local emoji_co=long_map:_point(emoji_byte)
+eq(select(2,long_map:anchor(emoji_co+1)),'source_coordinates/inside_entity_or_scalar')
+eq(assert(long_map:anchor(emoji_co)).co,emoji_co)
+local overlap=build('<body><p>'..('>'):rep(16)..'第一段唯一正文足够长以判断坐标。</p>'
+    ..'<p>相邻第二段唯一正文足够长以判断坐标。</p></body>')
+eq(select(2,overlap:anchor(48,{segment_only=true})),'source_coordinates/offset_ambiguous')
+
 print("source_coordinates_spec: " .. checks .. " checks")
