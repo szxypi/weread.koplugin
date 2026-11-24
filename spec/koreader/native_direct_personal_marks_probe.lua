@@ -232,6 +232,23 @@ else
             'returning to a recently viewed page repeated native bookmark scans')
         document.isXPointerInCurrentPage=own
     end
+    -- A pure bookmark batch needs source preparation but no text-hash worker.
+    do
+        local original_snapshot,original_thoughts=state.snapshot,state.thought_snapshot
+        local only=json.decode(json.encode(original_snapshot));only.updated=json.decode('[]')
+        for _,row in ipairs(original_snapshot.updated) do
+            if row.type==0 then only.updated[#only.updated+1]=row end
+        end
+        assert(#only.updated==2);state.thought_snapshot=nil
+        local original_start=state.worker.start;local starts=0
+        state.worker.start=function(self,...) starts=starts+1;return original_start(self,...) end
+        Display.changed(host,only);wait(function() return state.complete end)
+        assert(#state.records==0 and #state.bookmarks==2 and starts==1,
+            'bookmark-only batch used an empty verification worker or lost a point')
+        state.worker.start=original_start;state.thought_snapshot=original_thoughts
+        Display.changed(host,original_snapshot);wait(function() return state.complete end)
+        assert(#state.records==2 and #state.bookmarks==2,'mixed notes did not return after point-only batch')
+    end
     Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)
     Display.wake(host);wait(function() return state.complete end);UI:forceRePaint()
     assert(state.overlay.enabled and #state.overlay.visible>0,'direct personal mark not restored')

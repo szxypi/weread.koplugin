@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "baseline": "b3ca93c6",
+  "runtime": "KOReader Linux ARM64",
+  "runs": 3,
+  "comparisons_per_run": 514,
+  "chapter_bytes": 14826,
+  "bookmarks": 8,
+  "iterations": 3,
+  "old_map_builds": 16,
+  "new_map_builds": 1,
+  "old_source_indexes": 8,
+  "new_source_indexes": 1,
+  "old_cpu_ms_median": 368.8,
+  "new_cpu_ms_median": 221.3
+}

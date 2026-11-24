@@ -85,4 +85,20 @@ for _i,bad in ipairs({{range='49'},{range='45'},{markText='too short'},{markText
 end
 expect(not Point.from_mark(txt,'CB_SyntheticNotes','2',{type=0,chapterUid=2,range='48'},'web_txt'),'TXT bookmark without preview accepted')
 expect(not Point.from_mark(txt..txt_quote,'CB_SyntheticNotes','2',txt_row,'web_txt'),'duplicate TXT preview accepted')
+local Raw=require('weread.lib.annotation_source');local build,index=Coordinates.build,Raw.index;local builds,indexes=0,0
+Coordinates.build=function(...) builds=builds+1;return build(...) end
+Raw.index=function(...) indexes=indexes+1;return index(...) end
+local valid={type=0,chapterUid=2,range=value.range,markText=value.markText}
+local bad={type=0,chapterUid=2,range=value.range,markText='incorrect preview'}
+local batch,reasons=Point.prepare_batch(raw,'41','2',{bad,valid,valid},'web_xhtml')
+expect(batch and not batch[1] and batch[2] and batch[3] and reasons[1]=='bookmark_point/point',
+    'invalid point changed neighboring bookmarks')
+expect(builds==1 and indexes==1 and batch[2].anchor.co==value.chapter_offset,'point batch rebuilt source indexes')
+builds,indexes=0,0
+local txt_batch=assert(Point.prepare_batch(txt,'CB_SyntheticNotes','2',{txt_row,prior},'web_txt'))
+expect(txt_batch[1] and txt_batch[2] and txt_batch[1].anchor.co==48 and txt_batch[2].anchor.co==48
+    and builds==1 and indexes==0,'TXT point batch changed anchors or rebuilt source maps')
+local many={};for i=1,Point.MAX_BATCH+1 do many[i]=valid end
+expect(not Point.prepare_batch(raw,'41','2',many,'web_xhtml'),'oversized bookmark batch accepted')
+Coordinates.build,Raw.index=build,index
 print('bookmark_point_spec: '..checks..' checks')

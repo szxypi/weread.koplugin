@@ -92,6 +92,10 @@ KOReader Linux ARM64 的合成测试中，1.26 MB 正文连续解码三次、三
 
 随后将同批 XHTML 划线的原文索引与正文扫描也合并，保留每条引用、完整正文和边界核对；TXT 继续使用原路径。843 条合成输入的新旧结果逐项一致，覆盖长段落、字符实体、重叠或无效范围、中文、表情及 BOM。相同大小章节和批次数的 KOReader Linux ARM64 合成测试中，三轮 CPU 时间中位数从 420 ms 降至 267 ms，原文索引每批从八次降为一次；见[记录](validation-assets/2026-11-25/eink-personal-mark-source-batch.json)。真实账号在 KO2 模拟尺寸分别核对两条划线和两条想法及离线重开，云端数据和阅读位置未变。这是后台处理的单项测试，并非实体 Kindle 整体响应时间。可运行 `python3 scripts/benchmark_personal_mark_source_batch.py --koreader /path/to/koreader` 复验，需要 Linux、基准提交和 `/dev/shm`。
 
+同一批云书签也共用章节坐标与原文索引，仍逐条核对点位置、预览及唯一锚点。对 514 条 XHTML／TXT 合成输入的新旧结果逐项对照一致；约 14.8 KB 章节连续处理三批、每批八条书签，在 KOReader Linux ARM64 模拟环境中三轮 CPU 时间中位数从 369 ms 降至 221 ms；每批坐标索引从 16 次降至一次，原文索引从八次降至一次，逐条正文扫描仍保留。纯书签批次跳过空的划线文本校验任务，混合批次仍执行原有校验。结果不代表真机整体响应，见[记录](validation-assets/2026-11-25/eink-bookmark-point-batch.json)。可运行 `python3 scripts/benchmark_bookmark_point_batch.py --koreader /path/to/koreader` 复验，需要 Linux、基准提交和 `/dev/shm`。
+
+两种屏幕尺寸的原生阅读器合成回归验证了同页书签、纯书签批次的任务次数、混合笔记恢复及离线重开；真实账号另核对两条划线的显示和离线重开，云端状态与阅读位置未变。本轮没有使用真实账号书签或实体设备验证。
+
 ## 连续书架列表
 
 连续滚动的书架和公众号列表在重绘时跳过屏幕以外的书目和分隔线，同时更新所有书目的触摸区域和焦点位置。文字控件按需创建，滚出屏幕后释放；列表仍为每本书保留轻量行记录，不是完整的虚拟列表。翻页模式与封面布局沿用原来的绘制方式。

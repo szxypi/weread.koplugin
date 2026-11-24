@@ -148,15 +148,16 @@ batch=function(host,s,job)
             if not ok then s.job=nil;return end
             if coroutine.status(thread)~='dead' then schedule(host,s,advance);return end
             if not value then s.job=nil;return end
-            local verifying=worker(host,s,function() return Task.verify(verify) end,function(ids)
+            local function finish(ids)
                 if not same_job(host,s,job) then return end
                 if type(ids)~='table' then s.job=nil;return end
                 local seen={}
                 for _i,id in ipairs(ids) do if pending[id] and not seen[id] then insert(s,s.records,pending[id]);seen[id]=true end end
                 for _i,row in ipairs(points) do insert(s,s.bookmarks,row) end
                 s.overlay:setRecords(s.records,true);s.indicator:setRecords(s.bookmarks);dirty(host);schedule(host,s,function() batch(host,s,job) end)
-            end)
-            if not verifying then s.job=nil end
+            end
+            if #verify==0 then finish({})
+            elseif not worker(host,s,function() return Task.verify(verify) end,finish) then s.job=nil end
         end
         schedule(host,s,advance)
     end)

@@ -2,7 +2,7 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture')
 local codec=Fixture.codec();local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
-local in_worker,network_checks=false,0
+local in_worker,network_checks,verify_calls=false,0,0
 local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_self,_delay,task) timers[#timers+1]=task end,
     unschedule=function(_self,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
@@ -56,7 +56,7 @@ package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_
         end
         return result
     end,
-    verify=function(rows) local ids={};for i,row in ipairs(rows) do ids[i]=row.bookmarkId end;return ids end,
+    verify=function(rows) verify_calls=verify_calls+1;local ids={};for i,row in ipairs(rows) do ids[i]=row.bookmarkId end;return ids end,
 } end
 for _i,name in ipairs({'weread.lib.position_source','weread.lib.source_dom','weread.lib.personal_mark_task',
     'weread.lib.my_cloud_marks_store','weread.lib.native_read_access','weread.lib.memory_worker'}) do package.loaded[name]=nil end
@@ -126,6 +126,14 @@ local s=host._personal_marks
 expect(#s.records==1 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point','point mixed into underline records')
 expect(s.bookmarks[1].pos0==2 and s.bookmarks[1].pos1==nil,'point was changed into a native highlight')
 expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==s.indicator and Display.available(host))
+local points_only=Fixture.clone(snapshot);points_only.updated=codec:json_decode('[]')
+points_only.updated[1]=Fixture.clone(snapshot.updated[2])
+local before_verify=verify_calls
+Display.changed(host,points_only);drain()
+expect(#s.records==0 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point'
+    and verify_calls==before_verify,'bookmark-only batch launched empty text verification or lost its point')
+Display.changed(host,snapshot);drain()
+expect(#s.records==1 and #s.bookmarks==1 and verify_calls>before_verify,'mixed batch skipped highlight verification')
 local clicked=false
 s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
 host.showMyCloudBookmarks=function(_self,book)

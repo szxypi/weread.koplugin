@@ -9,7 +9,7 @@ local Dom=require('weread.lib.source_dom')
 local Span=require('weread.lib.my_mark_span')
 local Point=require('weread.lib.bookmark_point')
 local Contract=require('weread.lib.mark_edit_contract')
-local M={BATCH=Span.MAX_BATCH,MAX_NATIVE_BYTES=512*1024}
+local M={BATCH=math.min(Span.MAX_BATCH,Point.MAX_BATCH),MAX_NATIVE_BYTES=512*1024}
 function M.load(client,library,book,access,online)
     local store=Cache:new(library,client);local saved=store:read(book)
     if online and access and not access.renewal_pending then
@@ -33,9 +33,11 @@ local function project_rows(raw,book,uid,format,metadata,rows)
     local result={metadata=metadata,rows={}}
     local spans=Span.prepare_batch(raw,book,uid,rows,format)
     if not spans then error('personal_marks/scope',0) end
+    local points=Point.prepare_batch(raw,book,uid,rows,format)
+    if not points then error('personal_marks/scope',0) end
     for index,row in ipairs(rows) do
         if row.type==0 then
-            local point=Point.prepare(raw,book,uid,row,format)
+            local point=points[index]
             if point then
                 result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
             end

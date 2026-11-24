@@ -7,7 +7,7 @@ local Dom=require('weread.lib.source_dom')
 local Marks=require('weread.lib.my_cloud_marks')
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
-local M={}
+local M={MAX_BATCH=8}
 local function fail(reason) error('bookmark_point/'..reason,0) end
 function M.point(value)
     if type(value)~='string' or #value>10 or not value:match('^%d+$') then return nil end
@@ -37,10 +37,11 @@ local function trim(text)
     end
     return first and text:sub(first,last) or ''
 end
-local function scan(raw,map,wanted_raw,wanted_flat)
+local function scan(raw,map,wanted_raw,wanted_flat,spans_provider)
     local flat,found,point,byte=1,0,nil,nil
     local chunks,pieces,preview={}, {}, {};local count=0
-    for _i,span in ipairs(Raw.index(raw,{body_only=true})) do
+    local spans=spans_provider and spans_provider() or Raw.index(raw,{body_only=true})
+    for _i,span in ipairs(spans) do
         local at,offset=1,span[1]
         while at<=#span[3] do
             local token=span[3]:match('^[%z\1-\127\194-\244][\128-\191]*',at);local decoded=token
@@ -81,6 +82,10 @@ local function guarded(task)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^bookmark_point/[a-z_]+$') and value or 'bookmark_point/unavailable'
 end
+local function source_map(raw,format,provider)
+    if provider then return provider() end
+    return Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
+end
 local function txt_project(raw,co)
     local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
     map:_index()
@@ -115,10 +120,10 @@ function M.project(raw,co,format)
         return scan(raw,map,nil,byte)
     end)
 end
-local function txt_point(raw,book,chapter,row)
+local function txt_point(raw,book,chapter,row,map_provider)
     local preview=imported_preview(row)
     if not preview then fail('preview') end
-    local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
+    local map=source_map(raw,'web_txt',map_provider);if not map then fail('source') end
     map:_index()
     local marker=M.point(row.range);local source=raw:gsub('^\239\187\191','')
     local bom=raw:sub(1,3)=='\239\187\191' and 1 or 0
@@ -146,16 +151,16 @@ local function txt_point(raw,book,chapter,row)
     return {book_id=book,chapter_uid=chapter,chapter_offset=co,raw_sha256=Crypto.sha256_hex(raw),
         raw_bytes=#raw,basis='raw_txt_utf16',upload_verified=false}
 end
-function M.from_mark(raw,book,chapter,row,format)
+local function from_mark(raw,book,chapter,row,format,map_provider,spans_provider)
     return guarded(function()
         local imported=not Marks.id(book)
         if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,imported) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book then fail('scope') end
         format=format or 'web_xhtml'
-        if format=='web_txt' then return txt_point(raw,book,chapter,row) end
+        if format=='web_txt' then return txt_point(raw,book,chapter,row,map_provider) end
         if format~='web_xhtml' then fail('source') end
-        local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
-        local value,byte=scan(raw,map,M.point(row.range))
+        local map=source_map(raw,'web_xhtml',map_provider);if not map then fail('source') end
+        local value,byte=scan(raw,map,M.point(row.range),nil,spans_provider)
         if value.range~=row.range then fail('point') end
         if row.markText~=nil and row.markText~='' then
             if type(row.markText)~='string' or #row.markText>131072 or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then fail('preview') end
@@ -169,15 +174,43 @@ function M.from_mark(raw,book,chapter,row,format)
             raw_bytes=value.raw_bytes,basis='filtered_xhtml_utf16',upload_verified=false}
     end)
 end
+function M.from_mark(raw,book,chapter,row,format)
+    return from_mark(raw,book,chapter,row,format)
+end
 -- A reversible unique anchor is also used by the independent reader layer.
 -- No text range is invented for a point bookmark.
-function M.prepare(raw,book,chapter,row,format)
+local function prepare(raw,book,chapter,row,format,map_provider,spans_provider)
     return guarded(function()
-        local point=M.from_mark(raw,book,chapter,row,format);if not point then fail('point') end
-        local map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true});if not map then fail('source') end
+        local point=from_mark(raw,book,chapter,row,format,map_provider,spans_provider);if not point then fail('point') end
+        local map=map_provider();if not map then fail('source') end
         local anchor=map:anchor(point.chapter_offset,{segment_only=true}) or map:anchor(point.chapter_offset)
         if not anchor then fail('anchor') end
         return {anchor=anchor}
     end)
+end
+local function source_providers(raw,format)
+    local map,attempted,spans
+    return function()
+        if not attempted then
+            attempted=true;map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true})
+        end
+        return map
+    end,function()
+        if not spans then spans=Raw.index(raw,{body_only=true}) end
+        return spans
+    end
+end
+function M.prepare(raw,book,chapter,row,format)
+    local map,spans=source_providers(raw,format)
+    return prepare(raw,book,chapter,row,format,map,spans)
+end
+-- Batch resources are limited to the one verified source supplied by the worker.
+function M.prepare_batch(raw,book,chapter,rows,format)
+    if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'bookmark_point/batch' end
+    local map,spans=source_providers(raw,format);local values,reasons={},{}
+    for i,row in ipairs(rows) do
+        if type(row)=='table' and row.type==0 then values[i],reasons[i]=prepare(raw,book,chapter,row,format,map,spans) end
+    end
+    return values,reasons
 end
 return M
