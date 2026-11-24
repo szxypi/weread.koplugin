@@ -1,0 +1,22 @@
+{
+  "result": "RECOVERED_AFTER_AUTH_EXPIRY",
+  "scope": "one real account, one temporary bookmark",
+  "cross_chapter_validation_completed": false,
+  "interrupted_phase": "created",
+  "independent_native_401_observations": 2,
+  "native_renewal_attempts": 1,
+  "renewed_owner_verified": true,
+  "read_only_original_plan_rebuilt": true,
+  "unique_test_bookmark_verified": true,
+  "source_point_roundtrip_verified": true,
+  "original_record_hashes_match": true,
+  "account_data_posts": 2,
+  "creation_replayed": false,
+  "remaining_deletion_posts": 1,
+  "test_bookmark_absent_on_readback": true,
+  "original_records_restored": true,
+  "chapter_metadata_changed": false,
+  "web_position_unchanged": true,
+  "intent_state_after_recovery": "absent",
+  "physical_kindle_tested": false
+}

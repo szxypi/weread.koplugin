@@ -1,12 +1,14 @@
 """Reconstruct one pending point and consume only its unused deletion slot."""
 from copy import deepcopy
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 import test_bookmark_trial as fixtures
-from bookmark_trial_model import observe
-from bookmark_trial_recovery import isolate_added,resume_delete
+from bookmark_trial_model import bind,observe
+from bookmark_trial_recovery import isolate_added,rebuild,resume_delete,NativeBookmarkRecoveryProbe
 from bookmark_trial_recovery import reconcile_deleted,finish_reconcile
 from annotation_experiment_model import digest
+from secure_bookmark_trial import BookmarkTrialStore
+from test_secure_native_session import Backend
 
 
 class BookmarkRecoveryTests(unittest.TestCase):
@@ -46,6 +48,66 @@ class BookmarkRecoveryTests(unittest.TestCase):
         self.assertEqual(source.writer.request.call_count,1);self.assertEqual(store.read()[0]['phase'],'delete_pending')
         with self.assertRaises(ValueError):resume_delete(p,{})
         self.assertEqual(source.writer.request.call_count,1)
+
+    def native_fixture(self):
+        original,source,_store,plan,added=self.fixture()
+        store=BookmarkTrialStore(Backend(),native=True);probe=NativeBookmarkRecoveryProbe(source,store)
+        probe.raw,probe.first,probe.body=original.raw,original.first,original.body
+        probe.bound=bind(plan.bound,probe.body,native=True);probe.posts=1
+        target=observe(plan.baseline,added,probe.body);receipt=store.reserve(probe.bound)
+        probe.target=target;probe.receipt=store.advance(receipt,'created',target=target)
+        return probe,source,store,plan,added
+
+    def test_native_recovery_can_send_only_reserved_deletion_once(self):
+        probe,source,store,plan,added=self.native_fixture()
+        with self.assertRaises(ValueError):probe.post({},'create_pending','/book/addBookmark',probe.body)
+        source.writer.request.assert_not_called()
+        source.notes.observe.side_effect=[added,plan.baseline]
+        with patch('verify_owner_reading.reading_position',return_value=plan.web_position):result=resume_delete(probe,{})
+        self.assertEqual(result['account_data_posts'],1);self.assertEqual(store.read(),(None,None))
+        self.assertEqual(source.writer.request.call_count,1)
+        self.assertEqual(source.writer.request.call_args.args[1],'https://i.weread.qq.com/book/removeBookmark')
+        with self.assertRaises(ValueError):resume_delete(probe,{})
+        self.assertEqual(source.writer.request.call_count,1)
+
+    def test_native_rebuild_is_readonly_and_requires_exact_created_intent(self):
+        probe,source,store,plan,added=self.native_fixture();source.notes.target=probe.target;source.notes.report={'stages':[]}
+        full=Mock();full.report={'stages':[]};full.observe.return_value=added
+        identity={'vid':plan.bound['owner']};expected=digest(probe.bound);receipt=probe.receipt
+        with patch('bookmark_trial_recovery.decode_content_shards',return_value=probe.raw), \
+             patch('bookmark_trial_recovery.AnnotationProbe',return_value=full):
+            recovered,report=rebuild(identity,identity,store,expected,source)
+        self.assertIsInstance(recovered,NativeBookmarkRecoveryProbe)
+        self.assertTrue(report['unique_new_bookmark_verified']);self.assertEqual(report['account_data_posts'],0)
+        self.assertEqual(store.read()[1],receipt);source.writer.request.assert_not_called()
+        with self.assertRaises(ValueError):rebuild(identity,identity,store,'0'*64,source)
+        pending=BookmarkTrialStore(Backend(),native=True);pending.reserve(probe.bound)
+        with self.assertRaises(ValueError):rebuild(identity,identity,pending,expected,source)
+
+    def test_native_recovery_rejects_changed_target_and_ambiguous_delete(self):
+        probe,source,store,_plan,added=self.native_fixture()
+        changed=deepcopy(added);changed['marks']['updated']['new-bookmark']['createTime']=9
+        source.notes.observe.return_value=changed
+        with self.assertRaises(ValueError):resume_delete(probe,{})
+        source.writer.request.assert_not_called();self.assertEqual(store.read()[0]['phase'],'created')
+        source.notes.observe.return_value=added
+        with self.assertRaises(ValueError):resume_delete(probe,{})
+        self.assertEqual(source.writer.request.call_count,1);self.assertEqual(store.read()[0]['phase'],'delete_pending')
+        with self.assertRaises(ValueError):resume_delete(probe,{})
+        self.assertEqual(source.writer.request.call_count,1)
+
+    def test_native_delete_rejects_wrong_body_and_replaced_intent(self):
+        probe,source,store,_plan,_added=self.native_fixture()
+        probe.receipt=store.advance(probe.receipt,'delete_pending')
+        for phase,path,body in (('delete_pending','/book/removeBookmark',{'bookmarkIds':['another']}),
+                                ('delete_pending','/book/addBookmark',{'bookmarkIds':[probe.target['id']]}),
+                                ('create_pending','/book/addBookmark',probe.body)):
+            with self.subTest(phase=phase,path=path),self.assertRaises(ValueError):
+                probe.post({},phase,path,body)
+        probe.receipt=None
+        with self.assertRaises(ValueError):
+            probe.post({},'delete_pending','/book/removeBookmark',{'bookmarkIds':[probe.target['id']]})
+        source.writer.request.assert_not_called();self.assertEqual(store.read()[0]['phase'],'delete_pending')
 
     def pending_delete(self):
         p,source,store,plan,added=self.fixture();receipt=store.reserve(p.bound)

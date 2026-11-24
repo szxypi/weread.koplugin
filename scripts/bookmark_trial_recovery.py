@@ -7,6 +7,7 @@ from fetch_weread_epub import decode_content_shards
 from selection_trial_probe import SelectionProbe
 from verify_annotation_experiment import AnnotationProbe
 from verify_bookmark_trial import BookmarkProbe
+from verify_eink_login import BASE,ProbeError
 
 
 def isolate_added(current,selection):
@@ -42,24 +43,40 @@ class BaselineNotes(AnnotationProbe):
         return value
 
 
+class NativeBookmarkRecoveryProbe(BookmarkProbe):
+    """Only the already-reserved deletion of an independently identified mark."""
+    def post(self,credentials,phase,path,body):
+        self.current();state,receipt=self.store.read()
+        expected={'bookmarkIds':[self.target['id']]} if self.target else None
+        if (not self.store.native or phase!='delete_pending' or self.posts!=1 or state is None
+                or receipt!=self.receipt or state['plan']!=self.bound or state['target']!=self.target
+                or not self.store.owns(self.receipt,'delete_pending') or path!='/book/removeBookmark'
+                or body!=expected or self.target['id'] in self.source.plan.baseline['marks']['updated']):
+            raise ValueError('bookmark_recovery/native_dispatch')
+        self.posts+=1
+        try:self.source.writer.request('bookmark_recovery_remove_new',BASE+path,body,credentials)
+        except ProbeError:pass
+
+
 def rebuild(saved,credentials,store,expected,source=None):
     state,receipt=store.read()
-    if (store.native or state is None or state['phase'] not in ('create_pending','created') or digest(state['plan'])!=expected
+    if (state is None or state['phase'] not in (('created',) if store.native else ('create_pending','created')) or digest(state['plan'])!=expected
             or state['plan']['selection']['owner']!=saved['vid'] or credentials['vid']!=saved['vid']):raise ValueError('bookmark_recovery/intent')
     selection=state['plan']['selection'];notes=BaselineNotes(selection)
     source=source or SelectionProbe(notes=notes)
     if source.notes is not notes:notes=source.notes
     plan=source.prepare(saved,credentials,existing=selection)
     raw=decode_content_shards(*(source.web.shards[k] for k in ('e_0','e_1','e_3')))
-    first=source.payload['selection_preview']['first'];body=request(plan.context,raw,first)
-    if bind(plan.bound,body)!=state['plan'] or not notes.target:raise ValueError('bookmark_recovery/plan')
+    first=first_position(raw) if store.native else source.payload['selection_preview']['first'];body=request(plan.context,raw,first)
+    if bind(plan.bound,body,native=store.native)!=state['plan'] or not notes.target:raise ValueError('bookmark_recovery/plan')
     target=notes.target
     if state['target'] is not None and state['target']!=target:raise ValueError('bookmark_recovery/target')
     # Subsequent observations must include the complete new record, not the
     # filtered original-set projection used solely to reconstruct the old plan.
     full=AnnotationProbe();full.identity=selection['book_id'];full.grant=digest(credentials)
     full.report['stages']=notes.report['stages'];source.notes=full
-    probe=BookmarkProbe(source,store);probe.raw=raw;probe.first=first;probe.bound=state['plan'];probe.body=body
+    probe=(NativeBookmarkRecoveryProbe if store.native else BookmarkProbe)(source,store)
+    probe.raw=raw;probe.first=first;probe.bound=state['plan'];probe.body=body
     probe.target=target;probe.receipt=receipt;probe.posts=1
     found,observed=probe.read(credentials)
     row=observed['marks']['updated'][found['id']]
