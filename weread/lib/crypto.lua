@@ -142,8 +142,7 @@ local sha256_k = {
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 }
 
-function Crypto.sha256_hex(message)
-    message = tostring(message or "")
+local function sha256_lua(message)
     local bit_len = #message * 8
     local padding_len = (56 - (#message + 1) % 64) % 64
     message = message .. string.char(0x80) .. string.rep("\0", padding_len)
@@ -197,6 +196,37 @@ function Crypto.sha256_hex(message)
         out[i] = word_to_be_hex(h[i])
     end
     return table.concat(out)
+end
+
+-- KOReader ships an optimized SHA-256 implementation. Keep the original
+-- implementation for older environments and reject an incompatible backend
+-- before it can affect stored identities or requests.
+local fast_sha256
+local function load_sha256()
+    fast_sha256 = false
+    local ok, module = pcall(require, "ffi/sha2")
+    if not ok or type(module) ~= "table" or type(module.sha256) ~= "function" then return end
+    local vectors = {
+        { "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+        { "\0\255\128lua", "7813f4b3246ec2c76bb2a1752cb5dab7d39e77cf48b7b88a551674b6eb43844e" },
+        { string.rep("a", 56), "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a" },
+    }
+    for _, vector in ipairs(vectors) do
+        local valid, result = pcall(module.sha256, vector[1])
+        if not valid or result ~= vector[2] then return end
+    end
+    fast_sha256 = module.sha256
+end
+
+function Crypto.sha256_hex(message)
+    message = tostring(message or "")
+    if fast_sha256 == nil then load_sha256() end
+    if fast_sha256 then
+        local ok, result = pcall(fast_sha256, message)
+        if ok and type(result) == "string" and #result == 64 and result:match("^[0-9a-f]+$") then return result end
+        fast_sha256 = false
+    end
+    return sha256_lua(message)
 end
 
 return Crypto

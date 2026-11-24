@@ -1,0 +1,36 @@
+{
+  "result": "PASS",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "runs": 3,
+  "measurements": [
+    {"bytes": 1024, "iterations": 1000, "fallback_cpu_median_ms": 126, "optimized_cpu_median_ms": 3},
+    {"bytes": 1048576, "iterations": 8, "fallback_cpu_median_ms": 935, "optimized_cpu_median_ms": 20}
+  ],
+  "independent_binary_vectors": 63,
+  "max_test_bytes": 8388608,
+  "fallback_on_missing_invalid_or_failing_backend": true,
+  "synthetic_reading_and_annotations_two_sizes": true,
+  "owner_readonly": {
+    "width": 1264,
+    "height": 1680,
+    "dpi": 300,
+    "result": "PASS",
+    "source_and_page_turn_verified": true,
+    "position_roundtrip_verified": true,
+    "fresh_offline_reopen_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credential_rotation_saved": false,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "real_account_data_posts": 0,
+  "limitations": [
+    "Desktop emulator CPU time for hashing only; not page-turn latency or Kindle battery consumption.",
+    "No measurement on physical Kindle hardware."
+  ]
+}
