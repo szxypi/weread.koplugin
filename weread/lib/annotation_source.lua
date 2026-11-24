@@ -15,25 +15,26 @@ end
 
 function Source.index(html, options)
     html = html:gsub("^\239\187\191", "")
-    local spans, offset, i, start, pieces = {}, 0, 1, nil, {}
+    local spans, offset, i, start, start_byte = {}, 0, 1, nil, nil
     local in_tag, quote, suppressed = false, nil, nil
     local body_only, in_body = options and options.body_only == true, false
-    local tag = {}
+    local tag_start
     local function flush()
-        if start then spans[#spans + 1] = { start, offset, table.concat(pieces) } end
-        start, pieces = nil, {}
+        -- A text span is contiguous in the original bytes. Slice once instead
+        -- of collecting every UTF-8 character into a temporary table.
+        if start then spans[#spans + 1] = { start, offset, html:sub(start_byte, i - 1) } end
+        start, start_byte = nil, nil
     end
     while i <= #html do
         local size = length(html:byte(i))
         local char = html:sub(i, i + size - 1)
         if in_tag then
-            tag[#tag + 1] = char
             if quote then
                 if char == quote then quote = nil end
             elseif char == '"' or char == "'" then quote = char
             elseif char == ">" then
                 in_tag = false
-                local name = table.concat(tag):lower()
+                local name = html:sub(tag_start, i):lower()
                 if name:match('^body[%s>]') then in_body = true
                 elseif name:match('^/body[%s>]') then in_body = false end
                 if name:match("^/?script[%s>]") or name:match("^/?style[%s>]") then
@@ -49,10 +50,10 @@ function Source.index(html, options)
             goto continue
         elseif char == "<" and html:sub(i + 1, i + 1):match("[%a/!?]") then
             flush()
-            in_tag, tag = true, {}
+            in_tag, tag_start = true, i + size
         elseif not suppressed and (not body_only or in_body) then
             start = start or offset
-            pieces[#pieces + 1] = char
+            start_byte = start_byte or i
         end
         i, offset = i + size, offset + 1
         ::continue::
