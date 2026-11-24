@@ -20,7 +20,39 @@ local function coordinate_map(raw,format,provider)
     if provider then return provider() end
     return Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
 end
-local function project(raw,book,chapter,row,format,map_provider)
+local function source_length(raw)
+    local length=0;for _char in raw:gsub('^\239\187\191',''):gmatch('[%z\1-\127\194-\244][\128-\191]*') do length=length+1 end
+    return length
+end
+local function project_ranges(spans,ranges,expected)
+    local flat=1;local parts,chunks={},{}
+    for _i,span in ipairs(spans) do
+        local at,offset=1,span[1]
+        while at<=#span[3] do
+            local token=span[3]:match('^[%z\1-\127\194-\244][\128-\191]*',at);local decoded=token
+            if token=='&' then
+                token=span[3]:match('^&[^%s<&]+;',at);if not token then fail('entity') end
+                decoded=require('util').htmlEntitiesToUtf8(token)
+            end
+            if not token then fail('source') end
+            local text=assert(Dom.normalize(decoded));local runes=0
+            for _char in token:gmatch('[%z\1-\127\194-\244][\128-\191]*') do runes=runes+1 end
+            if text~='' then
+                for _j,range in ipairs(ranges) do
+                    if range.first<=offset and offset+runes<=range.last then
+                        range.start=range.start or flat;range.stop=flat+#text
+                    end
+                end
+                parts[#parts+1]=text
+                if #parts>=256 then chunks[#chunks+1]=table.concat(parts);parts={} end
+            end
+            flat,at,offset=flat+#text,at+#token,offset+runes
+        end
+    end
+    chunks[#chunks+1]=table.concat(parts)
+    if table.concat(chunks)~=expected then fail('quote') end
+end
+local function project(raw,book,chapter,row,format,map_provider,source_cache)
     local ok,value,prepared_map=pcall(function()
         if not Marks.display_id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
             or type(row.chapterUid)~='number' or tostring(row.chapterUid)~=chapter
@@ -47,33 +79,17 @@ local function project(raw,book,chapter,row,format,map_provider)
                 normalized_bytes=#clean,raw_sha256=target.raw_sha256,raw_bytes=target.raw_bytes},map
         elseif format~='web_xhtml' then fail('source') end
         local map=coordinate_map(raw,format,map_provider);if not map then fail('source') end
-        local length=0;for _char in raw:gsub('^\239\187\191',''):gmatch('[%z\1-\127\194-\244][\128-\191]*') do length=length+1 end
+        local length=source_cache and source_cache.length() or source_length(raw)
         if b>length then fail('range') end
-        local spans=Raw.index(raw,{body_only=true});local quoted=Raw.quote(spans,row.range)
+        local spans=source_cache and source_cache.spans() or Raw.index(raw,{body_only=true})
+        local quoted=Raw.quote(spans,row.range)
         local clean=Dom.normalize(row.markText)
         if not clean or clean=='' or trim(quoted)~=trim(row.markText) then fail('quote') end
-        local flat,start,stop=1,nil,nil;local parts,chunks={},{}
-        for _i,span in ipairs(spans) do
-            local at,offset=1,span[1]
-            while at<=#span[3] do
-                local token=span[3]:match('^[%z\1-\127\194-\244][\128-\191]*',at);local decoded=token
-                if token=='&' then
-                    token=span[3]:match('^&[^%s<&]+;',at);if not token then fail('entity') end
-                    decoded=require('util').htmlEntitiesToUtf8(token)
-                end
-                if not token then fail('source') end
-                local text=assert(Dom.normalize(decoded));local runes=0
-                for _char in token:gmatch('[%z\1-\127\194-\244][\128-\191]*') do runes=runes+1 end
-                if text~='' then
-                    if a<=offset and offset+runes<=b then start=start or flat;stop=flat+#text end
-                    parts[#parts+1]=text
-                    if #parts>=256 then chunks[#chunks+1]=table.concat(parts);parts={} end
-                end
-                flat,at,offset=flat+#text,at+#token,offset+runes
-            end
-        end
-        chunks[#chunks+1]=table.concat(parts)
-        if table.concat(chunks)~=map.flat or not start or not stop or map.flat:sub(start,stop-1)~=clean then fail('quote') end
+        local bounds
+        if source_cache then bounds=source_cache.bounds(row.range,map.flat)
+        else bounds={first=a,last=b};project_ranges(spans,{bounds},map.flat) end
+        local start,stop=bounds.start,bounds.stop
+        if not start or not stop or map.flat:sub(start,stop-1)~=clean then fail('quote') end
         local first,last=map:_point(start),map:_point(stop-1,true)
         if Quote.boundary(map,first)~=start or Quote.boundary(map,last)~=stop then fail('boundary') end
         return {first=first,last=last,normalized_sha256=Crypto.sha256_hex(clean),normalized_bytes=#clean,
@@ -102,8 +118,8 @@ local function inside_anchor(map,span,ending)
         end
     end
 end
-local function prepare(raw,book,chapter,row,format,map_provider)
-    local span,reason,map=project(raw,book,chapter,row,format,map_provider);if not span then return nil,reason end
+local function prepare(raw,book,chapter,row,format,map_provider,source_cache)
+    local span,reason,map=project(raw,book,chapter,row,format,map_provider,source_cache);if not span then return nil,reason end
     local first=inside_anchor(map,span,false) or map:anchor(span.first,{segment_only=true}) or map:anchor(span.first)
     local last=inside_anchor(map,span,true) or map:anchor(span.last,{segment_only=true}) or map:anchor(span.last)
     if not first or not last then return nil,'my_mark_span/anchor' end
@@ -116,7 +132,19 @@ end
 -- Invalid rows are kept separate; no caller-supplied coordinate map is trusted.
 function M.prepare_batch(raw,book,chapter,rows,format)
     if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'my_mark_span/batch' end
-    local map,attempted
+    local map,attempted,raw_length,raw_spans,bounds_ready
+    local ranges,by_range={},{}
+    for _i,row in ipairs(rows) do
+        local first,last
+        if type(row)=='table' and row.type==1 and type(row.range)=='string' then
+            first,last=row.range:match('^(%d+)%-(%d+)$')
+            if first and #first<=10 and #last<=10 and tonumber(first)<tonumber(last)
+                and tonumber(last)<=2147483647 and not by_range[row.range] then
+                local range={first=tonumber(first),last=tonumber(last)}
+                ranges[#ranges+1]=range;by_range[row.range]=range
+            end
+        end
+    end
     local function get_map()
         if not attempted then
             attempted=true
@@ -124,10 +152,28 @@ function M.prepare_batch(raw,book,chapter,rows,format)
         end
         return map
     end
+    local source_cache={
+        length=function()
+            if not raw_length then raw_length=source_length(raw) end
+            return raw_length
+        end,
+        spans=function()
+            if not raw_spans then raw_spans=Raw.index(raw,{body_only=true}) end
+            return raw_spans
+        end,
+        bounds=function(range,expected)
+            if not bounds_ready then
+                -- A failed projection must not leave partially computed ranges.
+                for _i,item in ipairs(ranges) do item.start,item.stop=nil,nil end
+                project_ranges(raw_spans,ranges,expected);bounds_ready=true
+            end
+            return by_range[range]
+        end,
+    }
     local result,reasons={},{}
     for index,row in ipairs(rows) do
         if type(row)=='table' and row.type==1 then
-            result[index],reasons[index]=prepare(raw,book,chapter,row,format,get_map)
+            result[index],reasons[index]=prepare(raw,book,chapter,row,format,get_map,source_cache)
         end
     end
     return result,reasons
