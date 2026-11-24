@@ -112,6 +112,8 @@ function M.show(host,id)
         items[#items+1]={text=_('Change private reading'),callback=function()
             if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id) end
         end}
+    end
+    if host.client and host.library_db.open and require('weread.lib.shelf_flag_change_contract').pin_id(id) then
         items[#items+1]={text=_('Change cloud pin'),callback=function()
             if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,false,'pinned') end
         end}
@@ -120,7 +122,7 @@ function M.show(host,id)
             items[#items+1]={text=_('Check pending cloud pin change'),callback=function()
                 if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,true,'pinned') end
             end}
-        elseif pending then
+        elseif pending and id:match('^[1-9]%d*$') and #id<=20 then
             items[#items+1]={text=_('Check pending private-reading change'),callback=function()
                 if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,true) end
             end}

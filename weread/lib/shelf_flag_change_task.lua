@@ -8,7 +8,7 @@ local BASE='https://i.weread.qq.com'
 local M={}
 local function current(settings,selected) return selected and not selected.renewal_pending and Access.matches(settings,selected) end
 local function observe(client,settings,selected,id,inspect)
-    assert(Contract.id(id) and current(settings,selected),'shelf_flag_change/login')
+    assert(Contract.pin_id(id) and current(settings,selected),'shelf_flag_change/login')
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=function() return current(settings,selected) end})
     local ok,shelf,progress=pcall(function()
         local raw=auth:read_shelf(selected.credentials)
@@ -25,6 +25,7 @@ function M.observe(client,settings,selected,id) return observe(client,settings,s
 function M.inspect(client,settings,selected,id) return observe(client,settings,selected,id,true) end
 function M.preview(client,settings,selected,id,desired,kind)
     kind=kind or 'private';assert(kind=='private' or kind=='pinned','shelf_flag_change/kind')
+    assert(kind=='pinned' and Contract.pin_id(id) or kind=='private' and Contract.id(id),'shelf_flag_change/target')
     local observed=M.observe(client,settings,selected,id)
     if desired==nil then
         local row=Contract.flags(observed.raw)[id]
@@ -82,7 +83,7 @@ function M.run(client,settings,selected,input,record,store,options)
             if checked and match then out.kind='confirmed';return out end
             local valid,unchanged=pcall(function()
                 return Contract.state_hash(observed.raw)==record.metadata.before_hash
-                    and Contract.position_hash(Contract.point(observed.progress,input.book_id))==record.metadata.position_hash
+                    and Contract.observation_hash(observed.progress,input.book_id)==record.metadata.position_hash
             end)
             if not valid or not unchanged then return out end
         end

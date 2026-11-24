@@ -3,6 +3,7 @@ require('ffi').log=function()end
 require('setupkoenv')
 local ffi,json=require('ffi'),require('json');require('ffi/posix_h')
 local mode=arg[1];local plugin,state_reader;local workers={}
+local target=os.getenv('WEREAD_PIN_IMPORTED')=='1' and 'CB_synthetic' or '41'
 local report={result='UNVERIFIED',mode=mode,phase='init',checks=0,requests=0,posts=0,forbidden=0,workers_reaped=false}
 local function expect(value)
     report.checks=report.checks+1
@@ -22,9 +23,10 @@ local ok,reason=pcall(function()
     end
     local function load(db)return json.decode(db:rowexec('SELECT payload FROM remote WHERE id=1'))end
     local function save(db,value)local stmt=db:prepare('UPDATE remote SET payload=? WHERE id=1');stmt:bind(json.encode(value)):step();stmt:close()end
-    local function shelf()return {books={{bookId='41',title='合成测试书籍',finishReading=0,secret=0},
+    local function shelf()return {books={{bookId=target,title='合成测试书籍',finishReading=0,secret=0},
         {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive=json.decode('[]')}end
-    local function progress()return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=100,progress=37.5}}end
+    local function progress()return {readingTime=10,recordReadingTime=2,ttsTime=0,
+        book={bookId=target,chapterUid=2,chapterIdx=2,chapterOffset=100,progress=37.5,isStartReading=1}}end
     if mode=='live' then remote(function(db)
         db:exec('CREATE TABLE remote(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)');db:exec([[INSERT INTO remote VALUES(1,'{}')]])
         save(db,{shelf=shelf(),progress=progress(),posts=0,requests=0,forbidden=0,fault='normal'})
@@ -36,8 +38,8 @@ local ok,reason=pcall(function()
     local Client=require('weread.lib.client')
     function Client:request(options)
         local writing=options.url==base..'/shelf/top';local h=options.headers or {}
-        local kind=options.url==base..'/shelf/sync' and 'shelf' or options.url==base..'/book/getProgress?bookId=41' and 'progress'
-            or options.url==base..'/book/info?bookId=41' and 'metadata' or writing and 'write'
+        local kind=options.url==base..'/shelf/sync' and 'shelf' or options.url==base..'/book/getProgress?bookId='..target and 'progress'
+            or options.url==base..'/book/info?bookId='..target and 'metadata' or writing and 'write'
         local body=writing and json.decode(options.body)
         local allowed=kind and options.method==(writing and 'POST' or 'GET') and tonumber(ffi.C.getpid())~=parent
             and options.skip_cookie and options.persist_response_cookies==false and options.sensitive
@@ -46,7 +48,7 @@ local ok,reason=pcall(function()
             local record=require('weread.lib.shelf_flag_change_store'):new(plugin.library_db,self):read()
             allowed=allowed and record and record.phase=='pending' and record.metadata.kind=='pinned'
                 and body.isDel==(record.metadata.desired and 0 or 1) and type(body.bookIds)=='table'
-                and #body.bookIds==1 and body.bookIds[1]=='41' and json.encode(body.albumIds)=='[]' and json.encode(body.archiveIds)=='[]'
+                and #body.bookIds==1 and body.bookIds[1]==target and json.encode(body.albumIds)=='[]' and json.encode(body.archiveIds)=='[]'
             local count=0;for _i in pairs(body) do count=count+1 end;allowed=allowed and count==4
         end
         local result=remote(function(db)
@@ -62,7 +64,7 @@ local ok,reason=pcall(function()
         assert(not result.reject);require('socket').sleep(.12)
         if writing and result.fault=='lost_ack' then error('synthetic timeout',0) end
         return json.encode(kind=='shelf' and result.shelf or kind=='progress' and result.progress
-            or kind=='metadata' and {bookId='41',title='合成测试书籍',version=77} or {succ=1}),200
+            or kind=='metadata' and {bookId=target,title='合成测试书籍',version=77} or {succ=1}),200
     end
     local Settings=require('weread.lib.settings');local settings_new=Settings.new
     function Settings:new()
@@ -88,7 +90,7 @@ local ok,reason=pcall(function()
     local function tick()UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)end
     local function wait(test)local until_=socket.gettime()+65;while not test() do assert(socket.gettime()<until_);tick()end end
     local function open(resolving)
-        plugin:showBookMenu{book_id='41',title='合成测试书籍',chapters={}}
+        plugin:showBookMenu{book_id=target,title='合成测试书籍',chapters={}}
         local detail=assert(plugin._book_detail_view)
         for _i,button in ipairs(detail._action_buttons) do if button.text==tr('Shelf status') then button.callback();break end end
         local menu=assert(plugin._shelf_state_menu)
@@ -105,7 +107,7 @@ local ok,reason=pcall(function()
         UI:forceRePaint();local beat=false;UI:scheduleIn(.1,function()beat=true end);view.ok_callback();notice();wait(function()return beat end);expect(beat)
     end
     local function saved(value)
-        local book=plugin.library_db:getShelfStatus('41').book
+        local book=plugin.library_db:getShelfStatus(target).book
         expect(require('weread.lib.shelf_flags').display(book,'pinned')==value)
     end
     local function status(value)

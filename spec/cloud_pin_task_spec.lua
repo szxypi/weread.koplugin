@@ -2,17 +2,18 @@ package.path='./?.lua;'..package.path
 local C=require('weread.lib.shelf_flag_change_contract');local Task=require('weread.lib.shelf_flag_change_task')
 local Access=require('weread.lib.native_read_access');local F=require('spec.helpers.thought_edit_fixture')
 local checks=0;local function expect(value,label) checks=checks+1;assert(value,label) end
+local target='41'
 local function shelf(pin)
-    local row={bookId='41',title='Synthetic target',finishReading=0,secret=0}
+    local row={bookId=target,title='Synthetic target',finishReading=0,secret=0}
     if pin~=nil then row.isTop=pin end
     return {books={row,{bookId='42',title='Synthetic other',finishReading=1}},
-        archive={{archiveId='group',name='Synthetic',bookIds={'41','42'}}}}
+        archive={{archiveId='group',name='Synthetic',bookIds={target,'42'}}}}
 end
-local function progress(offset) return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=offset or 100,progress=37.5}} end
+local function progress(offset) return {book={bookId=target,chapterUid=2,chapterIdx=2,chapterOffset=offset or 100,progress=37.5}} end
 local function fixture(before,desired,queue)
     local f={requests={},posts=0,claims=0,phase='prepared',queue=queue,waits=0}
     local settings,store,state=F.access();f.auth=state;f.client=F.codec()
-    f.record={metadata=C.make_pin(shelf(before),progress(),'41',desired).metadata}
+    f.record={metadata=C.make_pin(shelf(before),progress(),target,desired).metadata}
     local journal={owns=function()return f.phase~='idle' and not f.revoked end,claim=function()
         if f.phase~='prepared' or f.fail_claim then return nil end
         f.phase='pending';f.claims=f.claims+1;return true
@@ -30,13 +31,13 @@ local function fixture(before,desired,queue)
             expect(f.phase=='pending' and f.claims==1,'POST preceded claim');f.posts=f.posts+1
             expect(f.posts==1 and options.url=='https://i.weread.qq.com/shelf/top','unexpected or repeated POST')
             f.body=decode(self,options.body)
-        else expect(options.url=='https://i.weread.qq.com/shelf/sync' or options.url=='https://i.weread.qq.com/book/getProgress?bookId=41','unrelated GET') end
+        else expect(options.url=='https://i.weread.qq.com/shelf/sync' or options.url=='https://i.weread.qq.com/book/getProgress?bookId='..target,'unrelated GET') end
         f.requests[#f.requests+1]=options;response=assert(table.remove(f.queue,1),'missing synthetic response')
         if response.raise then error('synthetic lost response',0) end
         return response.raw or 'wire',response.status or 200
     end
     function f.run()return Task.run(f.client,settings,Access.capture(settings,store),
-        {book_id='41',desired=f.record.metadata.desired},f.record,journal,{sleep=function()f.waits=f.waits+1 end})end
+        {book_id=target,desired=f.record.metadata.desired},f.record,journal,{sleep=function()f.waits=f.waits+1 end})end
     return f
 end
 local f=fixture(nil,true,{shelf(),progress(),{succ=1},shelf(1),progress()});local result=f.run()
@@ -62,4 +63,14 @@ expect(not result.attempted and f.posts==0 and f.phase=='prepared','failed claim
 f=fixture(nil,true,{shelf(1),progress()});result=f.run()
 expect(result.kind=='changed' and not result.attempted and f.posts==0,'changed preview dispatched')
 f=fixture(nil,true,{});f.revoked=true;result=f.run();expect(not result.attempted and #f.requests==0,'revoked account dispatched')
+target='CB_abc'
+f=fixture(nil,true,{shelf(),progress(),{succ=1},shelf(1),progress()});result=f.run()
+expect(result.kind=='confirmed' and f.posts==1 and f.body.bookIds[1]==target,'imported pin transport failed')
+f=fixture(1,false,{shelf(1),progress(),{succ=1},shelf(),progress()});result=f.run()
+expect(result.kind=='confirmed' and f.posts==1 and f.body.isDel==1,'imported unpin transport failed')
+local changed=progress();changed.book.readingTime=1
+f=fixture(nil,true,{shelf(),progress(),{succ=1},shelf(1),changed});result=f.run()
+expect(result.kind=='unconfirmed' and f.posts==1 and f.phase=='pending','imported counter change accepted')
+f=fixture(nil,true,{shelf(),progress(),{raise=true}});result=f.run()
+expect(result.kind=='unconfirmed' and f.posts==1 and f.phase=='pending','imported lost receipt replayed')
 print('PASS: cloud pin transport and readback ('..checks..' checks)')

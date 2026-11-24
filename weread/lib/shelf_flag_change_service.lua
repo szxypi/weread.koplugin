@@ -31,17 +31,17 @@ function M:prepare(id,guard,callback,resolving,kind)
     if resolving then if record.phase=='idle' then return false,'no_pending' end;id=record.metadata.book_id;kind=record.metadata.kind
     elseif record.phase~='idle' then return false,'pending' end
     kind=kind or 'private';if kind~='private' and kind~='pinned' then return false,'unavailable' end
-    if not Contract.id(id) or not guard() then return false,'unavailable' end
+    if not (kind=='pinned' and Contract.pin_id(id) or kind=='private' and Contract.id(id)) or not guard() then return false,'unavailable' end
     self.last_snapshot=nil
     local job={book_id=id,guard=guard,access=selected,started=self.now(),record=resolving and record or nil,revision=record.revision}
     self.job=job
     local called,started=pcall(self._worker,self,function()
         if not resolving then return Task.preview(self.client,self.settings,selected,id,nil,kind) end
         local observed=Task.inspect(self.client,self.settings,selected,id);local flags=Contract.flags(observed.raw);local row=flags[id]
-        local read,point=pcall(Contract.point,observed.progress,id)
+        local read,point=pcall(Contract.observation_hash,observed.progress,id)
         return {metadata=record.metadata,observed=observed,current_present=row~=nil,current_private=row and row.private.value,
             current_pinned=row and row.pinned.value,
-            position_unchanged=read and Contract.position_hash(point)==record.metadata.position_hash or false}
+            position_unchanged=read and point==record.metadata.position_hash or false}
     end,function(plan)
         if self.job~=job then return end
         if not self:current(job) then self:cancel();callback(nil,'session_changed');return end

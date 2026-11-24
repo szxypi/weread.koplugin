@@ -3,6 +3,7 @@
 local Base=require('weread.lib.finish_change_contract')
 local Hash=require('weread.lib.thought_edit_contract')
 local Remote=require('weread.lib.remote_progress')
+local ReadAccess=require('weread.lib.read_access')
 local M={id=Base.id,flags=Base.flags,position_hash=Base.position_hash}
 local function fail(reason) error('shelf_flag_change/' .. reason,0) end
 local function array(value)
@@ -62,9 +63,38 @@ function M.request(id,desired)
 end
 local function request_hash(id,desired) return Hash.digest({'shelf-flag-request-v1','private',id,desired and 1 or 0}) end
 local function pin_request_hash(id,desired) return Hash.digest({'shelf-flag-request-v1','pinned',id,desired and 0 or 1}) end
+function M.pin_id(value)
+    return type(value)=='string' and ReadAccess.display_book_id(value)~=nil
+end
 function M.pin_request(id,desired)
-    if not M.id(id) or type(desired)~='boolean' then fail('target') end
+    if not M.pin_id(id) or type(desired)~='boolean' then fail('target') end
     return {bookIds={id},albumIds={},archiveIds={},isDel=desired and 0 or 1}
+end
+-- Imported books use a stronger observation than the legacy numeric-book
+-- receipt: keep known counters and state fields, including whether each was
+-- absent. Server clock and book updateTime are intentionally not included.
+function M.observation_hash(progress,id)
+    local point=M.point(progress,id)
+    local position=M.position_hash(point)
+    if not id:match('^CB_') then return position end
+    local node=Remote.node(progress,id)
+    if type(progress)~='table' or type(node)~='table' then fail('position') end
+    local parts={'imported-pin-progress-v1',position}
+    local fields={'readingTime','recordReadingTime','ttsTime','isStartReading','startReadingTime',
+        'summary','chapterTitle','readUpdateTime','finishReading','reading','readStatus','readingStatus','markStatus'}
+    for _i,source in ipairs({progress,node}) do
+        for _j,key in ipairs(fields) do
+            local value=source[key];local encoded
+            if value==nil then encoded='missing'
+            elseif type(value)=='boolean' then encoded=value and 'bool:1' or 'bool:0'
+            elseif type(value)=='number' and value==value and value~=math.huge and value~=-math.huge then
+                encoded='number:'..string.format('%.17g',value)
+            elseif type(value)=='string' and #value<=16384 and not value:find('%z') then encoded='string:'..value
+            else fail('position') end
+            parts[#parts+1]=key;parts[#parts+1]=encoded
+        end
+    end
+    return Hash.digest(parts)
 end
 function M.make_pin(source,progress,id,desired)
     local body=M.pin_request(id,desired);local snapshot=M.flags(source);local row=snapshot[id]
@@ -75,7 +105,7 @@ function M.make_pin(source,progress,id,desired)
     -- A missing field is never treated as proof that the book was unpinned.
     if not desired and before~=true then fail('unknown') end
     for _i,item in pairs(snapshot) do for _j,flag in pairs(item) do if flag.reason=='invalid' then fail('invalid_flag') end end end
-    local point=M.point(progress,id);local groups=M.groups_hash(source);local before_hash=M.state_hash(source)
+    local position=M.observation_hash(progress,id);local groups=M.groups_hash(source);local before_hash=M.state_hash(source)
     row.pinned={value=desired}
     local after_hash=Hash.digest({'shelf-flag-state-v1',Base.flags_hash(snapshot),groups})
     local alternate=after_hash
@@ -84,7 +114,7 @@ function M.make_pin(source,progress,id,desired)
         alternate=Hash.digest({'shelf-flag-state-v1',Base.flags_hash(snapshot),groups})
     end
     return {metadata={kind='pinned',book_id=id,before=before,desired=desired,before_hash=before_hash,after_hash=after_hash,
-        alternate_hash=alternate,position_hash=M.position_hash(point),request_hash=pin_request_hash(id,desired)},body=body}
+        alternate_hash=alternate,position_hash=position,request_hash=pin_request_hash(id,desired)},body=body}
 end
 function M.make(source,progress,id,desired)
     local body=M.request(id,desired);local snapshot=M.flags(source);local row=snapshot[id]
@@ -98,7 +128,8 @@ function M.make(source,progress,id,desired)
         position_hash=M.position_hash(point),request_hash=request_hash(id,desired)},body=body}
 end
 function M.valid_metadata(value)
-    if type(value)~='table' or (value.kind~='private' and value.kind~='pinned') or not M.id(value.book_id)
+    if type(value)~='table' or (value.kind~='private' and value.kind~='pinned')
+        or not (value.kind=='pinned' and M.pin_id(value.book_id) or value.kind=='private' and M.id(value.book_id))
         or type(value.desired)~='boolean' then return false end
     local pin=value.kind=='pinned'
     if type(value.before)~='boolean' and (not pin or value.before~='missing') then return false end
@@ -120,6 +151,6 @@ function M.check(source,progress,metadata)
     if not M.valid_metadata(metadata) then fail('metadata') end
     local hash=M.state_hash(source)
     return (hash==metadata.after_hash or metadata.kind=='pinned' and hash==metadata.alternate_hash)
-        and M.position_hash(M.point(progress,metadata.book_id))==metadata.position_hash
+        and M.observation_hash(progress,metadata.book_id)==metadata.position_hash
 end
 return M

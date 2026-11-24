@@ -34,4 +34,29 @@ bad=F.clone(plan.metadata);bad.desired=false;expect(not C.valid_metadata(bad),'a
 bad=F.clone(plan.metadata);bad.alternate_hash=nil;expect(not C.valid_metadata(bad),'missing alternate hash accepted')
 bad=F.clone(plan.metadata);bad.alternate_hash=string.rep('a',64);expect(not C.valid_metadata(bad),'pin accepted arbitrary alternate state')
 expect(not pcall(C.make_pin,before,position(),'41',1),'invalid desired value accepted')
+local imported={books={{bookId='CB_abc',secret=0,finishReading=0},{bookId='42',secret=1,finishReading=1}},
+    archive={{archiveId='group',name='Synthetic',bookIds={'CB_abc','42'}}}}
+local imported_point={timestamp=12,readingTime=14,recordReadingTime=3,ttsTime=0,
+    book={bookId='CB_abc',chapterUid=2,chapterIdx=2,chapterOffset=20,progress=12.5,
+        isStartReading=1,startReadingTime=123,summary='Synthetic',updateTime=10}}
+local imported_plan=C.make_pin(imported,imported_point,'CB_abc',true)
+expect(C.valid_metadata(imported_plan.metadata) and imported_plan.body.bookIds[1]=='CB_abc','imported pin plan rejected')
+local imported_pinned=F.clone(imported);imported_pinned.books[1].isTop=1
+expect(C.check(imported_pinned,imported_point,imported_plan.metadata),'imported pin readback rejected')
+for _,field in ipairs({'readingTime','recordReadingTime','ttsTime'}) do
+    local changed=F.clone(imported_point);changed[field]=changed[field]+1
+    expect(not C.check(imported_pinned,changed,imported_plan.metadata),'changed imported counter accepted: '..field)
+end
+for _,field in ipairs({'summary','isStartReading','startReadingTime','readUpdateTime'}) do
+    local changed=F.clone(imported_point);changed.book[field]=field=='summary' and 'Other' or 999
+    expect(not C.check(imported_pinned,changed,imported_plan.metadata),'changed imported field accepted: '..field)
+end
+local volatile=F.clone(imported_point);volatile.timestamp=20;volatile.book.updateTime=20
+expect(C.check(imported_pinned,volatile,imported_plan.metadata),'server clock or update time blocked imported pin')
+local imported_restore=C.make_pin(imported_pinned,imported_point,'CB_abc',false)
+expect(C.check(imported,imported_point,imported_restore.metadata),'imported restore missing marker rejected')
+expect(not pcall(C.make,imported,imported_point,'CB_abc',true),'imported private-writing guard weakened')
+for _,id in ipairs({'CB_','CB_a/b','MP_WXS_1','CB_abc?x=1',string.rep('1',21)}) do
+    expect(not C.pin_id(id) and not pcall(C.pin_request,id,true),'invalid imported identity accepted')
+end
 print('PASS: cloud pin contract ('..checks..' checks)')

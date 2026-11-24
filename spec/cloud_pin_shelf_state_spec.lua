@@ -27,4 +27,11 @@ expect(row(menu,'Check pending cloud pin change') and not row(menu,'Check pendin
 row(menu,'Check pending cloud pin change').callback();expect(opened and opened.resolving and opened.kind=='pinned','pin pending routed incorrectly')
 pending={metadata={kind='private'}};State.show(host,'41');menu=host._shelf_state_menu
 expect(row(menu,'Check pending private-reading change') and not row(menu,'Check pending cloud pin change'),'private pending labeled pin')
+pending=nil;opened=nil;State.show(host,'CB_abc');menu=host._shelf_state_menu
+expect(row(menu,'Change cloud pin') and not row(menu,'Change private reading'),'imported cloud pin or private guard incorrect')
+row(menu,'Change cloud pin').callback();expect(opened and opened.id=='CB_abc' and opened.kind=='pinned','imported pin routed incorrectly')
+pending={metadata={kind='pinned'}};State.show(host,'CB_abc');menu=host._shelf_state_menu
+expect(row(menu,'Check pending cloud pin change')~=nil,'imported pending pin cannot be checked')
+pending=nil;State.show(host,'MP_WXS_1');menu=host._shelf_state_menu
+expect(not row(menu,'Change cloud pin'),'public account pin unexpectedly enabled')
 print('PASS: cloud pin shelf state routing ('..checks..' checks)')
