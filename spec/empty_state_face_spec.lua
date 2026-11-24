@@ -59,6 +59,7 @@ package.preload["ffi/util"] = function()
         end,
     }
 end
+package.preload["ui/bidi"] = function() return { mirroredUILayout = function() return false end } end
 package.preload["device"] = function()
     return {
         input = { group = { Back = "back" } },
@@ -622,5 +623,47 @@ if native_widgets then
         "native list rows require scrolling in page mode")
     print("native bookshelf geometry: real KOReader Button and layout containers passed")
 end
+
+local manager=require('ui/uimanager')
+local home=empty_paged_view
+local top,dirties,paints=home,{},0
+manager.getTopmostVisibleWidget=function() return top end
+manager.widgetRepaint=function(_,widget,x,y)
+    paints=paints+1;expect(widget==home._home_status_frame and x==0 and y==73,'wrong status repaint')
+end
+manager.setDirty=function(_,widget,mode,region)
+    dirties[#dirties+1]={widget=widget,mode=mode,region=region}
+end
+home._home_status_frame={dimen={x=0,y=73,w=600,h=28},getSize=function() return {w=600,h=28} end}
+home._home_status_label={text='old',setText=function(self,text) self.text=text end}
+home:updateHomeStatus('new')
+expect(paints==1 and #dirties==1 and dirties[1].widget==nil and dirties[1].region.y==73,
+    'visible status did not repaint only its own area')
+home:updateHomeStatus('new')
+expect(paints==1 and #dirties==1,'unchanged status repainted')
+top={};home:updateHomeStatus('covered')
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region.y==73,
+    'covered status did not preserve stacking order')
+top=home;home._rotation_task=function() end;home:updateHomeStatus('rotating');home._rotation_task=nil
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region==home.dimen,
+    'rotation did not fall back to full view')
+local bidi=require('ui/bidi');local was_mirrored=bidi.mirroredUILayout
+bidi.mirroredUILayout=function() return true end
+home:updateHomeStatus('mirrored')
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region.y==73,
+    'mirrored layout did not preserve full-view repaint')
+bidi.mirroredUILayout=was_mirrored
+home._summary_button={text='old',width=600,dimen={x=0,y=101,w=600,h=54},
+    getSize=function() return {w=600,h=54} end,
+    setText=function(self,text) self.text=text;self.dimen={x=0,y=0,w=600,h=54} end}
+home:updateHomeSummary('new')
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region==home.dimen,
+    'rebuilt summary did not refresh its original location')
+home._home_status_frame.dimen=nil;home:updateHomeStatus('unpainted')
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region==home.dimen,
+    'missing status geometry did not fall back to full view')
+home._home_status_frame.dimen={x=0,y=790,w=600,h=28};home:updateHomeStatus('offscreen')
+expect(paints==1 and dirties[#dirties].widget==home and dirties[#dirties].region==home.dimen,
+    'offscreen status did not fall back to full view')
 
 print(("empty_state_face_spec: %d checks"):format(checks))

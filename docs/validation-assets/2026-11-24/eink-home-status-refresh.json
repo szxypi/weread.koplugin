@@ -1,0 +1,31 @@
+{
+  "result": "PASS",
+  "baseline_commit": "405c9fd27278e60b4d2437104bd701cc44bb4f61",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_status_updates_per_size": 10,
+  "normal_layout_full_view_paints_before": 10,
+  "normal_layout_full_view_paints_after": 0,
+  "normal_layout_direct_row_paints_after": 10,
+  "normal_layout_refresh_regions": {
+    "600x800": [0, 73, 600, 28],
+    "1264x1680": [0, 154, 1264, 59]
+  },
+  "screen_pairs_pixel_identical_including_mirrored_layout": 76,
+  "normal_layout_changed_pixels_within_requested_region": true,
+  "overlay_rotation_and_rebuilt_widget_fallback_verified": true,
+  "mirrored_layout_full_view_repaint_preserved": true,
+  "synthetic_full_plugin_rotation_both_sizes": true,
+  "synthetic_full_plugin_smoke_ko2": true,
+  "real_account_home_and_offline_reopen_ko2_simulated": true,
+  "owner_shelf_and_observed_position_unchanged": true,
+  "account_data_writes": 0,
+  "authorization_posts": 0,
+  "local_lua_specs": 478,
+  "physical_device_tested": false,
+  "limitations": [
+    "Counts cover widget painting and requested refresh rectangles, not hardware refresh commands or battery usage.",
+    "Mirrored layout deliberately retains the previous full-view paint; framebuffer changes outside its partial refresh region were not treated as physical display changes.",
+    "A forced widget reinitialization uses a full-screen refresh to cover its previous position."
+  ]
+}

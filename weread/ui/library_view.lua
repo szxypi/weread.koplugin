@@ -1,6 +1,7 @@
 -- Compact, e-ink-friendly bookshelf. Navigation and actions share one row.
 
 local Blitbuffer = require("ffi/blitbuffer")
+local BD = require("ui/bidi")
 local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
@@ -946,16 +947,49 @@ function LibraryView:homeTextRow(text, height, font_size, bold)
     return frame, label
 end
 
+local function home_row_region(widget)
+    local d = widget and widget.dimen
+    if not d or type(d.x) ~= 'number' or type(d.y) ~= 'number'
+        or type(d.w) ~= 'number' or type(d.h) ~= 'number' then return nil end
+    return Geom:new{ x = d.x, y = d.y, w = d.w, h = d.h }
+end
+
+local function redraw_home_row(self, widget, before)
+    local after = home_row_region(widget)
+    local same = before and after and before.x == after.x and before.y == after.y
+        and before.w == after.w and before.h == after.h
+    local stable = same and before.w > 0 and before.h > 0 and before.x >= 0 and before.y >= 0
+        and before.x + before.w <= Screen:getWidth() and before.y + before.h <= Screen:getHeight()
+        and self.screen_w == Screen:getWidth() and self.screen_h == Screen:getHeight()
+        and self.screen_rotation == (Screen.getRotationMode and Screen:getRotationMode())
+        and not self._rotation_task and not self._shelf_closed
+    if stable then
+        local ok, size = pcall(widget.getSize, widget)
+        stable = ok and size and size.w == before.w and size.h == before.h
+    end
+    if stable and not BD.mirroredUILayout() and UIManager.widgetRepaint and UIManager.getTopmostVisibleWidget
+        and UIManager:getTopmostVisibleWidget() == self then
+        UIManager:widgetRepaint(widget, before.x, before.y)
+        UIManager:setDirty(nil, 'ui', before)
+    else
+        -- Covering windows must be repainted in stack order. If the geometry
+        -- changed, use the full view so stale pixels cannot remain onscreen.
+        UIManager:setDirty(self, 'ui', stable and before or self.dimen)
+    end
+end
+
 function LibraryView:updateHomeStatus(text)
     if not self._home_status_label or self._home_status_label.text == text then return end
+    local before = home_row_region(self._home_status_frame)
     self._home_status_label:setText(text)
-    UIManager:setDirty(self, "ui", self._home_status_frame.dimen)
+    redraw_home_row(self, self._home_status_frame, before)
 end
 
 function LibraryView:updateHomeSummary(text)
     if not self._summary_button or self._summary_button.text == text then return end
+    local before = home_row_region(self._summary_button)
     self._summary_button:setText(text, self._summary_button.width)
-    UIManager:setDirty(self, "ui", self._summary_button.dimen)
+    redraw_home_row(self, self._summary_button, before)
 end
 
 function LibraryView:headerBar()
