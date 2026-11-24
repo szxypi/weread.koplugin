@@ -10,7 +10,9 @@ package.preload.device=function() return {screen={scaleBySize=function(_self,n) 
 package.preload['ffi/blitbuffer']=function() return {Color8=function(n) return n end} end
 local store={writes=0,write=function(self) self.writes=self.writes+1;return not self.fail end}
 package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return store end} end
-package.preload['weread.lib.native_read_access']=function() return {capture=function() return {} end} end
+package.preload['weread.lib.native_read_access']=function() return {capture=function()
+    assert(in_worker,'authorization read blocked the reader UI');return {fingerprint='synthetic-grant'}
+end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function(_self,options)
     assert(options.max_bytes<=8*1024*1024)
     return {cancel=function() end,start=function(_worker,task,callback)

@@ -40,6 +40,15 @@ for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_
 assert(#loader.enabled_plugins==1)
 local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
 local ffi=require('ffi');local reader_pid=ffi.C.getpid()
+local access_module=require('weread.lib.native_read_access');local original_capture=access_module.capture
+access_module.capture=function(...)
+    local caller=debug.getinfo(2,'S')
+    if caller and caller.source:find('weread/ui/personal_marks.lua',1,true) then
+        assert(ffi.C.getpid()~=reader_pid,'personal marks read authorization on the reader process')
+        assert(not input.offline,'offline personal marks read authorization unnecessarily')
+    end
+    return original_capture(...)
+end
 local diagnostic
 local function wait(predicate)
     local deadline=socket.gettime()+15

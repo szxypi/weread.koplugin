@@ -228,7 +228,6 @@ load=function(host,s,online)
     s.loading=true
     if online==true then s.remote_attempted=true end
     if online=='detect' then s.next_network_probe=os.time()+NETWORK_RECHECK_SECONDS end
-    local access=online and require('weread.lib.native_read_access').capture(host.settings)
     local started=worker(host,s,function()
         local checked_online=online==true or online=='detect' and host.isNetworkOnline and host:isNetworkOnline() or false
         local entry
@@ -239,11 +238,15 @@ load=function(host,s,online)
             if not entry or entry.book_id~=s.book or entry.file_id~=s.identity.file_id
                 or entry.book_version~=s.identity.book_version then return {error='file_changed'} end
         end
+        local access=checked_online and require('weread.lib.native_read_access').capture(host.settings)
         local value=Task.load(host.client,host.library_db,s.book,access,checked_online)
-        value.entry=entry;value.checked_online=checked_online;return value
+        value.entry=entry;value.checked_online=checked_online
+        value.access_fingerprint=access and access.fingerprint or false
+        return value
     end,function(result)
         s.loading=false
         local checked_online=type(result)=='table' and result.checked_online==true
+        local fingerprint=type(result)=='table' and result.access_fingerprint
         if checked_online then s.remote_attempted=true end
         if s.direct then
             local entry=type(result)=='table' and result.entry
@@ -265,9 +268,16 @@ load=function(host,s,online)
         s.snapshot=value
         if s.direct then
             -- Fetch separately so two independently bounded note sets cannot
-            -- overflow the worker pipe when both contain many entries.
+            -- overflow the worker pipe when both contain many entries. Bind
+            -- the second read to the first grant without copying credentials
+            -- over the pipe or reading their file on the reader event loop.
             s.loading=true
             local started_thoughts=worker(host,s,function()
+                local access
+                if checked_online and type(fingerprint)=='string' then
+                    local candidate=require('weread.lib.native_read_access').capture(host.settings)
+                    if candidate and candidate.fingerprint==fingerprint then access=candidate end
+                end
                 return Task.load_thoughts(host.client,host.library_db,s.book,access,checked_online)
             end,function(result_thoughts)
                 s.loading=false

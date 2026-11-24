@@ -2,20 +2,24 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture');local codec=Fixture.codec()
 local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
-local in_worker,network_checks=false,0
+local in_worker,network_checks,access_reads=false,0,0
 local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_,_,task) timers[#timers+1]=task end,
     unschedule=function(_,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
 package.preload.device=function() return {screen={scaleBySize=function(_,n) return n end}} end
 package.preload['ffi/blitbuffer']=function() return {Color8=function(n) return n end} end
-local state={owner='account-a',valid=true,online=true,source=true,entry_ok=true,show=true,identity=true,walk_failure=false,searches=0}
+local state={owner='account-a',valid=true,online=true,source=true,entry_ok=true,show=true,identity=true,walk_failure=false,searches=0,
+    revision='grant-a'}
 local scope={vid='123',epoch=1};local identity={book_id='41',book_version=7,file_id=string.rep('a',64),chapter_count=1}
 local entry={book_id='41',book_version=7,file_id=identity.file_id,chapter_uid='2',key=string.rep('b',64),source_sha256=string.rep('c',64)}
 local snapshot={schema=1,book_id='41',fetched_at=1000,updated=codec:json_decode('[]'),chapters=codec:json_decode('[]')}
 snapshot.updated[1]={bookmarkId='first',type=1,chapterUid=2,markText='Unique quotation',range='15-31'}
 local store={write=function() return true end}
 package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return store end} end
-package.preload['weread.lib.native_read_access']=function() return {capture=function() return {} end} end
+package.preload['weread.lib.native_read_access']=function() return {capture=function()
+    assert(in_worker,'authorization read blocked the reader UI');access_reads=access_reads+1
+    if not state.no_grant then return {fingerprint=state.revision} end
+end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function()
     return {cancel=function() end,start=function(_,task,callback)
         in_worker=true;local ok,value=pcall(task);in_worker=false
@@ -39,10 +43,17 @@ package.preload['weread.lib.source_dom']=function() return {normalize=function(v
         if options.is_current() then return {pos0=a.point,pos1=b.point,text=quote} end
     end,locate_anchor=function(_,a) return {xpointer=a.co,co=a.co} end}
 end} end
-local loads,prepares=0,0
+local loads,prepares,thought_accesses=0,0,{}
 package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_NATIVE_BYTES=1024,
-    load=function(_,_,book,_,online) assert(book=='41');loads=loads+1;return {snapshot=snapshot,refreshed=online} end,
-    load_thoughts=function() return {snapshot=false,refreshed=false} end,
+    load=function(_,_,book,access,online)
+        assert(book=='41' and (online and (state.no_grant and not access or access and access.fingerprint==state.revision)
+            or not online and not access))
+        loads=loads+1;return {snapshot=snapshot,refreshed=online and access~=nil}
+    end,
+    load_thoughts=function(_,_,_,access)
+        thought_accesses[#thought_accesses+1]=access and access.fingerprint or false
+        return {snapshot=false,refreshed=false}
+    end,
     prepare_direct=function(_,_,_,file,e,metadata,rows,online)
         assert(file=='/direct.epub' and e==entry and type(online)=='function');prepares=prepares+1
         if not state.source then error('missing cache') end
@@ -81,7 +92,9 @@ Display.changed(host,empty);drain()
 expect(host._personal_marks.complete and #host._personal_marks.records==0,'deleted highlight remained visible')
 Display.changed(host,snapshot);drain()
 expect(host._personal_marks.complete and #host._personal_marks.records==1,'confirmed highlight did not reappear')
+local reads_before_offline=access_reads
 Display.detach(host);state.online=false;expect(Display.attach(host));drain()
+expect(access_reads==reads_before_offline,'offline load read authorization unnecessarily')
 expect(#host._personal_marks.records==1 and loads==2,'offline cached source not shown')
 local checks_offline=network_checks
 for _=1,100 do Display.update(host) end
@@ -172,6 +185,14 @@ local long_preview
 for _,item in ipairs(picker.item_table) do if item.my_note_id=='long' then long_preview=item.text end end
 expect(long_preview and long_preview:find(string.rep('长',48)..'…',1,true) and not long_preview:find('\n',1,true)
     and not long_preview:find('private tail',1,true),'long thought preview was not safely truncated')
+Display.detach(host)
+state.revision='grant-a';expect(Display.attach(host));expect(tick() and #jobs==1,'online load did not start')
+state.revision='grant-b';local first_job=table.remove(jobs,1);first_job.callback(first_job.value);drain()
+expect(thought_accesses[#thought_accesses]==false,'separate thought load mixed authorization revisions')
+Display.detach(host);state.revision='grant-a'
+state.no_grant=true;expect(Display.attach(host));expect(tick() and #jobs==1,'missing-grant load did not start')
+state.no_grant=false;first_job=table.remove(jobs,1);first_job.callback(first_job.value);drain()
+expect(thought_accesses[#thought_accesses]==false,'thought load used a grant missing from the first read')
 Display.detach(host)
 state.entry_ok=false
 expect(Display.attach(host));drain();expect(#host._personal_marks.records==0 and not Display.available(host),'unverified entry displayed')
