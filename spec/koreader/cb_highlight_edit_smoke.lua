@@ -50,6 +50,8 @@ return function(reader,plugin,pump,clean,offline)
     assert(firsts and #firsts==1 and lasts and #lasts==1)
     local first,last=firsts[1].start,lasts[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
     local selected={pos0=first,pos1=last,text=reader.document:getTextFromXPointers(first,last)}
+    local position=reader.document:getXPointer()
+    local local_notes=Json.decode(Json.encode(reader.annotation.annotations))
     local function same(a,b)
         if type(a)~=type(b) then return false end
         if type(a)~='table' then return a==b end
@@ -67,7 +69,8 @@ return function(reader,plugin,pump,clean,offline)
             local intent=assert(journal:read());local body=Json.decode(options.body)
             assert(intent.phase=='pending' and intent.metadata.operation==operation and intent.metadata.book_id==id)
             assert(intent.metadata.request_hash==require('weread.lib.mark_edit_contract').body_hash(body))
-            if operation=='create' then assert(body.bookId==id and body.style==1 and body.colorStyle==0) end
+            if operation=='create' then assert(body.bookId==id and body.style==2 and body.colorStyle==3,
+                'imported highlight did not use selected default style and color') end
         end
         local thought_operation=({['https://i.weread.qq.com/review/add']='create',
             ['https://i.weread.qq.com/review/useredit']='edit',['https://i.weread.qq.com/review/delete']='delete'})[options.url]
@@ -87,10 +90,10 @@ return function(reader,plugin,pump,clean,offline)
         local owner
         pump(function() owner=plugin._selection_thought_owner or owner;return owner and (owner.reference or owner.error) end)
         assert(owner.reference,'imported selection was not bound to source')
-        for _i,item in ipairs(owner.menu.item_table) do
-            assert(item.text~=tr('Default highlight style')
-                and item.text~=tr('Default highlight color'),'unverified imported edit action was exposed')
-        end
+        local preferences={}
+        for _i,item in ipairs(owner.menu.item_table) do preferences[item.text]=item end
+        assert(preferences[tr('Default highlight style')] and preferences[tr('Default highlight color')],
+            'imported highlight preferences are missing')
         return owner
     end
     local before=request('/__state');local owner=open();row(owner,'Write private thought')
@@ -141,6 +144,13 @@ return function(reader,plugin,pump,clean,offline)
         if not before.selection_marks[key] then assert(not created and value.markText==owner.reference.markText);created=key end
     end
     assert(created and state.highlight_posts==1 and journal:read().phase=='idle','imported creation not confirmed')
+    assert(state.selection_marks[created].style==2 and state.selection_marks[created].colorStyle==3,
+        'independent readback lost imported highlight style or color')
+    local cached=assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client):read(id))
+    local cached_match
+    for _i,mark in ipairs(cached.updated) do if mark.bookmarkId==created then cached_match=mark end end
+    assert(cached_match and cached_match.style==2 and cached_match.colorStyle==3,
+        'imported highlight cache lost style or color')
     Selection.cancel(plugin);clean(reader)
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
     local found=false;for _i,record in ipairs(plugin._personal_marks.records) do if record.bookmarkId==created then found=true end end
@@ -148,7 +158,7 @@ return function(reader,plugin,pump,clean,offline)
     assert(plugin:showMyCloudMarks(id));owner=assert(plugin._my_marks_owner)
     for _i,item in ipairs(owner.menu.item_table) do if item.my_note_id==created then item.callback();break end end
     local buttons=assert(owner.menu._shelf_popup.button_table)
-    assert(not buttons:getButtonById('change_highlight_style') and not buttons:getButtonById('change_highlight_color')
+    assert(buttons:getButtonById('change_highlight_style') and buttons:getButtonById('change_highlight_color')
         and buttons:getButtonById('thought_create'),'imported highlight actions are incorrect')
     tap(owner,'thought_create');owner.editor.input:setInputText('合成导入书私密想法');tap(owner,'submit_thought')
     pump(function() return owner.editor and owner.editor.service.preview end)
@@ -203,10 +213,17 @@ return function(reader,plugin,pump,clean,offline)
     row(owner,'Write private thought');tap(owner,'submit_thought');assert(not owner.editor)
     assert(request('/__state').selection_posts==7 and thought_journal:read().phase=='pending','unconfirmed thought was resent')
     request('/__control',{selection_thought_mode='plain'});Selection.cancel(plugin);clean(reader)
+    state=request('/__state')
+    assert(same(state.selection_marks['synthetic-existing-highlight'],before.selection_marks['synthetic-existing-highlight'])
+        and same(state.selection_thoughts['synthetic-existing-thought'],before.selection_thoughts['synthetic-existing-thought']),
+        'pre-existing imported notes changed')
+    assert(reader.document:getXPointer()==position and same(reader.annotation.annotations,local_notes),
+        'imported operations changed the local position or notes')
     plugin.client.request=transport
     local file=assert(io.open(os.getenv('WEREAD_EVIDENCE')..'/cb-highlight-edit.json','wb'))
     file:write(Json.encode{result='PASS',fixture='synthetic',create_delete_verified=true,source_change_refused=true,
-        unknown_result_no_replay=true,read_only_recovery=true,default_style_bound=true,unverified_actions_hidden=true,
+        unknown_result_no_replay=true,read_only_recovery=true,default_style_and_color_bound=true,style_and_color_actions_available=true,
+        independent_color_readback=true,color_cache=true,existing_notes_and_position_preserved=true,
         pending_survives_offline_reopen=true,private_thought_create_edit_delete=true,selection_thought_draft_and_writes=true,
         changed_selection_source_keeps_draft=true,selection_pending_offline_no_replay=true,
         imported_bookmark_save_locate_delete=true,mock_data_posts=13,real_account_posts=0});file:close()

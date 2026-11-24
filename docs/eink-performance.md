@@ -34,7 +34,7 @@ xvfb-run -a python3 scripts/benchmark_eink_long_list.py \
 
 本次未测量实体 Kindle 的速度、内存峰值、耗电或残影。复现合成测试：
 
-额外的导入书划线编辑旧回归在优化前提交和本次版本均停在相同断言：它要求隐藏已支持的样式和颜色偏好。该断言未改写，也不能用这次目录回归证明导入书划线编辑通过；有关编辑能力的既有验证见[导入书笔记](cb-personal-notes.md)。
+此前额外的导入书划线编辑回归在优化前后均停在旧断言：它要求隐藏已支持的样式和颜色偏好。测试已按当前能力更新并在两种尺寸重新通过，独立的样式／颜色修改与不明回执场景也已复验；范围见[导入书笔记](cb-personal-notes.md)。
 
 ```sh
 xvfb-run -a python3 scripts/benchmark_eink_chapters.py \

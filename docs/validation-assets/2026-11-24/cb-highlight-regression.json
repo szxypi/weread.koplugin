@@ -1,0 +1,26 @@
+{
+  "result": "PASS",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "full_plugin_runs": [
+    {"width": 600, "height": 800, "dpi": 167, "result": "PASS"},
+    {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS"}
+  ],
+  "default_style": 2,
+  "default_color": 3,
+  "request_and_independent_readback_verified": true,
+  "style_and_color_cache_verified": true,
+  "existing_local_notes_and_position_preserved": true,
+  "existing_cloud_notes_preserved": true,
+  "bookmark_and_private_thought_roundtrips": true,
+  "changed_source_stops_submission": true,
+  "uncertain_result_no_replay_and_offline_reopen": true,
+  "style_color_matrix": [
+    {"width": 600, "height": 800, "case": "normal", "mock_writes": 4, "result": "PASS"},
+    {"width": 1264, "height": 1680, "case": "normal", "mock_writes": 4, "result": "PASS"},
+    {"width": 1264, "height": 1680, "case": "style_uncertain", "mock_writes": 2, "result": "PASS"},
+    {"width": 1264, "height": 1680, "case": "color_uncertain", "mock_writes": 3, "result": "PASS"}
+  ],
+  "physical_device_tested": false,
+  "real_account_data_posts": 0
+}
