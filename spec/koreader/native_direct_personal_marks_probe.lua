@@ -161,6 +161,27 @@ else
         wait(function() return not host._my_marks_owner end)
         assert(reader.document:isXPointerInCurrentPage(case.target),'direct cloud note did not navigate to its original page')
     end
+    -- A real CREngine viewport must keep the same bookmark results when a
+    -- reader revisits a recently painted page, without another full scan.
+    do
+        local document=reader.document;local pointer=state.bookmarks[1].pos0
+        reader.rolling:onGotoXPointer(pointer);UI:forceRePaint()
+        local page=document:getCurrentPage();local other=page<document:getPageCount() and page+1 or page-1
+        assert(other>=1 and other~=page)
+        local layer=require('weread.ui.bookmark_indicator'):new{color=0};layer.ui=reader;layer.view=reader.view
+        local points={};for i=1,512 do points[i]={pos0=pointer,bookmarkId='cache-test-'..i} end
+        layer:setRecords(points)
+        local original=document.isXPointerInCurrentPage;local own=rawget(document,'isXPointerInCurrentPage');local queries=0
+        document.isXPointerInCurrentPage=function(self,xp) queries=queries+1;return original(self,xp) end
+        local canvas={paintRect=function() end}
+        local before=queries;layer:paintTo(canvas,0,0);assert(queries-before==512 and #layer.visible==512)
+        reader.rolling:onGotoPage(other);UI:forceRePaint()
+        before=queries;layer:paintTo(canvas,0,0);assert(queries-before==512 and #layer.visible==0)
+        reader.rolling:onGotoXPointer(pointer);UI:forceRePaint()
+        before=queries;layer:paintTo(canvas,0,0);assert(queries-before==0 and #layer.visible==512,
+            'returning to a recently viewed page repeated native bookmark scans')
+        document.isXPointerInCurrentPage=own
+    end
     Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)
     Display.wake(host);wait(function() return state.complete end);UI:forceRePaint()
     assert(state.overlay.enabled and #state.overlay.visible>0,'direct personal mark not restored')

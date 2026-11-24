@@ -88,4 +88,30 @@ do
     cached_doc.getCurrentPos=function() error('unavailable') end
     cache_layer:paintTo(bb,0,0);cache_layer:paintTo(bb,0,0);expect(scans==1725,'failed page key reused membership')
 end
+-- Back-and-forth navigation reuses complete page results, bounded to four
+-- pages. Layout invalidation or an unidentifiable viewport clears them all.
+do
+    local current,scans,key_valid,failed=1,0,true,false
+    local document={getPageMargins=function() return {top=30,right=30} end,getHeaderHeight=function() return 0 end,
+        getCurrentPage=function() return current end,getPageCount=function() return 6 end,
+        getVisiblePageCount=function() return 1 end,getCurrentPos=function() return current*100 end,
+        getPageXPointer=function(_,n) return key_valid and ('page-'..n) or nil end,
+        isXPointerInCurrentPage=function(_,xp) scans=scans+1;if failed then error('bad pointer') end;return xp==current end}
+    local cached=Indicator:new{color=0};cached.ui={document=document,dimen={w=600,h=800}};cached.view={view_mode='page'}
+    local rows={};for i=1,120 do rows[i]={pos0=(i-1)%6+1} end
+    cached:setRecords(rows)
+    for n=1,4 do current=n;cached:paintTo(bb,0,0);expect(#cached.visible==20) end
+    expect(scans==480,'initial pages were not checked independently')
+    current=2;cached:paintTo(bb,0,0);expect(scans==480 and #cached.visible==20,'returning to a recent page rescanned')
+    current=5;cached:paintTo(bb,0,0);expect(scans==600 and #cached.page_cache==4,'page cache was not bounded')
+    current=2;cached:paintTo(bb,0,0);expect(scans==600,'recent page was evicted instead of the oldest')
+    current=1;cached:paintTo(bb,0,0);expect(scans==720,'oldest page was not evicted')
+    current=2;cached:invalidate();cached:paintTo(bb,0,0);expect(scans==840,'layout invalidation retained a cached page')
+    key_valid=false;cached:paintTo(bb,0,0);expect(scans==960 and not cached.page_cache,'unidentifiable viewport retained pages')
+    key_valid=true;cached:paintTo(bb,0,0);expect(scans==1080,'viewport recovery reused an uncertain page')
+    cached:setRecords(rows);cached:paintTo(bb,0,0);expect(scans==1200,'record update retained previous pages')
+    current=3;cached:paintTo(bb,0,0);expect(scans==1320 and #cached.page_cache==2)
+    current=4;failed=true;cached:paintTo(bb,0,0);expect(scans==1440 and not cached.page_cache,'failed scan retained prior pages')
+    current=3;failed=false;cached:paintTo(bb,0,0);expect(scans==1560 and #cached.visible==20,'failed scan left stale membership')
+end
 print('bookmark_indicator_spec: '..checks..' checks passed')

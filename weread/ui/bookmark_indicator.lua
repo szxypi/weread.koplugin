@@ -1,6 +1,7 @@
 -- Independent cloud bookmark corner. Receives only source/DOM-verified points;
 -- never sets ReaderDogear state, native annotations or a reading position.
 local M={};M.__index=M
+local PAGE_CACHE_LIMIT=4
 function M:new(options)
     options=options or {}
     return setmetatable({records={},enabled=true,visible={},scale=options.scale or function(n) return n end,
@@ -35,6 +36,15 @@ local function same_key(a,b)
     if not a or not b then return false end
     for i=1,#a do if a[i]~=b[i] then return false end end
     return true
+end
+local function cached_page(self,key)
+    if not key or not self.page_cache then return end
+    for i,entry in ipairs(self.page_cache) do
+        if same_key(key,entry.key) then
+            if i>1 then table.remove(self.page_cache,i);table.insert(self.page_cache,1,entry) end
+            return entry
+        end
+    end
 end
 local function onscreen(self,document,xp)
     if self.view.view_mode=='page' then
@@ -71,7 +81,7 @@ function M:paintTo(bb,x,y)
     if not self.enabled or not self.ui or self.ui.paging or not self.view then return end
     local document=self.ui.document;if not document or not self.ui.dimen then return end
     local key_ok,key=pcall(page_key,self,document)
-    local cached=key_ok and same_key(key,self.page_cache and self.page_cache.key) and self.page_cache
+    local cached=key_ok and cached_page(self,key)
     if cached then
         self.visible=cached.visible
     else
@@ -80,7 +90,15 @@ function M:paintTo(bb,x,y)
             local ok,visible=pcall(onscreen,self,document,row.pos0)
             if not ok then complete=false elseif visible then self.visible[#self.visible+1]=row end
         end
-        self.page_cache=key_ok and key and complete and {key=key,visible=self.visible} or nil
+        if key_ok and key and complete then
+            self.page_cache=self.page_cache or {}
+            table.insert(self.page_cache,1,{key=key,visible=self.visible})
+            if #self.page_cache>PAGE_CACHE_LIMIT then table.remove(self.page_cache) end
+        else
+            -- An incomplete viewport or failed query may indicate a changed
+            -- layout, so no prior page can safely be reused.
+            self.page_cache=nil
+        end
     end
     if #self.visible==0 then return end
     local ok,r=pcall(self.geometry,self);if not ok or not r then self.visible={};return end
