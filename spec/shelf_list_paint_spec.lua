@@ -53,4 +53,13 @@ for _,align in ipairs({'left','center','right'}) do
         end
     end
 end
+do
+    local row={_shelf_list_row=true,dimen=geometry(80,10),calls=0}
+    function row:setOffscreenGeometry(x,y) self.calls=self.calls+1;self.dimen.x,self.dimen.y=x,y end
+    function row:paintTo() error('offscreen row was painted') end
+    local group={row,align='left',allow_mirroring=true,_offsets={{x=80,y=0}}}
+    function group:getSize() return {w=80,h=10} end
+    Paint.paint(group,{getHeight=function() return 20 end},7,-20,false)
+    assert(row.calls==1 and row.dimen.x==7 and row.dimen.y==-20,'lazy row did not receive its offscreen position')
+end
 print(('shelf_list_paint_spec: %d visibility, alignment, and geometry checks'):format(checks))

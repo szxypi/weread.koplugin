@@ -382,9 +382,10 @@ local ShelfRow = InputContainer:extend{
     callback = nil,
     hold_callback = nil,
     show_parent = nil,
+    lazy_frame = false,
 }
 
-function ShelfRow:init()
+local function shelf_row_frame(self)
     local padding = Size.padding.large
     local inner_width = self.width - 2 * padding
     local face = Font:getFace("cfont", self.font_size)
@@ -397,7 +398,7 @@ function ShelfRow:init()
         max_width = math.max(1, inner_width - status_width - gap),
     }
     gap = math.max(gap, inner_width - title_widget:getSize().w - status_width)
-    self.frame = FrameContainer:new{
+    return FrameContainer:new{
         bordersize = 0,
         radius = 0,
         margin = 0,
@@ -414,8 +415,49 @@ function ShelfRow:init()
             status_widget,
         },
     }
+end
+
+function ShelfRow:_ensureFrame()
+    if self.frame then return end
+    self.frame = shelf_row_frame(self)
+    self.frame.invert = self._shelf_focused or false
     self[1] = self.frame
-    self.dimen = self.frame:getSize()
+end
+
+function ShelfRow:init()
+    if self.lazy_frame then
+        local status = self.status or ""
+        local widths = self.lazy_status_widths
+        local status_width = widths and widths[status]
+        if status_width == nil then
+            local widget = TextWidget:new{ text = status, face = Font:getFace("cfont", self.font_size) }
+            status_width = widget:getSize().w
+            if widget.free then widget:free() end
+            if widths then widths[status] = status_width end
+        end
+        if self.lazy_row_height then
+            -- Text shaping or an ellipsis can exceed a very narrow title
+            -- limit. Measure the title exactly, but discard the temporary
+            -- widget rather than retaining a complete row for every book.
+            local padding = Size.padding.large
+            local inner_width = self.width - 2 * padding
+            local title = TextWidget:new{ text = self.text, face = Font:getFace("cfont", self.font_size),
+                max_width = math.max(1, inner_width - status_width - padding) }
+            local title_width = title:getSize().w
+            if title.free then title:free() end
+            local gap = math.max(padding, inner_width - title_width - status_width)
+            self.dimen = Geom:new{ w = title_width + status_width + gap + 2 * padding,
+                h = self.lazy_row_height }
+        else
+            self:_ensureFrame()
+            self.dimen = self.frame:getSize()
+            self.frame:free()
+            self.frame, self[1] = nil, nil
+        end
+    else
+        self:_ensureFrame()
+        self.dimen = self.frame:getSize()
+    end
     self.ges_events = {
         TapShelfRow = {
             GestureRange:new{ ges = "tap", range = self.dimen },
@@ -427,13 +469,33 @@ function ShelfRow:init()
     end
 end
 
+function ShelfRow:paintTo(bb, x, y)
+    self:_ensureFrame()
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function ShelfRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    if self.frame then
+        if self.lazy_frame then
+            self.frame:free()
+            self.frame, self[1] = nil, nil
+        elseif self.frame.dimen then
+            self.frame.dimen.x,self.frame.dimen.y=x,y
+        end
+    end
+end
+
 function ShelfRow:onTapShelfRow()
     if self._hold_handled then self._hold_handled = false; return true end
     if not self.callback then return true end
+    self:_ensureFrame()
+    if not self.frame.dimen then self.frame.dimen=self.dimen:copy() end
     self.frame.invert = true
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:forceRePaint()
     self.frame.invert = false
+    self._shelf_focused = false
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:setDirty(nil, "fast", self.frame.dimen)
     self.callback()
@@ -454,12 +516,14 @@ function ShelfRow:onHoldReleaseShelfRow()
 end
 
 function ShelfRow:onFocus()
-    self.frame.invert = true
+    self._shelf_focused = true
+    if self.frame then self.frame.invert = true end
     return true
 end
 
 function ShelfRow:onUnfocus()
-    self.frame.invert = false
+    self._shelf_focused = false
+    if self.frame then self.frame.invert = false end
     return true
 end
 
@@ -1304,6 +1368,14 @@ function LibraryView:content()
             grid_row[#grid_row + 1] = cover_cell
         end
     else
+        local lazy_height, lazy_status_widths
+        if not self.paged then
+            local probe = ShelfRow:new{ text = "", status = "", width = self.list_width,
+                font_size = self.mode == "books" and 20 or 22 }
+            lazy_height = probe:getSize().h
+            if probe.free then probe:free() end
+            lazy_status_widths = {}
+        end
         for index = first, last do
             local book = source[index]
             local shelf_row = ShelfRow:new{
@@ -1311,6 +1383,9 @@ function LibraryView:content()
                 status = self:itemStatus(book),
                 width = self.list_width,
                 font_size = self.mode == "books" and 20 or 22,
+                lazy_frame = not self.paged,
+                lazy_row_height = lazy_height,
+                lazy_status_widths = lazy_status_widths,
                 show_parent = self,
                 callback = function()
                     if self.on_select then self.on_select(book, self.mode) end

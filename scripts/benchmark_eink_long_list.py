@@ -19,8 +19,10 @@ def main():
     parser.add_argument('--dpi', type=int, default=300)
     parser.add_argument('--screenshots', type=Path, help='Save synthetic screenshots for pixel comparison')
     parser.add_argument('--rtl', action='store_true', help='Test a mirrored interface')
+    parser.add_argument('--no-xtext', action='store_true', help='Test KOReader without text shaping')
     parser.add_argument('--max-row-paints', type=int, help='Fail if the measured repaint count exceeds this limit')
     parser.add_argument('--max-event-visits', type=int, help='Fail if point gestures visit too many shelf rows')
+    parser.add_argument('--max-materialized-rows', type=int, help='Fail if too many shelf row controls are retained')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     runtime = args.koreader.resolve()
@@ -40,6 +42,8 @@ def main():
             env['WEREAD_LONG_LIST_SHOTS'] = str(args.screenshots.resolve())
         if args.rtl:
             env['WEREAD_LONG_LIST_RTL'] = '1'
+        if args.no_xtext:
+            env['WEREAD_LONG_LIST_NO_XTEXT'] = '1'
         code, output, repaint = run_child([str(runtime / 'luajit'), str(repo / 'spec/koreader/eink_long_list_benchmark.lua')],
                                           env, b'', runtime, timeout=150)
         if output.count(FRAME) != 1:
@@ -52,6 +56,8 @@ def main():
             raise ValueError('too many offscreen rows painted')
         if args.max_event_visits is not None and result['event_row_visits'] > args.max_event_visits:
             raise ValueError('too many rows received point gestures')
+        if args.max_materialized_rows is not None and result['max_materialized_rows'] > args.max_materialized_rows:
+            raise ValueError('too many row controls remained active')
 
 
 if __name__ == '__main__':

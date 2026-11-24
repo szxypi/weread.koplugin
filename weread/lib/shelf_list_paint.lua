@@ -19,9 +19,12 @@ function M.paint(group, bb, x, y, mirrored)
         if height > 0 and py < screen_height and py + height > 0 then
             widget:paintTo(bb, px, py)
         elseif widget._shelf_list_row then
-            widget.dimen.x, widget.dimen.y = px, py
-            if not widget.frame.dimen then widget.frame.dimen = widget.dimen:copy()
-            else widget.frame.dimen.x, widget.frame.dimen.y = px, py end
+            if widget.setOffscreenGeometry then widget:setOffscreenGeometry(px, py)
+            else
+                widget.dimen.x, widget.dimen.y = px, py
+                if not widget.frame.dimen then widget.frame.dimen = widget.dimen:copy()
+                else widget.frame.dimen.x, widget.frame.dimen.y = px, py end
+            end
         end
     end
 end
