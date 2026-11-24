@@ -40,7 +40,8 @@ def decode_runner(output, code, armed=False):
         raise RunnerError()
     value = json.loads(output.split(FRAME)[1])
     if code:
-        raise RunnerError(value.get('phase'), value.get('failed_line'))
+        if isinstance(value, dict): raise RunnerError(value.get('phase'), value.get('failed_line'))
+        raise RunnerError()
     if (not isinstance(value, dict) or set(value) != {'result', 'profile_removed', 'installed_bytes_match', 'stage'}
             or value['result'] != 'PASS' or value['profile_removed'] is not True or value['installed_bytes_match'] is not True):
         raise ValueError('started_preview/runner')

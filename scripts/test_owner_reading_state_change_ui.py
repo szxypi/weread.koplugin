@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from run_owner_reading_state_change_ui import FRAME, validate_input, validate_stage
 from test_secure_native_session import credentials
-from verify_owner_started_change_preview import decode_runner, preview
+from verify_owner_started_change_preview import PreviewProbe, decode_runner, preview
 
 
 def shelf():
@@ -49,6 +49,22 @@ class Boundaries(unittest.TestCase):
                            {'credential_audit': False}, {'gets': True}, {'files': 0}, {'extra': 1}):
                 with self.subTest(armed=armed, change=change), self.assertRaises(ValueError):
                     validate_stage(dict(stage(armed), **change), armed)
+
+    def test_mock_routing_requires_fixed_synthetic_account_and_exact_port(self):
+        sample = dict(payload(), mock_port=1234)
+        validate_input(sample, False, 1234)
+        for bad in (dict(sample, book_id='42'), dict(sample, mock_port=1235),
+                    dict(sample, credentials=dict(credentials(), vid='900001'))):
+            with self.assertRaises(ValueError): validate_input(bad, False, 1234)
+
+    def test_preview_transport_allows_only_two_reads_of_the_selected_book(self):
+        probe = PreviewProbe();probe.allowed = {'41'}
+        with patch('verify_owner_started_change_preview.NativeProbe.request', return_value=point()) as request:
+            self.assertEqual(probe.progress(credentials(), '41'), point())
+            self.assertEqual(probe.progress(credentials(), '41'), point())
+            with self.assertRaises(ValueError): probe.progress(credentials(), '41')
+            with self.assertRaises(ValueError): probe.progress(credentials(), '42')
+        self.assertEqual(request.call_count, 2)
 
     def test_only_exact_complete_clean_runner_is_accepted(self):
         raw = FRAME + json.dumps(envelope()).encode()
