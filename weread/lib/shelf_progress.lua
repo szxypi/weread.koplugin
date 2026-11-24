@@ -7,17 +7,23 @@ function M.supports(id, selected)
     return M.book_id(id) ~= nil and (Access.book_id(id) ~= nil or type(selected) == "table" and type(selected.web) == "table")
 end
 
-local function percent(value)
+local function exact_percent(value)
     local n = tonumber(value)
-    if n and n == n and n >= 0 and n <= 100 then return math.floor(n) end
+    if n and n == n and n >= 0 and n <= 100 then return n end
+end
+
+local function percent(value)
+    local n = exact_percent(value)
+    if n then return math.floor(n) end
 end
 
 -- A pending position belongs to this device; it must not look like a
 -- confirmed cloud percentage in the home or bookshelf views.
-function M.label(value, local_position)
+function M.label(value, local_position, exact)
     value=percent(value)
     if value==nil then return nil end
-    local text=tostring(value)..'%'
+    exact=exact_percent(exact)
+    local text=value==0 and exact and exact>0 and exact<1 and '<1%' or tostring(value)..'%'
     if local_position then
         local template=require('weread.lib.i18n').tr('Local · %1')
         return (template:gsub('%%1',function() return text end))
@@ -36,9 +42,9 @@ function M.parse(data, id, now)
         if data.recordReadingTime ~= nil then return nil, "unavailable" end
         return nil, "invalid"
     end
-    local value = percent(data.book.progress)
-    if not value then return end
-    return { book_id = tostring(id), percent = value, fetched_at = now or os.time() }
+    local precise = exact_percent(data.book.progress)
+    if not precise then return end
+    return { book_id = tostring(id), percent = math.floor(precise), exact_percent = precise, fetched_at = now or os.time() }
 end
 
 function M.display(saved, snapshot, account, id)
@@ -47,10 +53,15 @@ function M.display(saved, snapshot, account, id)
     local owner = type(saved) == "table" and (saved.pending_upload_account or saved.recent_read_account)
     if account and owner == account and type(pending) == "table"
         and (pending.book_id == nil or tostring(pending.book_id) == tostring(id)) then
-        local value = percent(pending.percent)
-        if value then return value, true end
+        local precise = exact_percent(pending.percent)
+        if precise then return math.floor(precise), true, precise end
     end
-    return type(snapshot) == "table" and percent(snapshot.percent) or nil, false
+    local value = type(snapshot) == "table" and percent(snapshot.percent) or nil
+    local precise = type(snapshot) == "table" and exact_percent(snapshot.exact_percent) or nil
+    if not value or not precise or math.floor(precise) ~= value then precise = nil end
+    -- Legacy zero was rounded down and cannot prove the exact value was zero.
+    if not precise and value and value > 0 then precise = value end
+    return value, false, precise
 end
 
 function M.fetch(client, ids, context, selected, options)

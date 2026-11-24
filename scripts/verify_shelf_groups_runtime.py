@@ -44,8 +44,9 @@ def main():
         raw=(root/f'evidence/{mode}.log').read_bytes();frame=b'\nWEREAD_GROUP_UI_RESULT='
         if result.returncode or raw.count(frame)!=1:raise RuntimeError('native synthetic group UI failed; inspect isolated log')
         stage=json.loads(raw.split(frame)[1])
-        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','author_sort','title_sort','recent_identity','prefetch_identity','annotation_identity','shelf_dates','home_refresh_cases','volatile_restart','saved_searches','recent_searches','incomplete_shelf','mixed_group_identities','uncertain_group_membership','download_identity','progress_sort'}
+        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','author_sort','title_sort','recent_identity','prefetch_identity','annotation_identity','shelf_dates','home_refresh_cases','volatile_restart','saved_searches','recent_searches','incomplete_shelf','mixed_group_identities','uncertain_group_membership','download_identity','progress_sort','progress_filters'}
         assert stage['progress_sort'] is True
+        assert stage['progress_filters'] is True
         assert stage['download_identity'] is True
         assert stage['mixed_group_identities'] is True
         assert stage['uncertain_group_membership'] is True

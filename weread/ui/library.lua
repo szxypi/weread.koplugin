@@ -870,7 +870,10 @@ function M:showShelfView(mode, keyword, old_view, options)
     local prepared = options.prepared_shelf
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
     local order=self.settings:get('shelf').sort_order
-    if not prepared and (order=='progress_asc' or order=='progress_desc') and self.prepareShelfProgress then
+    local reading_filter=self.shelf_filters and self.shelf_filters.reading
+    local needs_progress=order=='progress_asc' or order=='progress_desc'
+        or reading_filter=='progress_zero' or reading_filter=='progress_active'
+    if not prepared and needs_progress and self.prepareShelfProgress then
         self:prepareShelfProgress(group_source or {},saved_books)
     end
     local books = prepared and prepared.books or filtered(group_source, true)
@@ -973,6 +976,8 @@ function M:showShelfView(mode, keyword, old_view, options)
         total_books = #(self.shelf_regular or {}),
         scroll_offset = options.scroll_offset,
         keyword = keyword,
+        empty_text = mode=='books' and #books==0 and (reading_filter=='progress_zero' or reading_filter=='progress_active')
+            and _('No known progress matches. Update all bookshelf progress from the filter menu.') or nil,
         sort_label = self:shelfSortSummary(),
         filter_label = self:shelfFilterSummary(),
         paged = paged,
@@ -1073,11 +1078,12 @@ function M:showShelfView(mode, keyword, old_view, options)
         end,
         on_filter = function()
             if not current() then return end
-            self:showShelfFilterOptions(function()
+            self:showShelfFilterOptions(function(result)
                 if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
+                options.skip_progress_fetch_once=type(result)=='table' and result.skip_progress_fetch_once==true
                 self:showShelfView(mode, keyword, view, options)
             end,{owner=view,is_current=current})
         end,
@@ -1183,7 +1189,11 @@ function M:showShelfView(mode, keyword, old_view, options)
                         if not current() or self._book_detail_view then return end
                         local next_options = {}
                         for key, value in pairs(options) do next_options[key] = value end
-                        next_options.prepared_shelf = { books = books, accounts = accounts }
+                        if reading_filter~='progress_zero' and reading_filter~='progress_active' then
+                            next_options.prepared_shelf = { books = books, accounts = accounts }
+                        else
+                            next_options.prepared_shelf = nil
+                        end
                         next_options.page = view.page
                         next_options.scroll_offset = view:getScrollOffset()
                         self:showShelfView(mode, keyword, view, next_options)
@@ -1306,7 +1316,9 @@ function M:showShelfPage()
         local saved_books = self.settings:get("books", {})
         local account = group_owner(self)
         local order=self.settings:get("shelf").sort_order
-        if (order=='progress_asc' or order=='progress_desc') and self.prepareShelfProgress then self:prepareShelfProgress(books,saved_books) end
+        local reading_filter=self.shelf_filters and self.shelf_filters.reading
+        if (order=='progress_asc' or order=='progress_desc' or reading_filter=='progress_zero' or reading_filter=='progress_active')
+            and self.prepareShelfProgress then self:prepareShelfProgress(books,saved_books) end
         local local_pins=self.shelf_pins_owner==account and require('weread.lib.local_shelf_pins').index(self.shelf_pins_state) or nil
         local sorted = sortBooks(books,order,saved_books,account,local_pins)
         local downloaded_cache = {}
@@ -1318,7 +1330,7 @@ function M:showShelfPage()
                 if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
                 elseif (order=='progress_asc' or order=='progress_desc') and type(book._shelf_progress)=='number' then
-                    right_text = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local) or ''
+                    right_text = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local,book._shelf_progress_exact) or ''
                 else
                     right_text = ShelfTime.date(DiscoveryData.recent_time(book,saved_books,account)) or ""
                 end

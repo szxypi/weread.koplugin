@@ -31,4 +31,19 @@ expect(Cache.bookMatchesFilters(host,{finishReading=false}) and Cache.bookMatche
 expect(not Cache.bookMatchesFilters(host,{finished=1}) and not Cache.bookMatchesFilters(host,{progress=0}),'unknown status treated as unfinished')
 host.shelf_filters.reading='finished'
 expect(Cache.bookMatchesFilters(host,{finishReading=true}) and not Cache.bookMatchesFilters(host,{finishReading=0,finished=1,progress=100}),'finished filter used wrong field/type')
+host.shelf_filters.reading='progress_zero'
+expect(Cache.bookMatchesFilters(host,{finishReading=0,_shelf_progress_exact=0}),'known zero excluded')
+for _,book in ipairs({{finishReading=0},{finishReading=0,_shelf_progress_exact=0.01},
+    {finishReading=1,_shelf_progress_exact=0},{_shelf_progress_exact=0},{finishReading=0,_shelf_progress_exact=0/0}}) do
+    expect(not Cache.bookMatchesFilters(host,book),'unknown, started, or finished book included as zero')
+end
+host.shelf_filters.reading='progress_active'
+expect(Cache.bookMatchesFilters(host,{finishReading=0,_shelf_progress_exact=0.01}),'fractional positive progress excluded')
+for _,book in ipairs({{finishReading=0,_shelf_progress_exact=0},{finishReading=1,_shelf_progress_exact=30},
+    {_shelf_progress_exact=20},{finishReading=0,_shelf_progress_exact=101},{finishReading=0}}) do
+    expect(not Cache.bookMatchesFilters(host,book),'invalid, finished, or unknown progress included as reading')
+end
+host.shelf_filters.download='downloaded';host.isBookDownloaded=function(_,book) return book.downloaded end
+expect(Cache.bookMatchesFilters(host,{finishReading=0,_shelf_progress_exact=0.5,downloaded=true})
+    and not Cache.bookMatchesFilters(host,{finishReading=0,_shelf_progress_exact=0.5}), 'download and progress filters did not combine')
 print('PASS: shelf binary states and filters ('..checks..' checks)')

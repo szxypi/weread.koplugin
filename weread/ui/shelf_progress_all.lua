@@ -44,9 +44,11 @@ local function valid_prefix(values,batch)
             or value.fetched_at~=value.fetched_at or value.fetched_at<1 or value.fetched_at>253402300799
             or value.source~='web' and value.source~='gateway' then return false end
         if value.unavailable==true then
-            if value.percent~=nil then return false end
+            if value.percent~=nil or value.exact_percent~=nil then return false end
         elseif type(value.percent)~='number' or value.percent~=value.percent or value.percent%1~=0
             or value.percent<0 or value.percent>100 or value.unavailable~=nil then return false end
+        if value.exact_percent~=nil and (type(value.exact_percent)~='number' or value.exact_percent~=value.exact_percent
+            or value.exact_percent<0 or value.exact_percent>100 or math.floor(value.exact_percent)~=value.percent) then return false end
     end
     return true
 end

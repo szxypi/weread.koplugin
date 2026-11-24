@@ -188,6 +188,7 @@ local function reset()
 end
 local progress_fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 assert(dofile(progress_fixture..'shelf_progress_sort_case.lua')(plugin,mode,pump,evidence))
+assert(dofile(progress_fixture..'shelf_progress_filter_case.lua')(plugin,mode,pump,evidence))
 if mode=='reopen' then
     assert(plugin.settings:get('shelf').sort_order=='author_desc','author sort did not survive a fresh process')
     reset();local remembered=assert(plugin.shelf_view)
@@ -611,6 +612,7 @@ if mode=='live' then
 end
 if mode=='reopen' then
     local saved=plugin.settings:get('shelf');saved.sort_order='progress_desc'
+    saved.filter_reading='progress_active';saved.filter_download=nil
     plugin.settings:set('shelf',saved);plugin.settings:flush()
 end
 assert(requests==0)
@@ -621,5 +623,6 @@ report.mixed_group_identities=true
 report.uncertain_group_membership=true
 report.download_identity=true
 report.progress_sort=true
+report.progress_filters=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

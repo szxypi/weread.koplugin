@@ -90,6 +90,18 @@ host,origin,state,done=fixture(8);assert(Bulk.start(host,origin,done));first=sta
 first.options.on_done{ok=true,value={snapshots={{book_id='900002',percent=5,fetched_at=1000,source='web'}}}}
 assert(#state.saves==0 and state.redraws==1 and state.notices[1]:find('stopped',1,true),
     'mismatched response was saved')
+for _,snapshot in ipairs({
+    {book_id='900001',percent=0,exact_percent=1,fetched_at=1000,source='web'},
+    {book_id='900001',percent=0,exact_percent=0/0,fetched_at=1000,source='web'},
+    {book_id='900001',unavailable=true,exact_percent=0,fetched_at=1000,source='web'},
+}) do
+    host,origin,state,done=fixture(1);assert(Bulk.start(host,origin,done));first=state.tasks[1]
+    first.options.on_done{ok=true,value={snapshots={snapshot}}}
+    assert(#state.saves==0 and state.notices[1]:find('stopped',1,true),'invalid exact progress was persisted')
+end
+host,origin,state,done=fixture(1);assert(Bulk.start(host,origin,done));first=state.tasks[1]
+first.options.on_done{ok=true,value={snapshots={{book_id='900001',percent=0,exact_percent=0.3,fetched_at=1000,source='web'}}}}
+assert(#state.saves==1 and state.saves[1][1].exact_percent==0.3,'fractional bulk progress was rejected')
 host,origin,state,done=fixture(8);assert(Bulk.start(host,origin,done));first=state.tasks[1]
 first.options.on_done{ok=true,value={snapshots={
     [1]={book_id='900001',percent=5,fetched_at=1000,source='web'},

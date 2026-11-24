@@ -20,7 +20,8 @@ function M:prepareShelfProgress(books,saved_books)
     for _, book in ipairs(books) do
         local id = Identity.persisted_id(book)
         local local_book = id and Access.cached_book(saved,id)
-        book._shelf_progress, book._shelf_progress_local = Data.display(local_book, id and snapshots[id], account, id)
+        book._shelf_progress, book._shelf_progress_local, book._shelf_progress_exact =
+            Data.display(local_book, id and snapshots[id], account, id)
     end
     return snapshots
 end

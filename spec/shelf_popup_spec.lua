@@ -67,6 +67,7 @@ for index,key in ipairs({'progress_desc','progress_asc'}) do
         'progress sort did not save the selected direction')
     expect(not owner._shelf_popup,'progress sort left its popup open')
 end
+for _,kind in ipairs({'sort','filter'}) do
 for _,event in ipairs({'current','closed','account_changed'}) do
     local host,owner,origin,revoke=fixture();host.shelf_regular={{bookId='900001'}}
     local starts,cancels=0,0
@@ -75,12 +76,23 @@ for _,event in ipairs({'current','closed','account_changed'}) do
         expect(target==host and scope==origin and type(callback)=='function','bulk action lost its owner')
         starts=starts+1;return true
     end}
-    host:showShelfSortOptions(function() end,origin)
-    local callback=shown.buttons[10][1].callback;callback()
+    if kind=='sort' then host:showShelfSortOptions(function() end,origin)
+    else host:showShelfFilterOptions(function() end,origin) end
+    local callback=shown.buttons[kind=='sort' and 10 or 8][1].callback;callback()
     if event=='closed' then Popup.close(owner) elseif event=='account_changed' then revoke() end
     flush()
     expect(starts==(event=='current' and 1 or 0) and cancels==(event=='current' and 1 or 0),
         'bulk action ran after its shelf or account changed')
+end
+end
+for index,key in ipairs({'progress_zero','progress_active'}) do
+    local host,owner,origin=fixture();local notices=0
+    host.showTransientInfo=function() notices=notices+1 end
+    host:showShelfFilterOptions(function() host.changes=host.changes+1 end,origin)
+    shown.buttons[index+3][1].callback();flush()
+    expect(host.shelf_filters.reading==key and host.writes==1 and host.changes==1 and notices==1,
+        'progress filter did not save and explain its cache behavior')
+    expect(not owner._shelf_popup,'progress filter left its popup open')
 end
 package.loaded['weread.ui.shelf_progress_all']=nil
 local _,owner=fixture();local calls=0

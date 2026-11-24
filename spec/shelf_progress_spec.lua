@@ -21,6 +21,26 @@ local value, pending = Data.display(saved, snapshot, "account-a", "a")
 expect(value == 83 and pending and saved.progress == 83 and snapshot.percent == 37, "local pending display was overwritten")
 expect(Data.label(value,pending)=='Local · 83%' and Data.label(37,false)=='37%', 'local and cloud progress labels are ambiguous')
 expect(Data.label(0,true)=='Local · 0%' and not Data.label(-1,true), 'invalid local progress label')
+local fractional=Data.parse({book={progress=0.25}},'a',1000)
+expect(fractional.percent==0 and fractional.exact_percent==0.25,'fractional cloud progress was rounded before caching')
+local display,local_position,exact=Data.display({},fractional,'account-a','a')
+expect(display==0 and not local_position and exact==0.25 and Data.label(display,false,exact)=='<1%',
+    'fractional cloud progress displayed as zero')
+display,local_position,exact=Data.display({}, {percent=0,exact_percent=0},'account-a','a')
+expect(display==0 and exact==0 and Data.label(display,local_position,exact)=='0%','exact zero was lost')
+display,local_position,exact=Data.display({}, {percent=0},'account-a','a')
+expect(display==0 and not local_position and exact==nil,'legacy rounded zero was mistaken for an exact zero')
+display,local_position,exact=Data.display({}, {percent=1},'account-a','a')
+expect(display==1 and not local_position and exact==1,'positive legacy progress stopped being known positive')
+display,local_position,exact=Data.display({}, {percent=0,exact_percent=2},'account-a','a')
+expect(display==0 and not local_position and exact==nil,'inconsistent precise cache became a filter value')
+display,local_position,exact=Data.display({pending_upload_account='account-a',pending_upload_position={book_id='a',percent=0.3}},
+    {percent=8,exact_percent=8},'account-a','a')
+expect(display==0 and local_position and exact==0.3 and Data.label(display,true,exact)=='Local · <1%',
+    'local fractional pending progress lost its precision or source')
+display,local_position,exact=Data.display({pending_upload_account='another',pending_upload_position={book_id='a',percent=0.3}},
+    {percent=8,exact_percent=8},'account-a','a')
+expect(display==8 and not local_position and exact==8,'another account supplied fractional progress')
 local old_settings=G_reader_settings
 G_reader_settings={readSetting=function() return 'zh_CN' end}
 expect(Data.label(83,true)=='本机 · 83%' and Data.label(37,false)=='37%', 'local progress label was not translated')

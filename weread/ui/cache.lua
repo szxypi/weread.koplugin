@@ -256,6 +256,8 @@ end
 local SHELF_FILTER_OPTIONS = {
     { dim = "reading",  value = "finished",       label = _("Only show finished books"),       short = _("Finished") },
     { dim = "reading",  value = "unfinished",     label = _("Only show unfinished books"),     short = _("Unfinished") },
+    { dim = "reading",  value = "progress_zero",  label = _("Unread (known progress is 0%)"), short = _("Unread · progress") },
+    { dim = "reading",  value = "progress_active",label = _("Reading (known progress above 0%)"), short = _("Reading · progress") },
     { dim = "download", value = "downloaded",     label = _("Only show downloaded books"),     short = _("Downloaded") },
     { dim = "download", value = "not_downloaded", label = _("Only show not-downloaded books"), short = _("Not downloaded") },
 }
@@ -287,6 +289,11 @@ function M:bookMatchesFilters(book, saved_books, downloaded_cache)
     local finished=ShelfFlags.display(book,'finished')
     if filters.reading == "finished" and finished~=true then return false end
     if filters.reading == "unfinished" and finished~=false then return false end
+    if filters.reading == "progress_zero" or filters.reading == "progress_active" then
+        local value=book._shelf_progress_exact
+        if finished~=false or type(value)~='number' or value~=value or value<0 or value>100 then return false end
+        if filters.reading=='progress_zero' and value~=0 or filters.reading=='progress_active' and value<=0 then return false end
+    end
     if filters.download then
         local is_downloaded = self:isBookDownloaded(book, saved_books, downloaded_cache)
         if filters.download == "downloaded" and not is_downloaded then return false end
@@ -386,10 +393,23 @@ function M:showShelfFilterOptions(on_changed, origin)
                         filters[opt.dim] = (filters[opt.dim] == opt.value) and nil or opt.value
                         self:saveShelfFilters()
                         on_changed()
+                        if (filters.reading=='progress_zero' or filters.reading=='progress_active') and self.showTransientInfo then
+                            self:showTransientInfo(_('Progress filters use cached values, which may be old. Unknown progress is hidden; update all bookshelf progress to refresh.'), 5)
+                        end
                     end)
                 end,
             },
         })
+    end
+    if origin and type(self.shelf_regular)=='table' then
+        buttons[#buttons+1]={{text=_('Update all bookshelf progress'),callback=function()
+            UIManager:nextTick(function()
+                if not current() then return end
+                if self.cancelShelfProgress then self:cancelShelfProgress() end
+                Popup.close(origin.owner)
+                require('weread.ui.shelf_progress_all').start(self,origin,on_changed)
+            end)
+        end}}
     end
     dialog = ButtonDialog:new{
         title = _("Filter by"),

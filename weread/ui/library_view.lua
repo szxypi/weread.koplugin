@@ -591,7 +591,7 @@ function CoverCell:init()
         self._private_badge = badge
         self._private_badge_size = badge_size
     end
-    local progress_text = ShelfProgress.label(self.book._shelf_progress, self.book._shelf_progress_local)
+    local progress_text = ShelfProgress.label(self.book._shelf_progress, self.book._shelf_progress_local, self.book._shelf_progress_exact)
     if progress_text then
         local inset = math.max(border, Screen:scaleBySize(4))
         local padding = math.max(1, Screen:scaleBySize(2))
@@ -603,7 +603,7 @@ function CoverCell:init()
             local size=12
             while true do
                 local local_label=TextWidget:new{text=_('Local'),face=Font:getFace('cfont',size)}
-                local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false),face=Font:getFace('cfont',size)}
+                local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false,self.book._shelf_progress_exact),face=Font:getFace('cfont',size)}
                 if size<=8 or local_label:getSize().w<=max_width and number_label:getSize().w<=max_width then
                     labels={local_label,number_label};content=VerticalGroup:new{align='right',local_label,number_label};break
                 end
@@ -1178,7 +1178,7 @@ function LibraryView:itemStatus(book)
     elseif is_finished(book) then
         status = _("Done")
     elseif type(book._shelf_progress) == "number" then
-        status = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local) or ""
+        status = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local,book._shelf_progress_exact) or ""
     else
         status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end
