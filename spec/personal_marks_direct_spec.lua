@@ -2,6 +2,7 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture');local codec=Fixture.codec()
 local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
+local in_worker,network_checks=false,0
 local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_,_,task) timers[#timers+1]=task end,
     unschedule=function(_,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
@@ -17,7 +18,8 @@ package.preload['weread.lib.my_cloud_marks_store']=function() return {new=functi
 package.preload['weread.lib.native_read_access']=function() return {capture=function() return {} end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function()
     return {cancel=function() end,start=function(_,task,callback)
-        local ok,value=pcall(task);jobs[#jobs+1]={value=ok and value or {error='unavailable'},callback=callback};return true
+        in_worker=true;local ok,value=pcall(task);in_worker=false
+        jobs[#jobs+1]={value=ok and value or {error='unavailable'},callback=callback};return true
     end}
 end} end
 package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,file) return file=='/direct.epub' end} end
@@ -42,7 +44,7 @@ package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_
     load=function(_,_,book,_,online) assert(book=='41');loads=loads+1;return {snapshot=snapshot,refreshed=online} end,
     load_thoughts=function() return {snapshot=false,refreshed=false} end,
     prepare_direct=function(_,_,_,file,e,metadata,rows,online)
-        assert(file=='/direct.epub' and e==entry and online==state.online);prepares=prepares+1
+        assert(file=='/direct.epub' and e==entry and type(online)=='function');prepares=prepares+1
         if not state.source then error('missing cache') end
         local result={metadata=metadata,rows={}}
         for _,row in ipairs(rows) do result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
@@ -58,7 +60,7 @@ local Display=require('weread.ui.personal_marks')
 local host={client=codec,_reader_session_gen=1,settings={get=function() return {show_annotations=state.show} end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,s) return state.valid and s==scope end},
     library_db={accountKey=function() return state.owner end},detectWeReadBook=function() return nil end,
-    isNetworkOnline=function() return state.online end,ui={highlight={},document={file='/direct.epub',info={},
+    isNetworkOnline=function() assert(in_worker,'network check blocked the reader UI');network_checks=network_checks+1;return state.online end,ui={highlight={},document={file='/direct.epub',info={},
         getDocumentFileContent=function() return 'identity' end,compareXPointers=function(_,a,b) return a<b and 1 or a>b and -1 or 0 end},
         view={view_modules={},registerViewModule=function(self,key,value) self.view_modules[key]=value end}}}
 local checks=0
@@ -81,7 +83,25 @@ Display.changed(host,snapshot);drain()
 expect(host._personal_marks.complete and #host._personal_marks.records==1,'confirmed highlight did not reappear')
 Display.detach(host);state.online=false;expect(Display.attach(host));drain()
 expect(#host._personal_marks.records==1 and loads==2,'offline cached source not shown')
-state.online=true;Display.network_connected(host);drain();expect(loads==3 and #host._personal_marks.records==1,'reconnect did not refresh')
+local checks_offline=network_checks
+for _=1,100 do Display.update(host) end
+expect(network_checks==checks_offline,'page turns repeatedly checked the network')
+host._personal_marks.next_network_probe=0;Display.update(host);drain()
+expect(network_checks==checks_offline+1 and #host._personal_marks.records==1,
+    'offline recheck lost cached notes or ran repeatedly')
+checks_offline=network_checks
+for _=1,100 do Display.update(host) end
+expect(network_checks==checks_offline,'offline recheck was not rate limited')
+state.online=true;host._personal_marks.next_network_probe=0;Display.update(host)
+expect(#jobs==1,'network recovery probe did not start')
+local stale_probe=table.remove(jobs,1);state.show=false;Display.update(host)
+state.show=true;Display.update(host);stale_probe.callback(stale_probe.value);drain()
+expect(loads==2,'cancelled probe refreshed notes after the view changed')
+state.online=true;host._personal_marks.next_network_probe=0;Display.update(host);drain()
+expect(loads==3 and host._personal_marks.remote_attempted and #host._personal_marks.records==1,
+    'network recovery without a connection event did not refresh')
+Display.detach(host);state.online=false;expect(Display.attach(host));drain()
+state.online=true;Display.network_connected(host);drain();expect(loads==5 and #host._personal_marks.records==1,'reconnect did not refresh')
 state.show=false;Display.update(host);local before_hidden=loads;Display.network_connected(host);drain()
 expect(loads==before_hidden,'hidden annotations triggered a network refresh')
 state.show=true;Display.update(host);drain();expect(#host._personal_marks.records==1,'visible annotations did not recover')

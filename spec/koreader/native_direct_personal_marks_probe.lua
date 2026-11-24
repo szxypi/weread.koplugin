@@ -39,6 +39,7 @@ local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plug
 for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_load{item} end end
 assert(#loader.enabled_plugins==1)
 local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
+local ffi=require('ffi');local reader_pid=ffi.C.getpid()
 local diagnostic
 local function wait(predicate)
     local deadline=socket.gettime()+15
@@ -48,7 +49,13 @@ end
 local function configure(active)
     active.settings.mock_endpoint=input.mock_endpoint
     active.isNetworkConnected=function() return not input.offline end
-    active.isNetworkOnline=function() return not input.offline end
+    active.isNetworkOnline=function()
+        local caller=debug.getinfo(2,'S')
+        if caller and caller.source:find('weread/ui/personal_marks.lua',1,true) then
+            assert(ffi.C.getpid()~=reader_pid,'personal marks performed a network check on the reader process')
+        end
+        return not input.offline
+    end
     local previous=active.client.request
     active.client.request=function(self,options)
         assert(not input.offline,'offline personal mark requested network')

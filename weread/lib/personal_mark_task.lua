@@ -75,7 +75,7 @@ function M.prepare_direct(client,settings,library,file,entry,metadata,rows,onlin
     end
     local store=require('weread.lib.native_direct_mark_source_store'):new(library)
     local raw=store:read(entry)
-    if not raw and online then
+    if not raw and (type(online)=='function' and online() or online==true) then
         local access=require('weread.lib.native_read_access').capture(settings)
         local web=require('weread.lib.source_currentness').capture(settings)
         if access and web then

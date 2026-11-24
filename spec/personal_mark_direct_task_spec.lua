@@ -29,6 +29,13 @@ local first=Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{row}
 expect(#first.rows==1 and first.rows[1].bookmarkId==row.bookmarkId and fetches==1 and writes==1,'verified online source not cached')
 local again=Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{row},false)
 expect(#again.rows==1 and fetches==1 and writes==1,'cached source unavailable offline')
+local checks_online=0
+local function online() checks_online=checks_online+1;return true end
+expect(#Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{row},online).rows==1 and checks_online==0,
+    'cached source needlessly checked connectivity')
+saved=nil
+expect(#Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{row},online).rows==1 and checks_online==1,
+    'missing source did not check connectivity and recover')
 local bad={bookmarkId=row.bookmarkId,type=1,chapterUid=2,markText='Changed quote',range=row.range}
 expect(#Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{bad},false).rows==0,'wrong quotation accepted')
 expect(not pcall(Task.prepare_direct,{},settings,{},'/book.epub',entry,metadata..'x',{row},false),'different file identity accepted')

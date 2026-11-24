@@ -9,6 +9,7 @@ local Task=require('weread.lib.personal_mark_task')
 local Contract=require('weread.lib.mark_edit_contract')
 local Overlay=require('weread.ui.xpointer_overlay')
 local M={KEY='weread_personal_marks',BOOKMARK_KEY='weread_cloud_bookmarks'}
+local NETWORK_RECHECK_SECONDS=30
 local function current(host,s)
     return host._personal_marks==s and host.ui and host.ui.document==s.document and s.document.file==s.file
         and (s.direct or host:detectWeReadBook()==s.book)
@@ -23,6 +24,7 @@ local function cancel_work(s)
     s.generation=s.generation+1;s.job=nil
     if s.task then UI:unschedule(s.task);s.task=nil end
     if s.worker then s.worker:cancel() end
+    if s.probe_worker then s.probe_worker:cancel();s.probing=false end
 end
 local function close_picker(s)
     local picker=s.picker;s.picker=nil
@@ -87,9 +89,9 @@ batch=function(host,s,job)
     if job.cursor>#job.rows then s.job=nil;s.complete=true;return end
     local rows={};for i=job.cursor,math.min(#job.rows,job.cursor+Task.BATCH-1) do rows[#rows+1]=job.rows[i] end
     job.cursor=job.cursor+#rows
-    local online=host.isNetworkOnline and host:isNetworkOnline() or false
     local started=worker(host,s,function()
-        if s.direct then return Task.prepare_direct(host.client,host.settings,host.library_db,s.file,s.entry,job.metadata,rows,online) end
+        if s.direct then return Task.prepare_direct(host.client,host.settings,host.library_db,s.file,s.entry,job.metadata,rows,
+            function() return host.isNetworkOnline and host:isNetworkOnline() or false end) end
         return Task.prepare(s.file,s.book,job.metadata,rows)
     end,function(result)
         if not same_job(host,s,job) then return end
@@ -160,6 +162,26 @@ batch=function(host,s,job)
     end)
     if not started then s.job=nil end
 end
+-- DNS resolution may block even when Wi-Fi is connected. Probe in a separate
+-- worker, without cancelling the currently visible notes or their preparation.
+local function probe_network(host,s)
+    local now=os.time()
+    if s.probing or now<(s.next_network_probe or 0) or not host.isNetworkOnline then return end
+    s.next_network_probe=now+NETWORK_RECHECK_SECONDS
+    s.probe_worker=s.probe_worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    local generation=s.generation
+    s.probing=true
+    local ok,started=pcall(s.probe_worker.start,s.probe_worker,function()
+        return {online=host:isNetworkOnline() and true or false}
+    end,function(result)
+        if generation==s.generation then s.probing=false end
+        if current(host,s) and not s.suspended and not s.editing and not s.loading and enabled(host,s)
+            and generation==s.generation and not s.remote_attempted and type(result)=='table' and result.online==true then
+            cancel_work(s);s.loading=false;load(host,s,true)
+        end
+    end)
+    if not ok or not started then s.probing=false end
+end
 function M.update(host)
     local s=host._personal_marks;if not s then return end
     local show=enabled(host,s)
@@ -167,15 +189,13 @@ function M.update(host)
     if s.indicator.enabled~=show then s.indicator:setEnabled(show);dirty(host) end
     if not show then
         close_picker(s)
-        if s.job or s.task or s.loading then cancel_work(s);s.loading=false;s.metadata=nil;s.complete=false end
+        if s.job or s.task or s.loading or s.probing then cancel_work(s);s.loading=false;s.metadata=nil;s.complete=false end
         return
     end
     if s.editing or s.loading then return end
-    if s.direct and s.loaded and not s.remote_attempted and host.isNetworkOnline and host:isNetworkOnline() then
-        load(host,s,true);return
-    end
+    if s.direct and s.loaded and not s.remote_attempted then probe_network(host,s) end
     if not s.snapshot and not s.loaded then
-        load(host,s,not s.remote_attempted and host.isNetworkOnline and host:isNetworkOnline() or false);return
+        load(host,s,not s.remote_attempted and 'detect' or false);return
     end
     local m=metadata(host,s)
     if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then
@@ -206,9 +226,11 @@ function M.update(host)
 end
 load=function(host,s,online)
     s.loading=true
-    if online then s.remote_attempted=true end
+    if online==true then s.remote_attempted=true end
+    if online=='detect' then s.next_network_probe=os.time()+NETWORK_RECHECK_SECONDS end
     local access=online and require('weread.lib.native_read_access').capture(host.settings)
     local started=worker(host,s,function()
+        local checked_online=online==true or online=='detect' and host.isNetworkOnline and host:isNetworkOnline() or false
         local entry
         if s.direct then
             entry=require('weread.lib.native_direct_cache').identify(host.settings,s.scope.vid,s.file,function()
@@ -217,9 +239,12 @@ load=function(host,s,online)
             if not entry or entry.book_id~=s.book or entry.file_id~=s.identity.file_id
                 or entry.book_version~=s.identity.book_version then return {error='file_changed'} end
         end
-        local value=Task.load(host.client,host.library_db,s.book,access,online);value.entry=entry;return value
+        local value=Task.load(host.client,host.library_db,s.book,access,checked_online)
+        value.entry=entry;value.checked_online=checked_online;return value
     end,function(result)
         s.loading=false
+        local checked_online=type(result)=='table' and result.checked_online==true
+        if checked_online then s.remote_attempted=true end
         if s.direct then
             local entry=type(result)=='table' and result.entry
             if not entry or not require('weread.lib.native_direct_cache').valid_entry(entry,s.book,s.scope.vid)
@@ -243,7 +268,7 @@ load=function(host,s,online)
             -- overflow the worker pipe when both contain many entries.
             s.loading=true
             local started_thoughts=worker(host,s,function()
-                return Task.load_thoughts(host.client,host.library_db,s.book,access,online)
+                return Task.load_thoughts(host.client,host.library_db,s.book,access,checked_online)
             end,function(result_thoughts)
                 s.loading=false
                 local valid,thoughts=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,
@@ -296,7 +321,7 @@ function M.attach(host)
     host.ui.view:registerViewModule(M.KEY,overlay)
     host.ui.view:registerViewModule(M.BOOKMARK_KEY,indicator)
     schedule(host,s,function()
-        load(host,s,enabled(host,s) and host.isNetworkOnline and host:isNetworkOnline() or false)
+        load(host,s,enabled(host,s) and 'detect' or false)
     end)
     return true
 end

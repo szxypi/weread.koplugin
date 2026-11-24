@@ -2,6 +2,7 @@ package.path='./?.lua;'..package.path
 local Fixture=require('spec.helpers.thought_edit_fixture')
 local codec=Fixture.codec();local Contract=require('weread.lib.mark_edit_contract')
 local timers,jobs={},{}
+local in_worker,network_checks=false,0
 local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_self,_delay,task) timers[#timers+1]=task end,
     unschedule=function(_self,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
 package.preload['ui/uimanager']=function() return UI end
@@ -13,7 +14,8 @@ package.preload['weread.lib.native_read_access']=function() return {capture=func
 package.preload['weread.lib.memory_worker']=function() return {new=function(_self,options)
     assert(options.max_bytes<=8*1024*1024)
     return {cancel=function() end,start=function(_worker,task,callback)
-        local job={value=task(),callback=callback};jobs[#jobs+1]=job;return true
+        in_worker=true;local result=task();in_worker=false
+        local job={value=result,callback=callback};jobs[#jobs+1]=job;return true
     end}
 end} end
 local chapter='7';local meta='metadata-1'
@@ -63,7 +65,7 @@ local host={client=codec,_reader_session_gen=1,ui={highlight={},annotation={anno
     settings={get=function() return {show_annotations=state.show} end,get_auth_scope=function() return scope end,
         auth_scope_matches=function() return state.valid end},
     library_db={accountKey=function() return state.account end},detectWeReadBook=function() return state.book end,
-    isNetworkOnline=function() return true end}
+    isNetworkOnline=function() assert(in_worker,'network check blocked the reader UI');network_checks=network_checks+1;return true end}
 local checks=0
 local function expect(v,m) checks=checks+1;assert(v,m or ('check '..checks)) end
 local function tick()
@@ -73,6 +75,7 @@ end
 local function drain() local n=0;while tick() do n=n+1;assert(n<200,'controller did not settle') end end
 expect(Display.attach(host));drain()
 expect(host._personal_marks.complete and #host._personal_marks.records==1,'cached/cloud highlight never completed')
+expect(network_checks==1,'cached note batches performed extra network checks')
 expect(host._personal_marks.records[1].bookmarkId=='first' and Display.available(host))
 expect(host.ui.annotation.annotations==notes and notes[1].text=='native note','native annotation array changed')
 Display.detach(host);snapshot=value('stale');expect(Display.attach(host));expect(tick() and #jobs==1)
