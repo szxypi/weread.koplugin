@@ -34,6 +34,14 @@ return function(plugin)
     local Event=require('ui/event')
     UI:sendEvent(Event:new('Gesture',{ges='tap',pos=pos}));assert(selected==chosen.book)
     UI:sendEvent(Event:new('Gesture',{ges='hold',pos=pos}));assert(held==chosen.book)
+    local offset=view:getScrollOffset().y
+    UI:sendEvent(Event:new('Gesture',{ges='swipe',pos=pos,direction='south'}))
+    assert(view:getScrollOffset().y<offset,'owner shelf swipe did not reach the scroller')
+    UI:forceRePaint();offset=view:getScrollOffset().y
+    UI:sendEvent(Event:new('Gesture',{ges='touch',pos=pos}))
+    UI:sendEvent(Event:new('Gesture',{ges='pan',pos=pos,relative={x=0,y=100}}))
+    UI:sendEvent(Event:new('Gesture',{ges='pan_release',pos=pos}))
+    assert(view:getScrollOffset().y<offset,'owner shelf pan did not reach the scroller')
     settings=plugin.settings:get('shelf');settings.view_mode=old_view;settings.paginated=old_paged
     plugin.settings:set('shelf',settings);plugin.settings:flush()
     plugin.shelf_filters,plugin.shelf_group_key,plugin.shelf_multi_groups=old_filters,old_group,old_multi

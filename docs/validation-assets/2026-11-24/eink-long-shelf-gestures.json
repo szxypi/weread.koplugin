@@ -1,0 +1,72 @@
+{
+  "result": "PASS",
+  "baseline_commit": "103e227a",
+  "synthetic_comparisons": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "books": 1500,
+      "point_gestures": 200,
+      "scroll_gestures": 4,
+      "runs_each": 3,
+      "before": {
+        "event_row_visits": 297600,
+        "scroll_event_row_visits": 6000,
+        "event_dispatch_ms": 83
+      },
+      "after": {
+        "event_row_visits": 200,
+        "scroll_event_row_visits": 0,
+        "event_dispatch_ms": 1
+      }
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "books": 1500,
+      "point_gestures": 200,
+      "scroll_gestures": 4,
+      "runs_each": 3,
+      "before": {
+        "event_row_visits": 297600,
+        "scroll_event_row_visits": 6000,
+        "event_dispatch_ms": 71
+      },
+      "after": {
+        "event_row_visits": 200,
+        "scroll_event_row_visits": 0,
+        "event_dispatch_ms": 2
+      }
+    }
+  ],
+  "pixel_comparisons": 8,
+  "owner_ui": [
+    {
+      "width": 600,
+      "height": 800,
+      "shelf_entries": 140,
+      "online_and_offline_interactions": "PASS",
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "authentication_posts": 0,
+      "profile_removed": true
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "shelf_entries": 140,
+      "online_and_offline_interactions": "PASS",
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "authentication_posts": 0,
+      "profile_removed": true
+    }
+  ],
+  "limitations": [
+    "Desktop KOReader emulator, not a physical Kindle.",
+    "Timing is for synthetic gesture dispatch and does not measure end-to-end device responsiveness.",
+    "Real shelf was used only for functional verification, not performance measurement."
+  ]
+}

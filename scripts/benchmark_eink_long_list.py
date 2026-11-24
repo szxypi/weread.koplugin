@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--screenshots', type=Path, help='Save synthetic screenshots for pixel comparison')
     parser.add_argument('--rtl', action='store_true', help='Test a mirrored interface')
     parser.add_argument('--max-row-paints', type=int, help='Fail if the measured repaint count exceeds this limit')
+    parser.add_argument('--max-event-visits', type=int, help='Fail if point gestures visit too many shelf rows')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     runtime = args.koreader.resolve()
@@ -49,6 +50,8 @@ def main():
             raise ValueError('benchmark failed')
         if args.max_row_paints is not None and result['row_paints'] > args.max_row_paints:
             raise ValueError('too many offscreen rows painted')
+        if args.max_event_visits is not None and result['event_row_visits'] > args.max_event_visits:
+            raise ValueError('too many rows received point gestures')
 
 
 if __name__ == '__main__':

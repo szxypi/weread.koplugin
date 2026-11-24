@@ -77,6 +77,30 @@ local ok,reason=pcall(function()
     local Event=require('ui/event')
     UI:sendEvent(Event:new('Gesture',{ges='tap',pos=pos}));assert(selected==book,'tap selected an offscreen book')
     UI:sendEvent(Event:new('Gesture',{ges='hold',pos=pos}));assert(held==book,'hold selected an offscreen book')
+    local event_rows=0
+    for _,candidate in ipairs(view._item_rows) do
+        local original=candidate.handleEvent
+        candidate.handleEvent=function(self,event,...)
+            if event.handler=='onGesture' then event_rows=event_rows+1 end
+            return original(self,event,...)
+        end
+    end
+    local event_start=socket.gettime()
+    for _=1,200 do UI:sendEvent(Event:new('Gesture',{ges='hold_release',pos=pos})) end
+    local event_ms=math.floor((socket.gettime()-event_start)*1000+.5)
+    local event_visits=event_rows
+    local scroll_before=view:getScrollOffset().y
+    local scroll_visit_start=event_rows
+    UI:sendEvent(Event:new('Gesture',{ges='swipe',pos=pos,direction='south'}))
+    assert(view:getScrollOffset().y<scroll_before,'swipe did not reach the native scroller')
+    UI:forceRePaint()
+    scroll_before=view:getScrollOffset().y
+    UI:sendEvent(Event:new('Gesture',{ges='touch',pos=pos}))
+    UI:sendEvent(Event:new('Gesture',{ges='pan',pos=pos,relative={x=0,y=100}}))
+    UI:sendEvent(Event:new('Gesture',{ges='pan_release',pos=pos}))
+    assert(view:getScrollOffset().y<scroll_before,'pan did not reach the native scroller')
+    UI:forceRePaint()
+    local scroll_event_visits=event_rows-scroll_visit_start
     local FocusNav=require('weread.ui.focus_nav')
     for _,index in ipairs({1,750,1500}) do
         row=view._item_rows[index];local layout_index
@@ -93,6 +117,8 @@ local ok,reason=pcall(function()
     report={result='PASS',books=#books,queries=2000,initialization_ms=build_ms,
         lookup_wall_ms=lookup_wall,lookup_cpu_ms=lookup_cpu,
         repaint_wall_ms=repaint_ms,row_paints=paint_count,gesture_verified=true,focus_verified=true,
+        event_row_visits=event_visits,event_dispatch_ms=event_ms,scroll_event_row_visits=scroll_event_visits,
+        swipe_verified=true,pan_verified=true,
         mirrored=os.getenv('WEREAD_LONG_LIST_RTL')=='1',
         lua_kib=memory,visible_results_verified=true}
     UI:close(view)

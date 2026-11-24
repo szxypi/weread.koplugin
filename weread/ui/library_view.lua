@@ -34,6 +34,7 @@ local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
 local CoverMask = require("weread.lib.cover_mask")
 local ShelfListPaint = require("weread.lib.shelf_list_paint")
+local ShelfListEvents = require("weread.lib.shelf_list_events")
 local CoverBitmapCache = require("weread.lib.shelf_cover_bitmap_cache")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -67,6 +68,12 @@ local inside_rounded_rect = CoverMask.inside
 local ShelfListGroup = VerticalGroup:extend{}
 function ShelfListGroup:paintTo(bb, x, y)
     ShelfListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
+    self._shelf_rows_positioned = true
+end
+function ShelfListGroup:propagateEvent(event)
+    local routed, consumed = ShelfListEvents.dispatch(self._shelf_rows, self._shelf_rows_positioned, event)
+    if routed then return consumed end
+    return VerticalGroup.propagateEvent(self, event)
 end
 
 -- FrameContainer does not clip its child to its radius. This card masks the
@@ -1232,6 +1239,7 @@ function LibraryView:content()
     }
     self._item_rows = {}
     self._focus_item_rows = {}
+    if group == ShelfListGroup then content._shelf_rows = self._item_rows end
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
