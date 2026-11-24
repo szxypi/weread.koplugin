@@ -308,7 +308,8 @@ function M.attach(host)
     local s={book=book,document=document,file=document.file,scope=scope,account=account,session=host._reader_session_gen,generation=0,
         records={},bookmarks={},loading=true,direct=direct,identity=identity}
     local screen=require('device').screen;local BB=require('ffi/blitbuffer')
-    local overlay=Overlay:new{records={},painter=require('weread.ui.personal_mark_painter').paint,
+    local painter=require('weread.ui.personal_mark_painter')
+    local overlay=Overlay:new{records={},painter=painter.paint,prepare_painter=painter.prepare,
         style={width=math.max(1,screen:scaleBySize(1)),wave_step=math.max(1,screen:scaleBySize(1)),color=BB.Color8(0)}}
     local indicator=require('weread.ui.bookmark_indicator'):new{scale=function(n) return screen:scaleBySize(n) end,color=BB.Color8(0)}
     s.overlay=overlay;s.indicator=indicator;host._personal_marks=s

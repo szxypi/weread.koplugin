@@ -161,6 +161,24 @@ else
         wait(function() return not host._my_marks_owner end)
         assert(reader.document:isXPointerInCurrentPage(case.target),'direct cloud note did not navigate to its original page')
     end
+    -- Exercise the actual CREngine boxes with the installed personal painter.
+    -- Repeat paints must preserve every draw command and hit target while
+    -- preparing their merged geometry only once per cached page.
+    do
+        reader.rolling:onGotoXPointer(mark.pos0);UI:forceRePaint()
+        local layer=state.overlay;local original=layer.prepare_painter;local preparations=0
+        layer.prepare_painter=function(boxes) preparations=preparations+1;return original(boxes) end
+        layer:invalidate()
+        local commands={};local canvas={paintRect=function(_,x,y,w,h) commands[#commands+1]={'p',x,y,w,h} end,
+            darkenRect=function(_,x,y,w,h,alpha) commands[#commands+1]={'d',x,y,w,h,alpha} end}
+        layer:paintTo(canvas,0,0);local first=json.encode(commands)
+        assert(#commands>0 and preparations==1 and #layer.visible>0)
+        local mark_rect=layer.visible[1].rect;local hits=#layer:hitTestAll{x=mark_rect.x+1,y=mark_rect.y+1}
+        commands={};layer:paintTo(canvas,0,0)
+        assert(json.encode(commands)==first and preparations==1 and #layer:hitTestAll{x=mark_rect.x+1,y=mark_rect.y+1}==hits,
+            'cached personal marks changed their drawing or hit targets')
+        layer.prepare_painter=original
+    end
     -- A real CREngine viewport must keep the same bookmark results when a
     -- reader revisits a recently painted page, without another full scan.
     do

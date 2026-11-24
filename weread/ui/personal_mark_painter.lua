@@ -21,17 +21,23 @@ local function spans(boxes,kind)
     end
     return merged
 end
-function M.paint(bb,boxes,style)
-    for _i,r in ipairs(spans(boxes,1)) do bb:darkenRect(r.x,r.y,r.right-r.x,r.h,.18) end
-    for _i,r in ipairs(spans(boxes,0)) do bb:paintRect(r.x,r.y+r.h-1,r.right-r.x,style.width,style.color) end
-    for _i,r in ipairs(spans(boxes,3)) do
+-- The geometry depends on the verified boxes and their styles, not on the
+-- framebuffer. A page cache can therefore reuse it across repaints.
+function M.prepare(boxes)
+    return {[0]=spans(boxes,0),[1]=spans(boxes,1),[2]=spans(boxes,2),[3]=spans(boxes,3)}
+end
+function M.paint(bb,boxes,style,prepared)
+    local groups=prepared or M.prepare(boxes)
+    for _i,r in ipairs(groups[1]) do bb:darkenRect(r.x,r.y,r.right-r.x,r.h,.18) end
+    for _i,r in ipairs(groups[0]) do bb:paintRect(r.x,r.y+r.h-1,r.right-r.x,style.width,style.color) end
+    for _i,r in ipairs(groups[3]) do
         local dash,gap=math.max(1,style.width*4),math.max(1,style.width*3)
         for x=r.x,r.right-1,dash+gap do
             bb:paintRect(x,math.max(r.y,r.y+r.h-1-2*style.width),math.min(dash,r.right-x),style.width,style.color)
         end
     end
     local step=style.wave_step or style.width
-    for _i,r in ipairs(spans(boxes,2)) do
+    for _i,r in ipairs(groups[2]) do
         local index=0
         for x=r.x,r.right-1,step do
             local phase=index%4;local rise=phase==3 and 1 or phase

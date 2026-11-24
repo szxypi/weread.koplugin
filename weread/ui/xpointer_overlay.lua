@@ -28,6 +28,7 @@ function Overlay:new(opts)
         records_ordered = opts.records_ordered == true,
         style = opts.style,
         painter = opts.painter,
+        prepare_painter = opts.prepare_painter,
         enabled = opts.enabled ~= false,
         cache = {},
         visible = {},
@@ -58,6 +59,7 @@ end
 function Overlay:invalidate()
     self.generation = self.generation + 1
     self.cache = {}
+    self.cache_count = 0
     self.visible = {}
 end
 
@@ -235,14 +237,19 @@ function Overlay:paintTo(bb, x, y)
     local can_cache = self.view and self.view.view_mode == "page"
     local cache_key = tostring(self.generation) .. ":" .. tostring(page)
     local cached = can_cache and self.cache[cache_key] or nil
-    local boxes, candidates, lines
+    local boxes, candidates, lines, prepared
     if cached then
         boxes = cached.boxes
         candidates = cached.candidates
         lines = cached.lines
+        prepared = cached.prepared
     else
         boxes, candidates = self:_computeVisible()
-        lines = merge_lines(boxes)
+        if self.painter then
+            if self.prepare_painter then prepared = self.prepare_painter(boxes) end
+        else
+            lines = merge_lines(boxes)
+        end
         if can_cache then
             self.cache_count = (self.cache_count or 0) + 1
             if self.cache_count > 4 then self.cache, self.cache_count = {}, 1 end
@@ -250,11 +257,12 @@ function Overlay:paintTo(bb, x, y)
                 boxes = boxes,
                 candidates = candidates,
                 lines = lines,
+                prepared = prepared,
             }
         end
     end
     self.visible = boxes
-    if self.painter then self.painter(bb,boxes,self.style) else draw_lines(self, bb, lines) end
+    if self.painter then self.painter(bb,boxes,self.style,prepared) else draw_lines(self, bb, lines) end
     self.last_metrics = {
         candidates = candidates,
         boxes = #boxes,
