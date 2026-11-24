@@ -162,7 +162,12 @@ function M.complete(client,source,options)
         end
     end
     local allowed,why=ready();if not allowed then return nil,why end
-    local result,err=Resources.prepare(source,assets,resource_options)
+    -- With no remote URLs, the validated source and local assets have not
+    -- changed. Reuse the first preparation after the same liveness/source
+    -- check instead of parsing the entire chapter a second time.
+    local result,err
+    if #initial.remote_urls==0 then result=initial
+    else result,err=Resources.prepare(source,assets,resource_options) end
     if not result then return nil,err end
     if result.remote_references~=0 then return nil,'source_changed' end
     result.downloaded_images=downloaded

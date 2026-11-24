@@ -120,4 +120,47 @@ local too_many={book_id='42',chapter_uid='7',book_version=1,catalog_sha256=strin
     body=large_body,css='',assets={},body_parts={{source='text/7.xhtml',data=large_body}},style_parts={}}
 calls=0;value,reason=Remote.complete(client,too_many,options)
 assert(not value and reason=='native_resources/remote_limit' and calls==0)
+
+-- A chapter with no remote resources is prepared once, but still passes the
+-- same source and session checks before its first result is returned.
+local Resources=require('weread.lib.native_chapter_resources')
+local original_prepare=Resources.prepare
+local prepares=0
+Resources.prepare=function(...) prepares=prepares+1;return original_prepare(...) end
+local function local_source(html,assets)
+    return {book_id='42',chapter_uid='7',book_version=1,catalog_sha256=string.rep('a',64),
+        source_channel='eink',coordinate_source_authoritative=false,is_text=false,unusable_resources=0,
+        body=html,css='',assets=assets or {},body_parts={{source='text/7.xhtml',data=html}},style_parts={}}
+end
+alive=true
+local plain=local_source('<p>纯文字章节</p>')
+local local_result=assert(Remote.complete(client,plain,options))
+assert(prepares==1 and local_result.xhtml==plain.body and local_result.downloaded_images==0 and calls==0)
+prepares=0
+local local_image=local_source('<link rel="stylesheet" href="../style/book.css"/><img src="../cover.png"/>',
+    {{source='cover.png',data=png,media_type='image/png'}})
+local_image.css='p{background:url("../cover.png")}'
+local_image.style_parts={{source='style/book.css',data=local_image.css}}
+local_result=assert(Remote.complete(client,local_image,options))
+assert(prepares==1 and #local_result.assets==1 and local_result.localized_references==2
+    and local_result.css:find(local_result.assets[1].href,1,true))
+prepares=0
+local missing_local=local_source('<img src="../missing.png"/>')
+local_result=assert(Remote.complete(client,missing_local,fallback))
+assert(prepares==1 and local_result.missing_images==1 and #local_result.assets==1)
+prepares=0
+local changed=local_source('<p>正文</p>');local checks=0
+value,reason=Remote.complete(client,changed,{is_current=function()
+    checks=checks+1
+    if checks==2 then changed.body_parts[1].data='different' end
+    return true
+end})
+assert(not value and reason=='source_changed' and prepares==1,'changed source reused stale preparation')
+prepares=0;checks=0
+value,reason=Remote.complete(client,plain,{is_current=function() checks=checks+1;return checks<2 end})
+assert(not value and reason=='session_changed' and prepares==1,'cancelled session reused preparation')
+prepares=0;mode,calls,alive='ok',0,true
+assert(Remote.complete(client,source,options))
+assert(prepares==2 and calls==1,'remote image was not prepared again after download')
+Resources.prepare=original_prepare
 print('PASS: bounded native chapter remote images, authorization isolation and cancellation')

@@ -1,0 +1,44 @@
+{
+  "result": "PASS",
+  "baseline_commit": "1ef46ada086107aae6feaf0dde6194a58295ef3d",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "synthetic 470 KB Chinese chapter with plain text, local image, missing local image, and simulated remote image variants",
+  "chapters_per_run": 3,
+  "runs_each": 3,
+  "cpu_ms_median": {
+    "plain_before": 81.046,
+    "plain_after": 39.534,
+    "local_image_before": 80.748,
+    "local_image_after": 40.904,
+    "missing_local_before": 80.772,
+    "missing_local_after": 39.724,
+    "simulated_remote_before": 81.165,
+    "simulated_remote_after": 80.742
+  },
+  "preparation_passes_per_chapter": {
+    "without_remote_before": 2,
+    "without_remote_after": 1,
+    "with_remote_before_and_after": 2
+  },
+  "prepared_results_equal": true,
+  "source_change_and_session_cancellation_rejected": true,
+  "owner_readonly": {
+    "result": "PASS",
+    "chapters": 4,
+    "unavailable_not_requested": 11,
+    "screen_sizes": 2,
+    "source_matches": true,
+    "repeat_skipped": true,
+    "fresh_offline_render": true,
+    "shelf_and_web_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "CPU time measures resource preparation only on a desktop emulator, not network, total chapter opening, display refresh or real Kindle speed.",
+    "The remote image response is synthetic; no external image request is made by the benchmark."
+  ]
+}
