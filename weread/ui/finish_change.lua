@@ -44,6 +44,7 @@ function M.open(host,id,resolving)
     local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host,true) end
     local offline=require('weread.ui.finish_offline')
     offline.cancel_sync(host,true)
+    if require('weread.ui.reading_state_change').block(host) then return false end
     M.cancel(host)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)

@@ -16,6 +16,8 @@ end
 function M.cancel(host)
     local reading_state=package.loaded['weread.ui.reading_state']
     if reading_state then reading_state.cancel(host) end
+    local reading_change=package.loaded['weread.ui.reading_state_change']
+    if reading_change then reading_change.cancel(host) end
     local offline=package.loaded['weread.ui.finish_offline']
     if offline then offline.cancel_dialog(host) end
     local member_offline=package.loaded['weread.ui.membership_offline']
@@ -97,6 +99,14 @@ function M.show(host,id)
         items[#items+1]={text=_('Check started-reading status'),callback=function()
             if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.reading_state').open(host,id,menu) end
         end}
+        items[#items+1]={text=_('Change started-reading status'),callback=function()
+            if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.reading_state_change').open(host,id) end
+        end}
+        if require('weread.ui.reading_state_change').pending(host) then
+            items[#items+1]={text=_('Check pending started-reading change'),callback=function()
+                if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.reading_state_change').open(host,id,true) end
+            end}
+        end
     end
     if host.client and host.library_db.open and id:match('^[1-9]%d*$') and #id<=20 then
         items[#items+1]={text=_('Change private reading'),callback=function()
@@ -141,6 +151,7 @@ function M.show(host,id)
             local owned=host._shelf_state_menu==instance
             if host._shelf_state_menu==instance then
                 local reading_state=package.loaded['weread.ui.reading_state'];if reading_state then reading_state.cancel(host) end
+                local reading_change=package.loaded['weread.ui.reading_state_change'];if reading_change then reading_change.cancel(host) end
                 local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_dialog(host) end
                 if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
                 if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end

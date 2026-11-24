@@ -90,7 +90,7 @@ function M.cancel_sync(host,preserve_retry)
     if preserve_retry then Paused.capture(host,'finish',account,job) end
 end
 local function ui_blocked(host)
-    return host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui
+    return host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui or host._reading_state_change_ui
         or host._finish_offline_dialog or host._membership_offline_dialog
         or (host._membership_offline_sync and host._membership_offline_sync.job)
 end
@@ -133,6 +133,8 @@ local function allowed(host,account)
         or ui_blocked(host) then return false end
     local private,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private or private_error then return false end
+    local reading,reading_error=require('weread.ui.reading_state_change').pending(host)
+    if reading or reading_error then return false end
     if host.shelf_membership then
         local member,member_error=host.shelf_membership:pending()
         if member or member_error then return false end

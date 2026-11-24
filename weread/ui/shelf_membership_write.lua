@@ -59,6 +59,7 @@ function M.open(host,id,resolving,suggested_title)
         if reason then host:showInfo(_('Could not read offline bookshelf changes.'));return false end
         if pending or not host:isNetworkConnected() then return membership_offline.open(host,id,suggested_title) end
     end
+    if require('weread.ui.reading_state_change').block(host) then return false end
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private_pending then

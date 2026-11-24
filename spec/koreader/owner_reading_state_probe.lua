@@ -46,7 +46,20 @@ local ok,result=pcall(function()
         native[#native+1]=value.started
     end
     assert(requests==#input.samples)
-    return {model=model,native=native,requests=requests}
+    local output={model=model,native=native,requests=requests}
+    if input.shelf then
+        stage='contract'
+        local Contract=require('weread.lib.reading_state_change_contract')
+        for i,sample in ipairs(input.samples) do
+            local plan=Contract.make(input.shelf,sample.raw,sample.book_id,selected.scope.vid,not model[i])
+            assert(Contract.valid_metadata(plan.metadata) and Contract.unchanged(input.shelf,sample.raw,plan.metadata,selected.scope.vid))
+            local changed=json.decode(json.encode(sample.raw));changed.book.isStartReading=model[i] and 0 or 1
+            changed.book.startReadingTime=model[i] and 0 or 123
+            assert(Contract.check(input.shelf,changed,plan.metadata,selected.scope.vid))
+        end
+        output.contract=true
+    end
+    return output
 end)
 io.stdout:write('\nWEREAD_OWNER_READING_STATE='..json.encode(ok and result or {error='probe_failed',stage=stage,requests=requests})..'\n')
 os.exit(ok and 0 or 1)

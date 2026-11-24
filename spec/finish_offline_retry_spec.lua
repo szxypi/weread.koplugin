@@ -10,6 +10,7 @@ package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_,options) return options end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end,T=function(v) return v end} end
 package.loaded['weread.ui.shelf_flag_change']={pending=function() end}
+package.loaded['weread.ui.reading_state_change']={pending=function() end,cancel=function() end,block=function() return false end}
 package.loaded['weread.ui.finish_change']={service=function() return {} end}
 local active
 package.loaded['weread.lib.finish_queue_sync']={new=function(_self,options)

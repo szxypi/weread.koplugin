@@ -10,6 +10,9 @@ package.preload['ui/widget/confirmbox']=function() return {new=function(_,value)
 package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end,T=function(v) return v end} end
 package.loaded['weread.ui.finish_change']={service=function() return {} end,pending=function() end}
 package.loaded['weread.ui.shelf_flag_change']={pending=function() end}
+local reading_pending,reading_error
+package.loaded['weread.ui.reading_state_change']={pending=function() return reading_pending,reading_error end,
+    cancel=function() end,block=function() return false end}
 package.loaded['weread.ui.shelf_state']={show=function() end}
 local last_finish,last_member,pump_result
 package.loaded['weread.lib.finish_queue_sync']={new=function(_,options)
@@ -25,6 +28,7 @@ local Member=require('weread.ui.membership_offline')
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local function fixture(kind,claimed)
     UI.tasks={};last_finish,last_member,pump_result=nil,nil,true
+    reading_pending,reading_error=nil,nil
     local s={account='one',online=true,entry={book_id='41',id='token',phase=claimed and 'dispatching' or 'queued'}}
     local host={library_db={},client={},shelf_membership={}}
     function host.library_db:accountKey() return s.account end
@@ -42,6 +46,16 @@ local function fixture(kind,claimed)
         host._membership_offline_queue=store;host._membership_offline_sync=sync;host._membership_offline_account='one'
     end
     return host,s
+end
+do
+    local host=fixture('finish');host._finish_offline_sync=nil
+    expect(Finish.can_resume_paused(host,'one') and Member.can_resume_paused(host,'one'),'baseline queue unexpectedly blocked')
+    reading_pending={phase='pending'}
+    expect(not Finish.can_resume_paused(host,'one') and not Member.can_resume_paused(host,'one'),'pending started status allowed offline write')
+    reading_pending=nil;reading_error='storage'
+    expect(not Finish.can_resume_paused(host,'one') and not Member.can_resume_paused(host,'one'),'unreadable started journal allowed offline write')
+    reading_error=nil;host._reading_state_change_ui={}
+    expect(not Finish.can_resume_paused(host,'one') and not Member.can_resume_paused(host,'one'),'active started change allowed offline write')
 end
 for _,kind in ipairs({'finish','membership'}) do
     local module=kind=='finish' and Finish or Member

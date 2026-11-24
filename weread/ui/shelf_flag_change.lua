@@ -44,6 +44,7 @@ function M.open(host,id,resolving,kind)
     kind=kind or 'private';if kind~='private' and kind~='pinned' then return false end
     local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host,true) end
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host,true) end
+    if require('weread.ui.reading_state_change').block(host) then return false end
     M.cancel(host)
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end

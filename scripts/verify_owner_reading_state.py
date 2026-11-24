@@ -14,7 +14,7 @@ from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import WebSourceProbe
 
 
-def inspect(saved, credentials, probe, command, *, ui_kind=None):
+def inspect(saved, credentials, probe, command, *, ui_kind=None, contract=False):
     before = probe.shelf(credentials)
     initial = project(before)
     ordinary, imported = [], []
@@ -50,7 +50,12 @@ def inspect(saved, credentials, probe, command, *, ui_kind=None):
                     raise ValueError('owner_reading_state/identity')
         samples.append({'book_id': identity, 'raw': raw})
         expected.append(flag == 1)
-    encoded = json.dumps({'samples': samples, 'credentials': credentials}).encode()
+    payload = {'samples': samples, 'credentials': credentials}
+    if contract:
+        if ui_kind:
+            raise ValueError('owner_reading_state/scope')
+        payload['shelf'] = before
+    encoded = json.dumps(payload).encode()
     if len(encoded) > 2 * 1024 * 1024:
         raise ValueError('owner_reading_state/size')
     child = subprocess.run(command, input=encoded, capture_output=True, timeout=180)
@@ -61,13 +66,15 @@ def inspect(saved, credentials, probe, command, *, ui_kind=None):
     expected_result = {'model': expected, 'native': expected, 'requests': len(ids)}
     if ui_kind:
         expected_result['ui'] = True
+    if contract:
+        expected_result['contract'] = True
     if result != expected_result:
         raise ValueError('owner_reading_state/mismatch')
     if project(probe.shelf(credentials)) != initial:
         raise ValueError('owner_reading_state/shelf_changed')
     return dict(result='OWNER_READ_ONLY_VERIFIED', ordinary_books=sum(not value.startswith('CB_') for value in ids),
                 imported_books=sum(value.startswith('CB_') for value in ids), lua_projection_matches=True,
-                native_https_readback_matches=True, full_plugin_ui_verified=bool(ui_kind),
+                native_https_readback_matches=True, full_plugin_ui_verified=bool(ui_kind), change_plan_verified=contract,
                 account_data_writes=0, shelf_unchanged=True)
 
 
@@ -75,9 +82,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--ui-kind', choices=('ordinary', 'imported'))
+    parser.add_argument('--contract', action='store_true')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    if args.saved_session != bool(args.lua_command) or args.ui_kind and not args.saved_session:
+    if args.saved_session != bool(args.lua_command) or (args.ui_kind or args.contract) and not args.saved_session or args.ui_kind and args.contract:
         parser.error('saved session and Lua command are required together')
     if not args.saved_session:
         print(json.dumps({'result': 'OFFLINE_ONLY', 'account_data_writes': 0}))
@@ -94,7 +102,7 @@ def main(argv=None):
         for key, value in saved['cookies'].items():
             web.set_cookie(key, value)
         web.verify_account()
-        report = inspect(saved, credentials, ReadOnlyProbe(), args.lua_command, ui_kind=args.ui_kind)
+        report = inspect(saved, credentials, ReadOnlyProbe(), args.lua_command, ui_kind=args.ui_kind, contract=args.contract)
         if store.load() != saved or native_store.load(saved['vid']) != credentials:
             raise ValueError('owner_reading_state/session_changed')
         web.verify_account()

@@ -144,6 +144,23 @@ def execute(saved, grant, web, plan_store, actions, proofs, stage, *, prepare_on
             or selection['grant_hash'] != hash_value(grant)):
         raise ValueError('ordinary_reading/plan')
     native = ScopedNative(grant, selection, actions, proofs, current)
+    if stage == 'audit':
+        for name in STAGES:
+            action, _ = actions[name].read()
+            proof, _ = proofs[name].read()
+            if (not action or action['phase'] != 'claimed' or action['plan']['selection'] != selection
+                    or action['plan']['record'] != {'kind': name} or action['plan']['body'] != request(name, selection['book_id'])[1]
+                    or not proof or proof['phase'] != 'claimed' or proof['plan']['selection'] != selection
+                    or proof['plan']['record'].get('kind') != name + '_observed'
+                    or name in ('add', 'remove') and proof['plan']['record'].get('acknowledged') is not True):
+                raise ValueError('ordinary_reading/proof')
+        first, second = observation(native, web, selection), observation(native, web, selection)
+        last, _ = proofs['remove'].read()
+        if (current() is not True or first != second or first != plan['baseline']
+                or last['plan']['baseline']['snapshot_hash'] != hash_value(first)):
+            raise ValueError('ordinary_reading/changed')
+        return {'result': 'RESTORED_READ_ONLY', 'stage': stage, 'data_posts': 0,
+                'shelf_progress_notes_restored': True, 'both_channels_match': True, 'no_automatic_replay': True}
     result = run(stage, plan, actions, proofs, current, lambda: observation(native, web, selection), native.send)
     result.update(stage=stage, data_posts=native.attempts)
     return result
@@ -152,7 +169,7 @@ def execute(saved, grant, web, plan_store, actions, proofs, stage, *, prepare_on
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
-    parser.add_argument('--stage', choices=('preview', 'prepare') + STAGES)
+    parser.add_argument('--stage', choices=('preview', 'prepare', 'audit') + STAGES)
     args = parser.parse_args(argv)
     if args.saved_session != bool(args.stage):
         parser.error('saved session requires one explicit stage')
@@ -186,7 +203,7 @@ def main(argv=None):
         if saved:
             saved.clear()
     print(json.dumps(report, indent=2))
-    return 0 if report['result'] in ('READ_ONLY_PREVIEW', 'PREPARED', 'OBSERVED') else 1
+    return 0 if report['result'] in ('READ_ONLY_PREVIEW', 'PREPARED', 'OBSERVED', 'RESTORED_READ_ONLY') else 1
 
 
 if __name__ == '__main__':

@@ -6,6 +6,7 @@ package.preload['ui/uimanager']=function() return UI end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.loaded['weread.ui.finish_change']={pending=function() return nil end}
 package.loaded['weread.ui.shelf_flag_change']={pending=function() return nil end}
+package.loaded['weread.ui.reading_state_change']={pending=function() end,cancel=function() end,block=function() return false end}
 local options
 package.preload['weread.lib.membership_queue_sync']=function() return {new=function(_self,value)
     options=value;return {pump=function() return true end}

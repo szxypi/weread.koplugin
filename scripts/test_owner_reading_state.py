@@ -56,6 +56,17 @@ class OwnerReadingStateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 inspect({'vid': '880088'}, {'vid': '880088'}, Probe(), ['synthetic-command'], ui_kind='imported')
 
+    def test_change_contract_requires_separate_proof_and_in_memory_shelf(self):
+        result = SimpleNamespace(returncode=0, stdout=b'\nWEREAD_OWNER_READING_STATE={"model":[false,true],"native":[false,true],"requests":2,"contract":true}\n')
+        with patch('verify_owner_reading_state.subprocess.run', return_value=result) as child:
+            report = inspect({'vid': '880088'}, {'vid': '880088'}, Probe(), ['synthetic-command'], contract=True)
+        self.assertTrue(report['change_plan_verified'])
+        self.assertIn('shelf', json.loads(child.call_args.kwargs['input']))
+        result.stdout = b'\nWEREAD_OWNER_READING_STATE={"model":[false,true],"native":[false,true],"requests":2}\n'
+        with patch('verify_owner_reading_state.subprocess.run', return_value=result):
+            with self.assertRaises(ValueError):
+                inspect({'vid': '880088'}, {'vid': '880088'}, Probe(), ['synthetic-command'], contract=True)
+
     def test_offline_does_not_load_credentials(self):
         with patch('verify_owner_reading_state.SessionStore') as store:
             self.assertEqual(main([]), 0)

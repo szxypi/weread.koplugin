@@ -1,6 +1,7 @@
 package.path='./?.lua;'..package.path
 package.preload['ui/uimanager']=function() return {close=function(_self,menu) menu.closed=true end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
+package.loaded['weread.ui.reading_state_change']={pending=function() end,cancel=function() end,block=function() return false end}
 local State=require('weread.ui.shelf_state')
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
@@ -78,12 +79,22 @@ package.loaded['weread.ui.shelf_flag_change']={pending=function() end}
 local opened,stopped
 package.loaded['weread.ui.reading_state']={open=function(_target,id,owned) opened={id=id,menu=owned} end,
     cancel=function() stopped=(stopped or 0)+1 end}
+local change_open,change_pending
+package.loaded['weread.ui.reading_state_change']={open=function(_target,id,resolving) change_open={id=id,resolving=resolving} end,
+    pending=function() return change_pending end,cancel=function() end,block=function() return false end}
 for _,id in ipairs({'42','CB_abc'}) do
     host,value=fixture();host.client={};host.library_db.open=function() end
     host.library_db.getShelfStatus=function() return value.entry end
     State.show(host,id);menu=host._shelf_state_menu
     row(menu,'Check started-reading status').callback()
     expect(opened and opened.id==id and opened.menu==menu,'reading state action lost target')
+    row(menu,'Change started-reading status').callback()
+    expect(change_open and change_open.id==id and not change_open.resolving,'reading change action lost target')
+    change_open=nil;change_pending={metadata={book_id=id}}
+    State.show(host,id);menu=host._shelf_state_menu
+    row(menu,'Check pending started-reading change').callback()
+    expect(change_open and change_open.id==id and change_open.resolving,'pending reading change could not be checked')
+    change_pending=nil;change_open=nil
     opened=nil;menu:onCloseWidget()
     row(menu,'Check started-reading status').callback()
     expect(not opened and stopped>0,'dismissed status menu retained reading action')

@@ -1,0 +1,29 @@
+{
+  "ordinary_book_initially_outside_shelf": true,
+  "initial_position_and_reading_counters_zero": true,
+  "initial_highlights_and_thoughts_empty": true,
+  "steps": [
+    {"operation": "add", "attempts": 1, "acknowledged": true, "independent_readback": true},
+    {"operation": "mark_started", "attempts": 1, "acknowledged": false, "independent_readback": true},
+    {"operation": "restore_unstarted", "attempts": 1, "acknowledged": false, "independent_readback": true},
+    {"operation": "remove", "attempts": 1, "acknowledged": true, "independent_readback": true}
+  ],
+  "new_process_audit": {
+    "both_channels_match": true,
+    "shelf_groups_position_counters_and_notes_restored": true,
+    "account_data_writes": 0
+  },
+  "native_lua_change_plan": {
+    "ordinary_books": 5,
+    "imported_books": 5,
+    "synthetic_status_changes_only": true,
+    "account_data_writes": 0
+  },
+  "renewal_after_independent_401": {
+    "authentication_posts": 1,
+    "account_data_writes": 0,
+    "saved_to_keychain": true
+  },
+  "automatic_replays": 0,
+  "physical_device_verified": false
+}

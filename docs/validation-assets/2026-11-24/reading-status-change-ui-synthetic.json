@@ -1,0 +1,19 @@
+{
+  "packaged_koreader_synthetic": [
+    {"width": 600, "height": 800, "dpi": 167, "result": "PASS", "checks": 31, "synthetic_posts": 7, "screenshots": 6},
+    {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS", "checks": 31, "synthetic_posts": 7, "screenshots": 6}
+  ],
+  "scenarios": [
+    "ordinary_and_imported_mark_and_restore",
+    "lost_receipt_independent_readback",
+    "unconfirmed_result_persists_and_is_not_replayed",
+    "restart_and_review_current_state",
+    "finished_private_pin_and_membership_blocked_while_pending"
+  ],
+  "sqlite_concurrency_restart_and_corruption_checked": true,
+  "installed_bytes_match": true,
+  "temporary_profiles_removed": true,
+  "external_account_data_writes": 0,
+  "owner_production_ui_write_verified": false,
+  "physical_device_verified": false
+}

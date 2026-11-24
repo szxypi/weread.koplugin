@@ -4,6 +4,7 @@ package.preload['weread.lib.plugin_util']=function()return {tr=function(text)ret
 package.loaded['weread.ui.finish_offline']={get=function()end,cancel_dialog=function()end}
 package.loaded['weread.ui.membership_offline']={get=function()end,cancel_dialog=function()end}
 package.loaded['weread.ui.finish_change']={pending=function()end}
+package.loaded['weread.ui.reading_state_change']={pending=function()end,cancel=function()end,block=function()return false end}
 local pending,opened=nil,nil
 package.loaded['weread.ui.shelf_flag_change']={pending=function()return pending end,
     open=function(_host,id,resolving,kind)opened={id=id,resolving=resolving,kind=kind}end}

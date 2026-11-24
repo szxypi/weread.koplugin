@@ -154,6 +154,7 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(execute(saved, grant, Web(), plan_store, actions, proofs, 'prepare')['result'], 'PREPARED')
             for stage in STAGES:
                 self.assertEqual(execute(saved, grant, Web(), plan_store, actions, proofs, stage)['result'], 'OBSERVED')
+            self.assertEqual(execute(saved, grant, Web(), plan_store, actions, proofs, 'audit')['result'], 'RESTORED_READ_ONLY')
         self.assertEqual(state['posts'], list(STAGES))
         self.assertEqual(state['shelf'], source())
         self.assertEqual(state['book']['isStartReading'], 0)
