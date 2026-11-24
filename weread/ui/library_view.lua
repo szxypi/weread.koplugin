@@ -35,6 +35,7 @@ local CoverLayout = require("weread.lib.cover_layout")
 local CoverMask = require("weread.lib.cover_mask")
 local ShelfListPaint = require("weread.lib.shelf_list_paint")
 local ShelfListEvents = require("weread.lib.shelf_list_events")
+local ShelfVisible = require("weread.lib.shelf_visible")
 local CoverBitmapCache = require("weread.lib.shelf_cover_bitmap_cache")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -1021,6 +1022,9 @@ function LibraryView:getVisibleBooks()
     end
     local offset = self:getScrollOffset()
     local top, height, y = offset and offset.y or 0, self.scroll.dimen.h, 0
+    if self._list_bottoms and #self._list_bottoms == #self._item_rows then
+        return ShelfVisible.books(source, self._list_bottoms, top, height)
+    end
     for index, row in ipairs(self._item_rows) do
         local bottom = y + row:getSize().h
         if bottom > top and y < top + height then result[#result + 1] = source[index] end
@@ -1294,6 +1298,7 @@ function LibraryView:content()
     }
     self._item_rows = {}
     self._focus_item_rows = {}
+    self._list_bottoms = nil
     if group == ShelfListGroup then content._shelf_rows = self._item_rows end
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
@@ -1360,7 +1365,9 @@ function LibraryView:content()
         end
     else
         local lazy_height, lazy_status_widths
+        local list_y = 0
         if not self.paged then
+            self._list_bottoms = {}
             local probe = ShelfRow:new{ text = "", status = "", width = self.list_width,
                 font_size = self.mode == "books" and 20 or 22 }
             lazy_height = probe:getSize().h
@@ -1387,6 +1394,11 @@ function LibraryView:content()
             }
             shelf_row._shelf_list_row = not self.paged
             self._item_rows[#self._item_rows + 1] = shelf_row
+            if self._list_bottoms then
+                local bottom = list_y + shelf_row:getSize().h
+                self._list_bottoms[#self._list_bottoms + 1] = bottom
+                list_y = bottom + 1
+            end
             self._focus_item_rows[#self._focus_item_rows + 1] = { shelf_row }
             table.insert(content, shelf_row)
             table.insert(content, HorizontalGroup:new{

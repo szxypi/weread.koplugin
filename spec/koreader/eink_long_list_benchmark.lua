@@ -58,11 +58,23 @@ local ok,reason=pcall(function()
         assert(#actual==#expected)
         for i,book in ipairs(expected) do assert(actual[i]==book) end
     end
+    for i=1,200 do
+        local top=math.floor(((i*7919)%10000)/10000*total)
+        offset.y=top;local actual,expected=view:getVisibleBooks(),reference(top)
+        assert(#actual==#expected)
+        for j,book in ipairs(expected) do assert(actual[j]==book) end
+    end
     collectgarbage('collect');local memory=math.floor(collectgarbage('count'))
+    local size_visits,original_get_size=0,{}
+    for i,row in ipairs(view._item_rows) do
+        local original=row.getSize;original_get_size[i]=rawget(row,'getSize') or false
+        row.getSize=function(self,...) size_visits=size_visits+1;return original(self,...) end
+    end
     local cpu,wall=os.clock(),socket.gettime()
     for i=1,2000 do offset.y=offsets[(i-1)%#offsets+1];assert(#view:getVisibleBooks()>0) end
     local lookup_wall=math.floor((socket.gettime()-wall)*1000+.5)
     local lookup_cpu=math.floor((os.clock()-cpu)*1000+.5)
+    for i,row in ipairs(view._item_rows) do row.getSize=original_get_size[i] or nil end
     view.scroll.getScrolledOffset=get_offset
     local painted=0
     local max_materialized=frame_count
@@ -195,7 +207,7 @@ local ok,reason=pcall(function()
     assert(account_selected==account_book,'public-account row tap failed after scrolling')
     UI:close(account_view)
     report={result='PASS',books=#books,queries=2000,initialization_ms=build_ms,
-        lookup_wall_ms=lookup_wall,lookup_cpu_ms=lookup_cpu,
+        lookup_wall_ms=lookup_wall,lookup_cpu_ms=lookup_cpu,lookup_row_visits=size_visits,
         repaint_wall_ms=repaint_ms,row_paints=paint_count,gesture_verified=true,focus_verified=true,
         event_row_visits=event_visits,event_dispatch_ms=event_ms,scroll_event_row_visits=scroll_event_visits,
         swipe_verified=true,pan_verified=true,

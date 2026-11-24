@@ -268,6 +268,17 @@ local continuous_view = LibraryView.show({
 expect(#continuous_view._item_rows == #books
         and continuous_view._page_buttons == nil,
     "continuous bookshelf did not retain the complete result list")
+expect(#continuous_view._list_bottoms == #books, "continuous bookshelf did not index all rows")
+continuous_view.scroll.getScrolledOffset = function() return { y = 37 } end
+local indexed_visible = continuous_view:getVisibleBooks()
+local saved_bottoms = continuous_view._list_bottoms
+continuous_view._list_bottoms = nil
+local scanned_visible = continuous_view:getVisibleBooks()
+continuous_view._list_bottoms = saved_bottoms
+expect(#indexed_visible == #scanned_visible, "indexed and fallback visible counts differ")
+for i, book in ipairs(scanned_visible) do
+    expect(indexed_visible[i] == book, "indexed and fallback visible order differs")
+end
 
 local accounts = {}
 for index = 1, 12 do

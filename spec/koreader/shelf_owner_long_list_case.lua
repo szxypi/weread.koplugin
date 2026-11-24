@@ -13,6 +13,23 @@ return function(plugin)
     local view=assert(plugin.shelf_view)
     assert(not view.paged and not view.cover_mode and #view.books>20 and #view._item_rows==#view.books)
     UI:forceRePaint()
+    local maximum=assert(view.scroll._max_scroll_offset_y)
+    for _,target in ipairs({0,math.floor(maximum/2),maximum}) do
+        view.scroll:_scrollBy(0,target-(view:getScrollOffset().y or 0));UI:forceRePaint()
+        local top=view:getScrollOffset().y or 0
+        local bottom=top+view.scroll.dimen.h
+        local expected,y={},0
+        for i,row in ipairs(view._item_rows) do
+            local finish=y+row:getSize().h
+            if finish>top and y<bottom then expected[#expected+1]=view.books[i] end
+            if y>=bottom then break end
+            y=finish+1
+        end
+        local actual=view:getVisibleBooks()
+        assert(#actual==#expected,'owner visible-book count differed from independent scan')
+        for i,book in ipairs(expected) do assert(actual[i]==book,'owner visible-book order differed from scan') end
+    end
+    view.scroll:_scrollBy(0,-(view:getScrollOffset().y or 0));UI:forceRePaint()
     local count=0
     for _,row in ipairs(view._item_rows) do
         local original=row.paintTo

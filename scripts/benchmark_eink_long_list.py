@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--max-row-paints', type=int, help='Fail if the measured repaint count exceeds this limit')
     parser.add_argument('--max-event-visits', type=int, help='Fail if point gestures visit too many shelf rows')
     parser.add_argument('--max-materialized-rows', type=int, help='Fail if too many shelf row controls are retained')
+    parser.add_argument('--max-visible-visits', type=int, help='Fail if visible-book lookups examine too many shelf rows')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     runtime = args.koreader.resolve()
@@ -58,6 +59,8 @@ def main():
             raise ValueError('too many rows received point gestures')
         if args.max_materialized_rows is not None and result['max_materialized_rows'] > args.max_materialized_rows:
             raise ValueError('too many row controls remained active')
+        if args.max_visible_visits is not None and result['lookup_row_visits'] > args.max_visible_visits:
+            raise ValueError('visible-book lookups examined too many rows')
 
 
 if __name__ == '__main__':
