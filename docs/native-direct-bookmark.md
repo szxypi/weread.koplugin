@@ -13,3 +13,5 @@
 随后另一条真实测试书签在两种模拟尺寸下显示角标并点击，确认打开的记录与书签一致；断网新进程重开后再次点击，本地 KOReader 批注保持不变。该书签创建和删除各一次并独立回读，原有可观察状态及章节索引保持，见[角标验证记录](validation-assets/2026-11-23/native-direct-bookmark-indicator-owner.json)。更多书籍及实体 Kindle 仍待验收。
 
 书签批量索引优化后再次以真实账号进行核对：已有书签所在章节未通过当前可读权限筛选，因此选择可读章节中新建一条临时书签，两尺寸跨章定位、角标点击及离线重开通过；删除后独立回读，原有可观察状态和阅读位置保持。本轮恰好两次账号数据修改，未重发，详见[记录](validation-assets/2026-11-25/eink-bookmark-batch-owner.json)。现有书签的可读样本及实体 Kindle 仍待验证。
+
+进一步合并正文扫描后，第一次试验遇到授权过期，临时书签已经核对并删除；该次跨章验证未完成，见[恢复记录](validation-assets/2026-11-25/eink-bookmark-scan-recovery.json)。另一次独立试验完成两尺寸的跨章定位、角标点击和离线重开，临时书签删除后独立回读，原有记录和阅读位置保持，见[验证记录](validation-assets/2026-11-25/eink-bookmark-scan-owner.json)。实体 Kindle 和其他真实书签仍待验收。
