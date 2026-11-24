@@ -32,6 +32,7 @@ local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
+local CoverMask = require("weread.lib.cover_mask")
 local CoverBitmapCache = require("weread.lib.shelf_cover_bitmap_cache")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -57,24 +58,7 @@ function CoverShadow:paintTo(bb, x, y)
     bb:paintRoundedRect(x, y, self.width, self.height, Blitbuffer.gray(0.5), self.radius)
 end
 
-local function inside_rounded_rect(px, py, width, height, radius)
-    if px < 0 or py < 0 or px >= width or py >= height then return false end
-    if radius <= 0 then return true end
-    local center_x, center_y
-    if px < radius and py < radius then
-        center_x, center_y = radius, radius
-    elseif px >= width - radius and py < radius then
-        center_x, center_y = width - radius - 1, radius
-    elseif px < radius and py >= height - radius then
-        center_x, center_y = radius, height - radius - 1
-    elseif px >= width - radius and py >= height - radius then
-        center_x, center_y = width - radius - 1, height - radius - 1
-    else
-        return true
-    end
-    local delta_x, delta_y = px - center_x, py - center_y
-    return delta_x * delta_x + delta_y * delta_y <= radius * radius
-end
+local inside_rounded_rect = CoverMask.inside
 
 -- FrameContainer does not clip its child to its radius. This card masks the
 -- four image corners before painting one anti-aliased border, so the cover,
@@ -96,6 +80,8 @@ function RoundedCoverCard:init()
     self.radius = math.max(0, math.floor(tonumber(self.radius) or 0))
     self.border_size = math.max(0, math.floor(tonumber(self.border_size) or 0))
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.corner_spans = CoverMask.spans(self.width, self.height, self.radius,
+        self.shadow_offset, not not self.shadow_color)
 end
 
 function RoundedCoverCard:free(...)
@@ -105,38 +91,15 @@ end
 -- Plain Widget wrappers do not forward CloseWidget to their owned content.
 RoundedCoverCard.onCloseWidget = RoundedCoverCard.free
 
-function RoundedCoverCard:_masked_corner_color(px, py)
-    if self.shadow_color
-        and inside_rounded_rect(px - self.shadow_offset, py - self.shadow_offset,
-            self.width, self.height, self.radius) then
-        return self.shadow_color
-    end
-    return Blitbuffer.COLOR_WHITE
-end
-
 function RoundedCoverCard:paintTo(bb, x, y)
     if self.white_background then
         bb:paintRect(x, y, self.width, self.height, Blitbuffer.COLOR_WHITE)
     end
     if self.inner then self.inner:paintTo(bb, x + self.border_size, y + self.border_size) end
     local radius = self.radius
-    if radius > 0 then
-        for dy = 0, radius - 1 do
-            for dx = 0, radius - 1 do
-                local corners = {
-                    { dx, dy },
-                    { self.width - 1 - dx, dy },
-                    { dx, self.height - 1 - dy },
-                    { self.width - 1 - dx, self.height - 1 - dy },
-                }
-                for _, point in ipairs(corners) do
-                    if not inside_rounded_rect(point[1], point[2], self.width, self.height, radius) then
-                        bb:paintRect(x + point[1], y + point[2], 1, 1,
-                            self:_masked_corner_color(point[1], point[2]))
-                    end
-                end
-            end
-        end
+    for _, span in ipairs(self.corner_spans) do
+        bb:paintRect(x + span.x, y + span.y, span.width, 1,
+            span.color == "shadow" and self.shadow_color or Blitbuffer.COLOR_WHITE)
     end
     if self.border_size > 0 then
         bb:paintBorder(x, y, self.width, self.height, self.border_size,
