@@ -1,0 +1,47 @@
+{
+  "result": "PASS",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "runs": 3,
+  "measurements": [
+    {"bytes": 1024, "iterations": 1000, "fallback_cpu_median_ms": 47, "optimized_cpu_median_ms": 2},
+    {"bytes": 1048576, "iterations": 8, "fallback_cpu_median_ms": 345, "optimized_cpu_median_ms": 11}
+  ],
+  "independent_binary_vectors": 63,
+  "max_test_bytes": 8388608,
+  "existing_cover_cache_filename_verified": true,
+  "fallback_on_missing_invalid_or_failing_backend": true,
+  "synthetic_epub_and_txt_two_sizes": true,
+  "owner_shelf_cover_live_and_offline": {
+    "width": 1264,
+    "height": 1680,
+    "books": 140,
+    "visible_cover_cells": 24,
+    "offline_requests": 0,
+    "result": "PASS",
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credential_rotation_saved": false,
+    "profile_removed": true
+  },
+  "owner_readonly": {
+    "width": 1264,
+    "height": 1680,
+    "result": "PASS",
+    "source_and_page_turn_verified": true,
+    "fresh_offline_reopen_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credential_rotation_saved": false,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "Desktop emulator CPU time for hashing only; not overall download or page-turn latency.",
+    "MD5 is retained solely for the existing protocol and cache format.",
+    "No measurement on physical Kindle hardware."
+  ]
+}

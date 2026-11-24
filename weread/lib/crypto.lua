@@ -65,8 +65,7 @@ for i = 1, 64 do
     md5_k[i] = math.floor(math.abs(math.sin(i)) * 4294967296)
 end
 
-function Crypto.md5_hex(message)
-    message = tostring(message or "")
+local function md5_lua(message)
     local bit_len = #message * 8
     local padding_len = (56 - (#message + 1) % 64) % 64
     message = message .. string.char(0x80) .. string.rep("\0", padding_len)
@@ -121,6 +120,36 @@ function Crypto.md5_hex(message)
         word_to_le_hex(c0),
         word_to_le_hex(d0),
     })
+end
+
+-- The legacy WeRead shard protocol and cover cache use MD5 for compatibility.
+-- Select KOReader's implementation only after independent known-answer checks.
+local fast_md5
+local function load_md5()
+    fast_md5 = false
+    local ok, module = pcall(require, "ffi/sha2")
+    if not ok or type(module) ~= "table" or type(module.md5) ~= "function" then return end
+    local vectors = {
+        { "", "d41d8cd98f00b204e9800998ecf8427e" },
+        { "\0\255\128lua", "e882b923c7fc317d9da8a73d05ef2ab7" },
+        { string.rep("a", 56), "3b0c8ac703f828b04c6c197006d17218" },
+    }
+    for _, vector in ipairs(vectors) do
+        local valid, result = pcall(module.md5, vector[1])
+        if not valid or result ~= vector[2] then return end
+    end
+    fast_md5 = module.md5
+end
+
+function Crypto.md5_hex(message)
+    message = tostring(message or "")
+    if fast_md5 == nil then load_md5() end
+    if fast_md5 then
+        local ok, result = pcall(fast_md5, message)
+        if ok and type(result) == "string" and #result == 32 and result:match("^[0-9a-f]+$") then return result end
+        fast_md5 = false
+    end
+    return md5_lua(message)
 end
 
 local sha256_k = {

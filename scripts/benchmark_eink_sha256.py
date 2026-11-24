@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check packaged SHA-256 paths against hashlib and time synthetic inputs."""
+"""Check packaged SHA-256 and MD5 paths against hashlib using synthetic inputs."""
 import argparse
 import hashlib
 import json
@@ -31,7 +31,8 @@ def main():
         if output.count(FRAME) != 1:
             raise ValueError('benchmark result missing')
         result = json.loads(output.split(FRAME)[1])
-        if code or repaint or result['result'] != 'PASS' or not result['backend_selected']:
+        if (code or repaint or result['result'] != 'PASS' or not result['backend_selected']
+                or not result['md5_backend_selected'] or not result['existing_cover_cache_key_verified']):
             raise ValueError(f'benchmark failed: {result}')
         for row in result['vectors']:
             size = row['bytes']
@@ -39,6 +40,8 @@ def main():
             data = (pattern * ((size+255)//256))[:size]
             if row['digest'] != hashlib.sha256(data).hexdigest():
                 raise ValueError(f'digest mismatch at {size} bytes')
+            if row['md5'] != hashlib.md5(data).hexdigest():
+                raise ValueError(f'MD5 mismatch at {size} bytes')
         print(json.dumps(result))
 
 
