@@ -128,6 +128,14 @@ local function save(self,value,options)
         statement(db,[[INSERT INTO ]]..self.table_name..[[(book_id,payload,serial)
             VALUES(?,?,(SELECT COALESCE(MAX(serial),0)+1 FROM ]]..self.table_name..[[))
             ON CONFLICT(book_id) DO UPDATE SET payload=excluded.payload,serial=excluded.serial]],projected.book_id,payload)
+        -- Most libraries fit comfortably inside both quotas. Let SQLite
+        -- check that common case without transferring and sorting every row
+        -- in Lua. The existing ordered eviction path handles all overflow.
+        local totals=statement(db,'SELECT COUNT(*),COALESCE(SUM(length(CAST(payload AS BLOB))),0) FROM '..self.table_name)
+        local total_count,total_bytes=totals and tonumber(totals[1]),totals and tonumber(totals[2])
+        if total_count and total_bytes and total_count<=M.MAX_BOOKS and total_bytes<=M.MAX_TOTAL then
+            commit();return true
+        end
         local stmt=db:prepare('SELECT book_id,length(CAST(payload AS BLOB)) FROM '..self.table_name..' ORDER BY serial DESC')
         local remove,count,bytes={},0,0
         local ok=pcall(function()

@@ -22,6 +22,7 @@ end
 local changed={schema=1,book_id='900001',fetched_at=1001,reviews={{reviewId='synthetic-thought',content='Unsaved'}}}
 expect(not thoughts:write(changed));library.open=open
 expect(thoughts:read('900001').reviews[1].content=='Saved thought' and marks:read('900001').updated[1].markText=='Saved quote')
+Store.MAX_BOOKS=64 -- Exercise the current 5,000-book quota with a small fixture.
 for i=1,65 do changed.book_id=tostring(910000+i);expect(thoughts:write(changed)) end
 expect(not thoughts:read('910001') and thoughts:read('910065')~=nil and marks:read('900001')~=nil)
 expect(not pcall(Store.new,Store,library,codec,'untrusted_table'))

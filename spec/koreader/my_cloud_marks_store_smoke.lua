@@ -60,6 +60,22 @@ function library:open()
 end
 local changed=snapshot();changed.updated[1].markText='unsaved'
 expect(not cache:write(changed));library.open=open;expect(cache:read('900001').updated[1].markText=='合成引用')
+-- If the aggregate cannot provide totals, retain the ordered quota scan.
+local quota_queries=0
+function library:open()
+    local handle=assert(open(self))
+    return {exec=function(_,sql) return handle:exec(sql) end,close=function() return handle:close() end,
+        prepare=function(_,sql)
+            if sql:find('SELECT COUNT(*),COALESCE(SUM(',1,true) then
+                quota_queries=quota_queries+1
+                local blank={};blank.bind=function(stmt) return stmt end;blank.step=function() return nil end;blank.close=function() end
+                return blank
+            end
+            return handle:prepare(sql)
+        end}
+end
+expect(cache:write(snapshot()) and quota_queries==1);library.open=open
+expect(cache:read('900001').updated[1].markText=='合成引用')
 local oversized=snapshot();oversized.updated={}
 for i=1,33 do oversized.updated[i]={bookmarkId='synthetic-'..i,markText=string.rep('x',131072)} end
 expect(not cache:write(oversized) and cache:read('900001').updated[1].markText=='合成引用')
