@@ -14,7 +14,8 @@ function UI:show() end
 function UI:close(dialog) if dialog.onCloseWidget then dialog:onCloseWidget() end end
 package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/time']=function() return {now=function() return now end,to_s=function(n) return n/1000000 end} end
-package.preload['device']=function() return {screen={}} end
+local screen={x=0,y=0,w=600,h=800}
+package.preload['device']=function() return {screen={getSize=function() return screen end}} end
 package.preload['ui/widget/container/inputcontainer']=function() return {extend=function(_,value) return value end} end
 for _,name in ipairs({'ffi/blitbuffer','ui/widget/buttontable','ui/widget/container/centercontainer','ui/font',
     'ui/widget/container/framecontainer','ui/geometry','ui/widget/progresswidget','ui/size','ui/widget/textwidget',
@@ -60,4 +61,17 @@ now=now+10000;dialog:reportProgress(2);assert(#painted==1 and #scheduled==0)
 now=now+3000000;dialog:reportProgress(3);assert(#painted==2,'legacy progress timing changed')
 dialog=fixture();dialog.progress_bar=nil;dialog:reportProgress(1,'Title only')
 assert(#painted==1 and painted[1].title=='Title only','title without progress bar disappeared')
+dialog=fixture();dialog.dimen={w=600,h=800}
+assert(dialog:_progressRegion()==screen,'unpainted frame must use full screen')
+local frame={x=30,y=200,w=540,h=250};dialog._dialog_frame={dimen=frame,getSize=function() return frame end}
+assert(dialog:_progressRegion()==frame,'valid frame was not used')
+dialog._dialog_frame.getSize=function() return {w=539,h=250} end
+assert(dialog:_progressRegion()==screen,'changed frame size must use full screen')
+dialog._dialog_frame.getSize=function() error('unavailable') end
+assert(dialog:_progressRegion()==screen,'unavailable frame size must use full screen')
+dialog._dialog_frame.getSize=function() return frame end
+frame.x=-1;assert(dialog:_progressRegion()==screen,'offscreen frame must use full screen')
+frame.x=30;frame.h=900;assert(dialog:_progressRegion()==screen,'oversized frame must use full screen')
+frame.h=250;dialog.dimen={w=800,h=600}
+assert(dialog:_progressRegion()==screen,'rotation must use current full screen')
 print('download_dialog_progress_spec: coalescing, final flush, cancellation and legacy progress passed')

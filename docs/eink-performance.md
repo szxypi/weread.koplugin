@@ -6,6 +6,8 @@
 
 在两种 KOReader 模拟尺寸下，100 次快速合成更新分两批送入时，主动重绘调用由 102 次降至 3 次。标题和进度条像素一致；旧版多次叠绘使圆角有少量抗锯齿像素变深，两尺寸中途画面分别有 24 和 68 个圆角像素不同。此数字不等于实体设备的实际刷新次数或耗电，真实任务间隔也会改变合并效果。记录和复验方式见[测试结果](validation-assets/2026-11-24/eink-progress-refresh.json)；可运行 `python3 scripts/benchmark_eink_progress.py --koreader /path/to/koreader`（Linux、Pillow、`/dev/shm` 和基准提交需可用）。
 
+进度标题和进度条变化时，刷新请求进一步收窄到已绘制的弹窗；几何信息缺失、弹窗尺寸变化或越界、屏幕旋转时回退为整屏。在带说明和取消按钮的合成窗口中，600×800 的请求区域从 600×800 降至 544×146，1264×1680 从 1264×1680 降至 1147×316。两尺寸共 14 对画面逐像素一致，五次内容变化均落在请求区域内，旋转回退和取消也已检查。设备驱动仍可能对区域对齐、放大或合并，不能据此推断真机耗电和残影；详见[测试记录](validation-assets/2026-11-24/eink-progress-region.json)。可用 `python3 scripts/benchmark_eink_progress_region.py --koreader /path/to/koreader` 复验。
+
 原生墨水屏章节包的 ZIP 内容校验优先使用经过已知结果检查的设备压缩库；解密时使用有界字节缓冲区，减少单字节字符串创建。压缩库不可用或不兼容、缓冲区无法分配时分别回退到原有实现，密码头、解压长度与内容 CRC 校验均保留。4098 组二进制内容与原校验一致，加密正文被篡改和目录校验值损坏均被拒绝。
 
 以包含约 2 MiB 合成图片的未压缩章节包在 KOReader Linux ARM64 模拟环境中比较，连续读取三次、三轮的 CPU 时间中位数：加密包从 279 毫秒降至 115 毫秒，未加密包从 14 毫秒降至 2 毫秒。此为章节包处理的合成测试，不代表下载、排版或实体 Kindle 总耗时；详见[验证记录](validation-assets/2026-11-24/eink-native-archive.json)。可用 `python3 scripts/benchmark_native_archive.py --koreader /path/to/koreader` 复验（Linux、`/dev/shm`、`zip` 和基准提交均需可用）。

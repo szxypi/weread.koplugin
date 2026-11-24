@@ -88,17 +88,35 @@ function DownloadDialog:init()
         table.insert(vertical_group, button_table)
     end
 
-    self[1] = CenterContainer:new{
-        dimen = Screen:getSize(),
-        FrameContainer:new{
-            radius = Size.radius.window,
-            bordersize = Size.border.window,
-            padding = Size.padding.large,
-            padding_bottom = self.buttons and 0 or nil,
-            background = Blitbuffer.COLOR_WHITE,
-            vertical_group,
-        },
+    self._dialog_frame = FrameContainer:new{
+        radius = Size.radius.window,
+        bordersize = Size.border.window,
+        padding = Size.padding.large,
+        padding_bottom = self.buttons and 0 or nil,
+        background = Blitbuffer.COLOR_WHITE,
+        vertical_group,
     }
+    self[1] = CenterContainer:new{
+        dimen = Screen:getSize(), self._dialog_frame,
+    }
+end
+
+-- Evaluated after painting, when the frame has its actual screen coordinates.
+-- Fall back to the whole current screen if its geometry is unavailable,
+-- extends beyond the screen, or the display rotated since this dialog opened.
+function DownloadDialog:_progressRegion()
+    local screen = Screen:getSize()
+    local widget = self._dialog_frame
+    local frame = widget and widget.dimen
+    if not frame or not self.dimen or self.dimen.w ~= screen.w or self.dimen.h ~= screen.h
+        or not frame.x or not frame.y or not frame.w or not frame.h
+        or frame.x < 0 or frame.y < 0 or frame.w <= 0 or frame.h <= 0
+        or frame.x + frame.w > screen.w or frame.y + frame.h > screen.h then return screen end
+    -- FrameContainer may retain its old dimen if its contents change size.
+    -- In that case a partial update could leave pixels from the old frame.
+    local ok, size = pcall(widget.getSize, widget)
+    if not ok or not size or size.w ~= frame.w or size.h ~= frame.h then return screen end
+    return frame
 end
 
 function DownloadDialog:_cancelProgressRefresh()
@@ -111,7 +129,7 @@ end
 function DownloadDialog:_paintProgress(now)
     self:_cancelProgressRefresh()
     self.last_redraw_time_ms = now or time.now()
-    UIManager:setDirty(self, function() return "fast", self.dimen end)
+    UIManager:setDirty(self, function() return "fast", self:_progressRegion() end)
     UIManager:forceRePaint()
 end
 
@@ -159,7 +177,7 @@ function DownloadDialog:setTitle(title)
         self.title_widget:setText(self.title)
         if self._progress_refresh then self:_paintProgress()
         else
-            UIManager:setDirty(self, function() return "fast", self.dimen end)
+            UIManager:setDirty(self, function() return "fast", self:_progressRegion() end)
             UIManager:forceRePaint()
         end
     end
