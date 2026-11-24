@@ -7,7 +7,7 @@ local Quote=require('weread.lib.selection_quote')
 local Marks=require('weread.lib.my_cloud_marks')
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
-local M={}
+local M={MAX_BATCH=8}
 local function fail(reason) error('my_mark_span/'..reason,0) end
 local function trim(text)
     local first,last
@@ -16,8 +16,12 @@ local function trim(text)
     end
     return first and text:sub(first,last) or ''
 end
-function M.project(raw,book,chapter,row,format)
-    local ok,value=pcall(function()
+local function coordinate_map(raw,format,provider)
+    if provider then return provider() end
+    return Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
+end
+local function project(raw,book,chapter,row,format,map_provider)
+    local ok,value,prepared_map=pcall(function()
         if not Marks.display_id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
             or type(row.chapterUid)~='number' or tostring(row.chapterUid)~=chapter
             or type(row.markText)~='string' or #row.markText==0 or #row.markText>131072
@@ -30,7 +34,7 @@ function M.project(raw,book,chapter,row,format)
         format=format or 'web_xhtml'
         if format=='web_txt' then
             local target=require('weread.lib.my_mark_target').project(raw,book,chapter,row,format)
-            local map=Coordinates.build(raw,{format=format})
+            local map=coordinate_map(raw,format,map_provider)
             local clean=Dom.normalize(row.markText)
             if not target or not map or not clean or clean=='' then fail('quote') end
             map:_index()
@@ -40,9 +44,9 @@ function M.project(raw,book,chapter,row,format)
             local last=map:_point(stop-1,true)
             if Quote.boundary(map,last)~=stop then fail('boundary') end
             return {first=target.chapter_offset,last=last,normalized_sha256=Crypto.sha256_hex(clean),
-                normalized_bytes=#clean,raw_sha256=target.raw_sha256,raw_bytes=target.raw_bytes}
+                normalized_bytes=#clean,raw_sha256=target.raw_sha256,raw_bytes=target.raw_bytes},map
         elseif format~='web_xhtml' then fail('source') end
-        local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
+        local map=coordinate_map(raw,format,map_provider);if not map then fail('source') end
         local length=0;for _char in raw:gsub('^\239\187\191',''):gmatch('[%z\1-\127\194-\244][\128-\191]*') do length=length+1 end
         if b>length then fail('range') end
         local spans=Raw.index(raw,{body_only=true});local quoted=Raw.quote(spans,row.range)
@@ -75,8 +79,13 @@ function M.project(raw,book,chapter,row,format)
         return {first=first,last=last,normalized_sha256=Crypto.sha256_hex(clean),normalized_bytes=#clean,
             raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw},map
     end)
-    if ok then return value end
+    if ok then return value,nil,prepared_map end
     return nil,type(value)=='string' and value:match('^my_mark_span/[a-z_]+$') and value or 'my_mark_span/unavailable'
+end
+function M.project(raw,book,chapter,row,format)
+    local value,reason=project(raw,book,chapter,row,format)
+    if value then return value end
+    return nil,reason
 end
 local function inside_anchor(map,span,ending)
     local first,last=Quote.boundary(map,span.first),Quote.boundary(map,span.last)
@@ -93,12 +102,34 @@ local function inside_anchor(map,span,ending)
         end
     end
 end
-function M.prepare(raw,book,chapter,row,format)
-    local span,reason=M.project(raw,book,chapter,row,format);if not span then return nil,reason end
-    local map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true});if not map then return nil,'my_mark_span/source' end
+local function prepare(raw,book,chapter,row,format,map_provider)
+    local span,reason,map=project(raw,book,chapter,row,format,map_provider);if not span then return nil,reason end
     local first=inside_anchor(map,span,false) or map:anchor(span.first,{segment_only=true}) or map:anchor(span.first)
     local last=inside_anchor(map,span,true) or map:anchor(span.last,{segment_only=true}) or map:anchor(span.last)
     if not first or not last then return nil,'my_mark_span/anchor' end
     span.first_anchor,span.last_anchor=first,last;return span
+end
+function M.prepare(raw,book,chapter,row,format)
+    return prepare(raw,book,chapter,row,format)
+end
+-- A batch is bound to one immutable source string and remains in the worker.
+-- Invalid rows are kept separate; no caller-supplied coordinate map is trusted.
+function M.prepare_batch(raw,book,chapter,rows,format)
+    if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'my_mark_span/batch' end
+    local map,attempted
+    local function get_map()
+        if not attempted then
+            attempted=true
+            map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true})
+        end
+        return map
+    end
+    local result,reasons={},{}
+    for index,row in ipairs(rows) do
+        if type(row)=='table' and row.type==1 then
+            result[index],reasons[index]=prepare(raw,book,chapter,row,format,get_map)
+        end
+    end
+    return result,reasons
 end
 return M

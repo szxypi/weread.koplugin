@@ -100,14 +100,23 @@ Dom.open_direct_prepared=function(...)
     return index,why
 end
 local Span=require('weread.lib.my_mark_span');local prepare_span=Span.prepare
-Span.prepare=function(...)
-    local value,why=prepare_span(...)
-    local allowed={['my_mark_span/scope']=true,['my_mark_span/range']=true,['my_mark_span/quote']=true,
-        ['my_mark_span/source']=true,['my_mark_span/boundary']=true,['my_mark_span/anchor']=true,['my_mark_span/unavailable']=true}
-    if not value and allowed[why] then
+local allowed_span={['my_mark_span/scope']=true,['my_mark_span/range']=true,['my_mark_span/quote']=true,
+    ['my_mark_span/source']=true,['my_mark_span/boundary']=true,['my_mark_span/anchor']=true,['my_mark_span/unavailable']=true}
+local function record_span_error(why)
+    if allowed_span[why] then
         local file=io.open(home..'/personal-span-diagnostic','ab');if file then file:write(why..'\n');file:close() end
     end
+end
+Span.prepare=function(...)
+    local value,why=prepare_span(...)
+    if not value then record_span_error(why) end
     return value,why
+end
+local prepare_batch=Span.prepare_batch
+Span.prepare_batch=function(...)
+    local values,reasons=prepare_batch(...)
+    if type(reasons)=='table' then for _,why in pairs(reasons) do record_span_error(why) end end
+    return values,reasons
 end
 local Display=require('weread.ui.personal_marks');local attach=Display.attach;local attach_diag={called=false}
 Display.attach=function(host)

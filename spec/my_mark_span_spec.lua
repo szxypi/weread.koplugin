@@ -44,4 +44,20 @@ expect(not Span.prepare(txt,'CB_SyntheticNotes','2',invalid,'web_txt'),'mismatch
 local ambiguous='😀'..string.rep('a',64)
 expect(not Span.prepare(ambiguous,'CB_SyntheticNotes','2',{type=1,chapterUid=2,range='2-14',markText=string.rep('a',12)},'web_txt'),
     'ambiguous TXT interpretation was displayed')
+local Coordinates=require('weread.lib.source_coordinates');local build=Coordinates.build;local builds=0
+Coordinates.build=function(...) builds=builds+1;return build(...) end
+local bad={type=1,chapterUid=2,range='9-30',markText='changed quotation'}
+local batch,reasons=Span.prepare_batch(raw,'41','2',{mark,bad,mark,mark},'web_xhtml')
+expect(batch and batch[1] and not batch[2] and batch[3] and batch[4] and reasons[2]=='my_mark_span/quote',
+    'invalid batch member changed neighboring highlights')
+expect(builds==1 and batch[1].first==9 and batch[1].last==30,
+    'same source batch rebuilt its XHTML coordinate map')
+builds=0
+local txt_batch=assert(Span.prepare_batch(txt,'CB_SyntheticNotes','2',{txt_mark,prior},'web_txt'))
+expect(txt_batch[1] and txt_batch[2] and txt_batch[1].first==txt_span.first and txt_batch[2].last==txt_span.last,
+    'shared TXT map changed verified boundaries')
+expect(builds==3,'TXT batch did not reuse the span coordinate map')
+local oversized={};for i=1,Span.MAX_BATCH+1 do oversized[i]=mark end
+expect(not Span.prepare_batch(raw,'41','2',oversized,'web_xhtml'),'unbounded span batch accepted')
+Coordinates.build=build
 print('my_mark_span_spec: '..checks..' checks')

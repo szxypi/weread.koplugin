@@ -47,6 +47,13 @@ local result=Task.prepare('/cached.epub','41',metadata,{row},archive)
 expect(#result.rows==1 and result.rows[1].bookmarkId==row.bookmarkId and reads==1)
 expect(result.rows[1].raw==nil and result.rows[1].markText==nil,'private source leaked from worker')
 expect(result.rows[1].first_anchor.co<result.rows[1].last_anchor.co,'both span boundaries were not prepared')
+local Coordinates=require('weread.lib.source_coordinates')
+local build,builds=Coordinates.build,0
+Coordinates.build=function(...) builds=builds+1;return build(...) end
+local invalid=Fixture.clone(row);invalid.markText='Changed quotation'
+local multiple=Task.prepare('/cached.epub','41',metadata,{invalid,row,row},archive)
+Coordinates.build=build
+expect(#multiple.rows==2 and builds==1,'batch did not independently validate rows with one source map')
 for _i,key in ipairs({Identity.PATH,Source.meta_path('2'),Source.path_meta_path(path),Source.raw_path(Crypto.sha256_hex(raw)),path}) do
     local previous=members[key];members[key]='changed'
     expect(not pcall(Task.prepare,'/cached.epub','41',metadata,{row},archive),'corrupt source member accepted')
