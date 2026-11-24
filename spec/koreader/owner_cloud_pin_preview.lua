@@ -18,7 +18,10 @@ local ok,reason=pcall(function()
     local armed=input.permit_writes;assert(armed==false and os.getenv('WEREAD_CLOUD_PIN_PREVIEW_ARMED')=='0')
     report.permit_writes=armed
     local grant=input.credentials;local id=input.book_id
-    assert(type(id)=='string' and #id<=20 and id:match('^[1-9]%d*$') and type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
+    local imported=os.getenv('WEREAD_CLOUD_PIN_PREVIEW_IMPORTED')=='1'
+    assert(type(id)=='string' and (imported and #id<=67 and id:match('^CB_[A-Za-z0-9]+$')
+        or not imported and #id<=20 and id:match('^[1-9]%d*$'))
+        and type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     assert(input.expected_metadata.bookId==id and input.shelf_books>=1 and input.shelf_books<=5000)
     report.shelf_books=input.shelf_books
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path

@@ -10,6 +10,7 @@ from test_native_finish_trial import stage
 from test_secure_native_session import credentials
 from test_shelf_flag_change import source,point
 from verify_cloud_pin_model import plans
+from imported_pin_preview_model import plans as imported_plans, valid_metadata as valid_imported_metadata, observation_hash
 from verify_eink_login import BASE
 import verify_owner_cloud_pin_preview as task
 
@@ -33,6 +34,22 @@ class PayloadTests(unittest.TestCase):
         for mutate in (lambda x:x.update(desired=1),lambda x:x.update(alternate_hash='a'*64),
                        lambda x:x.update(before=0),lambda x:x.update(book_id='CB_1')):
             item=copy.deepcopy(value);mutate(item);self.assertFalse(valid_metadata(item))
+    def test_imported_preview_is_explicit_and_write_runner_remains_closed(self):
+        shelf=source();shelf['books'][0]['bookId']='CB_synthetic';shelf['archive'][0]['bookIds'][0]='CB_synthetic'
+        progress=point();progress['book']['bookId']='CB_synthetic';progress.update(readingTime=12,ttsTime=0)
+        mark,restore=imported_plans(shelf,progress,'CB_synthetic')
+        value=payload();value.update(book_id='CB_synthetic',expected_metadata={'bookId':'CB_synthetic','title':'Synthetic'},mark=mark,restore=restore)
+        self.assertTrue(valid_imported_metadata(mark))
+        self.assertEqual(validate_payload(value,allow_imported=True),value)
+        with self.assertRaises(ValueError):validate_payload(value)
+        changed=copy.deepcopy(progress);changed['readingTime']=13
+        self.assertNotEqual(observation_hash(changed,'CB_synthetic'),mark['position_hash'])
+        changed=copy.deepcopy(progress);changed['book']['updateTime']=123
+        self.assertEqual(observation_hash(changed,'CB_synthetic'),mark['position_hash'])
+        changed=copy.deepcopy(progress);changed['book']['summary']=None
+        with self.assertRaises(ValueError):observation_hash(changed,'CB_synthetic')
+        numeric=payload()
+        with self.assertRaises(ValueError):validate_payload(numeric,allow_imported=True)
 
 
 class HostTests(unittest.TestCase):
