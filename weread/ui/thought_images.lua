@@ -28,7 +28,6 @@ function M.open(host,owner,row,index,viewer,current,generation,adapter)
     local offline=adapter and adapter.offline or _('This image is not saved on this device. Connect to view it.')
     local function stopped() if adapter and adapter.stopped then adapter.stopped() end end
     local function report_failure(message) stopped();host:showInfo(message or failure) end
-    local online=host:isNetworkOnline()
     host:showBusy(loading,function() M.cancel(host,owner);stopped() end);ctx.busy=host.busy_message
     local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
         scheduler=UI,codec=host.client,max_bytes=8*1024*1024,timeout=60} end)
@@ -36,7 +35,7 @@ function M.open(host,owner,row,index,viewer,current,generation,adapter)
     ctx.worker=worker
     local started_ok,started=pcall(worker.start,worker,function()
         local result,why=require('weread.lib.thought_image').load(host.client,host.library_db,owner.account,
-            owner.id,row.reviewId,url,online,function()
+            owner.id,row.reviewId,url,function() return host:isNetworkOnline() end,function()
                 return host.library_db:accountKey()==owner.account and (adapter and adapter.scope_current()
                     or not adapter and host.settings:auth_scope_matches(owner.scope))
             end)

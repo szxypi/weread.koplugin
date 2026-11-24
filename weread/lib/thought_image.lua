@@ -6,7 +6,7 @@ local Store=require('weread.lib.thought_image_store')
 local Crypto=require('weread.lib.crypto')
 local M={}
 local function acquire(client,library,owner,book,review,url,online,current,preserve_existing,precommit)
-    if type(current)~='function' or not current() or type(online)~='boolean'
+    if type(current)~='function' or not current() or (type(online)~='boolean' and type(online)~='function')
         or not library or library:accountKey()~=owner then return nil,'changed' end
     if not Attachment.allowed(url) then return nil,'invalid' end
     local key=Store.key(book,review,url);if not key then return nil,'invalid' end
@@ -16,6 +16,12 @@ local function acquire(client,library,owner,book,review,url,online,current,prese
     local status=data and 'cached' or nil
     if not current() or library:accountKey()~=owner then return nil,'changed' end
     if not data then
+        if type(online)=='function' then
+            local ok,value=pcall(online)
+            if not current() or library:accountKey()~=owner then return nil,'changed' end
+            if not ok or type(value)~='boolean' then return nil,'unavailable' end
+            online=value
+        end
         if not online then return nil,'offline' end
         local chunks,size,exceeded={},0,false
         local ok,raw,code=pcall(client.request,client,{

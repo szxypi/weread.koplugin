@@ -24,7 +24,16 @@ local client={json_encode=function(_,value) return json.encode(value) end,json_d
         assert(options.sink(bytes));options.sink(nil);return nil,200
     end}
 local host={settings=settings,library_db=library,client=client}
-function host:isNetworkOnline() return mode=='live' or mode=='public' end
+local parent=tonumber(ffi.C.getpid())
+function host:isNetworkOnline()
+    calls[1]=calls[1]+1
+    if tonumber(ffi.C.getpid())==parent then calls[2]=calls[2]+1 end
+    if mode=='live' and tonumber(ffi.C.getpid())~=parent then
+        local deadline=socket.gettime()+10
+        while calls[3]==0 do assert(socket.gettime()<deadline,'UI event loop did not run');socket.sleep(.01) end
+    end
+    return mode=='live' or mode=='public'
+end
 function host:showBusy(_label,cancel) self.busy_message={cancel=cancel} end
 function host:closeBusy() self.busy_message=nil end
 function host:showInfo(value) self.message=value end
@@ -67,8 +76,15 @@ assert(not pcall(require('weread.lib.thought_edit_contract').make,client,changed
 local Popup=require('weread.ui.shelf_popup');local widget=require('ui/widget/textviewer'):new{title='Synthetic',text='Synthetic'}
 Popup.show(owner.menu,widget,function(value) UI:show(value) end)
 local Images=require('weread.ui.thought_images');assert(Images.open(host,owner,row,1,widget,current,1))
+if mode=='live' then
+    assert(owner.thought_image and host.busy_message,'image loading did not leave the UI responsive')
+    UI:scheduleIn(0,function() calls[3]=1 end)
+end
 local deadline=socket.gettime()+45
 while owner.thought_image do assert(socket.gettime()<deadline);UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+assert(calls[2]==0,'image loading checked online status on the UI process')
+assert(calls[1]==((mode=='offline' or mode=='public-offline') and 0 or 1),
+    'cached image checked network or missing image skipped the background check')
 if mode=='live' or mode=='offline' or public then
     local image=owner.menu._shelf_popup;assert(image and image~=widget and image.title_text=='Thought image' and image.image)
     UI:forceRePaint();assert(calls[0]==((mode=='live' or mode=='public') and 1 or 0));Popup.close(owner.menu)

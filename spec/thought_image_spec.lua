@@ -21,18 +21,34 @@ local function load(online) return Image.load(client,library,'owner','42','revie
 local value,why=load(false);assert(not value and why=='offline' and requests==0)
 value=assert(load(true));assert(value.bytes=='encoded:'..#png and stored==png and requests==1)
 value=assert(load(false));assert(value.bytes=='encoded:'..#png and requests==1)
-assert(Image.prefetch(client,library,'owner','42','review',url,function() return alive end)=='cached' and requests==1)
+local checks=0
+local function lazy(probe)
+    return Image.load(client,library,'owner','42','review',url,probe,function() return alive end)
+end
+value=assert(lazy(function() checks=checks+1;error('cached image checked network') end))
+assert(value.bytes=='encoded:'..#png and checks==0 and requests==1)
+stored=nil
+value,why=lazy(function() checks=checks+1;return false end)
+assert(not value and why=='offline' and checks==1 and requests==1)
+value,why=lazy(function() error('network status unavailable') end)
+assert(not value and why=='unavailable' and requests==1)
+value,why=lazy(function() alive=false;return true end)
+assert(not value and why=='changed' and requests==1)
+alive=true
+value=assert(lazy(function() checks=checks+1;return true end))
+assert(value.bytes=='encoded:'..#png and checks==2 and requests==2)
+assert(Image.prefetch(client,library,'owner','42','review',url,function() return alive end)=='cached' and requests==2)
 stored=nil;assert(Image.prefetch(client,library,'owner','42','review',url,function() return alive end)=='saved'
-    and preserve and requests==2)
+    and preserve and requests==3)
 stored=nil;race=true;assert(Image.prefetch(client,library,'owner','42','review',url,function() return alive end)=='cached'
-    and stored==png..'x' and requests==3)
+    and stored==png..'x' and requests==4)
 stored=nil;race=false;fail=true
 local status,reason=Image.prefetch(client,library,'owner','42','review',url,function() return alive end)
-assert(not status and reason=='storage' and not stored and requests==4)
-stored=png;fail=false;alive=false;assert(not load(true) and requests==4)
+assert(not status and reason=='storage' and not stored and requests==5)
+stored=png;fail=false;alive=false;assert(not load(true) and requests==5)
 alive=true;library.accountKey=function() return nil end
 value=assert(Image.load(client,library,nil,'42','review',url,true,function() return alive end))
-assert(value.bytes=='encoded:'..#png and requests==5 and stored==png,'key-only download should not use account storage')
+assert(value.bytes=='encoded:'..#png and requests==6 and stored==png,'key-only download should not use account storage')
 value,why=Image.load(client,library,nil,'42','review',url,false,function() return alive end)
-assert(not value and why=='offline' and requests==5)
+assert(not value and why=='offline' and requests==6)
 print('PASS: thought image scoped anonymous fetch and offline cache')
