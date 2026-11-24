@@ -1387,6 +1387,7 @@ function LibraryView:init()
     self.ges_events = {}
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
+    self.screen_rotation = Screen.getRotationMode and Screen:getRotationMode()
     self.dimen = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
     self.covers_fullscreen = true
     self.outer_margin = 0
@@ -1528,8 +1529,30 @@ function LibraryView:onShow()
     return true
 end
 
+-- KOReader delivers rotation before the file manager has resized the screen.
+-- Reflow on the next tick, once, and only while this page is still visible.
+function LibraryView:onSetRotationMode()
+    local top=UIManager:getTopmostVisibleWidget()
+    if self._shelf_closed or self._rotation_task or not self._rotation_redraw
+        or top~=self and (not self._shelf_popup or top~=self._shelf_popup) then return false end
+    self._rotation_task=function()
+        self._rotation_task=nil
+        local visible=UIManager:getTopmostVisibleWidget()
+        if self._shelf_closed or visible~=self and (not self._shelf_popup or visible~=self._shelf_popup) then return end
+        local rotation=Screen.getRotationMode and Screen:getRotationMode()
+        if self.screen_w~=Screen:getWidth() or self.screen_h~=Screen:getHeight() or self.screen_rotation~=rotation then
+            require('weread.ui.shelf_popup').redraw(self,function()
+                if not self._shelf_closed and UIManager:getTopmostVisibleWidget()==self then self._rotation_redraw() end
+            end)
+        end
+    end
+    UIManager:nextTick(self._rotation_task)
+    return false
+end
+
 function LibraryView:onCloseWidget()
     self._shelf_closed=true
+    if self._rotation_task then UIManager:unschedule(self._rotation_task);self._rotation_task=nil end
     require('weread.ui.shelf_popup').close(self)
     if self._visible_task then UIManager:unschedule(self._visible_task) self._visible_task = nil end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)

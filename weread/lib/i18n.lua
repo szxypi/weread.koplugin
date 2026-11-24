@@ -1,6 +1,12 @@
 local I18n = {}
 
 local zh = {
+    ["Screen orientation"] = "屏幕方向",
+    ["Portrait"] = "竖屏",
+    ["Landscape left"] = "横屏（向左）",
+    ["Landscape right"] = "横屏（向右）",
+    ["Portrait upside down"] = "倒置竖屏",
+    ["Could not rotate the screen."] = "无法旋转屏幕。",
     ["Wait for the current started-reading change to finish."] = "请等待当前开始阅读状态修改完成。",
     ["Saved on %1: this book was marked as started. This saved status may be out of date."] = "上次保存于 %1：本书已标记开始阅读。该状态可能已过时。",
     ["Saved on %1: this book was not marked as started. This saved status may be out of date."] = "上次保存于 %1：本书未标记开始阅读。该状态可能已过时。",

@@ -291,6 +291,34 @@ function M:showHomeQuickSettings()
         { text = _("Frontlight"), select_enabled = Device:hasFrontlight(),
             callback = function() if Device:hasFrontlight() then dismiss() Device:showLightDialog() end end },
     }
+    local screen=Device.screen
+    if screen and type(screen.getRotationMode)=='function' then
+        local choices={}
+        for _index,entry in ipairs({
+            {label='Portrait',mode=screen.DEVICE_ROTATED_UPRIGHT},
+            {label='Landscape left',mode=screen.DEVICE_ROTATED_COUNTER_CLOCKWISE},
+            {label='Landscape right',mode=screen.DEVICE_ROTATED_CLOCKWISE},
+            {label='Portrait upside down',mode=screen.DEVICE_ROTATED_UPSIDE_DOWN},
+        }) do
+            local mode=entry.mode
+            if type(mode)=='number' then
+                choices[#choices+1]={text=_(entry.label),mandatory_func=function() return screen:getRotationMode()==mode and '✓' or '' end,
+                    callback=function()
+                        local owner=self.shelf_view
+                        local current=Scope.capture(self,owner)
+                        dismiss()
+                        if screen:getRotationMode()==mode then return end
+                        UIManager:broadcastEvent(require('ui/event'):new('SetRotationMode',mode))
+                        if current() and screen:getRotationMode()==mode and owner and owner._rotation_redraw then
+                            owner._rotation_redraw()
+                        elseif current() and screen:getRotationMode()~=mode then
+                            self:showInfo(_('Could not rotate the screen.'))
+                        end
+                    end}
+            end
+        end
+        if #choices>0 then items[#items+1]={text=_('Screen orientation'),sub_item_table=choices} end
+    end
     local loaded, network = pcall(require, "ui/network/manager")
     if loaded and network.getWifiMenuTable then
         local native = network:getWifiMenuTable()

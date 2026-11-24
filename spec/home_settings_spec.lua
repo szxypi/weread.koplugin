@@ -4,17 +4,25 @@ local checks = 0
 local function expect(value, message) checks = checks + 1 assert(value, message) end
 local scheduled, unscheduled, shown, battery, light, lights, wifi_calls = {}, {}, nil, 63, false, 0, 0
 local ticks={}
+local rotation,rotation_calls,rotation_fails=0,0,false
 package.preload["ui/uimanager"] = function() return {
     close = function(_self, view) if view.onCloseWidget then view:onCloseWidget() end end,
     show = function(_self, view) shown = view end,
     nextTick = function(_self, callback) ticks[#ticks+1]=callback end,
     scheduleIn = function(_self, delay, fn) scheduled[#scheduled + 1] = { delay = delay, fn = fn } end,
     unschedule = function(_self, fn) unscheduled[fn] = true end,
+    broadcastEvent = function(_self,event)
+        assert(event.name=='SetRotationMode');rotation_calls=rotation_calls+1
+        if not rotation_fails then rotation=event.mode end
+    end,
 } end
+package.preload['ui/event']=function() return {new=function(_self,name,mode) return {name=name,mode=mode} end} end
 package.preload["device"] = function() return {
     hasBattery = function() return true end,
     getPowerDevice = function() return { getCapacity = function() return battery end } end,
     hasFrontlight = function() return light end, showLightDialog = function() lights = lights + 1 end,
+    screen={DEVICE_ROTATED_UPRIGHT=0,DEVICE_ROTATED_CLOCKWISE=1,DEVICE_ROTATED_UPSIDE_DOWN=2,
+        DEVICE_ROTATED_COUNTER_CLOCKWISE=3,getRotationMode=function() return rotation end},
 } end
 local wifi_adapter
 package.preload["ui/network/manager"] = function() return {
@@ -131,6 +139,20 @@ expect(wifi_calls == 1 and host._home_controls_menu == nil, "Wi-Fi control did n
 host.discovery_epoch = 1
 wifi_adapter:updateItems()
 expect(host._home_controls_menu == nil, "late Wi-Fi callback reopened closed controls")
+local rotation_redraws=0
+host.shelf_view._rotation_redraw=function() rotation_redraws=rotation_redraws+1 end
+host:showHomeQuickSettings()
+local orientations=find(host._home_controls_menu.items,'Screen orientation').sub_item_table
+expect(#orientations==4 and orientations[1].mandatory_func()=='✓' and orientations[2].mandatory_func()=='','orientation choices or selection incorrect')
+orientations[1].callback();expect(rotation_calls==0 and rotation_redraws==0,'current orientation rotated again')
+host:showHomeQuickSettings();orientations=find(host._home_controls_menu.items,'Screen orientation').sub_item_table
+orientations[2].callback();expect(rotation==3 and rotation_calls==1 and rotation_redraws==1 and not host._home_controls_menu,'rotation failed to redraw home')
+host:showHomeQuickSettings();orientations=find(host._home_controls_menu.items,'Screen orientation').sub_item_table
+rotation_fails=true;orientations[3].callback();rotation_fails=false
+expect(rotation==3 and rotation_redraws==1 and info=='Could not rotate the screen.','failed rotation changed home')
+host:showHomeQuickSettings();orientations=find(host._home_controls_menu.items,'Screen orientation').sub_item_table
+local old_rotation=orientations[1].callback;host.shelf_view={home_layout=preferences};old_rotation()
+expect(rotation_calls==2 and rotation==3,'stale orientation menu changed screen');host:closeHomeControls(false)
 host:showHomeQuickSettings()
 find(host._home_controls_menu.items, "Automatically prefetch").callback()
 expect(prefetch == nil and shown, "prefetch enabled without resource confirmation")

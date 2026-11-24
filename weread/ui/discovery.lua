@@ -44,7 +44,10 @@ function M:showDiscoveryPage(tab, books, options)
     end end
     local cover_mode = not home or home.view_mode ~= "list"
     local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home, store = tab=='store' })
-    local page = math.max(1, math.min(options.page or 1, math.max(1, math.ceil(#books / layout.page_size))))
+    local target_page=options.rotation_anchor and math.floor((options.rotation_anchor-1)/layout.page_size)+1 or options.page or 1
+    options.rotation_anchor=nil
+    local page = math.max(1, math.min(target_page, math.max(1, math.ceil(#books / layout.page_size))))
+    options.page=page
     local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
     local saved, downloaded = self.settings:get("books", {}), {}
@@ -112,6 +115,15 @@ function M:showDiscoveryPage(tab, books, options)
     view._finish_dirty=carry_dirty
     view._discovery_tab = tab
     scope = Scope.capture(self, view)
+    view._rotation_redraw=function()
+        if not current() then return end
+        local anchor=(view.page-1)*view.page_size+1
+        Popup.redraw(view,function()
+            if current() and not self._book_detail_view then
+                options.rotation_anchor=anchor;self:showDiscoveryPage(tab,books,options)
+            end
+        end)
+    end
     view._discovery_current = current
     view._finish_current = current
     view._shelf_snapshot_redraw = function()

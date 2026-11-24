@@ -812,7 +812,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     load_local_pins(self)
     local pin_model=require('weread.lib.local_shelf_pins')
     if options.prepared_shelf and (prior_owner~=self.shelf_pins_owner or not pin_model.same(prior_pins,self.shelf_pins_state)) then
-        options.prepared_shelf,options.scroll_offset=nil,nil;options.page=1
+        options.prepared_shelf,options.scroll_offset,options.rotation_anchor=nil,nil,nil;options.page=1
     end
     local local_pins=self.shelf_pins_owner==group_owner(self)
         and pin_model.index(self.shelf_pins_state) or nil
@@ -852,7 +852,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     if self.shelf_group_key and not group then
         self.shelf_group_key = nil
         self.shelf_view_pages.books = 1
-        options.prepared_shelf, options.page = nil, nil
+        options.prepared_shelf, options.page, options.rotation_anchor = nil, nil, nil
     end
     local multi=self.shelf_multi_groups or {}
     local grouped,multi_state=ShelfGroups.selected(self.shelf_groups,multi,self.shelf_regular)
@@ -886,6 +886,12 @@ function M:showShelfView(mode, keyword, old_view, options)
     local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
+    if paged and options.rotation_anchor then
+        page=math.max(1,math.min(math.floor((options.rotation_anchor-1)/page_size)+1,
+            math.max(1,math.ceil(#source/page_size))))
+        options.page=page
+    end
+    options.rotation_anchor=nil
     local progress_books, progress_snapshots
     if mode == "books" and self.prepareShelfProgress then
         progress_books = paged and shelf_page_items(source, page, page_size) or source
@@ -1122,6 +1128,14 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    view._rotation_redraw=function()
+        if not current() or self._book_detail_view then return end
+        local next_options={};for key,value in pairs(options) do next_options[key]=value end
+        next_options.prepared_shelf={books=books,accounts=accounts}
+        if paged then next_options.rotation_anchor=(view.page-1)*view.page_size+1
+        else next_options.scroll_offset=view:getScrollOffset() end
+        self:showShelfView(mode,keyword,view,next_options)
+    end
     view._finish_dirty=carry_dirty
     view._finish_current=current
     view._shelf_snapshot_redraw=function()
