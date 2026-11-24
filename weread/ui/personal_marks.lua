@@ -78,6 +78,7 @@ local function insert(s,records,row)
         if order==1 or order==0 and row.bookmarkId<other.bookmarkId then high=mid else low=mid+1 end
     end
     table.insert(records,low,row)
+    return low
 end
 local batch,load
 local function same_job(host,s,job)
@@ -152,10 +153,15 @@ batch=function(host,s,job)
             local function finish(ids)
                 if not same_job(host,s,job) then return end
                 if type(ids)~='table' then s.job=nil;return end
-                local seen={}
-                for _i,id in ipairs(ids) do if pending[id] and not seen[id] then insert(s,s.records,pending[id]);seen[id]=true end end
+                local seen,first_changed={}
+                for _i,id in ipairs(ids) do if pending[id] and not seen[id] then
+                    local at=insert(s,s.records,pending[id]);first_changed=math.min(first_changed or at,at);seen[id]=true
+                end end
                 for _i,row in ipairs(points) do insert(s,s.bookmarks,row) end
-                s.overlay:setRecords(s.records,true);s.indicator:setRecords(s.bookmarks);dirty(host);schedule(host,s,function() batch(host,s,job) end)
+                if first_changed then s.overlay:setRecords(s.records,true,first_changed) end
+                if #points>0 then s.indicator:setRecords(s.bookmarks) end
+                if first_changed or #points>0 then dirty(host) end
+                schedule(host,s,function() batch(host,s,job) end)
             end
             if #verify==0 then finish({})
             elseif not worker(host,s,function() return Task.verify(verify) end,finish) then s.job=nil end

@@ -46,10 +46,21 @@ function Overlay:new(opts)
     }, self)
 end
 
-function Overlay:setRecords(records, ordered)
+-- changed_from is an optional trusted insertion boundary for the same table:
+-- all records before it must still be identical and in the same order.
+function Overlay:setRecords(records, ordered, changed_from)
+    local previous, prefix = self.records, self._ordered_prefix_ends
+    local can_reuse = type(records) == "table" and records == previous and ordered == true
+        and self.records_ordered and prefix and type(changed_from) == "number"
+        and changed_from % 1 == 0 and changed_from >= 1 and changed_from <= #records + 1
+    if can_reuse then
+        for index = #prefix, changed_from, -1 do prefix[index] = nil end
+    else
+        self._ordered_prefix_ends = nil
+        self._ordered_prefix_document = nil
+    end
     self.records = type(records) == "table" and records or {}
     self.records_ordered = ordered == true
-    self._ordered_prefix_ends = nil
     self:invalidate()
 end
 
@@ -80,6 +91,7 @@ end
 
 function Overlay:resetLayout()
     self._ordered_prefix_ends = nil
+    self._ordered_prefix_document = nil
     self:invalidate()
 end
 
@@ -87,11 +99,14 @@ function Overlay:_orderedStart(document, page_start)
     if not self.records_ordered or not page_start
         or type(document.compareXPointers) ~= "function" then return 1 end
     local prefix = self._ordered_prefix_ends
-    if not prefix then
-        prefix = {}
-        local latest
-        for index, record in ipairs(self.records) do
+    if self._ordered_prefix_document ~= document then prefix = nil end
+    if not prefix or #prefix < #self.records then
+        prefix = prefix or {}
+        local latest = prefix[#prefix]
+        for index = #prefix + 1, #self.records do
+            local record = self.records[index]
             if type(record) ~= "table" or not record.pos0 or not record.pos1 then
+                self._ordered_prefix_ends, self._ordered_prefix_document = nil, nil
                 return 1
             end
             if not latest then
@@ -99,12 +114,13 @@ function Overlay:_orderedStart(document, page_start)
             else
                 local ok, before = pcall(document.compareXPointers,
                     document, latest, record.pos1)
-                if not ok then return 1 end
+                if not ok then self._ordered_prefix_ends, self._ordered_prefix_document = nil, nil;return 1 end
                 if before == 1 then latest = record.pos1 end
             end
             prefix[index] = latest
         end
         self._ordered_prefix_ends = prefix
+        self._ordered_prefix_document = document
     end
     local low, high = 1, #prefix + 1
     while low < high do

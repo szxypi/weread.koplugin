@@ -1172,6 +1172,13 @@ local ok,reason=pcall(function()
         end
     end
     report.pages=document:getPageCount();assert(single_page and report.pages==1 or not single_page and report.pages>1)
+    if os.getenv('WEREAD_OWNER_OVERLAY_INDEX')=='1' and mode=='live' then
+        local original_page=document:getCurrentPage()
+        dofile('/source/spec/koreader/overlay_incremental_probe.lua')(
+            reader,tick,assert(os.getenv('WEREAD_OVERLAY_BASELINE')),{min_pages=3,max_append_ratio=1})
+        reader.rolling:onGotoPage(original_page);tick()
+        assert(document:getCurrentPage()==original_page,'overlay index check changed the original page')
+    end
     if os.getenv('WEREAD_OWNER_BOOKMARK_INDEX')=='1' and mode=='live' then
         local original_page=document:getCurrentPage()
         dofile('/source/spec/koreader/bookmark_page_index_probe.lua')(reader,tick,{min_pages=3})
@@ -1409,6 +1416,7 @@ end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
+        or reason:match('overlay_incremental_probe%.lua:(%d+):')
         or reason:match('owner_reader_estimate_case%.lua:(%d+):')
         or reason:match('owner_reader_neighbor_case%.lua:(%d+):')
         or reason:match('owner_full_cache_status_case%.lua:(%d+):')

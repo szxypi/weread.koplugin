@@ -129,11 +129,40 @@ expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==s.indicator and Display.
 local points_only=Fixture.clone(snapshot);points_only.updated=codec:json_decode('[]')
 points_only.updated[1]=Fixture.clone(snapshot.updated[2])
 local before_verify=verify_calls
-Display.changed(host,points_only);drain()
+local overlay_updates=0;local original_overlay_set=s.overlay.setRecords
+s.overlay.setRecords=function(self,...) overlay_updates=overlay_updates+1;return original_overlay_set(self,...) end
+Display.changed(host,points_only);local after_clear=overlay_updates;drain()
 expect(#s.records==0 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point'
     and verify_calls==before_verify,'bookmark-only batch launched empty text verification or lost its point')
+expect(overlay_updates==after_clear,'bookmark-only batch invalidated unchanged highlight data')
+s.overlay.setRecords=original_overlay_set
 Display.changed(host,snapshot);drain()
 expect(#s.records==1 and #s.bookmarks==1 and verify_calls>before_verify,'mixed batch skipped highlight verification')
+local indicator_updates=0;local original_indicator_set=s.indicator.setRecords
+s.indicator.setRecords=function(self,...) indicator_updates=indicator_updates+1;return original_indicator_set(self,...) end
+local highlight_only=Fixture.clone(snapshot);highlight_only.updated=codec:json_decode('[]')
+highlight_only.updated[1]=Fixture.clone(snapshot.updated[1])
+Display.changed(host,highlight_only);after_clear=indicator_updates;drain()
+expect(indicator_updates==after_clear,'highlight-only batch invalidated unchanged bookmarks')
+s.indicator.setRecords=original_indicator_set
+Display.changed(host,snapshot);drain()
+local mixed_batches=Fixture.clone(snapshot);mixed_batches.updated=codec:json_decode('[]')
+for i=1,8 do
+    local mark=Fixture.clone(snapshot.updated[1]);mark.bookmarkId=('a%02d'):format(i)
+    local point=Fixture.clone(snapshot.updated[2]);point.bookmarkId=('z%02d'):format(i)
+    mixed_batches.updated[#mixed_batches.updated+1]=mark;mixed_batches.updated[#mixed_batches.updated+1]=point
+end
+overlay_updates,indicator_updates=0,0
+s.overlay.setRecords=function(self,...) overlay_updates=overlay_updates+1;return original_overlay_set(self,...) end
+s.indicator.setRecords=function(self,...) indicator_updates=indicator_updates+1;return original_indicator_set(self,...) end
+Display.changed(host,mixed_batches)
+local overlays_after_clear,indicators_after_clear=overlay_updates,indicator_updates
+drain()
+expect(#s.records==8 and #s.bookmarks==8,'separate mark and bookmark batches were not both displayed')
+expect(overlay_updates==overlays_after_clear+1 and indicator_updates==indicators_after_clear+1,
+    'separate batches invalidated an unchanged layer')
+s.overlay.setRecords=original_overlay_set;s.indicator.setRecords=original_indicator_set
+Display.changed(host,snapshot);drain()
 local clicked=false
 s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
 host.showMyCloudBookmarks=function(_self,book)

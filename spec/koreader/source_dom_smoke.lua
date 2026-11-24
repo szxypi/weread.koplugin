@@ -60,6 +60,13 @@ end
 flush()
 local doc=reader.document
 local bookmark_index
+if os.getenv('WEREAD_OVERLAY_INDEX_ONLY')=='1' then
+    local result=dofile('/source/spec/koreader/overlay_incremental_probe.lua')(
+        reader,flush,assert(os.getenv('WEREAD_OVERLAY_BASELINE')))
+    local file=assert(io.open(evidence..'/overlay-index.json','wb'))
+    file:write(require('rapidjson').encode(result));file:close()
+    reader:onClose();UIManager:quit();return
+end
 if os.getenv('WEREAD_BOOKMARK_INDEX_ONLY')=='1' then
     bookmark_index=dofile('/source/spec/koreader/bookmark_page_index_probe.lua')(reader,flush)
     local file=assert(io.open(evidence..'/bookmark-index.json','wb'))
