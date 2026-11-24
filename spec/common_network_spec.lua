@@ -47,6 +47,23 @@ local host = setmetatable({
     end,
 }, { __index = Common })
 
+-- Optional shelf background work must not resolve DNS on the reader thread,
+-- including on KOReader versions without a link-state API.
+local network=require('ui/network/manager')
+local prior_online=network.isOnline
+local dns_calls=0
+network.isOnline=function() dns_calls=dns_calls+1;error('DNS probe must not run') end
+eq(host:isNetworkLinkAvailable(),true,'missing link API remains optimistic')
+eq(dns_calls,0,'missing link API resolved DNS')
+network.isConnected=function() return false end
+eq(host:isNetworkLinkAvailable(),false,'disconnected link is respected')
+network.isConnected=function() return true end
+eq(host:isNetworkLinkAvailable(),true,'connected link can attempt background work')
+network.isConnected=function() error('link state unavailable') end
+eq(host:isNetworkLinkAvailable(),true,'failed link state remains optimistic')
+eq(dns_calls,0,'link check resolved DNS')
+network.isConnected=nil;network.isOnline=prior_online
+
 local previous_navigation=package.loaded['weread.ui.my_mark_navigation']
 local order={}
 package.loaded['weread.ui.my_mark_navigation']={cancel_incoming=function(current)

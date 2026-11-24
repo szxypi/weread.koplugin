@@ -660,17 +660,19 @@ function M:fetchVisibleShelfCovers(view, items, options)
     options = options or {}
     local cache = self:getShelfCoverCache()
     local visible = shelf_page_items(items, view.page, view.page_size or 6)
-    local missing = {}
-    local online = self:isNetworkOnline()
+    local missing, candidates = {}, {}
     for _, book in ipairs(visible) do
         if shelf_cover_url(book)
             and not cache:pathFor(book) then
-            -- Legacy full-resolution cache entries can be converted while
-            -- offline. A network request is only needed when no source exists.
-            if online or cache:sourcePathFor(book) then
-                missing[#missing + 1] = book
-            end
+            candidates[#candidates + 1] = book
         end
+    end
+    if #candidates == 0 then return end
+    local online = require('weread.lib.network_link').available(self)
+    for _,book in ipairs(candidates) do
+        -- Legacy full-resolution cache entries can be converted while
+        -- offline. A network request is only needed when no source exists.
+        if online or cache:sourcePathFor(book) then missing[#missing + 1] = book end
     end
     if #missing == 0 then return end
 
@@ -906,13 +908,19 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_paths = {}
         cover_loading = {}
         local cache = self:getShelfCoverCache()
-        local online = self:isNetworkOnline()
+        local unresolved = {}
         local visible, clamped_page = shelf_page_items(source, page, page_size)
         page = clamped_page
         for _, book in ipairs(visible) do
             local path = cache:pathFor(book)
             cover_paths[book] = path
             if not path and shelf_cover_url(book) then
+                unresolved[#unresolved + 1] = book
+            end
+        end
+        if #unresolved>0 then
+            local online = require('weread.lib.network_link').available(self)
+            for _,book in ipairs(unresolved) do
                 cover_loading[book] = online or cache:sourcePathFor(book) ~= nil
             end
         end

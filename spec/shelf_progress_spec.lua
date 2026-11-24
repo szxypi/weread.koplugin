@@ -129,8 +129,15 @@ expect(books[1]._shelf_progress==62 and books[1]._shelf_progress_local,
 expect(books[2]._shelf_progress==nil and verified['900002']==nil,
     'foreign local or cached book progress was displayed')
 settings.get=stable_get;cache['900002']=nil;host:prepareShelfProgress(books)
+local original_online,link_checks=host.isNetworkOnline,0
+host.isNetworkOnline=function() error('visible progress resolved DNS on the UI thread') end
+host.isNetworkLinkAvailable=function() link_checks=link_checks+1;return online end
+local all_fresh={['900001']=cache['900001'],['900002']={book_id='900002',percent=5,fetched_at=os.time()}}
+host:refreshVisibleShelfProgress(host.shelf_view,books,all_fresh,{})
+expect(link_checks==0 and #tasks==0,'fresh progress performed a network check')
 host:refreshVisibleShelfProgress(host.shelf_view, books, cache, { on_redraw = function() redrawn = redrawn + 1 end })
-expect(#tasks == 1, "visible batch not queued")
+expect(#tasks == 1 and link_checks==1, "visible batch not queued using link state")
+host.isNetworkOnline=original_online
 host:refreshVisibleShelfProgress({}, books, cache, { on_redraw = function() redrawn = redrawn + 10 end })
 expect(#tasks == 1, "cover redraw restarted an identical progress request")
 local result = tasks[1].options.task(ctx)

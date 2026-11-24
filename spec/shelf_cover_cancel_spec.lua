@@ -21,8 +21,10 @@ local Library=require('weread.ui.library')
 local function tick() local callback=table.remove(queue,1);assert(callback,'missing poll');callback() end
 local function fixture()
     queue,warnings={},{}
-    local workers,files={},{}
-    local host={shelf_cover_generation=1,isNetworkOnline=function() return true end}
+    local workers,files,sources={},{},{}
+    local link_online,link_checks=true,0
+    local host={shelf_cover_generation=1,isNetworkOnline=function() error('cover loading resolved DNS on the UI thread') end,
+        isNetworkLinkAvailable=function() link_checks=link_checks+1;return link_online end}
     for key,value in pairs(Library) do host[key]=value end
     local count,reads,redraws,downloads=0,0,0,0
     local runner={}
@@ -42,7 +44,10 @@ local function fixture()
     runner.read_all=function(fd) reads=reads+1;return workers[fd-100].result end
     host.shelf_cover_subprocess=runner
     local cache={MAX_IMAGE_BYTES=3*1024*1024,pathFor=function(_self,book) return files[book] end,
-        sourcePathFor=function() end,thumbnailFromCached=function(_self,book) return files[book] end,
+        sourcePathFor=function(_self,book) return sources[book] end,thumbnailFromCached=function(_self,book)
+            if sources[book] then files[book]='/cache/'..book.bookId end
+            return files[book]
+        end,
         store=function(_self,book) files[book]='/cache/'..book.bookId;return files[book] end,prune=function() end}
     host.getShelfCoverCache=function() return cache end
     host.client={get_binary=function() downloads=downloads+1;return 'synthetic bitmap' end}
@@ -58,9 +63,19 @@ local function fixture()
         if success then workers[job.pid].task(job.pid,job.read_fd) end
         workers[job.pid].done=true;tick()
     end
-    return {host=host,workers=workers,files=files,start=start,finish=finish,view=view,first=first,tail=tail,
-        stats=function() return {runs=count,reads=reads,redraws=redraws,downloads=downloads} end}
+    return {host=host,workers=workers,files=files,sources=sources,start=start,finish=finish,view=view,first=first,tail=tail,
+        set_link=function(value) link_online=value end,
+        stats=function() return {runs=count,reads=reads,redraws=redraws,downloads=downloads,link_checks=link_checks} end}
 end
+
+local cached=fixture();cached.files[cached.first]='/cached/first';cached.files[cached.tail]='/cached/tail'
+expect(not cached.start(cached.view()) and cached.stats().link_checks==0,'cached covers checked network state')
+local offline=fixture();offline.set_link(false)
+expect(not offline.start(offline.view()) and offline.stats().runs==0,'offline covers started network workers')
+offline.sources[offline.first]='/cached/full-size'
+local conversion=offline.start(offline.view(),{offline.first});expect(conversion,'offline cover conversion did not start')
+offline.finish(conversion,true)
+expect(offline.stats().downloads==0 and offline.stats().redraws==1,'offline source conversion requested network or missed redraw')
 
 local f=fixture();local host=f.host;local job=f.start(f.view())
 host:closeWeReadUI()

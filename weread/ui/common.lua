@@ -130,6 +130,15 @@ function M:isNetworkConnected()
     return connected == true
 end
 
+-- For optional background reads, an unknown link state is not a reason to
+-- perform the potentially blocking DNS probe on the UI thread. The actual
+-- request still runs in its worker and handles network failures normally.
+function M:isNetworkLinkAvailable()
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if not ok or not NetworkMgr or type(NetworkMgr.isConnected) ~= "function" then return true end
+    return self:isNetworkConnected()
+end
+
 function M:showOffline(label)
     self:closeBusy()
     logger.warn("network unavailable:", label)

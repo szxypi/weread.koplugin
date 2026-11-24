@@ -302,7 +302,25 @@ local function wait_progress()
     end
     error("shelf progress worker timed out")
 end
+local online_probe = plugin.isNetworkOnline
+plugin.isNetworkConnected = function() return true end
+plugin.isNetworkOnline = function() error('shelf display attempted a synchronous online probe') end
 plugin:showBookshelf()
+-- An uncached cover must also begin in the real background worker without
+-- asking the UI thread to resolve an external host.
+local fresh_cover = { bookId = 'fresh-cover', cover = 'https://weread.qq.com/mock/illustration.png' }
+local cover_redraws = 0
+assert(not plugin:getShelfCoverCache():pathFor(fresh_cover))
+fetch_covers(plugin, plugin.shelf_view, { fresh_cover }, { on_redraw = function() cover_redraws = cover_redraws + 1 end })
+assert(plugin.shelf_cover_job, 'uncached cover did not start in a subprocess')
+for _i = 1, 200 do
+    flush_tasks()
+    if not plugin.shelf_cover_job then break end
+    require('ffi/util').usleep(50000)
+end
+assert(not plugin.shelf_cover_job and plugin:getShelfCoverCache():pathFor(fresh_cover) and cover_redraws == 1,
+    'background cover did not complete and redraw')
+plugin.isNetworkOnline = online_probe
 wait_progress()
 local snapshot = plugin.library_db:getShelfProgress({ seed_id })[seed_id]
 assert(snapshot and snapshot.percent == 37, "real HTTP progress did not persist")
@@ -330,12 +348,14 @@ local next_id = plugin.shelf_view.books[plugin.shelf_view.page_size + 1].bookId
 assert(plugin.library_db:getShelfProgress({ next_id })[next_id].percent == 0, "next shelf page did not fetch progress")
 plugin.shelf_view.on_page_changed(1)
 plugin.isNetworkOnline = function() return false end
+plugin.isNetworkConnected = function() return false end
 plugin.shelf_view.on_display_change("view_mode", "list")
 assert(plugin.shelf_view:itemStatus(plugin.shelf_view.books[1]):find("83%%"), "offline list lost pending progress")
 paint("shelf-progress-list")
 local list_owner=held_book('Cancel')
 assert(not list_owner._shelf_popup, 'list hold cancel left its menu open')
 plugin.isNetworkOnline = function() return true end
+plugin.isNetworkConnected = function() return true end
 plugin.shelf_view.on_display_change("paginated", false)
 wait_progress()
 paint("shelf-progress-scroll-start")

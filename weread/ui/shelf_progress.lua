@@ -1,6 +1,7 @@
 local Data = require("weread.lib.shelf_progress")
 local Access = require("weread.lib.read_access")
 local Identity = require("weread.lib.shelf_snapshot")
+local NetworkLink = require("weread.lib.network_link")
 local M = {}
 
 function M:prepareShelfProgress(books,saved_books)
@@ -58,7 +59,7 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
         return
     end
     self:cancelShelfProgress()
-    if not account or #ids == 0 or not self:isNetworkOnline() or not access then return end
+    if not account or #ids == 0 or not access then return end
     if self.shelf_progress_retry_at and self.shelf_progress_retry_revision == access.revision
         and os.time() < self.shelf_progress_retry_at then return end
     local needed = {}
@@ -69,6 +70,7 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
         end
     end
     if #needed == 0 then return end
+    if not NetworkLink.available(self) then return end
     if not self.shelf_progress_worker then
         self.shelf_progress_worker = require("weread.lib.background_worker"):new{
             temp_dir = self.settings.data_dir .. "/workers", timeout = 30,
