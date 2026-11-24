@@ -1,0 +1,110 @@
+{
+  "result": "FIXTURE_CLEANED_UNVERIFIED",
+  "phase": "restored",
+  "fixture_only": true,
+  "existing_book_writes": 0,
+  "pin_posts_attempted": 2,
+  "fixture_notify_posts": 1,
+  "fixture_cleanup_posts": 1,
+  "no_automatic_replay": true,
+  "authentication_posts": 0,
+  "trial": {
+    "result": "PASS",
+    "phase": "restored",
+    "native_posts_attempted": 2,
+    "independent_steps": 2,
+    "no_automatic_replay": true,
+    "dry_run": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed": {
+        "files": 507,
+        "bytes_match": true
+      },
+      "stage": {
+        "denied": 0,
+        "screenshots": 0,
+        "failed_line": 0,
+        "shelf_books": 141,
+        "profile_files_audited": 9,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "first_preview": true,
+        "second_preview": false,
+        "native_confirmations": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "local_state_preserved": true,
+        "cache_verified": false,
+        "journal_before_posts": false,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "result": "PASS",
+        "phase": "complete",
+        "permit_writes": false,
+        "native_gets": 5,
+        "native_posts": 0
+      }
+    },
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed": {
+        "files": 507,
+        "bytes_match": true
+      },
+      "stage": {
+        "failed_line": 0,
+        "shelf_books": 141,
+        "profile_files_audited": 9,
+        "credential_audit": true,
+        "workers_reaped": true,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "first_preview": true,
+        "second_preview": true,
+        "native_confirmations": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "local_state_preserved": true,
+        "result": "PASS",
+        "journal_before_posts": true,
+        "phase": "complete",
+        "cache_verified": true,
+        "permit_writes": true,
+        "native_gets": 15,
+        "native_posts": 2,
+        "denied": 0,
+        "screenshots": 0
+      }
+    }
+  },
+  "component_changes": {
+    "native": {
+      "members": false,
+      "flags": false,
+      "groups": false,
+      "albums": false
+    },
+    "web": {
+      "members": false,
+      "flags": false,
+      "groups": false,
+      "albums": false
+    },
+    "progress_changed": false,
+    "observed_progress_fields_changed": []
+  },
+  "post_trial_native_marker": {
+    "reason": "missing"
+  },
+  "post_trial_web_marker": {
+    "reason": "missing"
+  },
+  "upload_result": "EPUB_IMPORT_AND_SOURCE_VERIFIED",
+  "fixture_source_verified": true,
+  "original_shelves_match": false,
+  "web_session_saved": false
+}

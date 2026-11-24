@@ -1,4 +1,5 @@
 import unittest
+import json
 from copy import deepcopy
 from functools import partial
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from test_personal_upload_trial import FakeProbe, TARGET
 from test_secure_native_session import Backend, credentials
 from verify_imported_pin_fixture import audit, execute, validate_receipts
 from imported_pin_audit_binding import create as create_binding
+from native_imported_pin_fixture_trial import run as native_trial
 from verify_synthetic_epub_upload import run as upload
 
 
@@ -86,6 +88,8 @@ class FixtureTest(unittest.TestCase):
         result=audit(self.saved,self.native_store,self.web,self.journal,self.receipt,self.records,'CB_another',
                      native=self.native,pending=lambda:True,binding=binding)
         self.assertEqual(result['result'],'READ_ONLY_RESTORED')
+        self.assertTrue(all(result['native_original_core_matches'].values()))
+        self.assertTrue(all(result['current_native_web_core_matches'].values()))
         self.grant['accessToken']='synthetic-renewed'
         with self.assertRaises(ValueError):
             audit(self.saved,self.native_store,self.web,self.journal,self.receipt,self.records,'CB_another',
@@ -105,6 +109,50 @@ class FixtureTest(unittest.TestCase):
         self.receipt.backend.data=b'{}'
         with self.assertRaises(ValueError):
             validate_receipts(self.saved,self.grant,self.journal,self.receipt,self.records,'CB_another')
+    def test_audit_identifies_group_metadata_change_and_reads_old_baselines(self):
+        self.assertEqual(self.run_fixture()['result'],'PASS')
+        self.upload.state['archive'][0]['updateTime']=123
+        result=audit(self.saved,self.native_store,self.web,self.journal,self.receipt,self.records,'CB_another',
+                     native=self.native,pending=lambda:True)
+        self.assertEqual(result['result'],'READ_ONLY_SNAPSHOT_CHANGED')
+        self.assertTrue(all(result['native_original_core_matches'].values()))
+        for channel in ('native','web'):
+            self.assertFalse(result['original_components_match'][channel]['groups'])
+            self.assertTrue(result['original_components_match'][channel]['members'])
+        record=json.loads(self.records['baseline'].backend.data)
+        record['plan']['baseline']={key:record['plan']['baseline'][key] for key in ('native','web')}
+        self.records['baseline'].backend.data=json.dumps(record).encode()
+        result=audit(self.saved,self.native_store,self.web,self.journal,self.receipt,self.records,'CB_another',
+                     native=self.native,pending=lambda:True)
+        self.assertEqual(result['result'],'READ_ONLY_SNAPSHOT_CHANGED')
+        self.assertNotIn('original_components_match',result)
+    def test_native_fixture_cleanup_only_after_both_independent_readbacks(self):
+        for mode in ('normal','lost_first','dry_failure'):
+            with self.subTest(mode=mode):
+                self.setUp();sent=[]
+                def execute_trial(grant,target,before,observe,current,records,mark_armed):
+                    def child(_payload,_command,*,armed,on_step):
+                        if not armed:
+                            if mode=='dry_failure':raise ValueError('dry failed')
+                            return {'result':'PASS'},0
+                        sent.append('pin');self.upload.state['books'][-1]['isTop']=1
+                        if mode=='lost_first':raise ValueError('lost receipt')
+                        on_step(1);sent.append('restore');self.upload.state['books'][-1].pop('isTop');on_step(2)
+                        return {'result':'PASS'},2
+                    return native_trial(grant,target,before,observe,current,records,{'bookId':target,'title':'Synthetic'},
+                                        ['synthetic'],mark_armed,child=child,sleep=lambda _delay:None)
+                result=execute(self.saved,self.native_store,self.web,self.journal,self.receipt,self.records,'CB_another',
+                    apply=True,native=self.native,upload_probe=self.upload,uploader=partial(upload,sleep=lambda _d:None,now=lambda:1000),
+                    content_reader=lambda _saved,_target:True,pending=lambda:True,trial_executor=execute_trial)
+                if mode=='normal':
+                    self.assertEqual(result['result'],'PASS');self.assertEqual(sent,['pin','restore'])
+                    self.assertEqual(result['pin_posts_attempted'],2);self.assertEqual(self.upload.attempts['cleanup'],1)
+                elif mode=='lost_first':
+                    self.assertEqual(result['result'],'FIXTURE_RETAINED_UNVERIFIED');self.assertEqual(sent,['pin'])
+                    self.assertIsNone(result['pin_posts_attempted']);self.assertEqual(self.upload.attempts['cleanup'],0)
+                else:
+                    self.assertEqual(result['result'],'FIXTURE_CLEANED_UNVERIFIED');self.assertEqual(sent,[])
+                    self.assertEqual(self.upload.attempts['cleanup'],1)
 
 
 if __name__=='__main__':unittest.main()

@@ -16,7 +16,7 @@ from cloud_group_trial import _cross_channel
 from imported_pin_trial import request, run as pin_roundtrip, sample
 from imported_pin_audit_binding import create as create_binding, permits as binding_permits
 from native_direct_time_trial_store import Intent
-from personal_upload_trial import hash_value
+from personal_upload_trial import hash_value, projection as upload_projection
 from secure_native_session import NativeSessionStore, project_lock
 from secure_weread_session import ACCOUNT, MacKeychain, SessionStore
 from synthetic_format_trial import TargetReceipt
@@ -27,6 +27,15 @@ from verify_personal_upload_trial import Probe as UploadProbe
 from verify_shelf_flags import WebFlagsProbe
 from verify_synthetic_epub_upload import read_source, run as upload
 from verify_translation_preflight import save_refreshed_web_session
+
+COMPONENTS = ('members', 'flags', 'groups', 'albums')
+
+
+def baseline_hashes(snapshots):
+    result={key:hash_value(value) for key,value in snapshots.items()}
+    for channel,value in snapshots.items():
+        for field in COMPONENTS:result[channel+'_'+field]=hash_value(value[field])
+    return result
 
 
 def backend(name):
@@ -67,7 +76,8 @@ def difference(before, after, before_raw, after_raw):
 
 
 def execute(saved, native_store, web, journal, receipt, records, protected_target, *, apply=False,
-            native=None, upload_probe=None, uploader=upload, content_reader=read_source, pending=no_other_pending):
+            native=None, upload_probe=None, uploader=upload, content_reader=read_source, pending=no_other_pending,
+            trial_executor=None):
     report = {'result': 'UNVERIFIED', 'phase': 'preflight', 'fixture_only': True, 'existing_book_writes': 0,
               'pin_posts_attempted': 0, 'fixture_notify_posts': 0, 'fixture_cleanup_posts': 0,
               'no_automatic_replay': True, 'authentication_posts': 0}
@@ -87,7 +97,7 @@ def execute(saved, native_store, web, journal, receipt, records, protected_targe
         if apply:
             records['baseline'].claim({'selection': {'owner': grant['vid'], 'grant_hash': hash_value(grant)},
                 'record': {'kind': 'fixture_shelf_baseline'}, 'body': {},
-                'baseline': {key: hash_value(value) for key, value in original.items()}})
+                'baseline': baseline_hashes(original)})
         source = {'verified': False};trial = None;attempted = []
         probe = upload_probe or UploadProbe(journal, lambda value: current() and value == grant)
         def content(target):
@@ -127,9 +137,19 @@ def execute(saved, native_store, web, journal, receipt, records, protected_targe
                     raise ValueError('imported_pin_fixture/changed')
                 attempted.append(kind)
                 return native.request('pin_write', BASE + '/shelf/top', body, grant)
-            trial = pin_roundtrip(grant['vid'], target, hash_value(grant), observe, send,
-                                  {'pin': records['pin'], 'restore': records['restore']}, current, apply=True)
-            report['trial'] = trial;report['pin_posts_attempted'] = len(attempted)
+            if trial_executor is None:
+                trial = pin_roundtrip(grant['vid'], target, hash_value(grant), observe, send,
+                                      {'pin': records['pin'], 'restore': records['restore']}, current, apply=True)
+                report['pin_posts_attempted'] = len(attempted)
+            else:
+                def mark_armed():
+                    if attempted or not current(): raise ValueError('imported_pin_fixture/armed')
+                    attempted.append('native')
+                    report['pin_posts_attempted'] = None
+                trial = trial_executor(grant, target, before_raw, observe, current, records, mark_armed)
+                if not isinstance(trial,dict): raise ValueError('imported_pin_fixture/trial')
+                if attempted: report['pin_posts_attempted'] = trial.get('native_posts_attempted')
+            report['trial'] = trial
             if attempted:
                 try:
                     raw_after = observe(target);after = sample(lambda _target: deepcopy(raw_after), current, target)
@@ -178,7 +198,8 @@ def validate_receipts(saved, grant, journal, receipt, records, protected_target,
             or not base or base['phase'] != 'claimed'
             or base['plan']['selection'] != {'owner': saved['vid'], 'grant_hash': original_hash}
             or base['plan']['record'] != {'kind': 'fixture_shelf_baseline'} or base['plan']['body'] != {}
-            or set(base['plan']['baseline']) != {'native', 'web'}
+            or set(base['plan']['baseline']) not in ({'native', 'web'},
+                {'native', 'web'} | {channel+'_'+field for channel in ('native','web') for field in COMPONENTS})
             or any(not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{64}', value)
                    for value in base['plan']['baseline'].values())):
         raise ValueError('imported_pin_fixture/audit')
@@ -202,6 +223,7 @@ def audit(saved, native_store, web, journal, receipt, records, protected_target,
     grant = native_store.load(saved['vid']);session = SessionStore();native = native or NativeProbe()
     try:
         target, base, _pin, _restore = validate_receipts(saved, grant, journal, receipt, records, protected_target, binding)
+        state, _ = journal.read();plan = state['plan']
         def read():
             if session.load() != saved or native_store.load(saved['vid']) != grant or pending() is not True:
                 raise ValueError('imported_pin_fixture/session')
@@ -210,14 +232,22 @@ def audit(saved, native_store, web, journal, receipt, records, protected_target,
             value = {key: project(source) for key, source in pair.items()}
             if any(target in row['members'] for row in value.values()) or not _cross_channel(value['native'], value['web']):
                 raise ValueError('imported_pin_fixture/shelf')
-            return value
+            return value, {key: upload_projection(source) for key, source in pair.items()}
         first = read();second = read()
         if first != second: raise ValueError('imported_pin_fixture/unstable')
-        matches = {key: hash_value(value) == base['plan']['baseline'][key] for key, value in second.items()}
-        return {'result': 'READ_ONLY_RESTORED' if all(matches.values()) else 'READ_ONLY_SNAPSHOT_CHANGED',
+        snapshots, core = second
+        matches = {key: hash_value(value) == base['plan']['baseline'][key] for key, value in snapshots.items()}
+        fields=('count','members_sha256','flags_sha256','groups_sha256')
+        report={'result': 'READ_ONLY_RESTORED' if all(matches.values()) else 'READ_ONLY_SNAPSHOT_CHANGED',
                 'account_data_writes': 0, 'fixture_absent_both_channels': True, 'two_stable_readbacks': True,
                 'native_web_members_and_groups_match': True, 'original_shelf_snapshots_match': matches,
+                'native_original_core_matches': {key:core['native'][key]==plan[key] for key in fields},
+                'current_native_web_core_matches': {key:core['native'][key]==core['web'][key] for key in fields},
                 'pin_and_restore_receipts_verified': True}
+        if 'native_members' in base['plan']['baseline']:
+            report['original_components_match']={channel:{field:hash_value(snapshots[channel][field])==
+                base['plan']['baseline'][channel+'_'+field] for field in COMPONENTS} for channel in ('native','web')}
+        return report
     finally:
         grant.clear()
 

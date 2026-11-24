@@ -18,7 +18,10 @@ local ok,reason=pcall(function()
     local armed=input.permit_writes;assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_CLOUD_PIN_TRIAL_ARMED')=='1'))
     report.permit_writes=armed
     local grant=input.credentials;local id=input.book_id
-    assert(type(id)=='string' and #id<=20 and id:match('^[1-9]%d*$') and type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
+    local imported=os.getenv('WEREAD_CLOUD_PIN_TRIAL_IMPORTED')=='1'
+    assert(type(id)=='string' and (imported and #id<=67 and id:match('^CB_[A-Za-z0-9]+$')
+        or not imported and #id<=20 and id:match('^[1-9]%d*$'))
+        and type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     assert(input.expected_metadata.bookId==id and input.shelf_books>=1 and input.shelf_books<=5000)
     report.shelf_books=input.shelf_books
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -34,7 +37,7 @@ local ok,reason=pcall(function()
         assert(type(input.mock_port)=='number' and input.mock_port%1==0 and input.mock_port>=1 and input.mock_port<=65535
             and os.getenv('WEREAD_CLOUD_PIN_TRIAL_MOCK')==tostring(input.mock_port))
         assert(grant.vid=='900000' and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh'
-            and id=='900001' and grant.deviceId=='eink334691225'..string.rep('1',19))
+            and id==(imported and 'CB_SyntheticResume' or '900001') and grant.deviceId=='eink334691225'..string.rep('1',19))
         local Settings=require('weread.lib.settings');local new=Settings.new
         function Settings:new() local value=new(self);value.mock_endpoint='http://127.0.0.1:'..input.mock_port;return value end
     else assert(not os.getenv('WEREAD_CLOUD_PIN_TRIAL_MOCK')) end
