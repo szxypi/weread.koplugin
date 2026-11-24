@@ -23,4 +23,27 @@ assert(indexed[2][3] == '后' and indexed[3][3] == '尾', 'quoted tag or comment
 assert(Source.quote(indexed, '0-2') == '甲乙', 'long text changed rune offsets')
 assert(#Source.index('before<!-- unfinished') == 0, 'unfinished comment must reject all spans')
 assert(Source.index('text<broken "unterminated')[1][3] == 'text', 'unfinished tag lost preceding text')
+local weak
+do
+    local mutable = Source.index(('x'):rep(5000))
+    assert(Source.quote(mutable, '4900-4905') == 'xxxxx', 'long-range lookup failed')
+    assert(Source.quote(mutable, '4800-4805') == 'xxxxx', 'cached long-range lookup failed')
+    mutable[1][3] = '&' .. ('y'):rep(4999)
+    assert(Source.quote(mutable, '4900-4905') == '', 'replaced source text reused stale entity state')
+    assert(Source.quote(mutable, '4900-4905') == '', 'rebuilt cache accepted a cut entity')
+    mutable[1][3] = ('z'):rep(5000)
+    assert(Source.quote(mutable, '4900-4905') == 'zzzzz', 'changed text could not be quoted')
+    assert(Source.quote(mutable, '4800-4805') == 'zzzzz', 'changed text could not rebuild its cache')
+    mutable[1][1], mutable[1][2] = 1000, 6000
+    assert(Source.quote(mutable, '5900-5905') == 'zzzzz', 'source offset change corrupted cached lookup')
+    weak = setmetatable({mutable[1]}, {__mode='v'})
+end
+collectgarbage('collect');collectgarbage('collect')
+assert(weak[1] == nil, 'position cache retained released chapter spans')
+local many_entities = Source.index(('&;'):rep(4097))
+assert(Source.quote(many_entities, '8000-8002') == '&;', 'entity interval limit changed full entities')
+assert(Source.quote(many_entities, '8001-8002') == '', 'entity interval limit accepted a cut entity')
+local beyond_checkpoints = Source.plain(('a'):rep(8389700))
+assert(Source.quote(beyond_checkpoints, '8389600-8389605') == 'aaaaa', 'checkpoint limit changed the quote')
+assert(Source.quote(beyond_checkpoints, '8389600-8389605') == 'aaaaa', 'cached checkpoint limit changed the quote')
 print("annotation_source_spec: original rune offsets, UTF-8, tags and entities passed")
