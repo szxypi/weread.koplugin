@@ -60,6 +60,8 @@ def run():
             raise ValueError('owner_copy/changed')
         report.update(result='OWNER_CLOUD_GROUP_COPY_UI_VERIFIED',groups=len(expected['expected']),
             regular_memberships=sum(len(row['members']) for row in expected['expected']),
+            imported_memberships=sum(1 for row in expected['expected'] for identity in row['members'] if identity.startswith('CB_')),
+            groups_with_imported=sum(1 for row in expected['expected'] if any(identity.startswith('CB_') for identity in row['members'])),
             sizes=2,offline_reopen=True,temporary_profiles_removed=True,shelf_unchanged=True)
     except Exception:
         pass

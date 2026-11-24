@@ -11,6 +11,15 @@ expect(#empty.groups==0 and copied.groups[1].name=='本机副本' and #copied.gr
 cloud.member_ids[1]='changed';expect(copied.groups[1].books[1]=='42')
 expect(not Model.copy_cloud(copied,cloud,'本机副本') and not Model.copy_cloud(empty,{member_ids={'42','42'}},'bad')
     and not Model.copy_cloud(empty,{member_ids={'MP_WXS_1'}},'bad') and not Model.copy_cloud(empty,{},'bad'))
+local imported_shelf={{bookId='42',title='普通书'},{bookId='CB_SyntheticGroup',title='导入书'}}
+local imported_cloud=Groups.list({{archiveId=8,name='混合组',bookIds={'42','CB_SyntheticGroup','CB_Missing','MP_WXS_1'}}},imported_shelf)[1]
+local imported_copy=assert(Model.copy_cloud(empty,imported_cloud,'混合副本'))
+expect(#imported_copy.groups[1].books==3 and imported_copy.groups[1].books[2]=='CB_SyntheticGroup'
+    and imported_copy.groups[1].books[3]=='CB_Missing')
+local imported_project=assert(Model.project(imported_copy,imported_shelf,function(label)return label end))
+expect(#imported_project[1].books==2 and imported_project[1].incomplete)
+local imported_removed=assert(Model.assign(imported_copy,'CB_SyntheticGroup',{}))
+expect(#imported_removed.groups[1].books==2 and imported_removed.groups[1].books[2]=='CB_Missing')
 local first=assert(Model.change(empty,{kind='create',name='  已读  '}))
 expect(#empty.groups==0 and first.groups[1].name=='已读' and first.groups[1].id==1)
 expect(not Model.change(first,{kind='create',name='已读'}))

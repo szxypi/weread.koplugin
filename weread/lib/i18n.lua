@@ -1448,6 +1448,7 @@ local zh = {
     ["Copy a cloud group to this device"] = "复制云端分组到本机",
     ["Name the local group copy"] = "命名本机分组副本",
     ["Copies regular books only. The new group stays on this device."] = "仅复制普通书籍，新分组保存在本机。",
+    ["Copies books and personal uploads. Saved on this device."] = "复制书籍及个人导入书，仅保存在本机。",
     ["No cloud groups available to copy."] = "没有可复制的云端分组。",
     ["Rename local group"] = "重命名本机分组",
     ["Local group: %1"] = "本机分组：%1",

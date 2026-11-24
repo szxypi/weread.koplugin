@@ -22,6 +22,11 @@ class OwnerCopyTests(unittest.TestCase):
         with self.assertRaises(ValueError):prepare(shelf)
         shelf=self.shelf();shelf['archive'][0]['bookIds']=['101','101']
         with self.assertRaises(ValueError):prepare(shelf)
+    def test_imported_and_missing_members_are_preserved(self):
+        shelf=self.shelf();shelf['books'].append(dict(bookId='CB_Synthetic',title='Imported'))
+        shelf['archive'][0]['bookIds']=['101','CB_Synthetic','CB_Missing','MP_WXS_1']
+        payload=prepare(shelf)
+        self.assertEqual(payload['expected'][0]['members'],['101','CB_Synthetic','CB_Missing'])
     def test_offline_default_reads_no_credentials_or_network(self):
         output=io.StringIO()
         with patch('verify_owner_cloud_group_copy.SessionStore') as store,redirect_stdout(output):self.assertEqual(main([]),0)

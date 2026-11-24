@@ -194,7 +194,7 @@ function M.open(host,owner,is_current,on_change)
         end
         if #rows==0 then rows[1]={text=_('No cloud groups available to copy.'),select_enabled=false} end
         menu=require('ui/widget/menu'):new{title=_('Copy a cloud group to this device'),item_table=rows,
-            subtitle=_('Copies regular books only. The new group stays on this device.'),items_per_page=12}
+            subtitle=_('Copies books and personal uploads. Saved on this device.'),items_per_page=12}
         Popup.show(owner,menu)
     end
     show_list=function()

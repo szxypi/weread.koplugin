@@ -12,12 +12,14 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
+    parser.add_argument('--imported',action='store_true',help='Exercise the same flows with an imported shelf book')
     args=parser.parse_args();root=args.run_dir.resolve();runtime=args.koreader.resolve()
     prepare(root,runtime,8765,args.width,args.height,args.dpi);(root/'xdg').mkdir(mode=0o700)
     env=os.environ|dict(KO_HOME=str(root/'profile'),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',
         WEREAD_LOCAL_GROUP_EVIDENCE=str(root/'evidence'),
         EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
         EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
+    if args.imported:env['WEREAD_LOCAL_GROUP_IMPORTED']='1'
     probe=Path(__file__).resolve().parent.parent/'spec/koreader/local_shelf_groups_smoke.lua'
     for phase in ('live','reopen'):
         log=root/'evidence'/('local-groups-'+phase+'.log')

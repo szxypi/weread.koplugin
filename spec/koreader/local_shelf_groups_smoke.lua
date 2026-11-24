@@ -20,8 +20,9 @@ local function auth(id)
     settings:update_auth({account={user_vid=id,name='Synthetic'},cookies={wr_vid = id,wr_skey='synthetic-session'}},{replace_cookies=true})
 end
 auth('900000')
+local third_id=os.getenv('WEREAD_LOCAL_GROUP_IMPORTED')=='1' and 'CB_SyntheticGroup' or '103'
 local shelf={{bookId='101',title='合成书一',author='作者'}, {bookId='102',title='合成书二',author='作者'},
-             {bookId='103',title='合成书三',author='Writer Three'}}
+             {bookId=third_id,title='合成书三',author='Writer Three'}}
 local cloud={{archiveId=7,name='云端测试组',bookIds={'101'}}}
 if phase=='live' then assert(host.library_db:cacheShelf(shelf,cloud)) end
 host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
@@ -120,7 +121,16 @@ if phase=='live' then
     UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/choose-books.png')
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     assert_shelf_cloud();local local_group=host.shelf_groups[#host.shelf_groups]
-    assert(local_group.key=='local:1' and #local_group.books==2 and local_group.books[1].bookId=='101' and local_group.books[2].bookId=='103')
+    assert(local_group.key=='local:1' and #local_group.books==2 and local_group.books[1].bookId=='101' and local_group.books[2].bookId==third_id)
+    if third_id~='103' then
+        -- The same per-book action must work for imported as well as ordinary books.
+        view,picker=quick_groups(shelf[3]);assert(entry(picker,'本机测试').mandatory=='✓')
+        picker:onMenuSelect(entry(picker,'本机测试'))
+        picker:onMenuSelect(entry(picker,text('Save local groups for this book')));pump(function() return host.shelf_view~=view end)
+        view,picker=quick_groups(shelf[3]);assert(entry(picker,'本机测试').mandatory=='')
+        picker:onMenuSelect(entry(picker,'本机测试'))
+        picker:onMenuSelect(entry(picker,text('Save local groups for this book')));pump(function() return host.shelf_view~=view end)
+    end
     -- A long press can add and remove the same book without touching others.
     view,picker=quick_groups(shelf[2]);assert(entry(picker,'本机测试').mandatory=='')
     picker:onMenuSelect(entry(picker,'本机测试'));assert(entry(picker,'本机测试').mandatory=='✓')
@@ -142,7 +152,7 @@ if phase=='live' then
     view=host.shelf_view;view.on_select_groups({'archive:7','local:1'});pump(function() return host.shelf_view~=view end)
     local mixed=host.shelf_view;assert(#mixed.books==2,'mixed cloud and local groups did not deduplicate')
     local ids={};for _,book in ipairs(mixed.books) do ids[book.bookId]=true end
-    assert(ids['101'] and ids['103'] and not ids['102'])
+    assert(ids['101'] and ids[third_id] and not ids['102'])
     mixed.on_select_group(nil);pump(function() return host.shelf_view~=mixed end)
     view=manage();UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/local-groups.png')
     require('weread.ui.shelf_popup').close(view)
@@ -157,7 +167,7 @@ if phase=='live' then
     picker:onMenuSelect(entry(picker,text('Deselect matching shelf books')))
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     local preserved=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
-    assert(#preserved.groups[1].books==2 and preserved.groups[1].books[1]=='101' and preserved.groups[1].books[2]=='103',
+    assert(#preserved.groups[1].books==2 and preserved.groups[1].books[1]=='101' and preserved.groups[1].books[2]==third_id,
         'filtered or missing book was removed')
     host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
     view=host.shelf_view;view:showSourceMenu('books');picker=assert(view._shelf_popup)
@@ -282,16 +292,22 @@ if phase=='live' then
     -- Copy a real projected cloud-group snapshot into one local transaction,
     -- retaining ordinary missing IDs while excluding public-account entries.
     auth('900006')
-    local copy_cloud={{archiveId=7,name='云端测试组',bookIds={'101','missing-copy','MP_WXS_1','101'}}}
+    local copy_ids={'101','missing-copy','MP_WXS_1','101'}
+    if third_id~='103' then copy_ids[#copy_ids+1]=third_id end
+    local copy_cloud={{archiveId=7,name='云端测试组',bookIds=copy_ids}}
     host:applyShelfSnapshot(shelf,copy_cloud);host:showShelfView('books')
     view,manager=manage();picker=select_row(view,manager,text('Copy a cloud group to this device'))
-    assert(entry(picker,'云端测试组').mandatory=='2')
+    assert(entry(picker,'云端测试组').mandatory==(third_id~='103' and '3' or '2'))
+    if third_id~='103' then
+        UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/copy-imported.png')
+    end
     input=select_row(view,picker,'云端测试组');input:setInputText('本机复制组')
     button(input,text('Save')).callback();pump(function() return host.shelf_view~=view end)
     local copy=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
-    assert(#copy.groups==1 and copy.groups[1].name=='本机复制组' and #copy.groups[1].books==2
-        and copy.groups[1].books[1]=='101' and copy.groups[1].books[2]=='missing-copy')
-    assert(#copy_cloud[1].bookIds==4 and copy_cloud[1].bookIds[2]=='missing-copy','cloud group was modified')
+    assert(#copy.groups==1 and copy.groups[1].name=='本机复制组' and #copy.groups[1].books==(third_id~='103' and 3 or 2)
+        and copy.groups[1].books[1]=='101' and copy.groups[1].books[2]=='missing-copy'
+        and (third_id=='103' or copy.groups[1].books[3]==third_id))
+    assert(#copy_cloud[1].bookIds==(third_id~='103' and 5 or 4) and copy_cloud[1].bookIds[2]=='missing-copy','cloud group was modified')
     assert(host.shelf_groups[#host.shelf_groups].incomplete,'missing copied book was not reported')
     -- A new shelf snapshot invalidates an open copy dialog before saving.
     view,manager=manage();picker=select_row(view,manager,text('Copy a cloud group to this device'))
@@ -322,7 +338,7 @@ if phase=='live' then
     settings:flush()
 else
     assert_shelf_cloud();assert(host.shelf_groups[#host.shelf_groups].label=='本机 · 并发新名称')
-    local group=host.shelf_groups[#host.shelf_groups];assert(#group.books==2 and group.books[1].bookId=='101' and group.books[2].bookId=='103')
+    local group=host.shelf_groups[#host.shelf_groups];assert(#group.books==2 and group.books[1].bookId=='101' and group.books[2].bookId==third_id)
     local view,manager=manage();local actions=choose_group(view,manager,'并发新名称');local input=group_action(view,actions,2)
     input:setInputText('离线重命名');input.buttons[1][2].callback();pump(function() return host.shelf_view~=view end)
     assert(host.shelf_groups[#host.shelf_groups].label=='本机 · 离线重命名')
@@ -333,6 +349,7 @@ else
     auth('900006');host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
     local copy=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
     assert(#copy.groups==1 and copy.groups[1].name=='本机复制组' and copy.groups[1].books[2]=='missing-copy')
+    if third_id~='103' then assert(copy.groups[1].books[3]==third_id,'copied imported member lost offline') end
     assert(host.shelf_groups[#host.shelf_groups].incomplete,'copied missing member lost after offline reopen')
 end
 print('\nWEREAD_LOCAL_GROUPS='..require('json').encode({result='PASS',phase=phase,network_requests=0}))
