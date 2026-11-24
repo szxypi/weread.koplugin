@@ -59,6 +59,13 @@ local function flush()
 end
 flush()
 local doc=reader.document
+local bookmark_index
+if os.getenv('WEREAD_BOOKMARK_INDEX_ONLY')=='1' then
+    bookmark_index=dofile('/source/spec/koreader/bookmark_page_index_probe.lua')(reader,flush)
+    local file=assert(io.open(evidence..'/bookmark-index.json','wb'))
+    file:write(require('rapidjson').encode(bookmark_index));file:close()
+    reader:onClose();UIManager:quit();return
+end
 local final_page_xp=assert(doc:getPageXPointer(doc:getPageCount()))
 local final_page_node=doc:getTextFromXPointer(final_page_xp)
 assert(not final_page_node or Dom.normalize(final_page_node)=='','last page is not image-only')
@@ -95,7 +102,11 @@ local early=assert(map:locate('段落5：窗外的风穿过树梢。阅读位置
 local early_point,early_reason=index2:locate(early.co)
 assert(early_point,early_reason)
 local checkpoint_count=index2.stats.checkpoints
-assert(checkpoint_count>20,'long chapter did not create sparse checkpoints')
+-- A verified page checkpoint can skip most of the chapter, so a fixed
+-- minimum checkpoint count is no longer expected. Retained checkpoints must
+-- remain sparse and repeat navigation below still has a bounded step count.
+assert(checkpoint_count>=1 and checkpoint_count<=math.floor(index2.stats.steps/Dom.CHECKPOINT_INTERVAL)+1,
+    'native checkpoints were not sparse')
 local before_steps=index2.stats.steps
 assert(index2:locate(early.co))
 local repeated_steps=index2.stats.steps-before_steps

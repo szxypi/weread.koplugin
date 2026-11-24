@@ -5,12 +5,12 @@ local PAGE_CACHE_LIMIT=4
 function M:new(options)
     options=options or {}
     return setmetatable({records={},enabled=true,visible={},scale=options.scale or function(n) return n end,
-        color=options.color},self)
+        color=options.color,allow_page_index=options.allow_page_index~=false},self)
 end
 function M:setRecords(records) self.records=records or {};self:invalidate() end
 function M:setEnabled(value) self.enabled=value~=false;self:invalidate() end
 local function clear_visible(self) self.visible={};self.rect=nil;self.origin=nil end
-function M:invalidate() clear_visible(self);self.page_cache=nil end
+function M:invalidate() clear_visible(self);self.page_cache=nil;self.page_index=nil end
 function M:resetLayout() self:invalidate() end
 -- Only reuse a result when the native renderer can identify the entire
 -- viewport. Scroll mode and incomplete/failed document APIs always rescan.
@@ -30,7 +30,18 @@ local function page_key(self,document)
         last=document:getPageXPointer(page+count)
         if type(last)~='string' or last=='' then return end
     end
-    return {document,page,total,count,pos,first,last,self.ui.dimen.w,self.ui.dimen.h}
+    local hash=false
+    if type(document.getDocumentRenderingHash)=='function' then
+        local ok,value=pcall(document.getDocumentRenderingHash,document,true)
+        if ok and (type(value)=='number' and value==value and value~=0 and math.abs(value)<math.huge
+            or type(value)=='string' and value~='') then hash=value end
+    end
+    local flows='unknown'
+    if type(document.hasNonLinearFlows)=='function' then
+        local ok,value=pcall(document.hasNonLinearFlows,document)
+        if ok and type(value)=='boolean' then flows=value and 'nonlinear' or 'linear' end
+    end
+    return {document,page,total,count,pos,first,last,self.ui.dimen.w,self.ui.dimen.h,hash,flows}
 end
 local function same_key(a,b)
     if not a or not b then return false end
@@ -54,6 +65,49 @@ local function onscreen(self,document,xp)
     local y,x=document:getScreenPositionFromXPointer(xp);local dimen=self.ui.dimen
     local footer=self.view.footer_visible and self.view.footer and self.view.footer:getHeight() or 0
     return type(y)=='number' and type(x)=='number' and y>=0 and y<dimen.h-footer and x>=0 and x<dimen.w
+end
+
+-- A page-number index is only a prefilter: visible candidates are still
+-- checked by CREngine. Unsupported/multi-page/non-linear layouts and any
+-- uncertain page mappings retain the original complete scan.
+local function page_candidates(self,document,key)
+    if not self.allow_page_index or not key or not key[10] or key[11]~='linear' or key[4]~=1 or #self.records<32
+        or type(document.getPageFromXPointer)~='function' then
+        self.page_index=nil;return nil
+    end
+    -- Check the page anchor each time before using this provider's numbering.
+    local valid,first=pcall(document.getPageFromXPointer,document,key[6])
+    if not valid or type(first)~='number' or first%1~=0 or math.abs(first-key[2])>1 then
+        self.page_index=nil;self.page_cache=nil;return nil
+    end
+    local layout={document,key[3],key[4],key[8],key[9],key[10]}
+    local index=self.page_index
+    if not index or not same_key(index.layout,layout) then
+        index={layout=layout,buckets={},unknown={}}
+        local pages={}
+        for i,row in ipairs(self.records) do
+            local xp=row.pos0
+            local page=type(xp)=='string' and pages[xp] or nil
+            if page==nil then
+                local success,value=pcall(document.getPageFromXPointer,document,xp)
+                if success and type(value)=='number' and value%1==0 and value>=1 and value<=key[3] then
+                    page=value
+                    if type(xp)=='string' then pages[xp]=page end
+                end
+            end
+            local bucket
+            if page then
+                bucket=index.buckets[page] or {};index.buckets[page]=bucket
+            else bucket=index.unknown end
+            bucket[#bucket+1]=i
+        end
+        self.page_index=index
+    end
+    local included={}
+    local function add(rows) for _,i in ipairs(rows or {}) do included[i]=true end end
+    add(index.unknown)
+    for page=key[2]-1,key[2]+1 do add(index.buckets[page]) end
+    return included
 end
 function M:geometry()
     local ui,view=self.ui,self.view;local d=ui and ui.document;local dimen=ui and ui.dimen
@@ -86,9 +140,12 @@ function M:paintTo(bb,x,y)
         self.visible=cached.visible
     else
         local complete=true
-        for _i,row in ipairs(self.records) do
-            local ok,visible=pcall(onscreen,self,document,row.pos0)
-            if not ok then complete=false elseif visible then self.visible[#self.visible+1]=row end
+        local candidates=key_ok and page_candidates(self,document,key)
+        for i,row in ipairs(self.records) do
+            if not candidates or candidates[i] then
+                local ok,visible=pcall(onscreen,self,document,row.pos0)
+                if not ok then complete=false elseif visible then self.visible[#self.visible+1]=row end
+            end
         end
         if key_ok and key and complete then
             self.page_cache=self.page_cache or {}
@@ -97,7 +154,7 @@ function M:paintTo(bb,x,y)
         else
             -- An incomplete viewport or failed query may indicate a changed
             -- layout, so no prior page can safely be reused.
-            self.page_cache=nil
+            self.page_cache=nil;self.page_index=nil
         end
     end
     if #self.visible==0 then return end

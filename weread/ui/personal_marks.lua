@@ -32,6 +32,7 @@ local function close_picker(s)
 end
 local function clear(host,s)
     close_picker(s)
+    s.indicator.allow_page_index=false
     s.records={};s.bookmarks={};s.overlay:setRecords({},true);s.indicator:setRecords({});dirty(host)
 end
 local function metadata(host,s)
@@ -86,7 +87,7 @@ local function same_job(host,s,job)
 end
 batch=function(host,s,job)
     if not same_job(host,s,job) then return end
-    if job.cursor>#job.rows then s.job=nil;s.complete=true;return end
+    if job.cursor>#job.rows then s.job=nil;s.complete=true;s.indicator.allow_page_index=true;return end
     local rows={};for i=job.cursor,math.min(#job.rows,job.cursor+Task.BATCH-1) do rows[#rows+1]=job.rows[i] end
     job.cursor=job.cursor+#rows
     local started=worker(host,s,function()
@@ -326,7 +327,8 @@ function M.attach(host)
     local painter=require('weread.ui.personal_mark_painter')
     local overlay=Overlay:new{records={},painter=painter.paint,prepare_painter=painter.prepare,
         style={width=math.max(1,screen:scaleBySize(1)),wave_step=math.max(1,screen:scaleBySize(1)),color=BB.Color8(0)}}
-    local indicator=require('weread.ui.bookmark_indicator'):new{scale=function(n) return screen:scaleBySize(n) end,color=BB.Color8(0)}
+    local indicator=require('weread.ui.bookmark_indicator'):new{scale=function(n) return screen:scaleBySize(n) end,
+        color=BB.Color8(0),allow_page_index=false}
     s.overlay=overlay;s.indicator=indicator;host._personal_marks=s
     for _i,layer in ipairs({overlay,indicator}) do
         local paint=layer.paintTo

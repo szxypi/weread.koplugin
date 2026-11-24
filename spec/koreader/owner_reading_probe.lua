@@ -1172,6 +1172,12 @@ local ok,reason=pcall(function()
         end
     end
     report.pages=document:getPageCount();assert(single_page and report.pages==1 or not single_page and report.pages>1)
+    if os.getenv('WEREAD_OWNER_BOOKMARK_INDEX')=='1' and mode=='live' then
+        local original_page=document:getCurrentPage()
+        dofile('/source/spec/koreader/bookmark_page_index_probe.lua')(reader,tick,{min_pages=3})
+        reader.rolling:onGotoPage(original_page);tick()
+        assert(document:getCurrentPage()==original_page,'bookmark index check changed the original page')
+    end
     local matches=assert(document:findAllText(input.source_text,false,0,4,false,0))
     assert(matches[1] and matches[1].start)
     local source_index,source_reason=require('weread.lib.source_dom').open(document,input.book_id,input.chapter_uid)
