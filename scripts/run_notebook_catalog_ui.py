@@ -16,10 +16,12 @@ FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_file
        'account_isolation','cache_session_free','workers_reaped','credential_audit'}
 
 
-def validate_stage(value,mode,count,*,bulk_notes=False):
+def validate_stage(value,mode,count,*,bulk_notes=False,owner_search=False):
     keys=FLAGS|{'result','mode','phase','pages','books','requests','forbidden','failed_line'}
     if bulk_notes:keys|={'bulk_notes'}
+    if owner_search:keys|={'owner_search'}
     if not isinstance(value,dict) or set(value)!=keys:raise ValueError('ui_schema')
+    if owner_search and value['owner_search'] is not True:raise ValueError('ui_search')
     if any(type(value[key]) is not bool or not value[key] for key in FLAGS):raise ValueError('ui_flags')
     if any(type(value[key]) is not int or value[key]<0 for key in ('pages','books','requests','forbidden','failed_line')):
         raise ValueError('ui_numbers')
@@ -46,6 +48,7 @@ def main(argv=None):
     parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--synthetic',action='store_true')
     parser.add_argument('--cached-notes-sample',action='store_true')
     parser.add_argument('--bulk-notes',action='store_true')
+    parser.add_argument('--owner-search',action='store_true')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux and built runtime required')
@@ -60,6 +63,9 @@ def main(argv=None):
             raise ValueError('input_scope')
         if args.cached_notes_sample != ('saved_samples' in payload) or args.synthetic and args.cached_notes_sample:
             raise ValueError('input_scope')
+        if args.owner_search != ('search_cases' in payload):raise ValueError('input_scope')
+        if args.owner_search and (not isinstance(payload['search_cases'],list) or len(payload['search_cases'])!=3):
+            raise ValueError('input_scope')
         if args.cached_notes_sample and (not isinstance(payload['saved_samples'],list) or len(payload['saved_samples'])!=2
                 or [row.get('kind') for row in payload['saved_samples'] if isinstance(row,dict)]!=['marks','thoughts']):
             raise ValueError('input_scope')
@@ -73,13 +79,14 @@ def main(argv=None):
             if args.synthetic:env['WEREAD_NOTEBOOK_SYNTHETIC']='1'
             if args.cached_notes_sample:env['WEREAD_NOTEBOOK_SAVED_SAMPLES']='1'
             if args.bulk_notes:env['WEREAD_NOTEBOOK_BULK']='1'
+            if args.owner_search:env['WEREAD_NOTEBOOK_OWNER_SEARCH']='1'
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/notebook_catalog_probe.lua';stages=[];live=None
             for mode in ('live','reopen'):
                 code,rawout,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,raw,runtime,timeout=600 if args.bulk_notes else 180)
                 if len(rawout)>12*1024*1024 or rawout.count(FRAME)!=1:raise ValueError('ui_frame')
                 result=json.loads(rawout.split(FRAME)[1]);stages.append(result.get('ui'));output['ui']['stages']=stages
                 if code or repaint:raise ValueError('ui_child')
-                validate_stage(result['ui'],mode,count,bulk_notes=args.bulk_notes)
+                validate_stage(result['ui'],mode,count,bulk_notes=args.bulk_notes,owner_search=args.owner_search)
                 if live is None:live=result
                 elif result['native']!=live['native'] or result['model']!=live['model']:raise ValueError('ui_reopen')
                 if live is not None and mode=='reopen' and args.bulk_notes:

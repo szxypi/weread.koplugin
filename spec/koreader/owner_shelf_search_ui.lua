@@ -62,6 +62,51 @@ local ok,reason=pcall(function()
     choose(input.group_label);assert(equal(host.shelf_view.books,input.group_ids))
     for index=1,3 do search(input.queries[index],input.expected_group[index]) end
     clear(input.group_ids);choose(tr('All books'));assert(equal(host.shelf_view.books,input.all_ids))
+    local function select_row(view,menu,label)
+        menu:onMenuSelect(find(menu,label));pump(function() return view._shelf_popup and view._shelf_popup~=menu end)
+        return view._shelf_popup
+    end
+    local function manage()
+        local view=assert(host.shelf_view);view:showSourceMenu('books');local menu=assert(view._shelf_popup)
+        return view,select_row(view,menu,tr('Manage local groups'))
+    end
+    if mode=='live' then
+        local view,manager=manage();local dialog=select_row(view,manager,tr('Create local group'))
+        dialog:setInputText('隔离验证分组');dialog.buttons[1][2].callback()
+        pump(function() return host.shelf_view and host.shelf_view~=view end)
+    else
+        local saved=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+        assert(#saved.groups==1 and #saved.groups[1].books==2)
+        local members={};for _,id in ipairs(saved.groups[1].books) do members[id]=true end
+        for _,case in ipairs(input.local_cases) do assert(members[case.id]) end
+    end
+    local view,manager=manage();local actions=select_row(view,manager,'隔离验证分组')
+    actions.buttons[1][1].callback();pump(function() return view._shelf_popup and view._shelf_popup~=actions end)
+    local picker=assert(view._shelf_popup)
+    local function picker_search(query)
+        local dialog=select_row(view,picker,picker.item_table[2].text)
+        dialog:setInputText(query);dialog.buttons[1][2].callback()
+        pump(function() return view._shelf_popup and view._shelf_popup~=dialog end);picker=view._shelf_popup
+    end
+    for _,case in ipairs(input.local_cases) do
+        picker_search(case.query);assert(#picker.item_table==6)
+        local row=find(picker,case.title)
+        if mode=='live' then assert(row.mandatory=='');picker:onMenuSelect(row) end
+        assert(row.mandatory=='✓')
+    end
+    picker_search('KOReaderNoSuchShelfBook0123456789');assert(find(picker,tr('No matching shelf books.')))
+    for _,case in ipairs(input.local_cases) do
+        picker_search(case.query);assert(#picker.item_table==6 and find(picker,case.title).mandatory=='✓')
+    end
+    if mode=='live' then
+        picker:onMenuSelect(find(picker,tr('Save local group books')))
+        pump(function() return host.shelf_view and host.shelf_view~=view end)
+        local saved=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+        assert(#saved.groups==1 and #saved.groups[1].books==2)
+        local members={};for _,id in ipairs(saved.groups[1].books) do members[id]=true end
+        for _,case in ipairs(input.local_cases) do assert(members[case.id]) end
+    else require('weread.ui.shelf_popup').close(view) end
+    report.local_picker_verified=true
     assert(blocked==0);report.books=#input.all_ids;report.group_books=#input.group_ids;report.result='PASS'
 end)
 if not ok and type(reason)=='string' then

@@ -17,6 +17,7 @@
   "temporary_profiles_removed": true,
   "installed_bytes_match": true,
   "actual_owner_online_ui_login_verified": false,
-  "owner_local_group_and_notebook_search_ui_verified": false,
+  "owner_local_group_picker_search": {"verified": true, "selected_books": 2, "cross_search_selection_preserved": true, "isolated_profile": true},
+  "owner_notebook_search_ui_verified_separately": true,
   "physical_device_verified": false
 }

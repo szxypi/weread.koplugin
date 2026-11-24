@@ -30,10 +30,11 @@ def main(argv=None):
     try:
         raw=sys.stdin.buffer.read(4*1024*1024+1)
         if len(raw)>4*1024*1024:raise ValueError('input')
-        payload=json.loads(raw);keys={'books','archives','group_label','queries','expected_all','expected_group','group_ids','all_ids'}
+        payload=json.loads(raw);keys={'books','archives','group_label','queries','expected_all','expected_group','group_ids','all_ids','local_cases'}
         if (not isinstance(payload,dict) or set(payload)!=keys or not isinstance(payload['books'],list)
                 or not isinstance(payload['archives'],list) or not isinstance(payload['queries'],list) or len(payload['queries'])!=3
-                or not isinstance(payload['expected_group'],list) or len(payload['expected_group'])!=3):raise ValueError('input')
+                or not isinstance(payload['expected_group'],list) or len(payload['expected_group'])!=3
+                or not isinstance(payload['local_cases'],list) or len(payload['local_cases'])!=2):raise ValueError('input')
         with tempfile.TemporaryDirectory(prefix='weread-owner-search-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';plugins=profile/'plugins';plugins.mkdir(parents=True)
             xdg=root/'xdg';xdg.mkdir(mode=0o700);extract_candidate(candidate,plugins)
@@ -48,12 +49,13 @@ def main(argv=None):
                 if code or repaint or out.count(FRAME)!=1:raise ValueError('ui')
                 actual=json.loads(out.split(FRAME)[1].splitlines()[0])
                 if actual!=dict(result='PASS',mode=mode,queries=4,books=len(payload['all_ids']),
-                                group_books=len(payload['group_ids']),network_requests=0,failed_line=0):raise ValueError('ui')
+                                group_books=len(payload['group_ids']),network_requests=0,failed_line=0,
+                                local_picker_verified=True):raise ValueError('ui')
             with zipfile.ZipFile(candidate) as archive:
                 if any((profile/'plugins'/entry.filename).read_bytes()!=archive.read(entry) for entry in archive.infolist() if not entry.is_dir()):
                     raise ValueError('installation')
             report.update(result='PASS',books=len(payload['all_ids']),group_books=len(payload['group_ids']),queries=4,
-                          offline_reopen=True,installed_bytes_match=True)
+                          offline_reopen=True,installed_bytes_match=True,local_picker_verified=True)
     except Exception:
         pass
     finally:

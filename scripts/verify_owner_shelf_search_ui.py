@@ -54,12 +54,19 @@ def prepare(shelf):
     queries=[title_author,id_author,'KOReaderNoSuchShelfBook0123456789']
     expected_all=sorted(row['bookId'] for row in regular if matches(row,title_author))
     expected_group=[sorted(row['bookId'] for row in regular if row['bookId'] in group_ids and matches(row,query)) for query in queries]
+    local_cases=[]
+    for value in eligible.values():
+        query=value['bookId']+' '+value['author']
+        found=[row['bookId'] for row in regular if matches(row,query)]
+        if found==[value['bookId']]:
+            local_cases.append(dict(query=query,id=value['bookId'],title=value['title']))
+        if len(local_cases)==2:break
     if (book['bookId'] not in expected_all or any(book['bookId'] not in result for result in expected_group[:2])
-            or expected_group[2] or not 1<=len(books)<=5000 or not 1<=len(archives)<=1000):
+            or expected_group[2] or len(local_cases)!=2 or not 1<=len(books)<=5000 or not 1<=len(archives)<=1000):
         raise ValueError('owner_shelf_search/expected')
     return dict(books=books,archives=archives,group_label=group['name'].strip() or '未命名分组',
                 queries=queries,expected_all=expected_all,expected_group=expected_group,
-                group_ids=group_ids_sorted,all_ids=sorted(all_ids))
+                group_ids=group_ids_sorted,all_ids=sorted(all_ids),local_cases=local_cases)
 
 
 def command(width,height,dpi):
@@ -88,13 +95,13 @@ def run():
             result=json.loads(child.stdout)
             if result!=dict(result='PASS',profile_removed=True,private_data_in_report=False,network_requests=0,
                     books=len(payload['all_ids']),group_books=len(payload['group_ids']),queries=4,offline_reopen=True,
-                    installed_bytes_match=True):raise ValueError('owner_shelf_search/ui')
+                    installed_bytes_match=True,local_picker_verified=True):raise ValueError('owner_shelf_search/ui')
         after_web=web.request('shelf',WEB+'/web/shelf/sync');after_native=NativeProbe().request('shelf',BASE+'/shelf/sync',credentials=grant)
         if (state_hash(after_web)!=before_web or state_hash(after_native)!=before_native
                 or shelf_projection(after_web)!=shelf_projection(after_native) or store.load(saved['vid'])!=grant):
             raise ValueError('owner_shelf_search/changed')
         report.update(result='OWNER_SHELF_SEARCH_UI_VERIFIED',books=len(payload['all_ids']),group_books=len(payload['group_ids']),
-            sizes=2,offline_reopen=True,shelf_unchanged=True,temporary_profiles_removed=True)
+            sizes=2,offline_reopen=True,shelf_unchanged=True,temporary_profiles_removed=True,local_picker_verified=True)
     except Exception:
         pass
     finally:

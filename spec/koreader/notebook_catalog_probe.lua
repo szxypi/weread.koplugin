@@ -17,6 +17,8 @@ local ok,reason=pcall(function()
     assert(real_samples==(input.saved_samples~=nil) and not (synthetic and real_samples))
     local bulk_notes=os.getenv('WEREAD_NOTEBOOK_BULK')=='1'
     assert(bulk_notes==(input.bulk_notes==true) and not (bulk_notes and (synthetic or real_samples)))
+    local owner_search=os.getenv('WEREAD_NOTEBOOK_OWNER_SEARCH')=='1'
+    assert(owner_search==(input.search_cases~=nil))
     if synthetic then assert(grant.vid=='900000' and grant.accessToken=='synthetic-notebook-access'
         and grant.refreshToken=='synthetic-notebook-refresh' and grant.deviceId==string.rep('1',32)) end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -228,6 +230,18 @@ local ok,reason=pcall(function()
         input_dialog:setInputText(combined);input_dialog.buttons[1][2].callback();tick()
         local matching={};for _,row in ipairs(menu.item_table) do if row.notebook_id then matching[#matching+1]=row.notebook_id end end
         assert(#matching==1 and matching[1]==chosen.bookId and counters[0]==request_count,'notebook multiword search failed')
+    end
+    if owner_search then
+        assert(type(input.search_cases)=='table' and #input.search_cases==3)
+        for _,case in ipairs(input.search_cases) do
+            assert(type(case.query)=='string' and type(case.expected)=='table')
+            menu:onMenuSelect(item('Search notebooks'));input_dialog=assert(menu._shelf_popup)
+            input_dialog:setInputText(case.query);input_dialog.buttons[1][2].callback();tick()
+            local actual={};for _,row in ipairs(menu.item_table) do if row.notebook_id then actual[#actual+1]=row.notebook_id end end
+            assert(same(actual,case.expected) and owner.search==case.query and counters[0]==request_count)
+            UI:forceRePaint()
+        end
+        report.owner_search=true
     end
     menu:onMenuSelect(item('Search notebooks'));input_dialog=assert(menu._shelf_popup)
     input_dialog.buttons[1][1].callback();tick();assert(not owner.search)

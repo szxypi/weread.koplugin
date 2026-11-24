@@ -24,7 +24,8 @@ def main():
             result=subprocess.run(cmd,input=json.dumps(payload,ensure_ascii=False).encode(),stdout=subprocess.PIPE,timeout=360)
             if result.returncode:raise RuntimeError(result.stdout.decode())
             assert json.loads(result.stdout)==dict(result='PASS',profile_removed=True,private_data_in_report=False,
-                network_requests=0,books=3,group_books=2,queries=4,offline_reopen=True,installed_bytes_match=True)
+                network_requests=0,books=3,group_books=2,queries=4,offline_reopen=True,installed_bytes_match=True,
+                local_picker_verified=True)
             print(json.dumps(dict(result='PASS',width=width,height=height)))
 
 
