@@ -81,6 +81,18 @@ local ok=pcall(function()
         assert(host.chosen==second.items[1].review_id)
         host._native_reviews_owner.detail=nil
     end
+    phase='visible_rows';UI:forceRePaint()
+    local FocusNav=require('weread.ui.focus_nav');local FocusManager=require('ui/widget/focusmanager')
+    local Event=require('ui/event');local Geom=require('ui/geometry')
+    for _,index in ipairs({1,#second.items}) do
+        view:moveFocusTo(1,index+1,FocusManager.FORCED_FOCUS)
+        FocusNav.scrollToFocused(view);UI:setDirty(view,'ui');UI:forceRePaint()
+        local row=view._review_buttons[index]
+        local pos=Geom:new{x=row.dimen.x+math.floor(row.dimen.w/2),y=row.dimen.y+math.floor(row.dimen.h/2)}
+        host.chosen=nil;UI:sendEvent(Event:new('Gesture',{ges='tap',pos=pos}))
+        assert(host.chosen==second.items[index].review_id)
+        host._native_reviews_owner.detail=nil
+    end
     phase='filter';UI:forceRePaint()
     local count=tonumber(counter[0]);assert(#view._tab_buttons==2)
     view._tab_buttons[2].callback();view=host._native_reviews_owner.view

@@ -5,6 +5,8 @@ package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
+if os.getenv('WEREAD_REVIEW_NO_XTEXT')=='1' then G_reader_settings:saveSetting('use_xtext',false) end
+if os.getenv('WEREAD_REVIEW_FLASH')=='1' then G_reader_settings:saveSetting('flash_ui',true) end
 local Device=require('device');require('document/canvascontext'):init(Device)
 local UI=require('ui/uimanager')
 local FocusNav=require('weread.ui.focus_nav')
@@ -14,17 +16,34 @@ local Event=require('ui/event')
 local Geom=require('ui/geometry')
 local json=require('json')
 if os.getenv('WEREAD_REVIEW_RTL')=='1' then require('ui/bidi')._mirrored_ui_layout=true end
+if os.getenv('WEREAD_REVIEW_NO_XTEXT')=='1' then assert(not require('ui/widget/textwidget').use_xtext) end
 local items={}
 for i=1,200 do
-    items[i]={author='合成读者 '..i,rating=i%5+1,create_time=1700000000+i,
-        content='合成书评内容，用于检查屏幕内外的文字渲染 '..i}
+    local author=i%4==0 and string.rep('超长测试读者😀',12)..i or '合成读者 '..i
+    local content=i%3==0 and string.rep('长内容包含英文、中文与表情😀 ',20)..i
+        or '合成书评内容，用于检查屏幕内外的文字渲染 '..i
+    items[i]={author=author,rating=i%5+1,create_time=1700000000+i,content=content}
 end
 local selected,loaded
+local started=os.clock()
 local view=require('weread.ui.book_reviews_view').show({book_title='合成书籍',mode='latest',
     result={items=items,has_more=true},latest_only=true,native_filters=true},
     {on_select=function(item) selected=item end,on_load_more=function() loaded=true end})
 UI:setDirty(view,'ui');UI:forceRePaint()
+local initial_cpu_ms=math.floor((os.clock()-started)*1000+.5)
 assert(#view._review_buttons==201)
+local width_checksum,height_checksum=0,0
+for i,row in ipairs(view._review_buttons) do
+    local size=row:getSize();width_checksum=width_checksum+i*size.w;height_checksum=height_checksum+i*size.h
+end
+local function materialized()
+    local count=0
+    for _,row in ipairs(view._review_buttons) do if row.frame then count=count+1 end end
+    return count
+end
+local initial_materialized=materialized()
+collectgarbage('collect');local initial_lua_kib=math.floor(collectgarbage('count'))
+local max_materialized=initial_materialized
 local counts={optimized=0,original=0}
 local phase='optimized'
 for _,button in ipairs(view._review_buttons) do
@@ -43,6 +62,7 @@ for index,target in ipairs(offsets) do
     scroll:_scrollBy(0,target-(scroll:getScrolledOffset().y or 0))
     phase='optimized';view._review_content.paintTo=optimized
     UI:setDirty(view,'ui');UI:forceRePaint();Device.screen:shot(dir..'/optimized-'..index..'.png')
+    max_materialized=math.max(max_materialized,materialized())
     phase='original';view._review_content.paintTo=VerticalGroup.paintTo
     UI:setDirty(view,'ui');UI:forceRePaint();Device.screen:shot(dir..'/original-'..index..'.png')
 end
@@ -58,6 +78,14 @@ for _,index in ipairs({1,100,200}) do
     selected=nil;UI:sendEvent(Event:new('Gesture',{ges='tap',pos=pos}))
     assert(selected==items[index],'tap selected the wrong review')
 end
+view:moveFocusTo(1,101,FocusManager.FORCED_FOCUS)
+FocusNav.scrollToFocused(view);UI:setDirty(view,'ui');UI:forceRePaint()
+local focused=view._review_buttons[100]
+assert(focused.frame and focused.frame.invert,'focused review is not highlighted')
+scroll:_scrollBy(0,-scroll:getScrolledOffset().y);UI:setDirty(view,'ui');UI:forceRePaint()
+if initial_materialized<201 then assert(not focused.frame,'offscreen focus retained its frame') end
+FocusNav.scrollToFocused(view);UI:setDirty(view,'ui');UI:forceRePaint()
+assert(focused.frame and focused.frame.invert,'review focus highlight was not restored')
 view:moveFocusTo(1,202,FocusManager.FORCED_FOCUS)
 FocusNav.scrollToFocused(view);UI:setDirty(view,'ui');UI:forceRePaint()
 local more=view._review_buttons[201]
@@ -86,6 +114,18 @@ UI:sendEvent(Event:new('Gesture',{ges='swipe',pos=pos,direction='south'}))
 assert(scroll:getScrolledOffset().y<before,'swipe did not reach the scroller')
 assert(visits==0,'swipe visited review rows')
 UI:close(view)
+-- The native Button can finish its press feedback even when the callback
+-- closes the view immediately.
+local closing
+closing=require('weread.ui.book_reviews_view').show({book_title='合成书籍',mode='latest',
+    result={items={items[1]}},latest_only=true},{on_select=function() UI:close(closing) end})
+UI:setDirty(closing,'ui');UI:forceRePaint()
+local last=closing._review_buttons[1]
+local last_pos=Geom:new{x=last.dimen.x+math.floor(last.dimen.w/2),y=last.dimen.y+math.floor(last.dimen.h/2)}
+UI:sendEvent(Event:new('Gesture',{ges='tap',pos=last_pos}))
+assert(closing._review_closed,'press did not close the view')
 print('\nWEREAD_REVIEW_LIST_BENCHMARK='..json.encode({result='PASS',original=counts.original,
     optimized=measured_optimized,items=#items,frames=#offsets,event_visits=optimized_visits,
-    original_event_visits=original_visits}))
+    original_event_visits=original_visits,initial_materialized=initial_materialized,
+    max_materialized=max_materialized,initial_lua_kib=initial_lua_kib,initial_cpu_ms=initial_cpu_ms,
+    width_checksum=width_checksum,height_checksum=height_checksum}))

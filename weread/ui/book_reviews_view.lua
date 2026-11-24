@@ -8,6 +8,7 @@ local FocusManager = require("ui/widget/focusmanager")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
@@ -32,6 +33,62 @@ local ReviewListGroup = VerticalGroup:extend{}
 function ReviewListGroup:paintTo(bb, x, y)
     ListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
     self._review_rows_positioned = true
+end
+
+-- Fixed-size rows retain their input geometry but build the native Button's
+-- text and frame only when painted. Keep the same Geom object for the focus
+-- layout and gesture ranges when the underlying Button is rebuilt.
+local ReviewRow = Button:extend{}
+local function review_row_gestures(self)
+    self.ges_events = {
+        TapSelectButton = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        HoldSelectButton = { GestureRange:new{ ges = "hold", range = self.dimen } },
+        HoldReleaseSelectButton = { GestureRange:new{ ges = "hold_release", range = self.dimen } },
+    }
+end
+function ReviewRow:init()
+    self.dimen = Geom:new{ w = self.width,
+        h = self.height + 2 * (self.padding_v or self.padding) + 2 * self.margin + 2 * self.bordersize }
+    review_row_gestures(self)
+end
+function ReviewRow:_ensureButton()
+    if self.frame then return end
+    local geometry = self.dimen
+    Button.init(self)
+    local measured = self.dimen
+    -- Geometry is fixed by the configured width and reference height. Keep
+    -- the original object referenced by focus navigation and gesture ranges.
+    assert(measured.w == geometry.w and measured.h == geometry.h, "review row geometry changed")
+    self.dimen = geometry
+    review_row_gestures(self)
+    if not self.frame.dimen then self.frame.dimen = geometry:copy()
+    else self.frame.dimen.x, self.frame.dimen.y = geometry.x, geometry.y end
+    self.frame.invert = self._review_focused or false
+end
+function ReviewRow:paintTo(bb, x, y)
+    self:_ensureButton()
+    return Button.paintTo(self, bb, x, y)
+end
+function ReviewRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    if self.frame then
+        self.frame:free()
+        self.frame, self[1], self.label_widget, self.label_container = nil, nil, nil, nil
+    end
+end
+function ReviewRow:onFocus()
+    self._review_focused = true
+    if self.frame then self.frame.invert = true end
+    return true
+end
+function ReviewRow:onUnfocus()
+    self._review_focused = false
+    if self.frame then self.frame.invert = false end
+    return true
+end
+function ReviewRow:onTapSelectButton(...)
+    self:_ensureButton()
+    return Button.onTapSelectButton(self, ...)
 end
 function ReviewListGroup:propagateEvent(event)
     local routed, consumed = ListEvents.dispatch(self._review_rows, self._review_rows_positioned, event)
@@ -150,7 +207,7 @@ function BookReviewsView:buildContent()
     end
 
     for _i, review in ipairs(items) do
-        local button = Button:new{
+        local button = ReviewRow:new{
             text = self:reviewText(review),
             width = self.content_width,
             height = Screen:scaleBySize(66),
