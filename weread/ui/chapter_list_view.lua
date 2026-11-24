@@ -21,8 +21,23 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local ListPaint = require("weread.lib.shelf_list_paint")
+local ListEvents = require("weread.lib.shelf_list_events")
 
 local function _(text) return I18n.tr(text) end
+
+-- Keep offscreen row geometry for physical-key navigation while avoiding
+-- rendering and gesture dispatch to every chapter on each scroll.
+local ChapterGroup = VerticalGroup:extend{}
+function ChapterGroup:paintTo(bb, x, y)
+    ListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
+    self._rows_positioned = true
+end
+function ChapterGroup:propagateEvent(event)
+    local routed, consumed = ListEvents.dispatch(self._rows, self._rows_positioned, event)
+    if routed then return consumed end
+    return VerticalGroup.propagateEvent(self, event)
+end
 
 local ChapterRow = InputContainer:extend{
     text = "",
@@ -32,7 +47,7 @@ local ChapterRow = InputContainer:extend{
     show_parent = nil,
 }
 
-function ChapterRow:init()
+local function chapter_frame(self)
     local padding = Size.padding.large
     local inner_width = self.width - 2 * padding
     local face = Font:getFace("cfont", 20)
@@ -45,7 +60,7 @@ function ChapterRow:init()
         max_width = math.max(1, inner_width - right_width - gap),
     }
     gap = math.max(gap, inner_width - left:getSize().w - right_width)
-    self.frame = FrameContainer:new{
+    return FrameContainer:new{
         bordersize = 0, radius = 0, margin = 0,
         padding_left = padding, padding_right = padding,
         padding_top = Size.padding.large,
@@ -59,19 +74,64 @@ function ChapterRow:init()
             right,
         },
     }
+end
+
+function ChapterRow:_ensureFrame()
+    if self.frame then return end
+    self.frame = chapter_frame(self)
+    self.frame.invert = self._chapter_focused or false
     self[1] = self.frame
-    self.dimen = self.frame:getSize()
+end
+
+function ChapterRow:init()
+    if self.lazy_row_height then
+        local status = self.status or ""
+        local status_width = self.status_widths[status]
+        if status_width == nil then
+            local right = TextWidget:new{ text = status, face = Font:getFace("cfont", 20) }
+            status_width = right:getSize().w
+            if right.free then right:free() end
+            self.status_widths[status] = status_width
+        end
+        local padding = Size.padding.large
+        local inner_width = self.width - 2 * padding
+        local left = TextWidget:new{ text = self.text, face = Font:getFace("cfont", 20),
+            max_width = math.max(1, inner_width - status_width - padding) }
+        local left_width = left:getSize().w
+        if left.free then left:free() end
+        local gap = math.max(padding, inner_width - left_width - status_width)
+        self.dimen = Geom:new{ w = left_width + status_width + gap + 2 * padding, h = self.lazy_row_height }
+    else
+        self:_ensureFrame()
+        self.dimen = self.frame:getSize()
+    end
     self.ges_events = {
         TapChapterRow = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }
 end
 
+function ChapterRow:paintTo(bb, x, y)
+    self:_ensureFrame()
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function ChapterRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    if self.frame then
+        self.frame:free()
+        self.frame, self[1] = nil, nil
+    end
+end
+
 function ChapterRow:onTapChapterRow()
     if not self.callback then return true end
+    self:_ensureFrame()
+    if not self.frame.dimen then self.frame.dimen = self.dimen:copy() end
     self.frame.invert = true
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:forceRePaint()
     self.frame.invert = false
+    self._chapter_focused = false
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:setDirty(nil, "fast", self.frame.dimen)
     self.callback()
@@ -79,12 +139,14 @@ function ChapterRow:onTapChapterRow()
 end
 
 function ChapterRow:onFocus()
-    self.frame.invert = true
+    self._chapter_focused = true
+    if self.frame then self.frame.invert = true end
     return true
 end
 
 function ChapterRow:onUnfocus()
-    self.frame.invert = false
+    self._chapter_focused = false
+    if self.frame then self.frame.invert = false end
     return true
 end
 
@@ -126,16 +188,24 @@ function ChapterListView:toolbar()
 end
 
 function ChapterListView:content()
-    local group = VerticalGroup:new{
+    local group = ChapterGroup:new{
         align = "left",
         HorizontalSpan:new{ width = self.list_width },
     }
     self._chapter_rows = {}
+    group._rows = self._chapter_rows
+    local probe = ChapterRow:new{ text = "", status = "", width = self.list_width }
+    local height = probe:getSize().h
+    probe:free()
+    local status_widths = {}
     for _i, chapter in ipairs(self.chapters or {}) do
         local row = ChapterRow:new{
             text = chapter.title,
             status = chapter.status,
             width = self.list_width,
+            lazy_row_height = height,
+            status_widths = status_widths,
+            _shelf_list_row = true,
             show_parent = self,
             callback = function()
                 if self.on_select then self.on_select(chapter.source) end

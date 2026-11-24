@@ -1,0 +1,28 @@
+{
+  "result": "PASS",
+  "baseline_commit": "cf8ff2c5",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "chapters": 1500,
+  "repaints": 8,
+  "gesture_events": 200,
+  "scenarios": [
+    {"width": 600, "height": 800, "dpi": 167, "row_paints_before": 12000, "row_paints_after": 124},
+    {"width": 1264, "height": 1680, "dpi": 300, "row_paints_before": 12000, "row_paints_after": 122}
+  ],
+  "materialized_rows_before": 1500,
+  "max_materialized_rows_after": 16,
+  "gesture_row_visits_before": 300000,
+  "gesture_row_visits_after": 200,
+  "row_geometry_compared_individually": true,
+  "pixel_identical_screenshots": 16,
+  "mirrored_layout": true,
+  "text_shaping_disabled": true,
+  "tap_swipe_focus_and_reentry": true,
+  "physical_device_tested": false,
+  "limitations": [
+    "Desktop simulator; no hardware timing, total memory, battery or ghosting measurements.",
+    "Lightweight row records and focus geometry remain for every chapter.",
+    "No production account data or network requests."
+  ]
+}
