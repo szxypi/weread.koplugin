@@ -98,6 +98,22 @@ builds,indexes=0,0
 local txt_batch=assert(Point.prepare_batch(txt,'CB_SyntheticNotes','2',{txt_row,prior},'web_txt'))
 expect(txt_batch[1] and txt_batch[2] and txt_batch[1].anchor.co==48 and txt_batch[2].anchor.co==48
     and builds==1 and indexes==0,'TXT point batch changed anchors or rebuilt source maps')
+local overlap='<body><p>Unique overlapping bookmark preview with &amp; an entity and '
+    ..'&NotEqualTilde; multiple scalars followed by distinct ending words.</p></body>'
+local start=assert(overlap:find('Unique',1,true))-1
+local entity_at=assert(overlap:find('&NotEqualTilde;',1,true))-1
+local rows={}
+for i=1,6 do rows[i]={type=0,chapterUid=2,range=tostring(start+i-1)} end
+rows[7]={type=0,chapterUid=2,range=tostring(entity_at)};rows[8]=rows[1]
+local shared=assert(Point.prepare_batch(overlap,'41','2',rows,'web_xhtml'))
+for i,row in ipairs(rows) do
+    local separate=Point.prepare(overlap,'41','2',row,'web_xhtml')
+    expect((not separate and not shared[i]) or (separate and shared[i]
+        and separate.anchor.co==shared[i].anchor.co and separate.anchor.text==shared[i].anchor.text
+        and separate.anchor.point_offset==shared[i].anchor.point_offset and separate.anchor.basis==shared[i].anchor.basis),
+        'overlapping point previews changed after a neighboring entity')
+end
+expect(shared[1] and shared[8] and not shared[7],'invalid entity point contaminated a neighboring bookmark')
 local many={};for i=1,Point.MAX_BATCH+1 do many[i]=valid end
 expect(not Point.prepare_batch(raw,'41','2',many,'web_xhtml'),'oversized bookmark batch accepted')
 Coordinates.build,Raw.index=build,index

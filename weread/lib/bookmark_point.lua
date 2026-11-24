@@ -37,6 +37,14 @@ local function trim(text)
     end
     return first and text:sub(first,last) or ''
 end
+local function finish_scan(raw,map,found,point,byte,preview)
+    if found~=1 or not byte then fail('point') end
+    local co=map:_point(byte)
+    if Quote.boundary(map,co)~=byte then fail('boundary') end
+    local text=trim(table.concat(preview))
+    if text=='' or #text>4096 or text:find('[%z\1-\8\11\12\14-\31\127]') then fail('preview') end
+    return {range=tostring(point),markText=text,chapter_offset=co,raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw},byte
+end
 local function scan(raw,map,wanted_raw,wanted_flat,spans_provider)
     local flat,found,point,byte=1,0,nil,nil
     local chunks,pieces,preview={}, {}, {};local count=0
@@ -70,12 +78,50 @@ local function scan(raw,map,wanted_raw,wanted_flat,spans_provider)
         end
     end
     chunks[#chunks+1]=table.concat(pieces)
-    if table.concat(chunks)~=map.flat or found~=1 or not byte then fail('point') end
-    local co=map:_point(byte)
-    if Quote.boundary(map,co)~=byte then fail('boundary') end
-    local text=trim(table.concat(preview))
-    if text=='' or #text>4096 or text:find('[%z\1-\8\11\12\14-\31\127]') then fail('preview') end
-    return {range=tostring(point),markText=text,chapter_offset=co,raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw},byte
+    if table.concat(chunks)~=map.flat then fail('point') end
+    return finish_scan(raw,map,found,point,byte,preview)
+end
+-- Calculate up to eight requested point previews in one pass. A malformed
+-- target does not invalidate neighboring targets; source errors still do.
+local function scan_batch(raw,map,spans,states)
+    local flat=1;local chunks,pieces,active={},{},{}
+    for _i,span in ipairs(spans) do
+        local at,offset=1,span[1]
+        while at<=#span[3] do
+            local token=span[3]:match('^[%z\1-\127\194-\244][\128-\191]*',at);local decoded=token
+            if token=='&' then
+                token=span[3]:match('^&[^%s<&]+;',at);if not token then fail('entity') end
+                decoded=require('util').htmlEntitiesToUtf8(token)
+            end
+            if not token then fail('source') end
+            local clean=assert(Dom.normalize(decoded));local runes=0
+            for _char in token:gmatch('[%z\1-\127\194-\244][\128-\191]*') do runes=runes+1 end
+            if clean~='' then
+                local state=states[offset]
+                if state then
+                    local n=0;for _char in clean:gmatch('[%z\1-\127\194-\244][\128-\191]*') do n=n+1 end
+                    if n~=1 then state.entity=true
+                    else
+                        state.found=state.found+1;state.point,state.byte=offset,flat
+                        if state.found==1 then active[#active+1]=state end
+                    end
+                end
+                pieces[#pieces+1]=clean
+                if #pieces>=256 then chunks[#chunks+1]=table.concat(pieces);pieces={} end
+            end
+            for i=#active,1,-1 do
+                local state=active[i]
+                for char in decoded:gmatch('[%z\1-\127\194-\244][\128-\191]*') do
+                    if state.count>=140 then break end
+                    state.preview[#state.preview+1]=char;state.count=state.count+1
+                end
+                if state.count>=140 then table.remove(active,i) end
+            end
+            at,offset,flat=at+#token,offset+runes,flat+#clean
+        end
+    end
+    chunks[#chunks+1]=table.concat(pieces)
+    if table.concat(chunks)~=map.flat then fail('point') end
 end
 local function guarded(task)
     local ok,value=pcall(task)
@@ -151,7 +197,7 @@ local function txt_point(raw,book,chapter,row,map_provider)
     return {book_id=book,chapter_uid=chapter,chapter_offset=co,raw_sha256=Crypto.sha256_hex(raw),
         raw_bytes=#raw,basis='raw_txt_utf16',upload_verified=false}
 end
-local function from_mark(raw,book,chapter,row,format,map_provider,spans_provider)
+local function from_mark(raw,book,chapter,row,format,map_provider,spans_provider,point_provider)
     return guarded(function()
         local imported=not Marks.id(book)
         if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,imported) or tostring(row.chapterUid)~=chapter
@@ -160,7 +206,9 @@ local function from_mark(raw,book,chapter,row,format,map_provider,spans_provider
         if format=='web_txt' then return txt_point(raw,book,chapter,row,map_provider) end
         if format~='web_xhtml' then fail('source') end
         local map=source_map(raw,'web_xhtml',map_provider);if not map then fail('source') end
-        local value,byte=scan(raw,map,M.point(row.range),nil,spans_provider)
+        local value,byte
+        if point_provider then value,byte=point_provider(M.point(row.range),map)
+        else value,byte=scan(raw,map,M.point(row.range),nil,spans_provider) end
         if value.range~=row.range then fail('point') end
         if row.markText~=nil and row.markText~='' then
             if type(row.markText)~='string' or #row.markText>131072 or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then fail('preview') end
@@ -179,9 +227,9 @@ function M.from_mark(raw,book,chapter,row,format)
 end
 -- A reversible unique anchor is also used by the independent reader layer.
 -- No text range is invented for a point bookmark.
-local function prepare(raw,book,chapter,row,format,map_provider,spans_provider)
+local function prepare(raw,book,chapter,row,format,map_provider,spans_provider,point_provider)
     return guarded(function()
-        local point=from_mark(raw,book,chapter,row,format,map_provider,spans_provider);if not point then fail('point') end
+        local point=from_mark(raw,book,chapter,row,format,map_provider,spans_provider,point_provider);if not point then fail('point') end
         local map=map_provider();if not map then fail('source') end
         local anchor=map:anchor(point.chapter_offset,{segment_only=true}) or map:anchor(point.chapter_offset)
         if not anchor then fail('anchor') end
@@ -208,8 +256,28 @@ end
 function M.prepare_batch(raw,book,chapter,rows,format)
     if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'bookmark_point/batch' end
     local map,spans=source_providers(raw,format);local values,reasons={},{}
+    local wanted,ready={}
+    for _i,row in ipairs(rows) do
+        if type(row)=='table' and row.type==0 then
+            local marker=M.point(row.range)
+            if marker and not wanted[marker] then wanted[marker]={found=0,count=0,preview={}} end
+        end
+    end
+    local function get_point(marker,source_map_value)
+        if not ready then
+            -- Clear partial state if a previous source scan failed.
+            for _marker,state in pairs(wanted) do
+                state.found,state.count,state.preview,state.entity=0,0,{},nil
+                state.point,state.byte=nil,nil
+            end
+            scan_batch(raw,source_map_value,spans(),wanted);ready=true
+        end
+        local state=wanted[marker];if not state then fail('point') end
+        if state.entity then fail('entity') end
+        return finish_scan(raw,source_map_value,state.found,state.point,state.byte,state.preview)
+    end
     for i,row in ipairs(rows) do
-        if type(row)=='table' and row.type==0 then values[i],reasons[i]=prepare(raw,book,chapter,row,format,map,spans) end
+        if type(row)=='table' and row.type==0 then values[i],reasons[i]=prepare(raw,book,chapter,row,format,map,spans,get_point) end
     end
     return values,reasons
 end
