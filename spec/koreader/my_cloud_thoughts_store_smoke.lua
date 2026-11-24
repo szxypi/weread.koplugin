@@ -7,10 +7,15 @@ local Store=require('weread.lib.my_cloud_marks_store');local marks=Store:new(lib
 local checks=0;local function expect(value) checks=checks+1;assert(value) end
 local mark={schema=1,book_id='900001',fetched_at=1000,updated={{bookmarkId='synthetic-mark',type=1,markText='Saved quote'}},chapters=json.decode('[]')}
 local thought={schema=1,book_id='900001',fetched_at=1000,reviews={{reviewId='synthetic-thought',content='Saved thought',abstract='Quote',isPrivate=1,userVid='discard'}},token='discard'}
-expect(marks:write(mark) and thoughts:write(thought))
+expect(marks:write(mark))
+local projected,saved=thoughts:writeProjected(thought,'900001')
+expect(saved and projected and not projected.token and not projected.reviews[1].userVid)
+local foreign,foreign_saved=thoughts:writeProjected(thought,'900002')
+expect(not foreign and not foreign_saved and not thoughts:read('900002'))
 expect(marks:read('900001').updated[1].markText=='Saved quote' and thoughts:read('900001').reviews[1].content=='Saved thought')
 local imported={schema=1,book_id='CB_SyntheticNotes',fetched_at=1000,reviews={{reviewId='synthetic-imported',content='Imported thought'}}}
-expect(thoughts:write(imported) and thoughts:read('CB_SyntheticNotes').reviews[1].content=='Imported thought')
+projected,saved=thoughts:writeProjected(imported,'CB_SyntheticNotes')
+expect(saved and projected.book_id=='CB_SyntheticNotes' and thoughts:read('CB_SyntheticNotes').reviews[1].content=='Imported thought')
 expect(not marks:write(thought) and not thoughts:write(mark))
 local db=library:open();local raw=db:rowexec("SELECT payload FROM my_cloud_thoughts WHERE book_id='900001'");db:close();expect(not raw:find('discard',1,true))
 account='900099';expect(not thoughts:read('900001') and not thoughts:read('CB_SyntheticNotes'));account='900000'
@@ -20,7 +25,10 @@ function library:open()
         prepare=function(_self,sql) return handle:prepare(sql) end,close=function() return handle:close() end}
 end
 local changed={schema=1,book_id='900001',fetched_at=1001,reviews={{reviewId='synthetic-thought',content='Unsaved'}}}
-expect(not thoughts:write(changed));library.open=open
+expect(not thoughts:write(changed))
+projected,saved=thoughts:writeProjected(changed,'900001')
+expect(projected and projected.reviews[1].content=='Unsaved' and not saved)
+library.open=open
 expect(thoughts:read('900001').reviews[1].content=='Saved thought' and marks:read('900001').updated[1].markText=='Saved quote')
 Store.MAX_BOOKS=64 -- Exercise the current 5,000-book quota with a small fixture.
 for i=1,65 do changed.book_id=tostring(910000+i);expect(thoughts:write(changed)) end

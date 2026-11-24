@@ -12,6 +12,10 @@ local function snapshot(id)
         chapters=json.decode('[]'),accessToken='strip'}
 end
 expect(Cache.MAX_BOOKS==5000)
+local projected,saved=cache:writeProjected(snapshot(),'900001')
+expect(saved and projected and not projected.accessToken and not projected.updated[1].private)
+local foreign,foreign_saved=cache:writeProjected(snapshot('900002'),'900001')
+expect(not foreign and not foreign_saved and not cache:read('900002'))
 account='900010'
 local thoughts=Cache:new(library,codec,'thoughts')
 for i=1,130 do
@@ -47,7 +51,8 @@ local fresh=assert(library:open());fresh:close()
 empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))
 account='900000';Cache.MAX_BOOKS=64 -- Exercise both quota boundaries with a small fixture.
 expect(cache:write(snapshot()));expect(cache:read('900001').updated[1].markText=='合成引用')
-expect(cache:write(snapshot('CB_SyntheticNotes')))
+projected,saved=cache:writeProjected(snapshot('CB_SyntheticNotes'),'CB_SyntheticNotes')
+expect(saved and projected and projected.book_id=='CB_SyntheticNotes')
 expect(cache:read('CB_SyntheticNotes').updated[1].markText=='合成引用')
 local ids=assert(cache:list_ids());expect(#ids==2 and ids[1]=='CB_SyntheticNotes' and ids[2]=='900001')
 local db=assert(library:open());local raw=db:rowexec("SELECT payload FROM my_cloud_marks WHERE book_id='900001'");db:close();expect(not raw:find('strip',1,true))
@@ -59,7 +64,10 @@ function library:open()
         prepare=function(_self,sql) return handle:prepare(sql) end,close=function() return handle:close() end}
 end
 local changed=snapshot();changed.updated[1].markText='unsaved'
-expect(not cache:write(changed));library.open=open;expect(cache:read('900001').updated[1].markText=='合成引用')
+expect(not cache:write(changed))
+projected,saved=cache:writeProjected(changed,'900001')
+expect(projected and projected.updated[1].markText=='unsaved' and not saved)
+library.open=open;expect(cache:read('900001').updated[1].markText=='合成引用')
 -- If the aggregate cannot provide totals, retain the ordered quota scan.
 local quota_queries=0
 function library:open()
@@ -79,6 +87,8 @@ expect(cache:read('900001').updated[1].markText=='合成引用')
 local oversized=snapshot();oversized.updated={}
 for i=1,33 do oversized.updated[i]={bookmarkId='synthetic-'..i,markText=string.rep('x',131072)} end
 expect(not cache:write(oversized) and cache:read('900001').updated[1].markText=='合成引用')
+projected,saved=cache:writeProjected(oversized,'900001')
+expect(projected and not saved and cache:read('900001').updated[1].markText=='合成引用')
 for i=1,65 do expect(cache:write(snapshot(tostring(910000+i)))) end
 expect(cache:read('910001')==nil and cache:read('910065')~=nil)
 db=library:open();expect(tonumber(db:rowexec('SELECT COUNT(*) FROM my_cloud_marks'))==64)

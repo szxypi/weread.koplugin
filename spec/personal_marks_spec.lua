@@ -8,7 +8,11 @@ local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,sc
 package.preload['ui/uimanager']=function() return UI end
 package.preload.device=function() return {screen={scaleBySize=function(_self,n) return n end}} end
 package.preload['ffi/blitbuffer']=function() return {Color8=function(n) return n end} end
-local store={writes=0,write=function(self) self.writes=self.writes+1;return not self.fail end}
+local store={writes=0,writeProjected=function(self,value,book)
+    local ok,projected=pcall(require('weread.lib.my_cloud_marks').validate,codec,value,book)
+    if not ok then return nil,false end
+    self.writes=self.writes+1;return projected,not self.fail
+end}
 package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return store end} end
 package.preload['weread.lib.native_read_access']=function() return {capture=function()
     assert(in_worker,'authorization read blocked the reader UI');return {fingerprint='synthetic-grant'}
@@ -110,6 +114,11 @@ store.fail=true;snapshot=value('fallback');expect(Display.attach(host));drain()
 expect(loads==4 and host._personal_marks.records[1].bookmarkId=='fallback','failed fresh cache save lost offline display')
 Display.detach(host)
 store.fail=false
+snapshot=value('foreign');snapshot.book_id='900002';local writes_before_foreign=store.writes
+expect(Display.attach(host));drain()
+expect(store.writes==writes_before_foreign and #host._personal_marks.records==0,
+    'foreign online snapshot was saved or displayed')
+Display.detach(host)
 snapshot=value('synthetic-highlight')
 snapshot.updated[2]={bookmarkId='synthetic-point',type=0,chapterUid=7,range='15'}
 expect(Display.attach(host));drain()

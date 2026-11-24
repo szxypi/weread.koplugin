@@ -113,8 +113,8 @@ local function save(self,value,options)
     local valid,projected=pcall(self.data.validate,self.codec,value,type(value)=='table' and value.book_id)
     if not valid then return nil end
     local encoded,payload=pcall(self.codec.json_encode,self.codec,projected)
-    if not encoded or type(payload)~='string' or #payload>M.MAX_PAYLOAD then return nil end
-    return run(self,function(db,begin,commit)
+    if not encoded or type(payload)~='string' or #payload>M.MAX_PAYLOAD then return nil,projected end
+    local result=run(self,function(db,begin,commit)
         begin()
         if options and options.only_if_absent then
             local existing=statement(db,'SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
@@ -154,6 +154,7 @@ local function save(self,value,options)
         for _i,id in ipairs(remove) do statement(db,'DELETE FROM '..self.table_name..' WHERE book_id=?',id) end
         commit();return true
     end)
+    return result,projected
 end
 function M:write(value,options)
     if options~=nil and (type(options)~='table' or options.preserve_existing~=true) then return false end
@@ -161,6 +162,15 @@ function M:write(value,options)
 end
 -- Atomically preserve a row that another task saved after the missing scan.
 function M:writeIfMissing(value)
-    return save(self,value,{preserve_existing=true,only_if_absent=true})
+    local result=save(self,value,{preserve_existing=true,only_if_absent=true})
+    return result
+end
+-- Validate once against the caller's book, then return the exact sanitized
+-- snapshot used for persistence. A valid snapshot and failed write remain
+-- distinguishable so the reader can fall back to its previous cache.
+function M:writeProjected(value,book_id)
+    if not Data.display_id(book_id) or type(value)~='table' or value.book_id~=book_id then return nil,false end
+    local saved,projected=save(self,value)
+    return projected,saved==true
 end
 return M

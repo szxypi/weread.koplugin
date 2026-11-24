@@ -14,7 +14,13 @@ local scope={vid='123',epoch=1};local identity={book_id='41',book_version=7,file
 local entry={book_id='41',book_version=7,file_id=identity.file_id,chapter_uid='2',key=string.rep('b',64),source_sha256=string.rep('c',64)}
 local snapshot={schema=1,book_id='41',fetched_at=1000,updated=codec:json_decode('[]'),chapters=codec:json_decode('[]')}
 snapshot.updated[1]={bookmarkId='first',type=1,chapterUid=2,markText='Unique quotation',range='15-31'}
-local store={write=function() return true end}
+local store={writeProjected=function(_,value,book)
+    local data=type(value)=='table' and value.reviews and require('weread.lib.my_cloud_thoughts')
+        or require('weread.lib.my_cloud_marks')
+    local ok,projected=pcall(data.validate,codec,value,book)
+    if not ok then return nil,false end
+    return projected,true
+end}
 package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return store end} end
 package.preload['weread.lib.native_read_access']=function() return {capture=function()
     assert(in_worker,'authorization read blocked the reader UI');access_reads=access_reads+1
@@ -52,7 +58,7 @@ package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_
     end,
     load_thoughts=function(_,_,_,access)
         thought_accesses[#thought_accesses+1]=access and access.fingerprint or false
-        return {snapshot=false,refreshed=false}
+        return state.thought_result or {snapshot=false,refreshed=false}
     end,
     prepare_direct=function(_,_,_,file,e,metadata,rows,online)
         assert(file=='/direct.epub' and e==entry and type(online)=='function');prepares=prepares+1
@@ -194,6 +200,16 @@ state.no_grant=true;expect(Display.attach(host));expect(tick() and #jobs==1,'mis
 state.no_grant=false;first_job=table.remove(jobs,1);first_job.callback(first_job.value);drain()
 expect(thought_accesses[#thought_accesses]==false,'thought load used a grant missing from the first read')
 Display.detach(host)
+local saved_thoughts={schema=1,book_id='41',fetched_at=1000,reviews=codec:json_decode('[]')}
+saved_thoughts.reviews[1]={reviewId='cached-thought',type=1,chapterUid=2,abstract='Unique quotation',range='15-31',content='Saved'}
+state.thought_result={snapshot=saved_thoughts,refreshed=true}
+expect(Display.attach(host));drain()
+expect(host._personal_marks.thought_snapshot.reviews[1].reviewId=='cached-thought','valid refreshed thought was lost')
+state.thought_result={snapshot={schema=1,book_id='42',fetched_at=1000,reviews=codec:json_decode('[]')},refreshed=true}
+Display.network_connected(host);drain()
+expect(host._personal_marks.thought_snapshot.reviews[1].reviewId=='cached-thought',
+    'foreign refreshed thoughts replaced the confirmed snapshot')
+Display.detach(host);state.thought_result=nil
 state.entry_ok=false
 expect(Display.attach(host));drain();expect(#host._personal_marks.records==0 and not Display.available(host),'unverified entry displayed')
 Display.detach(host);state.entry_ok=true;state.identity=false;expect(not Display.attach(host),'missing file identity accepted')

@@ -257,13 +257,14 @@ load=function(host,s,online)
             s.entry=entry
         end
         s.loaded=true
-        local ok,value=pcall(Marks.validate,host.client,type(result)=='table' and result.snapshot,s.book)
-        if not ok then value=nil end
-        if value and result.refreshed then
-            local saved=Cache:new(host.library_db,host.client):write(value)
-            if not saved then
-                load(host,s,false);return
-            end
+        local value
+        if type(result)=='table' and result.refreshed then
+            local saved
+            value,saved=Cache:new(host.library_db,host.client):writeProjected(result.snapshot,s.book)
+            if value and not saved then load(host,s,false);return end
+        else
+            local ok;ok,value=pcall(Marks.validate,host.client,type(result)=='table' and result.snapshot,s.book)
+            if not ok then value=nil end
         end
         s.snapshot=value
         if s.direct then
@@ -281,11 +282,14 @@ load=function(host,s,online)
                 return Task.load_thoughts(host.client,host.library_db,s.book,access,checked_online)
             end,function(result_thoughts)
                 s.loading=false
-                local valid,thoughts=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,
-                    type(result_thoughts)=='table' and result_thoughts.snapshot,s.book)
-                if valid and result_thoughts.refreshed then
-                    local saved=Cache:new(host.library_db,host.client,'thoughts'):write(thoughts)
-                    if not saved then valid=false end
+                local valid,thoughts
+                if type(result_thoughts)=='table' and result_thoughts.refreshed then
+                    local saved
+                    thoughts,saved=Cache:new(host.library_db,host.client,'thoughts'):writeProjected(result_thoughts.snapshot,s.book)
+                    valid=thoughts~=nil and saved
+                else
+                    valid,thoughts=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,
+                        type(result_thoughts)=='table' and result_thoughts.snapshot,s.book)
                 end
                 if valid then s.thought_snapshot=thoughts end
                 s.metadata=nil;M.update(host)
