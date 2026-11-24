@@ -139,20 +139,22 @@ function M.start(host,book,view,options)
     local function show_catalog(catalog)
         close_busy()
         local items={}
-        for _index,row in ipairs(catalog.chapters) do
-            local chapter=row
+        for index,chapter in ipairs(catalog.chapters) do
             local label=chapter.title~='' and chapter.title or _('Untitled chapter')
             if not chapter.downloadable then label=label..'  ·  '.._('Unavailable') end
-            items[#items+1]={text=label,select_enabled=chapter.downloadable,callback=function()
-                if not current() or ctx.menu==nil or not chapter.downloadable then return end
-                local menu=ctx.menu;ctx.menu=nil;UIManager:close(menu)
+            items[index]={text=label,select_enabled=chapter.downloadable,chapter_index=index}
+        end
+        local menu
+        menu=host:showList(_('E-Ink chapters'),items,_('No chapters.'),
+            {subtitle=_('Online: sync position or save selected highlights and private thoughts.'),on_choice=function(item)
+                local index=type(item)=='table' and item.chapter_index
+                local chapter=type(index)=='number' and catalog.chapters[index]
+                if not current() or ctx.menu~=menu or not chapter or not chapter.downloadable then return end
+                ctx.menu=nil;UIManager:close(menu)
                 ctx.chapter=chapter;ctx.phase='chapter'
                 host:showBusy(_('Preparing E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
                 launch()
-            end}
-        end
-        local menu=host:showList(_('E-Ink chapters'),items,_('No chapters.'),
-            {subtitle=_('Online: sync position or save selected highlights and private thoughts.')})
+            end})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget
@@ -168,18 +170,20 @@ function M.start(host,book,view,options)
         close_busy()
         local items={};local labels=require('weread.ui.native_direct_copies').labels(rows)
         for index,row in ipairs(rows) do
-            local entry=row
-            items[#items+1]={text=labels[index]..(entry.pending_offline and '  ·  '.._('Offline position to review') or ''),callback=function()
-                if not current() or not ctx.menu then return end
-                local menu=ctx.menu;ctx.menu=nil;UIManager:close(menu)
+            items[index]={text=labels[index]..(row.pending_offline and '  ·  '.._('Offline position to review') or ''),chapter_index=index}
+        end
+        if #items==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
+        local menu
+        menu=host:showList(_('Saved E-Ink chapters'),items,nil,
+            {subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.'),on_choice=function(item)
+                local index=type(item)=='table' and item.chapter_index
+                local entry=type(index)=='number' and rows[index]
+                if not current() or ctx.menu~=menu or not entry then return end
+                ctx.menu=nil;UIManager:close(menu)
                 ctx.entry=entry;ctx.phase='offline_open'
                 host:showBusy(_('Checking saved E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
                 launch()
-            end}
-        end
-        if #items==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
-        local menu=host:showList(_('Saved E-Ink chapters'),items,nil,
-            {subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.')})
+            end})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget

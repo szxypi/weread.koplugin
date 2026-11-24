@@ -181,6 +181,9 @@ function M:showList(title, items, empty_text, options)
         subtitle = options.subtitle,
     }
     local menu = options.thought_text and require('weread.ui.thought_text').menu(menu_options) or Menu:new(menu_options)
+    if type(options.on_choice) == "function" then
+        menu.onMenuChoice = function(_, item) options.on_choice(item); return true end
+    end
     UIManager:show(menu)
     if options.initial_page and options.initial_page > 1
         and type(menu.onGotoPage) == "function" then

@@ -66,7 +66,11 @@ local function fixture()
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) state.info=state.info+1;state.message=message end,
         showOffline=function() error('unexpected offline') end,
-        showList=function(_,title,items,_,options) state.title=title;state.items=items;state.subtitle=options.subtitle;return {} end,
+        showList=function(_,title,items,_,options)
+            state.title=title;state.items=items;state.subtitle=options.subtitle
+            state.select=function(index) options.on_choice(items[index]) end
+            return {}
+        end,
         openFile=function(_,path) state.opened=state.opened+1;state.path=path end,
         _native_direct_worker={start=function(_,task,callback,progress) state.jobs[#state.jobs+1]={task=task,callback=callback,progress=progress};return true end,
             cancel=function() state.cancelled=true end}}
@@ -78,24 +82,28 @@ expect(UI.start(host,{book_id='456',title='Test',author='Author'},s.view),'faile
 s.finish(1)
 expect(#s.items==2 and s.items[1].select_enabled and not s.items[2].select_enabled,'entitlement not shown')
 expect(s.subtitle=='Online: sync position or save selected highlights and private thoughts.','chapter capability hint missing')
-s.items[2].callback();expect(#s.jobs==1,'locked chapter opened')
-s.items[1].callback();expect(#s.jobs==2,'chapter not scheduled')
+s.select(2);expect(#s.jobs==1,'locked chapter opened')
+s.select(1);expect(#s.jobs==2,'chapter not scheduled')
 s.finish(2)
 expect(s.opened==1 and s.path:find('/native-reader-v1/',1,true),'chapter not opened')
 expect(expected_book.book_id=='456' and expected_chapter.chapterUid=='1' and expected_args.reading_catalog_sha256==digest
     and expected_args.access_fingerprint==fingerprint,'source identity not bound')
-host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.items[1].callback();local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
 expect(s.opened==0 and host._native_direct_reading==nil,'stale account opened chapter')
-host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.items[1].callback();build_error='catalog_changed';s.finish(2)
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='catalog_changed';s.finish(2)
 expect(s.opened==0 and s.message=='The chapter list changed. Please open it again.','catalog change not reported')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);catalog_error='native_auth/native_catalog_info/http_401';s.finish(1)
 expect(#s.jobs==2 and renewal_count==1,'catalog 401 not renewed once')
 catalog_error=nil;s.finish(2);expect(s.items~=nil,'renewal did not reload catalog')
-host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.items[1].callback();build_error='auth_expired';s.finish(2)
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='auth_expired';s.finish(2)
 expect(#s.jobs==3 and renewal_count==2,'chapter 401 not renewed once')
 build_error=nil;s.finish(3);expect(s.opened==1,'renewed chapter did not open')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);local old=s.jobs[1];UI.cancel(host);old.callback(old.task())
 expect(s.opened==0 and not s.items,'cancelled response changed UI')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+local stale_select=s.select;UI.cancel(host);UI.start(host,{book_id='456'},s.view);s.finish(2)
+stale_select(1);expect(#s.jobs==2,'closed chapter menu selected into the new menu')
+s.select(1);expect(#s.jobs==3,'current chapter menu stopped accepting selections')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);local suspended=s.jobs[1];local response=suspended.task()
 host._weread_suspended=true;suspended.callback(response)
 expect(s.opened==0 and not s.items and not host._native_direct_reading,'suspended reader accepted a late catalog')
