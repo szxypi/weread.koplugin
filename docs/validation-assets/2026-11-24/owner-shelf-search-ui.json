@@ -1,0 +1,22 @@
+{
+  "owner_shelf_snapshot": {
+    "regular_books": 138,
+    "selected_group_books": 5,
+    "both_channels_membership_and_groups_match": true,
+    "core_shelf_state_unchanged": true
+  },
+  "packaged_koreader": [
+    {"width": 600, "height": 800, "dpi": 167, "result": "PASS"},
+    {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS"}
+  ],
+  "verified_ui_cases": ["all_shelf_title_author", "selected_group_title_author", "selected_group_id_author", "selected_group_no_match", "clear_search_and_restore_scope"],
+  "new_process_offline_reopen": true,
+  "native_ui_network_requests": 0,
+  "account_data_posts": 0,
+  "authorization_posts": 0,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "actual_owner_online_ui_login_verified": false,
+  "owner_local_group_and_notebook_search_ui_verified": false,
+  "physical_device_verified": false
+}
