@@ -1,0 +1,113 @@
+{
+  "result": "READ_ONLY_RESTORED",
+  "account_data_writes": 0,
+  "fixture_absent_both_channels": true,
+  "two_stable_readbacks": true,
+  "field_hash_version": 1,
+  "native_web_members_and_groups_match": true,
+  "comparisons": {
+    "native": {
+      "full": true,
+      "components": {
+        "members": true,
+        "flags": true,
+        "groups": true,
+        "albums": true
+      },
+      "group_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      },
+      "album_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      }
+    },
+    "web": {
+      "full": true,
+      "components": {
+        "members": true,
+        "flags": true,
+        "groups": true,
+        "albums": true
+      },
+      "group_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      },
+      "album_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      }
+    }
+  },
+  "native_original_core_matches": {
+    "count": true,
+    "members_sha256": true,
+    "flags_sha256": true,
+    "groups_sha256": true
+  },
+  "native_web_core_matches": {
+    "count": true,
+    "members_sha256": true,
+    "flags_sha256": true,
+    "groups_sha256": true
+  },
+  "web_session_saved": false
+}
