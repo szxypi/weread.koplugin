@@ -16,6 +16,13 @@ package.loaded['weread.ui.finish_change']={pending=function() return other_pendi
 package.loaded['weread.ui.shelf_flag_change']={pending=function() return other_pending,other_error end,cancel=function() end}
 local reading_cancelled=0
 package.loaded['weread.ui.reading_state']={cancel=function() reading_cancelled=reading_cancelled+1 end}
+package.loaded['weread.lib.reading_state_cache']={new=function(_self,library,account)
+    return {read=function(_cache,id) library.state.cache_read=id;return library.state.cache end,
+        write=function(_cache,id,value,expected)
+            assert(account==library.state.account and expected==library.state.cache)
+            library.state.cache_written={id=id,value=value};return true
+        end}
+end}
 local Change=require('weread.ui.reading_state_change')
 local function fixture()
     other_pending,other_error=nil,nil
@@ -30,7 +37,7 @@ local function fixture()
     function service:commit(_plan,callback) state.commits=state.commits+1;state.committed=callback;return true end
     function service:accept_current(_plan) state.accepted=state.accepted+1;return true end
     local host={client={},settings={},_reading_state_change_service=service,_reader_session_gen=1,
-        _shelf_state_menu={},_book_detail_view={},ui={document={}},library_db={open=function() end,
+        _shelf_state_menu={},_book_detail_view={},ui={document={}},library_db={state=state,open=function() end,
             accountKey=function() return state.account end,getBook=function() return {title='Synthetic'} end},
         isNetworkConnected=function() return state.online end,
         showInfo=function(_self,text) state.notices[#state.notices+1]=text end,
@@ -46,15 +53,16 @@ state.plan={metadata={book_id='41',desired=true},resolving=false};state.prepared
 local dialog=host._reading_state_change_ui.dialog
 assert(dialog.ok_text=='Mark as started' and dialog.text:find('Synthetic',1,true))
 dialog.ok_callback();assert(state.commits==1 and host.busy_message)
-state.committed({kind='confirmed'},true)
+state.committed({kind='confirmed',observed={}},true)
 assert(state.applied and not host._reading_state_change_ui and not host.busy_message
-    and state.notices[1]=='The current started-reading status was verified in WeRead.')
+    and state.notices[1]=='The current started-reading status was verified in WeRead.'
+    and state.cache_written.id=='41' and state.cache_written.value==true)
 state.committed({kind='confirmed'},true);assert(#state.notices==1,'duplicate completion rendered')
 host,state=fixture();assert(Change.open(host,'CB_abc'))
 state.plan={metadata={book_id='CB_abc',desired=false},resolving=false};state.prepared(state.plan)
 dialog=host._reading_state_change_ui.dialog;assert(dialog.ok_text=='Mark as not started');dialog.ok_callback()
 state.committed({kind='unconfirmed'},false)
-assert(state.notices[1]=='The started-reading change is unconfirmed. It will not be sent again automatically.')
+assert(state.notices[1]=='The started-reading change is unconfirmed. It will not be sent again automatically.' and not state.cache_written)
 host,state=fixture();assert(Change.open(host,'41'))
 state.plan={metadata={book_id='41',desired=true},resolving=false};state.prepared(state.plan)
 dialog=host._reading_state_change_ui.dialog;state.account='other';dialog.ok_callback()
@@ -68,6 +76,12 @@ assert(dialog.text:find('did not provide',1,true) and dialog.text:find('position
 dialog.ok_callback();assert(host._reading_state_change_ui.dialog~=dialog and state.commits==0)
 host._reading_state_change_ui.dialog.ok_callback()
 assert(state.accepted==1 and state.commits==0 and state.applied)
+host,state=fixture();state.pending={phase='pending',metadata={book_id='CB_abc'}}
+assert(Change.open(host,'41',true) and state.resolving and state.cache_read=='CB_abc')
+state.plan={metadata={book_id='CB_abc',desired=false},resolving=true,current_present=true,current_started=false,position_unchanged=true}
+state.prepared(state.plan);dialog=host._reading_state_change_ui.dialog;dialog.ok_callback()
+host._reading_state_change_ui.dialog.ok_callback()
+assert(state.cache_written.id=='CB_abc' and state.cache_written.value==false)
 host,state=fixture();other_pending={phase='pending'}
 assert(not Change.open(host,'41') and not state.prepared and #state.notices==1)
 host,state=fixture();other_error='storage'

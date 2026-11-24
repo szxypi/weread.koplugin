@@ -3,7 +3,9 @@ local UI=require('ui/uimanager')
 local Access=require('weread.lib.native_read_access')
 local Data=require('weread.lib.reading_state')
 local Crypto=require('weread.lib.crypto')
-local _=require('weread.lib.plugin_util').tr
+local Cache=require('weread.lib.reading_state_cache')
+local Util=require('weread.lib.plugin_util')
+local _,T=Util.tr,Util.T
 local M={}
 
 function M.cancel(host)
@@ -17,9 +19,25 @@ end
 function M.open(host,id,menu)
     if not Data.id(id) or host._shelf_state_menu~=menu or not host.client or not host.library_db then return false end
     M.cancel(host)
-    if not host:isNetworkOnline() then host:showOffline(_('Shelf status'));return false end
-    local selected=Access.capture(host.settings)
+    if host._reading_state_change_ui then
+        host:showInfo(_('Wait for the current started-reading change to finish.'));return false
+    end
     local account=host.library_db:accountKey()
+    local cache=Cache:new(host.library_db,account)
+    local previous=cache:read(id)
+    if not host:isNetworkOnline() then
+        if previous then
+            local ok,date=pcall(os.date,'%Y-%m-%d %H:%M',previous.checked_at)
+            if not ok or type(date)~='string' then date=_('Time unavailable') end
+            local text=previous.started=='missing' and _('Saved on %1: WeRead did not provide a started-reading status. This saved status may be out of date.')
+                or previous.started and _('Saved on %1: this book was marked as started. This saved status may be out of date.')
+                or _('Saved on %1: this book was not marked as started. This saved status may be out of date.')
+            host:showInfo(T(text,date))
+            return true
+        end
+        host:showOffline(_('Shelf status'));return false
+    end
+    local selected=Access.capture(host.settings)
     if not selected or selected.renewal_pending or not account
         or Crypto.sha256_hex('weread-library:'..selected.scope.vid):sub(1,20)~=account then
         host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false
@@ -48,9 +66,11 @@ function M.open(host,id,menu)
         if host._reading_state_ui==ctx then M.cancel(host) end
         if not active then return end
         if type(result)=='table' and result.kind=='known' and type(result.started)=='boolean' then
+            pcall(cache.write,cache,id,result.started,previous)
             host:showInfo(_(result.started and 'WeRead records this book as started.'
                 or 'WeRead has not marked this book as started. Its saved position and finished status may be different.'))
         elseif type(result)=='table' and result.kind=='missing' then
+            pcall(cache.write,cache,id,'missing',previous)
             host:showInfo(_('WeRead did not provide a started-reading status for this book.'))
         elseif type(result)=='table' and result.kind=='login' then
             host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'))

@@ -79,7 +79,11 @@ function M.open(host,id,resolving)
         end
     end
     if not host:isNetworkConnected() then host:showOffline(_('Shelf status'));return false end
-    local task=service(host);local ctx={owner=scope(host)};host._reading_state_change_ui=ctx
+    local task=service(host);local ctx={owner=scope(host)}
+    ctx.cache=require('weread.lib.reading_state_cache'):new(host.library_db,ctx.owner.account)
+    local pending_record=resolving and task:pending()
+    ctx.cache_id=pending_record and pending_record.metadata and pending_record.metadata.book_id or id
+    ctx.cached=ctx.cache:read(ctx.cache_id);host._reading_state_change_ui=ctx
     local function finish(text,book)
         if not current(host,ctx) then return end
         M.cancel(host);require('weread.ui.shelf_state').show(host,book or id);host:showInfo(text)
@@ -132,7 +136,13 @@ function M.open(host,id,resolving)
                     ok_callback=function()
                         if ctx.dialog~=final or not current(host,ctx) then return end
                         ctx.dialog=nil;UI:close(final)
-                        local accepted=task:accept_current(plan);if accepted then apply() end
+                        local accepted=task:accept_current(plan)
+                        if accepted then
+                            apply()
+                            if book_id==ctx.cache_id and plan.current_present and type(plan.current_started)=='boolean' then
+                                pcall(ctx.cache.write,ctx.cache,book_id,plan.current_started,ctx.cached)
+                            end
+                        end
                         finish(accepted and _('The current reading status was checked.') or message('storage'),book_id)
                     end}
                 ctx.dialog=final;UI:show(final);return
@@ -143,7 +153,11 @@ function M.open(host,id,resolving)
                 local notice
                 if not finished_ok then notice=_('The started-reading change is unconfirmed. It will not be sent again automatically.')
                 elseif result.kind=='confirmed' or result.kind=='noop' then
-                    apply();notice=_('The current started-reading status was verified in WeRead.')
+                    apply()
+                    if book_id==ctx.cache_id and type(result.observed)=='table' and type(plan.metadata.desired)=='boolean' then
+                        pcall(ctx.cache.write,ctx.cache,book_id,plan.metadata.desired,ctx.cached)
+                    end
+                    notice=_('The current started-reading status was verified in WeRead.')
                 elseif result.kind=='changed' then notice=_('The bookshelf or reading state changed after confirmation. No request was sent. Check again.')
                 else notice=message(result.kind) end
                 finish(notice,book_id)
