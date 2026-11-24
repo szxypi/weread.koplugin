@@ -1,0 +1,28 @@
+{
+  "result": "PASS",
+  "baseline_commit": "8b7ebf4fd89b7b10430f772e32760c75fae4f52c",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "synthetic_fixture": "96 simultaneous spans with 4000 entity intervals each, two quotes per span",
+  "runs": 3,
+  "maximum_active_full_indices": 32,
+  "median_retained_lua_kib_before": 6193.99609375,
+  "median_retained_lua_kib_after": 2079.82421875,
+  "eviction_rebuild_and_weak_collection_verified": true,
+  "quote_differential_comparisons": 24000,
+  "synthetic_full_plugin_smoke_ko2": true,
+  "owner_ko2_simulated_size": {
+    "underlines_located": 14,
+    "thought_items_checked": 53,
+    "online_and_new_offline_process_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authorization_posts": 0
+  },
+  "local_lua_specs": 478,
+  "physical_device_tested": false,
+  "limitations": [
+    "This is a deliberately entity-dense synthetic stress test; measured Lua memory increase excludes construction of the source text.",
+    "Retained Lua heap after garbage collection is not process peak memory or physical Kindle memory consumption.",
+    "Eviction may require rebuilding an index if more than 32 distinct spans are repeatedly revisited."
+  ]
+}

@@ -32,6 +32,8 @@ KOReader Linux ARM64 模拟测试中，约 960 KB 合成长段落的三次 CPU �
 
 长段落多次提取引用时按需保存稀疏字符位置与实体边界，单次查询不建立完整索引；正文变化时重建，章节释放后缓存随之释放。缓存数量有上限，超出时仍按原有方式核对。约 600 KB 合成长段落、分布在不同位置的 200 次引用提取，三次模拟 CPU 时间中位数从 282 ms 降至 3.6 ms；含少量实体的正文从 285 ms 降至 3.7 ms。24,000 组含实体和不完整 UTF-8 的引用与旧实现一致；测试仅测量合成数据上的批量引用，不代表真实书籍或实体 Kindle 的总耗时，详见[记录](validation-assets/2026-11-24/eink-annotation-quote.json)。可用 `python3 scripts/benchmark_annotation_quote.py --koreader /path/to/koreader` 复验（Linux、`/dev/shm` 及基准提交需可用）。
 
+同时保留的完整引用索引进一步限制为 32 份，超过时轮换淘汰，后续再次使用可重新建立；弱引用不会让已关闭的章节继续留在内存。对同时保留 96 个实体密集合成片段的压力测试，三次垃圾回收后 Lua 内存增量中位数从约 6.0 MiB 降至 2.0 MiB；这里不含源文本建立时的内存，也不代表进程峰值或真实设备用量。淘汰、重建、释放与引用一致性已验证；真实账号一章的划线和想法在线与离线核对通过，阅读位置未变。详见[记录](validation-assets/2026-11-24/eink-annotation-cache-budget.json)，可用 `python3 scripts/benchmark_annotation_cache.py --koreader /path/to/koreader` 复验。
+
 章节位置映射增加稀疏索引，定位时仅检查可能包含目标位置的区间；相邻区间和相互重叠的位置仍会共同核对，避免将有歧义的位置误认为唯一。5,578 组 XHTML、连续文档、TXT、重叠位置、多字符实体、长空白及边界输入与原实现对照一致。
 
 对约 473 KB、500 段的合成中文章节，在 KOReader Linux ARM64 模拟环境中连续定位 20 次，三轮 CPU 时间中位数从 658 毫秒降至 55 毫秒，检查的字符位置从 3,215,680 降至 40,800；索引建立时间中位数前后均约 54 毫秒。索引会增加一定内存；这些数字不代表完整搜索耗时或实体 Kindle 表现。真实账号两章在 KO2 模拟尺寸通过离线跨章搜索与位置核对，书架及网页位置不变。详见[验证记录](validation-assets/2026-11-24/eink-anchor-index.json)；可通过 `python3 scripts/benchmark_eink_anchor.py --koreader /path/to/koreader` 复验（Linux、`/dev/shm` 及基准提交需可用）。

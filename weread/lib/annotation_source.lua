@@ -4,8 +4,13 @@ local Source = {}
 local CHECKPOINT = 512
 local MAX_CHECKPOINTS = 16384
 local MAX_ENTITY_INTERVALS = 4096
+local MAX_ACTIVE_CACHES = 32
 -- Entries disappear with their span, and never retain the span as a value.
 local checkpoints = setmetatable({}, { __mode = "k" })
+-- Weak slots cap retained index arrays without keeping released spans or text
+-- alive. A round-robin victim falls back to the normal lookup on its next use.
+local cache_slots = setmetatable({}, { __mode = "v" })
+local next_slot = 1
 local function length(byte)
     if byte < 128 then return 1 elseif byte < 224 then return 2
     elseif byte < 240 then return 3 else return 4 end
@@ -88,6 +93,12 @@ local function seek(span, target)
             end
             cache.entities = intervals
         end
+        local victim = cache_slots[next_slot]
+        if victim then
+            victim.text, victim.bytes, victim.entities = nil, nil, nil
+        end
+        cache_slots[next_slot] = cache
+        next_slot = next_slot % MAX_ACTIVE_CACHES + 1
         checkpoints[span] = cache
     end
     local wanted = math.floor(target / CHECKPOINT)
