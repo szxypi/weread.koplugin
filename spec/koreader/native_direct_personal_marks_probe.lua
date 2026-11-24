@@ -179,6 +179,29 @@ else
             'cached personal marks changed their drawing or hit targets')
         layer.prepare_painter=original
     end
+    -- Visiting a fifth page retains the three most recently used pages rather
+    -- than flushing every cached highlight geometry.
+    do
+        local document=reader.document;assert(document:getPageCount()>=5)
+        local layer=require('weread.ui.xpointer_overlay'):new{records=state.records,records_ordered=true,
+            painter=state.overlay.painter,prepare_painter=state.overlay.prepare_painter,style=state.overlay.style}
+        layer.ui=reader;layer.view=reader.view
+        local compute=layer._computeVisible;local projections=0
+        function layer:_computeVisible() projections=projections+1;return compute(self) end
+        local commands={};local canvas={paintRect=function(_,x,y,w,h) commands[#commands+1]={'p',x,y,w,h} end,
+            darkenRect=function(_,x,y,w,h,alpha) commands[#commands+1]={'d',x,y,w,h,alpha} end}
+        local function draw(page)
+            reader.rolling:onGotoPage(page);UI:forceRePaint();commands={};layer:paintTo(canvas,0,0)
+            return json.encode(commands)
+        end
+        local frames={};for page=1,4 do frames[page]=draw(page) end
+        assert(projections==4)
+        frames[5]=draw(5);assert(projections==5 and layer.cache_count==4)
+        for page=4,2,-1 do
+            assert(draw(page)==frames[page] and projections==5,'fifth page discarded a recent highlight page')
+        end
+        assert(draw(1)==frames[1] and projections==6,'oldest highlight page was not recomputed')
+    end
     -- A real CREngine viewport must keep the same bookmark results when a
     -- reader revisits a recently painted page, without another full scan.
     do

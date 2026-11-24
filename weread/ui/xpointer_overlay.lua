@@ -11,6 +11,7 @@ testing can be exercised by the standalone Lua specs.
 
 local Overlay = {}
 Overlay.__index = Overlay
+local PAGE_CACHE_LIMIT = 4
 
 local function inside(rect, pos, padding)
     if not rect or not pos then return false end
@@ -31,6 +32,7 @@ function Overlay:new(opts)
         prepare_painter = opts.prepare_painter,
         enabled = opts.enabled ~= false,
         cache = {},
+        cache_order = {},
         visible = {},
         generation = 1,
         clock = opts.clock or os.clock,
@@ -59,8 +61,21 @@ end
 function Overlay:invalidate()
     self.generation = self.generation + 1
     self.cache = {}
+    self.cache_order = {}
     self.cache_count = 0
     self.visible = {}
+end
+
+local function touch_page(self, key)
+    local order = self.cache_order
+    for i, value in ipairs(order) do
+        if value == key then table.remove(order, i);break end
+    end
+    table.insert(order, 1, key)
+    if #order > PAGE_CACHE_LIMIT then
+        self.cache[table.remove(order)] = nil
+    end
+    self.cache_count = #order
 end
 
 function Overlay:resetLayout()
@@ -239,6 +254,7 @@ function Overlay:paintTo(bb, x, y)
     local cached = can_cache and self.cache[cache_key] or nil
     local boxes, candidates, lines, prepared
     if cached then
+        touch_page(self, cache_key)
         boxes = cached.boxes
         candidates = cached.candidates
         lines = cached.lines
@@ -251,14 +267,13 @@ function Overlay:paintTo(bb, x, y)
             lines = merge_lines(boxes)
         end
         if can_cache then
-            self.cache_count = (self.cache_count or 0) + 1
-            if self.cache_count > 4 then self.cache, self.cache_count = {}, 1 end
             self.cache[cache_key] = {
                 boxes = boxes,
                 candidates = candidates,
                 lines = lines,
                 prepared = prepared,
             }
+            touch_page(self, cache_key)
         end
     end
     self.visible = boxes

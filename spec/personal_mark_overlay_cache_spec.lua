@@ -33,4 +33,26 @@ expect(paint()==edited and sorts==12,'updated style was not cached')
 overlay:invalidate();expect(paint()==edited and sorts==16,'layout invalidation did not rebuild geometry')
 overlay.view.view_mode='scroll';expect(paint()==edited and paint()==edited and sorts==24,'scroll reused stale page geometry')
 rawset(table,'sort',sort)
+do
+    local current,projections=1,0
+    local doc={getCurrentPage=function() return current end}
+    local entry={pos0='start',pos1='end',style=0}
+    local recent=Overlay:new{records={entry},style={width=1,color='black'},painter=Painter.paint,prepare_painter=Painter.prepare}
+    recent.ui={document=doc,dimen={h=800}};recent.view={view_mode='page'}
+    function recent:_computeVisible()
+        projections=projections+1
+        return {{record=entry,rect={x=current*10,y=20,w=5,h=10}}},1
+    end
+    local function draw() calls={};recent:paintTo(bb,0,0);return table.concat(calls,'|') end
+    local frames={}
+    for i=1,4 do current=i;frames[i]=draw() end
+    expect(projections==4 and recent.cache_count==4,'initial page cache is not bounded')
+    current=1;expect(draw()==frames[1] and projections==4,'recent page did not become most recently used')
+    current=5;frames[5]=draw();expect(projections==5 and recent.cache_count==4,'fifth page exceeded cache limit')
+    current=3;expect(draw()==frames[3] and projections==5,'fifth page discarded a recent page')
+    current=2;expect(draw()==frames[2] and projections==6,'least recently used page was not recomputed')
+    current=3;recent:invalidate();expect(recent.cache_count==0 and draw()==frames[3] and projections==7,
+        'layout invalidation retained an old page')
+    recent:setRecords({entry});expect(draw()==frames[3] and projections==8,'record update retained an old page')
+end
 print('personal_mark_overlay_cache_spec: '..checks..' checks passed')
