@@ -1,0 +1,41 @@
+{
+  "result": "PASS",
+  "baseline_commit": "cc8d28b34cc9b12d585c5451c62165e3ab019989",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "runs": 3,
+  "streak_calculations_per_run": 100,
+  "two_year_synthetic_streak": {
+    "days": 724,
+    "median_cpu_seconds_before": 0.024635,
+    "median_cpu_seconds_after": 0.002095,
+    "period_start_calls_before": 726,
+    "period_start_calls_after": 1,
+    "monthly_shift_calls_after": 24
+  },
+  "maximum_synthetic_streak": {
+    "days": 8784,
+    "median_cpu_seconds_before": 0.300567,
+    "median_cpu_seconds_after": 0.026538,
+    "period_start_calls_before": 8785,
+    "period_start_calls_after": 1,
+    "monthly_shift_calls_after": 288
+  },
+  "synthetic_24_month_fetch_requests_before_and_after": 24,
+  "synthetic_24_month_fetch_median_cpu_seconds_before": 0.003364,
+  "synthetic_24_month_fetch_median_cpu_seconds_after": 0.000603,
+  "legacy_algorithm_and_four_timezone_comparisons_verified": true,
+  "synthetic_native_home_freshness_both_sizes": true,
+  "synthetic_full_plugin_smoke_ko2": true,
+  "real_account_statistics_independently_verified_both_simulated_sizes": true,
+  "real_account_months_in_streak_fixture": 1,
+  "real_account_offline_reopen": true,
+  "real_account_data_writes": 0,
+  "real_authorization_posts": 0,
+  "local_lua_specs": 480,
+  "physical_device_tested": false,
+  "limitations": [
+    "Measured durations cover batched synthetic calculations and a mock 24-month fetch, excluding network latency.",
+    "Monthly shifts still occur once at each crossed month; the implementation continues to inspect each day.",
+    "The real-account sample used one month and does not establish performance or behavior for every history or physical Kindle."
+  ]
+}

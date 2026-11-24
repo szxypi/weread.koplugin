@@ -42,14 +42,17 @@ function M.streak(months, now)
     months = type(months) == "table" and months or {}
     local today, count = M.day(now), 0
     local cursor = today
-    local current = months[tostring(Stats.period_start("monthly", cursor))]
+    local base = Stats.period_start("monthly", cursor)
+    local current = months[tostring(base)]
     if type(current) ~= "table" or type(current.daily) ~= "table" then
-        return 0, true, Stats.period_start("monthly", cursor)
+        return 0, true, base
     end
     if (current.daily[tostring(cursor)] or 0) <= 0 then cursor = cursor - DAY end
     -- Bound malformed/imported snapshots as well as network pagination.
     for _i = 1, 24 * 366 do
-        local base = Stats.period_start("monthly", cursor)
+        -- Consecutive days stay in the same month until this boundary; avoid
+        -- converting every date back to a month when the streak is long.
+        if cursor < base then base = Stats.shift_period("monthly", base, -1) end
         local month = months[tostring(base)]
         if type(month) ~= "table" or type(month.daily) ~= "table" then return count, true, base end
         if (month.daily[tostring(cursor)] or 0) <= 0 then return count, false end

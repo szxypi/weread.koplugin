@@ -47,6 +47,7 @@ jobs:
         run: |
           for zone in UTC Asia/Shanghai America/New_York Pacific/Apia; do
             TZ="$zone" luajit spec/profile_data_spec.lua
+            TZ="$zone" luajit spec/profile_streak_spec.lua
             TZ="$zone" luajit spec/readtime_protocol_spec.lua
           done
 
