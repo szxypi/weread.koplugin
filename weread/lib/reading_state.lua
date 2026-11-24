@@ -35,7 +35,8 @@ function M.project(raw,id,owner)
     return flag==1
 end
 
-function M.read(client,settings,selected,id)
+function M.read(client,settings,selected,id,options)
+    options=options or {}
     local function current()
         return selected and not selected.renewal_pending and Access.matches(settings,selected)
     end
@@ -46,7 +47,10 @@ function M.read(client,settings,selected,id)
     auth:cancel()
     if not current() then return {kind='stale'} end
     if not ok then
-        return {kind=raw=='native_auth/reading_state/http_401' and 'login' or 'unavailable'}
+        if raw=='native_auth/reading_state/http_401' then
+            return {kind=options.recover_auth and 'native_expired' or 'login'}
+        end
+        return {kind='unavailable'}
     end
     local value,reason=M.project(raw,id,selected.scope.vid)
     if reason then return {kind=reason=='missing' and 'missing' or 'unavailable'} end

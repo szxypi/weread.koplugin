@@ -6,10 +6,10 @@ package.loaded['weread.lib.crypto']={sha256_hex=function(value)
     assert(value=='weread-library:900001');return string.rep('a',64)
 end}
 local access_ok=true
-local selected={scope={vid='900001'},credentials={accessToken='private'}}
+local selected={scope={vid='900001',epoch=1},credentials={accessToken='private'},revision=4,store={}}
 package.loaded['weread.lib.native_read_access']={capture=function() return selected end,
     matches=function() return access_ok end}
-local reads=0
+local reads,last_recover=0,nil
 package.loaded['weread.lib.reading_state_cache']={new=function(_self,library,account)
     return {read=function() return library.state.cache end,write=function(_cache,id,value,expected)
         assert(id=='42' and account==library.state.account and expected==library.state.cache)
@@ -17,8 +17,8 @@ package.loaded['weread.lib.reading_state_cache']={new=function(_self,library,acc
     end}
 end}
 package.loaded['weread.lib.reading_state']={id=function(id) return id=='42' and id or nil end,
-    read=function(_client,_settings,token,id)
-        assert(token==selected and id=='42');reads=reads+1;return {kind='known',started=false}
+    read=function(_client,_settings,token,id,options)
+        assert(token==selected and id=='42');reads=reads+1;last_recover=options.recover_auth;return {kind='known',started=false}
     end}
 local jobs={}
 package.loaded['weread.lib.memory_worker']={new=function()
@@ -30,7 +30,7 @@ end}
 local Reading=require('weread.ui.reading_state')
 local function fixture()
     local state={account=string.rep('a',20),notices={},offline=0,online=true}
-    local host={settings={},client={},_reader_session_gen=1,discovery_epoch=1,ui={document={}},
+    local host={settings={auth_scope_matches=function(_self,scope) return scope.vid==selected.scope.vid and scope.epoch==selected.scope.epoch end},client={},_reader_session_gen=1,discovery_epoch=1,ui={document={}},
         _book_detail_view={},_shelf_state_menu={},library_db={state=state,accountKey=function() return state.account end},
         isNetworkOnline=function() return state.online end,
         showOffline=function() state.offline=state.offline+1 end,
@@ -87,4 +87,34 @@ host,state=fixture();host._reading_state_change_ui={}
 assert(not Reading.open(host,'42',host._shelf_state_menu) and state.notices[1]:find('Wait',1,true))
 host,state=fixture();state.account='foreign'
 assert(not Reading.open(host,'42',host._shelf_state_menu) and #state.notices==1,'foreign account accepted')
+local function renewal_fixture()
+    selected={scope={vid='900001',epoch=1},credentials={accessToken='private',refreshToken='refresh',deviceId='device'},revision=4,store={}}
+    local h,s=fixture();local service={}
+    function service:start(options,callback) assert(options.expected_revision==4);self.callback=callback;self.count=(self.count or 0)+1;return true,{} end
+    function service:cancel() self.cancelled=true end
+    h.native_renewal=service
+    return h,s,service
+end
+local service
+host,state,service=renewal_fixture();job=open(host)
+job.task();assert(last_recover==true)
+local first_done=job.done;first_done({kind='native_expired'})
+assert(service.count==1 and host._reading_state_ui and host.busy_message)
+first_done({kind='known',started=true});assert(#state.notices==0,'duplicate expired request changed UI')
+selected={scope=selected.scope,credentials={accessToken='renewed',refreshToken='new',deviceId='device'},revision=6,store=selected.store}
+service.callback(true);assert(job.done~=first_done and host._reading_state_ui)
+job.task();assert(last_recover==false,'renewed request allowed another recovery')
+first_done({kind='known',started=true});assert(#state.notices==0,'old result superseded renewal')
+job.done({kind='known',started=false});assert(state.saved==false and #state.notices==1 and not host._reading_state_ui)
+host,state,service=renewal_fixture();job=open(host);job.done({kind='native_expired'});service.callback(false)
+assert(service.count==1 and #state.notices==1 and state.notices[1]:find('Authorize',1,true) and not state.saved)
+host,state,service=renewal_fixture();job=open(host);job.done({kind='native_expired'})
+selected={scope=selected.scope,credentials={accessToken='renewed',refreshToken='new',deviceId='device'},revision=6,store=selected.store}
+service.callback(true);job.done({kind='native_expired'})
+assert(service.count==1 and #state.notices==1 and state.notices[1]:find('Authorize',1,true))
+host,state,service=renewal_fixture();job=open(host);job.done({kind='native_expired'});host.busy_message.cancel()
+assert(service.cancelled and not host._reading_state_ui);service.callback(false)
+assert(#state.notices==0 and not state.saved,'cancelled renewal delivered result')
+host,state,service=renewal_fixture();job=open(host);job.done({kind='native_expired'});state.account='other';service.callback(false)
+assert(not host._reading_state_ui and #state.notices==0 and not state.saved,'account switch delivered renewal')
 print('PASS: started-reading menu ownership and cancellation')

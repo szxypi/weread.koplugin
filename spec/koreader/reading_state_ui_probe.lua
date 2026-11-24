@@ -27,13 +27,32 @@ local ok,reason=pcall(function()
     local calls=home..'/requests.txt';local Client=require('weread.lib.client')
     function Client:request(options)
         local headers=options.headers or {}
+        if mode=='recovery' and options.url=='https://i.weread.qq.com/login' then
+            assert(options.method=='POST' and options.skip_cookie and options.persist_response_cookies==false
+                and options.sensitive and not headers.Cookie and not headers.Authorization and tonumber(ffi.C.getpid())~=parent)
+            local body=json.decode(options.body);assert(body.refreshToken=='synthetic-reading-refresh' and body.deviceId==string.rep('1',32))
+            local file=assert(io.open(calls,'a'));file:write('LOGIN\n');file:close()
+            return json.encode({vid='900000',accessToken='renewed-reading-access'}),200
+        end
+        if mode=='recovery' and options.url=='https://i.weread.qq.com/shelf/sync' then
+            assert(options.method=='GET' and headers.vid=='900000' and headers.accessToken=='renewed-reading-access'
+                and options.skip_cookie and options.persist_response_cookies==false and options.sensitive
+                and tonumber(ffi.C.getpid())~=parent)
+            local file=assert(io.open(calls,'a'));file:write('GET\n');file:close()
+            return '{"books":[],"archive":[]}',200
+        end
         local id=options.url:match('^https://i%.weread%.qq%.com/book/getProgress%?bookId=(.+)$')
         assert((id=='41' or id=='CB_abc') and options.method=='GET' and not options.body
             and options.skip_cookie and options.persist_response_cookies==false and options.sensitive
-            and headers.vid=='900000' and headers.accessToken=='synthetic-reading-access'
+            and headers.vid=='900000' and (headers.accessToken=='synthetic-reading-access'
+                or mode=='recovery' and headers.accessToken=='renewed-reading-access')
             and not headers.Cookie and not headers.Authorization and tonumber(ffi.C.getpid())~=parent)
         local file=assert(io.open(calls,'a'));file:write('GET\n');file:close()
         require('socket').sleep(mode=='slow' and 2 or .35)
+        if mode=='recovery' then
+            if headers.accessToken=='synthetic-reading-access' then return '',401 end
+            return json.encode({book={bookId=id,isStartReading=1}}),200
+        end
         if mode=='unauthorized' then return '',401 end
         if mode=='missing' then return json.encode({book={bookId=id}}),200 end
         if mode=='foreign' then return json.encode({book={bookId='CB_foreign',isStartReading=1}}),200 end
@@ -44,6 +63,7 @@ local ok,reason=pcall(function()
     for _,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
     expect(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);local plugin=assert(FM.instance.weread)
+    local renewal=plugin.native_renewal;plugin.native_renewal=nil
     plugin.isNetworkOnline=function() return true end
     local notices={};local old_info=plugin.showInfo
     function plugin:showInfo(text) notices[#notices+1]=text;return old_info(self,text) end
@@ -81,6 +101,11 @@ local ok,reason=pcall(function()
     read('41','missing','WeRead did not provide a started-reading status for this book.')
     read('41','foreign','Could not check started-reading status.')
     read('41','unauthorized','Authorize or renew E-Ink login in settings, then try again.')
+    report.phase='recovery';plugin.native_renewal=assert(renewal)
+    local _,before_revision=require('weread.lib.native_credentials'):new(plugin.settings):read()
+    read('41','recovery','WeRead records this book as started.')
+    local credentials,revision,err,pending=require('weread.lib.native_credentials'):new(plugin.settings):read()
+    expect(credentials and credentials.accessToken=='renewed-reading-access' and revision==before_revision+2 and not err and not pending)
     report.phase='cancel';mode='slow';notices={}
     assert(plugin:showShelfState('41'));local menu=assert(plugin._shelf_state_menu)
     menu:onMenuSelect(row(menu));expect(plugin._reading_state_ui~=nil)
@@ -89,8 +114,11 @@ local ok,reason=pcall(function()
     for _i=1,30 do tick() end
     expect(#notices==0)
     local f=io.open(calls,'r');local contents=f and f:read('*a') or '';if f then f:close() end
-    for line in contents:gmatch('[^\n]+') do expect(line=='GET');report.requests=report.requests+1 end
-    expect(report.requests>=5 and report.requests<=6)
+    for line in contents:gmatch('[^\n]+') do
+        expect(line=='GET' or line=='LOGIN')
+        if line=='GET' then report.requests=report.requests+1 else report.posts=report.posts+1 end
+    end
+    expect(report.requests>=8 and report.requests<=9 and report.posts==1)
     report.result='PASS';report.phase='complete'
 end)
 if not ok then report.reason=tostring(reason):gsub('[\r\n]',' '):sub(1,150) end
