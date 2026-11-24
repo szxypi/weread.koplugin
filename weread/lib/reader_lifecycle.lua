@@ -464,6 +464,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local covers=package.loaded['weread.lib.shelf_cover_bitmap_cache'];if covers then covers.clear() end
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
@@ -645,6 +646,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local covers=package.loaded['weread.lib.shelf_cover_bitmap_cache'];if covers then covers.clear() end
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.suspend(self) end
     if self._weread_suspended then return end
     self._weread_suspended=true

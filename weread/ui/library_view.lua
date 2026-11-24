@@ -32,6 +32,7 @@ local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
+local CoverBitmapCache = require("weread.lib.shelf_cover_bitmap_cache")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
 local HEADER_SIZE = 72
@@ -86,6 +87,7 @@ local RoundedCoverCard = Widget:extend{
     border_size = 0,
     shadow_offset = 0,
     shadow_color = nil,
+    white_background = false,
 }
 
 function RoundedCoverCard:init()
@@ -113,6 +115,9 @@ function RoundedCoverCard:_masked_corner_color(px, py)
 end
 
 function RoundedCoverCard:paintTo(bb, x, y)
+    if self.white_background then
+        bb:paintRect(x, y, self.width, self.height, Blitbuffer.COLOR_WHITE)
+    end
     if self.inner then self.inner:paintTo(bb, x + self.border_size, y + self.border_size) end
     local radius = self.radius
     if radius > 0 then
@@ -509,14 +514,13 @@ function CoverCell:init()
     if self.cover_path then
         local image
         local ok = pcall(function()
-            local rendered
-            if self.contain_cover then
-                -- Let square avatars fill the card width; the portrait card
-                -- naturally retains its white breathing room above and below.
-                rendered = build_center_contained_cover(self.cover_path, image_width, image_height, 0)
-            else
-                rendered = build_center_cropped_cover(self.cover_path, image_width, image_height)
-            end
+            local rendered = CoverBitmapCache.shared():render(
+                self.cover_path, image_width, image_height, self._cover_fit, function()
+                    if self.contain_cover then
+                        return build_center_contained_cover(self.cover_path, image_width, image_height, 0)
+                    end
+                    return build_center_cropped_cover(self.cover_path, image_width, image_height)
+                end)
             if rendered then
                 image = ImageWidget:new{
                     image = rendered,
@@ -564,6 +568,7 @@ function CoverCell:init()
         border_size = border,
         radius = metrics.radius,
         shadow_offset = metrics.shadow,
+        white_background = not self._has_cover,
         shadow_color = metrics.shadow > 0
             and (Blitbuffer.gray and Blitbuffer.gray(0.5) or Blitbuffer.COLOR_GRAY) or nil,
     }

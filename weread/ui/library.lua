@@ -285,6 +285,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    local covers=package.loaded['weread.lib.shelf_cover_bitmap_cache'];if covers then covers.clear() end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
