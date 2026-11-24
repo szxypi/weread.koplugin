@@ -1,0 +1,34 @@
+{
+  "result": "PASS",
+  "baseline_commit": "1a8750ed2674ba58cbd485eb536b4cfd87c4efb7",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "synthetic worker pipe payloads, KO2 simulated screen, independent child processes",
+  "one_mib_runs_per_case": 3,
+  "one_mib_median_wall_seconds": {
+    "plain_before": 3.437129974,
+    "plain_after": 0.538412094,
+    "stream_before": 3.642552853,
+    "stream_after": 0.544021845
+  },
+  "eight_mib_candidate_single_run_wall_seconds": {
+    "plain": 2.938765,
+    "stream": 2.958229
+  },
+  "maximum_reads_per_ui_tick": 4,
+  "active_poll_seconds": 0.02,
+  "idle_poll_seconds": 0.2,
+  "independent_digest_and_progress_order_verified": true,
+  "short_write_interrupt_and_gc_verified": true,
+  "real_child_cancellation_reaping_restart_and_descriptor_count_verified": true,
+  "synthetic_batch_search_and_notebook_image_bulk_both_sizes": true,
+  "owner_read_only_chapters_and_notebook_search_both_sizes": true,
+  "owner_account_data_writes": 0,
+  "owner_authorization_renewals": 1,
+  "local_unit_specs": 477,
+  "physical_device_tested": false,
+  "limitations": [
+    "The benchmark measures synthetic pipe transport wall time, not JSON decoding, network requests, complete book loading or device performance.",
+    "Event-loop heartbeat is not a physical input, display refresh, battery or ghosting measurement.",
+    "The 8 MiB candidate measurement has only one run and no baseline comparison."
+  ]
+}

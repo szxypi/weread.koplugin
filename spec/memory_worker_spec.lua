@@ -4,8 +4,12 @@ local checks = 0
 local function expect(value, label) checks = checks + 1 assert(value, label) end
 local function fixture(max_bytes, timeout, read_size)
     local queue, pending, bytes, completed, terminated, closed, now = {}, nil, "", false, false, false, 0
+    local delays={}
     local scheduler = {
-        scheduleIn = function(_self, delay, fn) expect(delay >= 0.1, "cooperative scheduling") queue[#queue + 1] = fn end,
+        scheduleIn = function(_self, delay, fn)
+            expect(delay >= 0.02, "cooperative scheduling")
+            delays[#delays+1]=delay;queue[#queue + 1] = fn
+        end,
         unschedule = function(_self, fn) for i = #queue, 1, -1 do if queue[i] == fn then table.remove(queue, i) end end end,
     }
     local codec = { json_encode = function(_self, value) return value end, json_decode = function(_self, raw)
@@ -14,10 +18,10 @@ local function fixture(max_bytes, timeout, read_size)
     end }
     local runner = {
         run = function(fn) pending = fn return 42, 43 end,
-        write = function(_fd, raw, keep_open) bytes = bytes .. raw; if not keep_open then completed = true end end,
+        write = function(_fd, raw, keep_open) bytes = bytes .. raw; if not keep_open then completed = true end; return true end,
         read = function() local size=read_size or 4096;local chunk = bytes:sub(1, size) bytes = bytes:sub(size+1) return chunk end,
         done = function() return completed end,
-        close = function() closed = true end,
+        close = function() closed = true;completed = true end,
         terminate = function() terminated, completed = true, true end,
     }
     local worker = Worker:new{ scheduler = scheduler, codec = codec, runner = runner, now = function() return now end,
@@ -26,7 +30,7 @@ local function fixture(max_bytes, timeout, read_size)
         tick = function() local fn = table.remove(queue, 1) if fn then fn() end end,
         idle = function() while #queue > 0 do table.remove(queue, 1)() end end,
         time = function(value) now = value end,
-        state = function() return terminated, closed end, runner = runner,
+        state = function() return terminated, closed end, runner = runner,delays=delays,
         inject = function(value) bytes=bytes..value;completed=true end }
 end
 local f, got = fixture(), nil
@@ -92,4 +96,29 @@ f.run();f.idle();expect(got and got.private=='finished','progress callback failu
 f=fixture(131072,nil,4096);got=nil
 f.worker:start(function(report) report(1);return string.rep('x',100000) end,function(value) got=value end,function() end)
 f.run();f.idle();expect(got and #got.private==100000,'progress stream truncated a large bounded result')
+f=fixture(nil,nil,1);got=nil
+local reads,original_read=0,f.runner.read
+f.runner.read=function(...) reads=reads+1;return original_read(...) end
+f.worker:start(function() return string.rep('x',100) end,function(value) got=value end)
+f.run();f.tick()
+expect(reads==4 and not got,'one UI tick must drain no more than four chunks')
+expect(f.delays[#f.delays]==0.02,'active pipe did not use the bounded fast poll')
+f.idle();expect(got and #got.private==100,'bounded bursts lost data')
+f=fixture();got=nil
+f.worker:start(function() return 'later' end,function(value) got=value end)
+f.tick();expect(f.delays[#f.delays]==0.2,'idle worker did not retain the low-frequency poll')
+f.run();f.idle();expect(got and got.private=='later','idle-to-active transition lost the result')
+f=fixture(65536,nil,4096);got=nil
+f.worker:start(function() return string.rep('x',65537) end,function(value) got=value end)
+f.run();f.idle()
+expect(got and got.private=='{"error":"worker_failed"}','oversized child result was not bounded')
+f=fixture(65536,nil,4096);got=false
+f.worker:start(function() end,function(value) got=value or 'failed' end)
+f.inject(string.rep('x',65537));f.idle();terminated,closed=f.state()
+expect(got=='failed' and terminated and closed,'oversized pipe data was not rejected')
+f=fixture();got=false;local writes=0
+f.runner.write=function(_fd,_raw,_keep_open) writes=writes+1;return false end
+f.worker:start(function() return 'never sent' end,function(value) got=value or 'failed' end,function() end)
+f.run();f.idle();_,closed=f.state()
+expect(writes==1 and closed and got=='failed','failed result marker did not close without sending the body')
 print("PASS: " .. checks .. " bounded memory worker checks")
