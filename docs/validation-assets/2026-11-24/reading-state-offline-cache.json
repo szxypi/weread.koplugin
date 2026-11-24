@@ -35,7 +35,13 @@
     "online_then_offline_ui": true,
     "account_data_writes": 0,
     "shelf_unchanged": true,
-    "profile_removed": true
+    "profile_removed": true,
+    "additional_ordinary_1264x1680_attempts": {
+      "count": 2,
+      "result": "UNVERIFIED",
+      "error_category": "ProbeError",
+      "account_data_writes": 0
+    }
   },
   "hardware_device_verified": false,
   "limitations": [
