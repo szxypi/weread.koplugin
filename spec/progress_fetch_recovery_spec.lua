@@ -64,6 +64,18 @@ local function fixture(outcomes)
     end
     return f
 end
+-- A recovery marker is a cancellation guard, not the local position itself.
+-- Normal page updates must still capture movement without querying that guard.
+do
+    local ordinary=fixture();local reads,captures=0,0
+    ordinary.document.getXPointer=function() reads=reads+1;return '/synthetic/1' end
+    local capture=ordinary.sync.capture_local
+    ordinary.sync.capture_local=function(...) captures=captures+1;return capture(...) end
+    for _=1,100 do ordinary.sync:on_page_update() end
+    expect(reads==0 and captures==100,'ordinary page updates queried recovery markers or lost local captures')
+    ordinary.sync.pull_job={};ordinary.sync:on_page_update()
+    expect(reads==0 and captures==101,'an unguarded pull queried the recovery marker')
+end
 local f=fixture();expect(f.sync:sync_now())
 expect(f.sync.pulling and not f.sync.verified and f.renewals==1 and #f.reads==2,'Web 401 silently used stale gateway position')
 expect(f.values.books['900001'].pending_upload_position,'recovery did not park local movement')
@@ -114,4 +126,13 @@ f=fixture();f.values.sync.upload_interval_minutes=1;f.sync:_mark_verified('90000
 f.clock=160;tick=assert(f.sync.interval.task);f.tasks[tick]=nil;tick()
 f.values.sync.upload_interval_minutes=0;f.sync.interval:reschedule();f.complete()
 expect(f.cancelled==1 and not f.sync.interval.cycle and #f.reads==2,'disabled timer resumed a recovered request')
+f=fixture();f.values.sync.upload_interval_minutes=1;f.live_marker='/synthetic/1'
+f.document.getXPointer=function() return f.live_marker end
+f.sync:_mark_verified('900001','synthetic',f.position,{book_id='900001',chapter_uid=11,chapter_idx=0,chapter_offset=1000,percent=37})
+f.clock=160;tick=assert(f.sync.interval.task);f.tasks[tick]=nil;tick()
+expect(f.sync.interval.cycle and f.renewals==1,'timed recovery did not start')
+f.live_marker='/synthetic/2';f.sync:on_page_update()
+expect(f.cancelled==1 and not f.sync.interval.cycle and not f.sync.verified,
+    'page turn did not immediately cancel the guarded timed recovery')
+f.complete();expect(#f.reads==2,'cancelled timed recovery resumed remote reads')
 print(('progress_fetch_recovery_spec: %d checks'):format(checks))

@@ -1821,13 +1821,18 @@ end
 
 function ProgressSync:on_page_update()
     if not self.current_book_id then return end
-    local marker=self:_recovery_marker()
-    if self.pull_job and self.pull_job.recovery_marker and self.pull_job.recovery_marker~=marker then
-        self:_invalidate_pull();self.state='unverified'
-    end
-    local cycle=self.interval.cycle
-    if cycle and cycle.recovery_marker and cycle.recovery_marker~=marker then
-        self.interval:halt();self:_clear_verified('progress_recovery_cancelled')
+    -- Reading the live engine pointer is needed only while a recovery owns a
+    -- location guard. Ordinary page turns still capture their local position.
+    local pull,active_cycle=self.pull_job,self.interval.cycle
+    if (pull and pull.recovery_marker) or (active_cycle and active_cycle.recovery_marker) then
+        local marker=self:_recovery_marker()
+        if self.pull_job and self.pull_job.recovery_marker and self.pull_job.recovery_marker~=marker then
+            self:_invalidate_pull();self.state='unverified'
+        end
+        local cycle=self.interval.cycle
+        if cycle and cycle.recovery_marker and cycle.recovery_marker~=marker then
+            self.interval:halt();self:_clear_verified('progress_recovery_cancelled')
+        end
     end
     if self.file_resume then
         if not self.file_resume.failed or self:_file_resume_unchanged(self.file_resume) then return end

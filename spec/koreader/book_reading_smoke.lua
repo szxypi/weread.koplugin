@@ -341,6 +341,23 @@ reader.rolling:onGotoPage(2); tick()
 assert(reader:getCurrentPage() == 2, "native page turn failed")
 local current = reader.weread
 current.isNetworkOnline, current.isNetworkConnected = function() return true end, function() return true end
+if os.getenv('WEREAD_TEST_PROGRESS_PAGE_HOTPATH')=='1' then
+    local sync=current.progress_sync
+    pump(function() return sync.current_book_id and not sync.pulling and not sync.interval.cycle end)
+    local reads,captures=0,0
+    local marker_method,capture_method=sync._recovery_marker,sync.capture_local
+    local marker_own,capture_own=rawget(sync,'_recovery_marker'),rawget(sync,'capture_local')
+    sync._recovery_marker=function(self,...) reads=reads+1;return marker_method(self,...) end
+    sync.capture_local=function(self,...) captures=captures+1;return capture_method(self,...) end
+    reader.rolling:onGotoPage(1);tick();reader.rolling:onGotoPage(2);tick()
+    local position=assert(sync:capture_local())
+    assert(reads==0 and captures>=3 and sync.local_position
+        and require('weread.lib.position_mapper').same_position(position,sync.local_position),
+        'page update checked an unused recovery marker or lost local movement')
+    sync._recovery_marker,sync.capture_local=marker_own,capture_own
+    local file=assert(io.open(evidence..'/progress-page-hotpath.json','wb'))
+    file:write(json.encode{result='PASS',page_updates=2,recovery_marker_reads=reads,local_captures=captures});file:close()
+end
 if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
     local HTTP, LTN = require("socket.http"), require("ltn12")
     local function request(path, data)
