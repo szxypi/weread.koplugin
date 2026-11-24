@@ -1,0 +1,32 @@
+{
+  "scope": "source_position_on_view_changed",
+  "baseline": "fc98016a",
+  "synthetic_benchmark": {
+    "runtime": "KOReader Linux ARM64 desktop emulator",
+    "screen_sizes": [[600, 800, 167], [1264, 1680, 300]],
+    "runs": 3,
+    "events_per_case": 1000,
+    "changed_page_reads_before": 2000,
+    "changed_page_reads_after": 1000,
+    "unchanged_page_reads_before": 2000,
+    "unchanged_page_reads_after": 2000,
+    "network_requests": 0,
+    "note": "Synthetic native-method stubs; counts cover only this service, not overall reader or Kindle performance."
+  },
+  "synthetic_reader": {
+    "screen_sizes": [[600, 800, 167], [1264, 1680, 300]],
+    "selection_and_offline_reopen": "PASS"
+  },
+  "owner_reader": {
+    "screen_sizes": [[600, 800, 167], [1264, 1680, 300]],
+    "book_type": "EPUB",
+    "book_samples": 1,
+    "native_read_turn_locate_offline_reopen": "PASS",
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "real_screenshots": 0,
+    "tmpfs_profile_removed": true
+  },
+  "kindle_oasis_2": "NOT_TESTED"
+}

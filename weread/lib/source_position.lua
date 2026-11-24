@@ -568,11 +568,16 @@ function Service:_live()
     return {document=document,file=document.file,book_id=book_id,location=location,identity=identity,
         account=tostring(self.get_account() or ''),generation=self.generation}
 end
+function Service:_matches_live(scope,live)
+    if not scope or scope.generation~=self.generation or next(self.pauses) then return false end
+    return live and live.document==scope.document and live.file==scope.file and live.account==scope.account
+        and live.book_id==scope.book_id and live.identity.file_id==scope.identity.file_id
+        and Context.same_location(live.location,scope.location) or false
+end
 function Service:_current(scope)
     if not scope or scope.generation~=self.generation or next(self.pauses) then return false end
     local live=self:_live()
-    if not live or live.document~=scope.document or live.file~=scope.file or live.account~=scope.account or live.book_id~=scope.book_id
-        or live.identity.file_id~=scope.identity.file_id or not Context.same_location(live.location,scope.location) then return false end
+    if not self:_matches_live(scope,live) then return false end
     if scope.metadata then
         local current=Source.document_metadata(scope.document,scope.book_id,nil,scope.render_path)
         if not current or current.metadata~=scope.metadata then return false end
@@ -684,7 +689,11 @@ function Service:on_view_changed(force)
         return true
     end
     local previous=self.job and self.job.scope or self.scope
-    if not force and previous and self:_current(previous) and not (self.result and self.result.retained_source_target) then return true end
+    -- The first snapshot may reject a moved page, but never authorizes a
+    -- position: matching snapshots still need the fresh full check because
+    -- get_retained above can change reader or account state.
+    if not force and previous and self:_matches_live(previous,live) and self:_current(previous)
+        and not (self.result and self.result.retained_source_target) then return true end
     self:_invalidate('waiting')
     live.generation=self.generation
     local job={scope=live,started=self.now()}
