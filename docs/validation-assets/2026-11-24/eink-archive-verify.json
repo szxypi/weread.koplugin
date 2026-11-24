@@ -1,0 +1,33 @@
+{
+  "result": "PASS",
+  "baseline_commit": "5a450064ef13c697d999997dbd48ace8ec77d675",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "synthetic 8 MiB high-entropy ZIP member compressed with deflate",
+  "bytes": 8388608,
+  "runs_each": 3,
+  "cpu_ms_median_before": 4.35,
+  "cpu_ms_median_after": 3.354,
+  "process_peak_rss_kib_median_before": 28164,
+  "process_peak_rss_kib_median_after": 19932,
+  "byte_cases": 15,
+  "boundary_checks": "empty and multi-block inputs, 8 MiB member, first/middle/last byte mismatches, duplicate members, CRC errors, forced comparator fallback and SHA-256 path",
+  "owner_readonly": {
+    "result": "PASS",
+    "chapters": 4,
+    "unavailable_not_requested": 11,
+    "screen_sizes": 2,
+    "source_matches": true,
+    "repeat_skipped": true,
+    "fresh_offline_render": true,
+    "shelf_and_web_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "Peak RSS covers an entire synthetic benchmark process, including LuaJIT and the expected bytes; it is not the Kindle memory footprint or total chapter-open memory.",
+    "Benchmark uses one synthetic ZIP entry; CPU time does not measure full chapter downloads, display or physical Kindle speed."
+  ]
+}

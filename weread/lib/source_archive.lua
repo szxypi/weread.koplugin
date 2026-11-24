@@ -1,6 +1,19 @@
 -- Worker-only, bounded reads from a new archive descriptor. Never extract to
 -- disk, touch the reader's inherited native DOM/ZIP handles, or log content.
 local M = { MAX_ENTRIES = 1000000, MAX_MEMBERS = 8, MAX_MEMBER_BYTES = 8 * 1024 * 1024 }
+local compare_bytes
+local function byte_comparator(ffi)
+    if compare_bytes == nil then
+        local ok, compare = pcall(function()
+            ffi.cdef[[int memcmp(const void *, const void *, size_t);]]
+            local fn=ffi.C.memcmp
+            assert(fn('a','a',1)==0 and fn('a','b',1)~=0)
+            return fn
+        end)
+        compare_bytes=ok and compare or false
+    end
+    return compare_bytes
+end
 function M.read(path, wanted)
     if type(path) ~= 'string' or path == '' or #path > 4096 or path:find('%z') or type(wanted) ~= 'table' then
         return nil, 'source_archive/invalid'
@@ -83,6 +96,7 @@ function M.verify_members(path, wanted)
             or lib.archive_read_open_filename(archive,path,10240)~=lib.ARCHIVE_OK then return false end
         local seen,found={},0
         local buffer=ffi.new('char[?]',65536)
+        local compare=byte_comparator(ffi)
         for _i=1,M.MAX_ENTRIES do
             local status=lib.archive_read_next_header2(archive,entry)
             if status==lib.ARCHIVE_EOF then return found==count end
@@ -92,19 +106,23 @@ function M.verify_members(path, wanted)
             if item then
                 if seen[name] or lib.archive_entry_filetype(entry)~=lib.AE_IFREG then return false end
                 local size=tonumber(lib.archive_entry_size(entry))
-                if not size or size<0 or size%1~=0 or size>item.maximum or item.size~=nil and size~=item.size then return false end
-                local chunks,total={},0
+                if not size or size<0 or size%1~=0 or size>item.maximum or item.size~=nil and size~=item.size
+                    or item.bytes~=nil and #item.bytes~=size then return false end
+                local chunks,total=item.sha256 and {} or nil,0
+                local expected=compare and item.bytes~=nil and ffi.cast('const unsigned char *',item.bytes) or nil
                 while true do
                     local n=tonumber(lib.archive_read_data(archive,buffer,65536))
                     if not n or n<0 then return false end
                     if n==0 then break end
                     total=total+n;if total>size or total>item.maximum then return false end
-                    chunks[#chunks+1]=ffi.string(buffer,n)
+                    if item.bytes~=nil then
+                        if expected then
+                            if compare(buffer,expected+total-n,n)~=0 then return false end
+                        elseif ffi.string(buffer,n)~=item.bytes:sub(total-n+1,total) then return false end
+                    else chunks[#chunks+1]=ffi.string(buffer,n) end
                 end
                 if total~=size then return false end
-                local bytes=table.concat(chunks)
-                if item.bytes~=nil and bytes~=item.bytes
-                    or item.sha256~=nil and require('weread.lib.crypto').sha256_hex(bytes)~=item.sha256 then return false end
+                if item.sha256~=nil and require('weread.lib.crypto').sha256_hex(table.concat(chunks))~=item.sha256 then return false end
                 seen[name]=true;found=found+1
             end
         end

@@ -39,6 +39,57 @@ assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,by
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=0,bytes=''}}))
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,sha256='not a hash'}}))
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='x',sha256=string.rep('0',64)}}))
+local pattern={}
+for i=0,255 do pattern[#pattern+1]=string.char((i*73+19)%256) end
+pattern=table.concat(pattern)
+for _,case in ipairs(request.byte_cases or {}) do
+    local value=pattern:rep(math.ceil(case.size/256)):sub(1,case.size)
+    if case.mismatch>0 then
+        local at=case.mismatch
+        value=value:sub(1,at-1)..string.char((value:byte(at)+1)%256)..value:sub(at+1)
+    end
+    assert(Archive.verify_members(case.path,{['body.bin']={maximum=8*1024*1024,bytes=value}})==case.success,
+        'streaming byte verification changed')
+    if case.success then
+        assert(Archive.verify_members(case.path,{['body.bin']={maximum=8*1024*1024,sha256=case.valid_hash}}),
+            'digest verification changed')
+    end
+end
+-- A runtime without the C byte comparator must retain the bounded Lua
+-- comparison and the same duplicate and CRC rejection behavior.
+local ffi=require('ffi')
+local attempts=0
+package.loaded.ffi=setmetatable({cdef=function() attempts=attempts+1;error('simulated unavailable comparator') end},
+    {__index=ffi})
+local fallback=assert(loadfile(arg[1]..'/weread/lib/source_archive.lua'))()
+local exercised=0
+for _,case in ipairs(request.byte_cases or {}) do
+    if case.size==65537 then
+        local value=pattern:rep(math.ceil(case.size/256)):sub(1,case.size)
+        if case.mismatch>0 then
+            local at=case.mismatch
+            value=value:sub(1,at-1)..string.char((value:byte(at)+1)%256)..value:sub(at+1)
+        end
+        assert(fallback.verify_members(case.path,{['body.bin']={maximum=8*1024*1024,bytes=value}})==case.success)
+        exercised=exercised+1
+    end
+end
+package.loaded.ffi=ffi
+assert(exercised==4 and attempts==1,'comparator fallback was not exercised')
+local native_calls=0
+local libc=setmetatable({memcmp=function(...)
+    native_calls=native_calls+1
+    return ffi.C.memcmp(...)
+end},{__index=function(_,key) return ffi.C[key] end})
+package.loaded.ffi=setmetatable({C=libc},{__index=ffi})
+local accelerated=assert(loadfile(arg[1]..'/weread/lib/source_archive.lua'))()
+local valid
+for _,case in ipairs(request.byte_cases or {}) do if case.size==65537 and case.success then valid=case;break end end
+assert(valid)
+assert(accelerated.verify_members(valid.path,{['body.bin']={maximum=8*1024*1024,
+    bytes=pattern:rep(math.ceil(valid.size/256)):sub(1,valid.size)}}))
+package.loaded.ffi=ffi
+assert(native_calls>2,'native comparator was not selected')
 local discovered=0
 for _,case in ipairs(request.metadata_cases or {}) do
     local rows=Archive.position_metadata(case.path)
@@ -58,4 +109,4 @@ collectgarbage('collect')
 local after=descriptors()
 assert(after==before,'archive descriptor leaked')
 io.stdout:write(json.encode({cases=passed,passed=passed,repeated_reads=20,descriptors_before=before,descriptors_after=after,
-    metadata_cases=discovered,bulk_cases=passed,public_network_used=false,files_extracted=0}))
+    metadata_cases=discovered,bulk_cases=passed,byte_cases=#(request.byte_cases or {}),public_network_used=false,files_extracted=0}))

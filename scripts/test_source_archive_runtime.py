@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import stat
+import struct
 import subprocess
 import warnings
 import zipfile
@@ -50,6 +51,34 @@ def main():
     archive('empty', [('body.txt', b''), ('meta.txt', b'safe metadata')], wanted, True)
     archive('many-headers', [(f'unneeded/{index}.bin', b'') for index in range(5000)] +
             [('body.txt', b'safe synthetic body'), ('meta.txt', b'safe metadata')], wanted, True)
+    pattern = bytes((index * 73 + 19) % 256 for index in range(256))
+    byte_cases = []
+    def byte_archive(name, size, mismatch=None, duplicate=False, bad_crc=False):
+        path = root / (name + '.zip')
+        body = (pattern * ((size + 255) // 256))[:size]
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_STORED) as output:
+                output.writestr('body.bin', body)
+                if duplicate:
+                    output.writestr('body.bin', body)
+        if bad_crc:
+            data = bytearray(path.read_bytes())
+            central = data.find(b'PK\x01\x02')
+            assert central > 0
+            for offset in (14, central + 16):
+                struct.pack_into('<I', data, offset, struct.unpack_from('<I', data, offset)[0] ^ 1)
+            path.write_bytes(data)
+        byte_cases.append(dict(path=str(path), size=size, mismatch=mismatch or 0,
+                               success=mismatch is None and not duplicate and not bad_crc,
+                               valid_hash=hashlib.sha256(body).hexdigest()))
+    for size in (0, 1, 65535, 65536, 65537, 131072, 1048579, 8 * 1024 * 1024):
+        byte_archive('byte-size-' + str(size), size)
+    for position in (1, 65536, 65537, 131073):
+        byte_archive('byte-mismatch-' + str(position), 131073, mismatch=position)
+    byte_archive('byte-fallback-mismatch', 65537, mismatch=65537)
+    byte_archive('byte-duplicate', 65537, duplicate=True)
+    byte_archive('byte-crc', 65537, bad_crc=True)
     metadata_cases=[]
     def metadata_archive(name,entries,success,truncate=False):
         path=root/(name+'.zip')
@@ -72,7 +101,7 @@ def main():
     metadata_archive('metadata-many',[(meta(index),b'x') for index in range(10001)],False)
     metadata_archive('metadata-total',[(meta(index),b'x'*4096) for index in range(2049)],False)
     metadata_archive('metadata-truncated',[(meta(1),bytes(range(256))*16)],False,truncate=True)
-    request = json.dumps(dict(cases=cases, warm=warm,metadata_cases=metadata_cases))
+    request = json.dumps(dict(cases=cases, warm=warm,metadata_cases=metadata_cases,byte_cases=byte_cases))
     result = subprocess.run(['./luajit', str(REPO / 'spec/koreader/source_archive_probe.lua'), str(REPO)],
                             cwd=args.koreader.resolve(), input=request, text=True, capture_output=True, timeout=60)
     if result.returncode:
