@@ -76,11 +76,15 @@ local ok,reason=pcall(function()
     local lookup_cpu=math.floor((os.clock()-cpu)*1000+.5)
     for i,row in ipairs(view._item_rows) do row.getSize=original_get_size[i] or nil end
     view.scroll.getScrolledOffset=get_offset
-    local painted=0
+    local painted,repositioned=0,0
     local max_materialized=frame_count
     for _,row in ipairs(view._item_rows) do
         local original=row.paintTo
         row.paintTo=function(self,...) painted=painted+1;return original(self,...) end
+        local original_position=row.setOffscreenGeometry
+        row.setOffscreenGeometry=function(self,...)
+            repositioned=repositioned+1;return original_position(self,...)
+        end
     end
     wall=socket.gettime()
     for i=1,8 do
@@ -95,7 +99,7 @@ local ok,reason=pcall(function()
         end
     end
     local repaint_ms=math.floor((socket.gettime()-wall)*1000+.5)
-    local paint_count=painted
+    local paint_count,layout_count=painted,painted+repositioned
     local top=view.scroll.dimen.y;local bottom=top+view.scroll.dimen.h
     local row,book
     for i,candidate in ipairs(view._item_rows) do
@@ -136,7 +140,10 @@ local ok,reason=pcall(function()
         for i,focus_row in ipairs(view.layout) do if focus_row[1]==row then layout_index=i;break end end
         assert(layout_index)
         view:moveFocusTo(1,layout_index,require('ui/widget/focusmanager').FORCED_FOCUS)
-        FocusNav.scrollToFocused(view);UI:forceRePaint()
+        FocusNav.scrollToFocused(view)
+        selected=nil;assert(view:onPress() and selected==books[index],
+            'Press selected the wrong row before the queued repaint')
+        UI:forceRePaint()
         assert(row.dimen.y>=view.scroll.dimen.y and row.dimen.y+row.dimen.h<=view.scroll.dimen.y+view.scroll.dimen.h,
             'focus did not scroll an offscreen row into view')
         pos=require('ui/geometry'):new{x=row.dimen.x+math.floor(row.dimen.w/2),y=row.dimen.y+math.floor(row.dimen.h/2)}
@@ -156,6 +163,8 @@ local ok,reason=pcall(function()
     local focused=view._item_rows[1500]
     assert(focused.frame and focused.frame.invert,'focused row is not highlighted')
     view.scroll:_scrollBy(0,-view:getScrollOffset().y);UI:forceRePaint()
+    selected=nil
+    assert(view:onPress() and not selected,'Press activated a hidden focused row after a touch scroll')
     FocusNav.scrollToFocused(view);UI:forceRePaint()
     assert(focused.frame and focused.frame.invert,'focused row lost its highlight after scrolling away')
     UI:close(view)
@@ -208,9 +217,9 @@ local ok,reason=pcall(function()
     UI:close(account_view)
     report={result='PASS',books=#books,queries=2000,initialization_ms=build_ms,
         lookup_wall_ms=lookup_wall,lookup_cpu_ms=lookup_cpu,lookup_row_visits=size_visits,
-        repaint_wall_ms=repaint_ms,row_paints=paint_count,gesture_verified=true,focus_verified=true,
+        repaint_wall_ms=repaint_ms,row_paints=paint_count,row_layout_updates=layout_count,gesture_verified=true,focus_verified=true,
         event_row_visits=event_visits,event_dispatch_ms=event_ms,scroll_event_row_visits=scroll_event_visits,
-        swipe_verified=true,pan_verified=true,
+        swipe_verified=true,pan_verified=true,press_verified=true,
         initial_materialized_rows=frame_count,max_materialized_rows=max_materialized,
         row_width_checksum=width_checksum,row_height_checksum=height_checksum,
         account_geometry_verified=true,account_scroll_verified=true,focus_reentry_verified=true,

@@ -62,4 +62,31 @@ do
     Paint.paint(group,{getHeight=function() return 20 end},7,-20,false)
     assert(row.calls==1 and row.dimen.x==7 and row.dimen.y==-20,'lazy row did not receive its offscreen position')
 end
+do
+    local group={align='left',allow_mirroring=true,_offsets={}}
+    local moved=0
+    for i=1,1000 do
+        local row={_shelf_list_row=true,dimen=geometry(80,10)}
+        function row:paintTo(_,x,y)
+            self.dimen.x,self.dimen.y,self.drawn=x,y,true
+        end
+        function row:setOffscreenGeometry(x,y)
+            moved=moved+1
+            self.dimen.x,self.dimen.y,self.drawn=x,y,false
+        end
+        group[i]=row
+        group._offsets[i]={x=80,y=(i-1)*10}
+    end
+    function group:getSize() return {w=100,h=10000} end
+    local bb={getHeight=function() return 20 end}
+    local first=Paint.paint(group,bb,7,0,false,true)
+    assert(#first==2 and first[1]==group[1] and first[2]==group[2] and moved==0)
+    local middle=Paint.paint(group,bb,7,-4995,true,true)
+    assert(#middle==3 and middle[1]==group[500] and middle[3]==group[502])
+    assert(middle[1].dimen.x==27 and middle[1].dimen.y==-5 and moved==2)
+    assert(not group[1].drawn and not group[2].drawn and group[900].dimen.y==0,
+        'window retained an old frame or positioned a never-visible row')
+    assert(#Paint.paint(group,bb,7,-10000,false,true)==0 and moved==5,
+        'moving past the last row did not retire the previous window')
+end
 print(('shelf_list_paint_spec: %d visibility, alignment, and geometry checks'):format(checks))

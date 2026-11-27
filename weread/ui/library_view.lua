@@ -63,18 +63,23 @@ function CoverShadow:paintTo(bb, x, y)
     bb:paintRoundedRect(x, y, self.width, self.height, Blitbuffer.gray(0.5), self.radius)
 end
 
--- ScrollableContainer paints its full child on each scroll, even though it
--- composites only the viewport. Skip offscreen list rows and dividers, but
--- keep every row's geometry current for gestures and physical-key focus.
+-- The scroller composites the viewport from an offscreen paint buffer.
+-- Only position rows in that buffer and release rows that just left it.
 local ShelfListGroup = VerticalGroup:extend{}
 function ShelfListGroup:paintTo(bb, x, y)
     if self._status_view then self._status_view:prepareVisibleStatus() end
-    ShelfListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
-    self._shelf_rows_positioned = true
+    self._shelf_painted_rows = ShelfListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
 end
 function ShelfListGroup:propagateEvent(event)
-    local routed, consumed = ShelfListEvents.dispatch(self._shelf_rows, self._shelf_rows_positioned, event)
+    local rows = self._shelf_painted_rows
+    local routed, consumed = ShelfListEvents.dispatch(rows, rows ~= nil, event)
     if routed then return consumed end
+    if rows and event.handler == 'onGesture' then
+        for _, row in ipairs(rows) do
+            if row:handleEvent(event) then return true end
+        end
+        return false
+    end
     return VerticalGroup.propagateEvent(self, event)
 end
 
@@ -492,6 +497,12 @@ function ShelfRow:setOffscreenGeometry(x, y)
         elseif self.frame.dimen then
             self.frame.dimen.x,self.frame.dimen.y=x,y
         end
+    end
+end
+
+function ShelfRow:getFocusTop(scroll)
+    if self._shelf_content_top then
+        return scroll.dimen.y + self._shelf_content_top - scroll:getScrolledOffset().y
     end
 end
 
@@ -1446,7 +1457,6 @@ function LibraryView:content()
     self._item_rows = {}
     self._focus_item_rows = {}
     self._list_bottoms = nil
-    if group == ShelfListGroup then content._shelf_rows = self._item_rows end
     if self.on_prepare_visible_status then content._status_view = self end
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
@@ -1546,6 +1556,7 @@ function LibraryView:content()
             shelf_row._shelf_list_row = not self.paged
             self._item_rows[#self._item_rows + 1] = shelf_row
             if self._list_bottoms then
+                shelf_row._shelf_content_top = list_y
                 local bottom = list_y + shelf_row:getSize().h
                 self._list_bottoms[#self._list_bottoms + 1] = bottom
                 list_y = bottom + 1
@@ -1816,6 +1827,23 @@ function LibraryView:onShelfSwipe(_, ges)
     local delta = ges.direction == "west" and 1 or ges.direction == "east" and -1
     if not delta then return false end
     return self:turnShelfPage(delta)
+end
+
+function LibraryView:_sendGestureEventToFocusedWidget(gesture)
+    local row = self:getFocusItem()
+    if row and row._shelf_content_top then
+        local area = self.scroll.dimen
+        local top = row:getFocusTop(self.scroll)
+        local center = top + row.dimen.h / 2
+        if center < area.y or center > area.y + area.h then return true end
+        -- A key event can follow a scroll before the new viewport is painted.
+        if row.dimen.y ~= top then
+            UIManager:setDirty(self, 'fast')
+            UIManager:forceRePaint()
+            if row.dimen.y ~= top then return true end
+        end
+    end
+    return FocusManager._sendGestureEventToFocusedWidget(self, gesture)
 end
 
 function LibraryView:onShow()

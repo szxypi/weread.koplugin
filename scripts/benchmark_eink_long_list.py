@@ -21,6 +21,7 @@ def main():
     parser.add_argument('--rtl', action='store_true', help='Test a mirrored interface')
     parser.add_argument('--no-xtext', action='store_true', help='Test KOReader without text shaping')
     parser.add_argument('--max-row-paints', type=int, help='Fail if the measured repaint count exceeds this limit')
+    parser.add_argument('--max-row-layout-updates', type=int, help='Limit the number of rows positioned across repaints')
     parser.add_argument('--max-event-visits', type=int, help='Fail if point gestures visit too many shelf rows')
     parser.add_argument('--max-materialized-rows', type=int, help='Fail if too many shelf row controls are retained')
     parser.add_argument('--max-visible-visits', type=int, help='Fail if visible-book lookups examine too many shelf rows')
@@ -55,6 +56,8 @@ def main():
             raise ValueError('benchmark failed')
         if args.max_row_paints is not None and result['row_paints'] > args.max_row_paints:
             raise ValueError('too many offscreen rows painted')
+        if args.max_row_layout_updates is not None and result['row_layout_updates'] > args.max_row_layout_updates:
+            raise ValueError('too many rows positioned during scrolling')
         if args.max_event_visits is not None and result['event_row_visits'] > args.max_event_visits:
             raise ValueError('too many rows received point gestures')
         if args.max_materialized_rows is not None and result['max_materialized_rows'] > args.max_materialized_rows:

@@ -92,7 +92,8 @@ function M.scrollFocusedToTop(view)
     local row = item.dimen
     local area = scroll.dimen
     if not row or not area or not area.h then return end
-    scroll:_scrollBy(0, row.y - area.y)
+    local top = item.getFocusTop and item:getFocusTop(scroll) or row.y
+    scroll:_scrollBy(0, top - area.y)
 end
 
 -- Keep the focused widget fully inside the scroll area, scrolling minimally.
@@ -103,10 +104,11 @@ function M.scrollToFocused(view)
     local row = item.dimen
     local area = scroll.dimen
     if not row or not area or not area.h then return end
-    if row.y < area.y then
-        scroll:_scrollBy(0, row.y - area.y)
-    elseif row.y + row.h > area.y + area.h then
-        scroll:_scrollBy(0, row.y + row.h - area.y - area.h)
+    local top = item.getFocusTop and item:getFocusTop(scroll) or row.y
+    if top < area.y then
+        scroll:_scrollBy(0, top - area.y)
+    elseif top + row.h > area.y + area.h then
+        scroll:_scrollBy(0, top + row.h - area.y - area.h)
     end
 end
 
