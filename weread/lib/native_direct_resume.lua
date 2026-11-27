@@ -79,16 +79,18 @@ end
 
 local function chapter_source(client,settings,pinned,file,native,active)
     local raw=Cache.read_raw_source(file,pinned)
-    if raw then return raw end
+    if raw then return raw,'web_xhtml' end
+    raw=Cache.read_raw_source(file,pinned,'txt')
+    if raw then return raw,'web_txt' end
     local source,reason=require('weread.lib.native_chapter_source').fetch(client,settings,native,
         pinned.book_id,pinned.chapter_uid,{is_current=active,expected_catalog={
             book_version=pinned.book_version,reading_catalog_sha256=pinned.catalog_sha256}})
     if not source then return nil,reason end
     if source.book_id~=pinned.book_id or source.chapter_uid~=pinned.chapter_uid
         or source.book_version~=pinned.book_version or source.reading_catalog_sha256~=pinned.catalog_sha256
-        or source.is_text~=false or type(source.body)~='string' or #source.body<1 or #source.body>Coordinates.MAX_BYTES
+        or type(source.is_text)~='boolean' or type(source.body)~='string' or #source.body<1 or #source.body>Coordinates.MAX_BYTES
         or Crypto.sha256_hex(source.body)~=pinned.source_sha256 or not active() then return nil,'unavailable' end
-    return source.body
+    return source.body,source.is_text and 'web_txt' or 'web_xhtml'
 end
 
 function M.prepare_destination(client,settings,entry,file,native,current,wanted)
@@ -96,9 +98,9 @@ function M.prepare_destination(client,settings,entry,file,native,current,wanted)
     if not pinned then return nil,'unavailable' end
     local quote,reason=read_target(client,native,active,wanted)
     if not quote then return nil,reason end
-    local raw,source_reason=chapter_source(client,settings,pinned,file,native,active)
-    if not raw then return nil,source_reason end
-    local map=Coordinates.build(raw,{format='web_xhtml',allow_multiple_bodies=true})
+    local raw,format=chapter_source(client,settings,pinned,file,native,active)
+    if not raw then return nil,format end
+    local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
     if not map then return nil,'unavailable' end
     local point=map:locate_point(quote,0)
     if not point or point.co~=wanted.chapter_offset or not active() then return nil,'unavailable' end

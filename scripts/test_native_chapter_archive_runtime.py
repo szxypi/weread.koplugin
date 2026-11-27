@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Exercise native ZIP decryption in the actual KOReader Lua runtime."""
+"""Exercise native ZIP and TXT TAR reading in the actual KOReader Lua runtime."""
 import argparse
 import base64
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import struct
 import subprocess
+import tarfile
 
 from test_native_chapter_package import ENCRYPTED, archive
 
@@ -23,6 +25,16 @@ def digest(value):
 
 def sample(data, uid='37', envelope=ENVELOPE):
     return {'archive': base64.b64encode(data).decode(), 'chapter_uid': uid, 'vid': VID, 'envelope': envelope}
+
+
+def plain_tar(rows, format=tarfile.GNU_FORMAT):
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w', format=format) as handle:
+        for name, data in rows:
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            handle.addfile(member, io.BytesIO(data))
+    return stream.getvalue()
 
 
 def fixtures():
@@ -66,6 +78,24 @@ def fixtures():
                 dict(ok=True, body_sha256=digest(first), css_sha256=digest(b''), is_text=False,
                      web_coordinate_authority=False, assets=[], image_signatures_recognized=False, unusable_resources=1),
                 dict(ok=False), dict(ok=False), dict(ok=False), dict(ok=False)]
+    text = '\ufeff原文 😀 & <tag>\r\n'.encode()
+    info = b'{"bookId":"42","chapters":[{"chapterUid":37}]}'
+    rows = [('info.txt', info), ('chapter-body', text)]
+    txt = plain_tar(rows)
+    corrupt_header = bytearray(txt)
+    corrupt_header[100] ^= 1
+    bad_tail = txt[:-1] + b'x'
+    for data in (txt, plain_tar(rows, format=tarfile.USTAR_FORMAT)):
+        entries.append(dict(sample(data), plain_tar=True, book_id='42'))
+        expected.append(dict(ok=True, body_sha256=digest(text), css_sha256=digest(b''), is_text=True,
+                             web_coordinate_authority=False, assets=[], image_signatures_recognized=True,
+                             unusable_resources=0))
+    for data in (bytes(corrupt_header), bad_tail, txt[:2560], plain_tar([('info.txt', info), ('../body', text)]),
+                 plain_tar(rows + [('other-body', text)]), plain_tar([('info.txt', info), ('info.txt', info)]),
+                 plain_tar([('info.txt', info.replace(b'"42"', b'"43"')), rows[1]]),
+                 plain_tar([('info.txt', info.replace(b':37', b':38')), rows[1]])):
+        entries.append(dict(sample(data), plain_tar=True, book_id='42'))
+        expected.append(dict(ok=False))
     return entries, expected
 
 
@@ -80,7 +110,7 @@ def run(runtime):
     actual = json.loads(result.stdout.split(MARKER, 1)[1])
     if actual.get('samples') != expected:
         raise RuntimeError('native archive output mismatch')
-    print('PASS: encrypted package, manifest order, parent image isolation and rejection cases')
+    print('PASS: encrypted ZIP and TXT TAR, manifest identity, archive framing and rejection cases')
 
 
 def main():

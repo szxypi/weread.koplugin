@@ -105,7 +105,8 @@ function M.start(host,entry,wanted,native,web,native_resume)
             end
             if confirm_native then callback();return end
             local anchor=value.anchor
-            if type(anchor)~='table' or anchor.co~=wanted.chapter_offset or anchor.basis~='filtered_xhtml_utf16'
+            if type(anchor)~='table' or anchor.co~=wanted.chapter_offset
+                or (anchor.basis~='filtered_xhtml_utf16' and (not native_resume or anchor.basis~='raw_txt_utf16'))
                 or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12 or #anchor.text>8192
                 or not P.integer(anchor.point_offset,0,8192) then
                 fail(type(result)=='table' and result.error);return
@@ -120,6 +121,7 @@ function M.start(host,entry,wanted,native,web,native_resume)
         ctx.thread=coroutine.create(function()
             local first,last=true,os.clock()
             local index=require('weread.lib.source_dom').open_direct_prepared(doc,entry.book_id,entry.chapter_uid,identity,{
+                source_format=anchor.basis=='raw_txt_utf16' and 'web_txt' or nil,
                 is_current=current,yield=function()
                     if first or os.clock()-last>=0.02 then first=false;coroutine.yield();last=os.clock() end
                 end,

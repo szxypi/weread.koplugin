@@ -12,20 +12,27 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 import test_native_full_book_runtime as fixture
+from test_native_chapter_archive_runtime import plain_tar
 from run_persistent_ui_probe import extract_candidate
 from verify_source_coordinates import FilteredSource
 
 REPO = Path(__file__).resolve().parent.parent
 fixture.body = lambda uid: '<html><body>' + ''.join(
     f'<p>Chapter {uid}, synthetic paragraph {index} for pagination.</p>' for index in range(100)) + '</body></html>'
+TXT_EXCERPT = '独立 TXT cloud excerpt & <tag> with literal characters.'
 TXT_BODY = ('\ufeff\t原文 & <tag>  \r\n\r' + '\r\n'.join(
-    f'Synthetic plain text line {index} for pagination.' for index in range(100)))
+    TXT_EXCERPT if index == 70 else f'Synthetic plain text line {index} for pagination. 😀'
+    for index in range(100)))
 
 
 class ResumeHandler(fixture.Handler):
+    def book_format(self):
+        return 'txt' if self.server.txt_chapter else 'epub'
+
     def chapter_archive(self, uid):
         if self.server.txt_chapter:
-            return fixture.archive([(f'text/{uid}.txt', TXT_BODY)])
+            manifest = json.dumps(dict(bookId='42', chapters=[dict(chapterUid=int(uid))])).encode()
+            return plain_tar([('info.txt', manifest), ('chapter-body', TXT_BODY.encode())])
         return super().chapter_archive(uid)
 
     def dispatch(self):
@@ -53,9 +60,16 @@ class ResumeHandler(fixture.Handler):
         if server.cloud_chapter == '0':
             point.update(chapterOffset=0, progress=0)
         if server.exact_resume:
-            summary = f'Chapter {server.cloud_chapter}, synthetic paragraph 70 for pagination.'
-            source = FilteredSource(fixture.body(server.cloud_chapter))
-            point.update(summary=summary, chapterOffset=source.starts[''.join(source.characters).index(summary)])
+            if server.txt_chapter:
+                summary = TXT_EXCERPT
+                offset = len(TXT_BODY[:TXT_BODY.index(summary)].encode('utf-16-le')) // 2
+                if server.wrong_txt_offset:
+                    offset += 1
+            else:
+                summary = f'Chapter {server.cloud_chapter}, synthetic paragraph 70 for pagination.'
+                source = FilteredSource(fixture.body(server.cloud_chapter))
+                offset = source.starts[''.join(source.characters).index(summary)]
+            point.update(summary=summary, chapterOffset=offset)
         body = json.dumps(dict(book=point)).encode()
         self.send_response(200 if server.valid else 400)
         self.send_header('Content-Length', str(len(body)))
@@ -90,23 +104,30 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         partial = entry in ('shelf_partial', 'shelf_partial_offline')
         legacy = entry == 'shelf_legacy'
         offline_shelf = entry == 'shelf_partial_offline'
-        server.txt_chapter = entry in ('details_txt', 'shelf_txt')
-        unread = server.txt_chapter or entry in ('details_new', 'shelf_new')
+        server.txt_chapter = '_txt' in entry
+        exact_txt = server.txt_chapter and entry.endswith(('_exact', '_missing', '_wrong'))
+        missing_txt = entry == 'shelf_txt_missing'
+        server.wrong_txt_offset = entry == 'details_txt_wrong'
+        unread = (server.txt_chapter and not exact_txt) or entry in ('details_new', 'shelf_new')
         prefer_eink = entry in ('details_preferred', 'shelf_preferred')
-        server.cloud_chapter = '38' if prefer_eink or entry in (
+        server.cloud_chapter = '38' if exact_txt or prefer_eink or entry in (
             'details', 'details_exact', 'shelf', 'shelf_partial', 'shelf_legacy') else None
         if unread:
             server.cloud_chapter = '0'
-        server.exact_resume = prefer_eink or entry in ('details_exact', 'shelf_partial', 'shelf_legacy')
+        server.exact_resume = exact_txt or prefer_eink or entry in ('details_exact', 'shelf_partial', 'shelf_legacy')
         server.progress_requests = server.search_requests = 0
         uid = '37' if unread else server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
-            mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid, book_version=1,
+            mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid,
+            book_version=0 if server.txt_chapter else 1,
             source_sha256=hashlib.sha256((TXT_BODY if server.txt_chapter else fixture.body(uid)).encode()).hexdigest(),
             read_entry=entry.split('_', 1)[0])
         if server.txt_chapter:
             payload['plain_text'] = True
+        if exact_txt:
+            payload.update(cloud_excerpt=TXT_EXCERPT, wrong_cloud_offset=server.wrong_txt_offset,
+                           missing_txt_resume_source=missing_txt)
         if partial or legacy:
             seed = dict(credentials=payload['credentials'], mock_endpoint=payload['mock_endpoint'],
                         mode='two' if legacy else 'single', plugin_profile=True)
@@ -136,10 +157,11 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             payload['store_search_keyword'] = 'Synthetic'
         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
                                input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
-        result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
+        result = frame(child, 'WEREAD_DIRECT_HOME_FULL=', entry)
         assert result['ok'] and result['source_matches'] and Path(result['path']).is_file()
         assert server.search_requests == int(entry == 'details_preferred')
-        assert server.chapters == ([] if offline_shelf else [uid]) and server.valid and not server.leaked
+        chapter_requests = [] if offline_shelf else [uid, uid] if missing_txt else [uid]
+        assert server.chapters == chapter_requests and server.valid and not server.leaked
         if partial:
             assert (Path(result['path']) == saved) == offline_shelf
         if legacy:
@@ -148,7 +170,15 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         if server.txt_chapter:
             assert server.image_requests == server.tar_requests == 0
             assert not Path(result['path']).with_name('native-source.txt').exists()
+            original = Path(result['path']).with_name('native-plain-source.txt')
+            if missing_txt:
+                assert not original.exists()
+            else:
+                assert original.read_bytes() == TXT_BODY.encode()
+            assert result['cloud_position_verified'] == (exact_txt and not server.wrong_txt_offset)
         expected_reads = 3 if server.exact_resume else 2 if unread else int(server.cloud_chapter is not None)
+        if server.wrong_txt_offset:
+            expected_reads = 2
         assert server.progress_requests == expected_reads
         if payload['read_entry'] in ('details', 'catalog') or server.txt_chapter:
             mode = {'details': 'detail_read_saved', 'catalog': 'detail_catalog_saved', 'shelf': 'reopen'}[payload['read_entry']]
@@ -156,7 +186,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
                                    input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
             assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode=mode, network_blocked=True)
-            assert server.chapters == [uid]
+            assert server.chapters == chapter_requests
 
 
 def run(runtime, read_entries_only=False):
@@ -173,7 +203,8 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details_txt', 'shelf_txt', 'details_preferred', 'shelf_preferred', 'details', 'details_exact',
+                for entry in ('details_txt_exact', 'shelf_txt_exact', 'shelf_txt_missing', 'details_txt_wrong',
+                              'details_txt', 'shelf_txt', 'details_preferred', 'shelf_preferred', 'details', 'details_exact',
                               'details_new', 'catalog', 'catalog_pending', 'shelf', 'shelf_new', 'shelf_partial',
                               'shelf_partial_offline', 'shelf_legacy'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
@@ -247,6 +278,7 @@ def run(runtime, read_entries_only=False):
         print('PASS: preferred E-Ink reading with both authorizations from bookstore details and bookshelf at both sizes')
         print('PASS: partial downloads keep cloud chapter selection online and are selectable offline at both sizes')
         print('PASS: one-tap read from details and bookshelf to a verified cloud location at both sizes')
+        print('PASS: raw TXT offsets and offline pages, including missing source and mismatched cloud offset at both sizes')
         print('PASS: one-tap read opens the first chapter of a confirmed unread book at both sizes')
         print('PASS: precise cloud continuation reuses the saved EPUB without its original at both sizes')
         print('PASS: a newly downloaded chapter saves the last offline page and reminder on close at both sizes')

@@ -17,6 +17,14 @@ assert(#value.reading_chapters==3 and value.reading_chapters[1].chapterUid=='7'
     and value.reading_chapters[1].chapterIdx==1 and value.reading_chapters[1].downloadable
     and value.reading_chapters[2].chapterIdx==2 and value.reading_chapters[2].downloadable
     and value.reading_chapters[3].chapterIdx==nil and not value.reading_chapters[3].downloadable)
+local txt_info={bookId='456',format='txt',bookVersion=4}
+local txt=Catalog.project(raw,'456',txt_info)
+assert(txt.format=='txt' and txt.version==4 and #txt.reading_chapters==3
+    and txt.reading_digest~=value.reading_digest and not pcall(Reference.catalog,raw,'456',txt_info))
+txt_info.bookVersion=nil
+assert(Catalog.project(raw,'456',txt_info).version==0)
+txt_info.bookVersion='invalid'
+assert(not pcall(Catalog.project,raw,'456',txt_info))
 assert(value.reading_chapters[1].wordCountKnown and value.reading_chapters[1].wordCount==1500)
 local without_info,without_raw=fixture();without_raw.data[1].updated[3].wordCount=nil
 local without_words=Catalog.project(without_raw,'456',without_info)

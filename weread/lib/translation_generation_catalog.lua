@@ -54,7 +54,7 @@ local function scalar(value)
     end
     fail('scalar')
 end
-function M.catalog(raw,book_id,info)
+function M.catalog(raw,book_id,info,allow_txt)
     if type(book_id)~='string' or id(book_id)~=book_id or not successful(info) or id(info.bookId)~=book_id then fail('book') end
     if not successful(raw) or array(raw.data,4)<1 then fail('catalog') end
     local selected
@@ -70,7 +70,13 @@ function M.catalog(raw,book_id,info)
     if format==nil then format=info.format end
     local version=book.version
     if version==nil then version=info.version end
-    if format~='epub' or not integer(version,0,2147483647) then fail('format') end
+    local txt=allow_txt==true and format=='txt'
+    if txt and version==nil then
+        version=book.bookVersion
+        if version==nil then version=info.bookVersion end
+        if version==nil then version=0 end
+    end
+    if (format~='epub' and not txt) or not integer(version,0,2147483647) then fail('format') end
     local chapters,seen={},{}
     local parts={'native-translation-catalog-v1;',scalar(book_id),scalar(format),scalar(version)}
     for _,row in ipairs(selected.updated) do

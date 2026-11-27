@@ -44,9 +44,11 @@ local function chapter(model,uid)
     if not found or found.free_or_owned~=true then return nil end
     return found
 end
-local function url(book_id,uid,version)
+local function url(book_id,uid,model)
+    local txt=model.format=='txt'
     local values={
-        {'bookId',book_id},{'chapters','0,'..uid},{'bookType','epub'},{'bookVersion',version},
+        {'bookId',book_id},{'chapters',txt and uid or '0,'..uid},{'bookType',model.format},
+        {'bookVersion',txt and 0 or model.version},
         {'pf','wechat_wx-2001-android-100-weread'},{'pfkey','pfKey'},{'zoneId',1},{'quote',''},
         {'release',1},{'stopAutoPayWhenBNE',1},{'preload',2},{'preview',0},{'offline',1},
     }
@@ -78,7 +80,7 @@ function M.fetch(client,settings,selected,book_id,uid,options)
         headers.vid,headers.accessToken=selected.credentials.vid,selected.credentials.accessToken
         local chunks,size={},0
         local raw_body,code,response_headers=client:request{
-            url=url(book_id,uid,model.version),method='GET',headers=headers,skip_cookie=true,
+            url=url(book_id,uid,model),method='GET',headers=headers,skip_cookie=true,
             persist_response_cookies=false,sensitive=true,diagnostic_api='native_chapter_download',timeout={5,22},
             sink=function(chunk)
                 if chunk then
@@ -107,8 +109,16 @@ function M.fetch(client,settings,selected,book_id,uid,options)
             if err==-2012 then error('native_chapter/auth_expired',0) end
             if err~=nil and err~=0 then error('native_chapter/service_rejected',0) end
         end
-        assert(type(envelope)=='string' and #envelope>0 and #envelope<=1024,'native_chapter/envelope')
-        local result=Archive.read(data,envelope,selected.credentials.vid,{chapter_uid=uid})
+        local result
+        local media=header(response_headers,'content-type')
+        if model.format=='txt' and not envelope and type(media)=='string'
+            and media:lower():match('^%s*([^;%s]+)')=='application/x-tar' then
+            result=Archive.read_plain_tar(data,book_id,uid)
+        else
+            assert(type(envelope)=='string' and #envelope>0 and #envelope<=1024,'native_chapter/envelope')
+            result=Archive.read(data,envelope,selected.credentials.vid,{chapter_uid=uid})
+        end
+        if model.format=='txt' and result.is_text~=true then error('native_chapter/unsupported_format',0) end
         assert(owns(),'native_chapter/session_changed')
         return {book_id=book_id,chapter_uid=uid,book_version=model.version,catalog_sha256=model.digest,
             reading_catalog_sha256=model.reading_digest,
@@ -121,6 +131,7 @@ function M.fetch(client,settings,selected,book_id,uid,options)
     if not ok then
         if not owns() then return nil,'session_changed' end
         if TRANSPORT_ERRORS[value] then return nil,'transport' end
+        if value=='native_chapter/unsupported_format' then return nil,'unsupported_format' end
         if value=='native_chapter/catalog_changed' then return nil,'catalog_changed' end
         if value=='native_chapter/rate_limited' or value=='native_auth/chapter_info/http_429'
             or value=='native_auth/chapter_catalog/http_429' then return nil,'rate_limited' end

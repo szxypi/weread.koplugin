@@ -152,11 +152,14 @@ end
 -- Native-only bytes are a local draft aid, never proof of Web coordinates.
 -- An interrupted write is rejected by its hash and never overwritten.
 local RAW_SOURCE='native-source.txt'
-local function save_raw(lfs,dir,entry,raw,lease,current)
+local PLAIN_SOURCE='native-plain-source.txt'
+M.PLAIN_SOURCE=PLAIN_SOURCE
+local function save_raw(lfs,dir,entry,prepared,lease,current)
+    local raw=prepared.source_raw
     local limit=require('weread.lib.source_coordinates').MAX_BYTES
     if not lease or not lease:owns() or not current() or type(raw)~='string' or #raw<1 or #raw>limit
         or Crypto.sha256_hex(raw)~=entry.source_sha256 then return end
-    local path=dir..'/'..RAW_SOURCE
+    local path=dir..'/'..(prepared.source_is_text==true and PLAIN_SOURCE or RAW_SOURCE)
     if mode(lfs,path) then return end
     local ffi=require('ffi');require('ffi/posix_h')
     if ffi.os~='Linux' and ffi.os~='OSX' then return end
@@ -172,13 +175,15 @@ local function save_raw(lfs,dir,entry,raw,lease,current)
     if offset==#raw then ffi.C.fsync(fd) end
     ffi.C.close(fd)
 end
-function M.read_raw_source(file,entry)
+function M.read_raw_source(file,entry,format)
     if type(file)~='string' or type(entry)~='table' or not hash(entry.source_sha256) then return nil end
+    if format~=nil and format~='txt' then return nil end
     local dir=file:match('^(.*)/[^/]+$');local lfs=fs()
     if not lfs or not dir then return nil end
     local parent=mode(lfs,dir)
     if not parent or parent.mode~='directory' then return nil end
-    local raw=read_file(lfs,dir..'/'..RAW_SOURCE,require('weread.lib.source_coordinates').MAX_BYTES)
+    local name=format=='txt' and PLAIN_SOURCE or RAW_SOURCE
+    local raw=read_file(lfs,dir..'/'..name,require('weread.lib.source_coordinates').MAX_BYTES)
     local after=mode(lfs,dir)
     if not after or after.mode~='directory' or after.dev~=parent.dev or after.ino~=parent.ino
         or not raw or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil end
@@ -709,7 +714,7 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
             if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and can_publish() then
                 local saved=publish_entry(lfs,dir,entry,account)
                 if saved and publish_ref(lfs,dir,entry) and can_publish() then
-                    pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
+                    pcall(save_raw,lfs,dir,entry,prepared,lease,can_publish)
                     save_presence(settings,account,book.book_id,entry,can_publish)
                     return published_copy(path,true,saved,entry,identity_member.file_id)
                 end
@@ -741,7 +746,7 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
                 return nil,live() and 'storage' or 'session_changed'
             end
             save_presence(settings,account,book.book_id,entry,can_publish)
-            pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
+            pcall(save_raw,lfs,dir,entry,prepared,lease,can_publish)
             return published_copy(path,false,saved,entry,identity_member.file_id)
         end
     end

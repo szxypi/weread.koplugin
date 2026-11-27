@@ -16,7 +16,7 @@ end
 -- fields are malformed, preserve the entitlement result but decline to expose a
 -- reading catalog rather than guessing chapter indices or labels.
 function M.project(raw,book_id,info)
-    local model=Catalog.catalog(raw,book_id,info)
+    local model=Catalog.catalog(raw,book_id,info,true)
     local selected
     for _,row in ipairs(raw.data) do
         local id=type(row.bookId)=='number' and string.format('%.0f',row.bookId) or row.bookId

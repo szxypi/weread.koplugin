@@ -270,13 +270,14 @@ function M.open_direct_prepared(document,book_id,uid,identity,options)
         or type(identity)~='table' or type(identity.file_id)~='string' or #identity.file_id~=64
         or not identity.file_id:match('^[a-f0-9]+$') or identity.book_id~=book_id
         or not require('weread.lib.native_position_protocol').integer(identity.book_version,0,2147483647)
-        or type(options)~='table' or type(options.is_current)~='function' then return nil,'source_dom/source_unavailable' end
+        or type(options)~='table' or type(options.is_current)~='function'
+        or options.source_format~=nil and options.source_format~='web_txt' then return nil,'source_dom/source_unavailable' end
     local actual=Identity.read_document(document,book_id)
     if actual.file_id~=identity.file_id or actual.book_id~=book_id or actual.book_version~=identity.book_version then
         return nil,'source_dom/file_changed'
     end
     local source={book_id=book_id,chapter_uid=uid,file_id=identity.file_id,
-        render_path='OEBPS/text/chapter.xhtml',format='web_xhtml'}
+        render_path='OEBPS/text/chapter.xhtml',format=options.source_format or 'web_xhtml'}
     return open_index(document,book_id,uid,options,nil,source)
 end
 

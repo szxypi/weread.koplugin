@@ -35,6 +35,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.dispatch()
 
+    def book_format(self):
+        return 'epub'
+
     def chapter_archive(self, uid):
         color = 'black' if uid == '37' else 'gray'
         css = ('html,body{font-size:0}' if uid == '37' else '') + f'p{{color:{color}}}'
@@ -65,7 +68,13 @@ class Handler(BaseHTTPRequestHandler):
             data = (shards('p{color:black}',1)[0] if part=='e_2' else
                     shards(body(uid))[['e_0','e_1','e_3'].index(part)]).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/info' and self.command == 'GET':
-            data = json.dumps(dict(bookId='42', format='epub', version=1)).encode()
+            book_format = self.book_format()
+            info = dict(bookId='42', format=book_format)
+            if book_format == 'txt':
+                info['bookVersion'] = 0
+            else:
+                info['version'] = 1
+            data = json.dumps(info).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos' and self.command == 'POST':
             incoming = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
             server.valid &= incoming == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
@@ -73,8 +82,13 @@ class Handler(BaseHTTPRequestHandler):
             data = json.dumps({'data': [dict(bookId='42', updated=rows)]}).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterdownload' and self.command == 'GET':
             query = parse_qs(target.query, keep_blank_values=True)
-            uid = query.get('chapters', [''])[0].removeprefix('0,')
+            book_format = self.book_format()
+            requested = query.get('chapters', [''])[0]
+            uid = requested.removeprefix('0,')
             server.valid &= (uid in ('37', '38', '39') and query.get('bookId') == ['42']
+                             and query.get('bookType') == [book_format]
+                             and query.get('bookVersion') == (['0'] if book_format == 'txt' else ['1'])
+                             and requested == (uid if book_format == 'txt' else '0,' + uid)
                              and query.get('stopAutoPayWhenBNE') == ['1'] and query.get('preview') == ['0'])
             server.chapters.append(uid)
             if server.expired and uid == '38':
@@ -83,7 +97,10 @@ class Handler(BaseHTTPRequestHandler):
                 code, data = 429, b'{}'
             elif uid in ('37', '38', '39'):
                 data = self.chapter_archive(uid)
-                headers['encryptkey'] = 'vwSvXMONEDngLYTAXw3olg=='
+                if book_format == 'txt':
+                    headers['Content-Type'] = 'application/x-tar'
+                else:
+                    headers['encryptkey'] = 'vwSvXMONEDngLYTAXw3olg=='
             else:
                 code, data = 400, b''
         else:

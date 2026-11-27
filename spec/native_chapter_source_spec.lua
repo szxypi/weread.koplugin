@@ -13,6 +13,7 @@ package.loaded['weread.lib.native_authorization']={new=function(_self,_client,op
         if mode=='rejected' then error('native_auth/chapter_info/rejected',0) end
         if stage=='chapter_info' then
             assert(url=='https://i.weread.qq.com/book/info?bookId=456' and body==nil)
+            if mode=='txt' or mode=='txt_wrong_result' then return {bookId='456',format='txt',bookVersion=4} end
             return {bookId='456',format='epub',version=mode=='version_changed' and 8 or 7}
         end
         assert(stage=='chapter_catalog' and url=='https://i.weread.qq.com/book/chapterInfos'
@@ -26,14 +27,16 @@ package.loaded['weread.lib.native_chapter_archive']={read=function(data,envelope
     calls[#calls+1]='decode'
     assert(data=='synthetic-archive' and envelope=='synthetic-envelope' and vid=='123' and options.chapter_uid=='7')
     if mode=='decode_error' then error('private archive content') end
-    return {body='body',css='css',assets={},is_text=false,image_signatures_recognized=true,unusable_resources=0}
+    return {body='body',css='css',assets={},is_text=mode=='txt',image_signatures_recognized=true,unusable_resources=0}
 end}
 local client={request=function(_self,request)
     calls[#calls+1]='download'
     assert(request.method=='GET' and request.skip_cookie==true and request.persist_response_cookies==false
         and request.sensitive==true and request.headers.vid=='123')
-    assert(request.url:find('chapters=0%%2C7') and request.url:find('stopAutoPayWhenBNE=1',1,true)
-        and request.url:find('preview=0',1,true) and request.url:find('bookVersion=7',1,true))
+    assert(request.url:find('stopAutoPayWhenBNE=1',1,true) and request.url:find('preview=0',1,true))
+    local chapter_fields=mode=='txt' or mode=='txt_wrong_result'
+    chapter_fields=chapter_fields and 'chapters=7&bookType=txt&bookVersion=0&' or 'chapters=0%2C7&bookType=epub&bookVersion=7&'
+    assert(request.url:find(chapter_fields,1,true))
     if mode=='429' then return nil,429,{} end
     if mode=='401' then return nil,401,{} end
     if mode=='download_transport' then return nil,nil,nil,'closed' end
@@ -80,6 +83,10 @@ for _,change in ipairs({'version_changed','catalog_changed'}) do
 end
 assert(run('ok'))
 options.expected_catalog=nil
+local txt=assert(run('txt'))
+assert(txt.is_text and txt.book_version==4 and txt.reading_catalog_sha256~=expected.reading_catalog_sha256)
+result,reason=run('txt_wrong_result')
+assert(not result and reason=='unsupported_format','TXT catalog accepted a markup archive')
 local settings={}
 checks=0;assert(run('ok'));local direct_checks=checks
 local bound=assert(Access.guard(settings,options.is_current,selected))

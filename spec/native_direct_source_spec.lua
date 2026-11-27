@@ -57,7 +57,7 @@ local txt=assert(fetch())
 assert(txt.xhtml:find('&#160;&#160;&#160;&#160;原文 &amp; &lt;tag&gt;&#160;&#160;',1,true)
     and txt.xhtml:find('<p class="wr-txt-line">&#160;</p>',1,true)
     and not txt.xhtml:find('\239\187\191',1,true))
-assert(txt.source_sha256==require('weread.lib.crypto').sha256_hex(source.body) and not txt.source_raw
+assert(txt.source_sha256==require('weread.lib.crypto').sha256_hex(source.body) and txt.source_raw==source.body and txt.source_is_text
     and txt.css==Content.TXT_STYLE and #txt.assets==0 and txt.coordinate_source_authoritative==false
     and txt.missing_images==0 and remote_calls==remote_before_stale)
 for _,invalid in ipairs({'\239\187\191','Invalid \255','Invalid \1','Invalid \239\191\190','Invalid \239\191\191'}) do

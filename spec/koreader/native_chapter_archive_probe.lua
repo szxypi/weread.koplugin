@@ -7,7 +7,7 @@ local raw=io.stdin:read(48*1024*1024+1)
 local ok,result=pcall(function()
     assert(#raw<=48*1024*1024)
     local input=json.decode(raw);raw=nil
-    assert(type(input.samples)=='table' and #input.samples>0 and #input.samples<=20)
+    assert(type(input.samples)=='table' and #input.samples>0 and #input.samples<=32)
     local archive=require('weread.lib.native_chapter_archive')
     local crypto=require('weread.lib.crypto')
     local out={samples=json.decode('[]')}
@@ -21,8 +21,13 @@ local ok,result=pcall(function()
                 return original_new(kind,...)
             end
         end
-        local success,value=pcall(archive.read,require('mime').unb64(sample.archive),sample.envelope,sample.vid,
-            {chapter_uid=sample.chapter_uid})
+        local data=require('mime').unb64(sample.archive)
+        local success,value
+        if sample.plain_tar then
+            success,value=pcall(archive.read_plain_tar,data,sample.book_id,sample.chapter_uid)
+        else
+            success,value=pcall(archive.read,data,sample.envelope,sample.vid,{chapter_uid=sample.chapter_uid})
+        end
         ffi.new=original_new
         if sample.buffer_fallback then assert(blocked>0,'buffer fallback was not exercised') end
         if success then

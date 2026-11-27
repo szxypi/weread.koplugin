@@ -43,6 +43,57 @@ local function manifest_decode(raw)
     if type(parsed)~="table" then error("E-Ink 章节清单无效") end
     return parsed
 end
+
+-- TXT chapterdownload returns an uncompressed TAR with an identity manifest
+-- and one text member. Read both in memory and reject other entry types.
+function M.read_plain_tar(data,book_id,chapter_uid)
+    local function check(ok)
+        if not ok then error('native_chapter/invalid_text_archive',0) end
+    end
+    local function octal(field)
+        local digits=field:match('^ *([0-7]+)[%z ]*$')
+        return digits and tonumber(digits,8)
+    end
+    local id=require('weread.lib.native_position_protocol').id
+    check(type(book_id)=='string' and id(book_id)==book_id and type(chapter_uid)=='string' and id(chapter_uid)==chapter_uid)
+    check(type(data)=='string' and #data>=3072 and #data<=MAX_ARCHIVE and #data%512==0)
+    local manifest,body,body_name
+    local offset=1
+    for _i=1,2 do
+        local header=data:sub(offset,offset+511)
+        local magic=header:sub(258,265)
+        local kind=header:sub(157,157)
+        local name=header:sub(1,100):match('^([%w._%-]+)%z*$')
+        local ustar=magic=='ustar\00000' and not header:sub(346,500):find('[^%z]')
+        check((ustar or magic=='ustar  \0') and (kind=='0' or kind=='\0')
+            and name and name~='.' and name~='..')
+        local size=octal(header:sub(125,136))
+        local recorded=octal(header:sub(149,156))
+        local checksum=8*32
+        for index=1,148 do checksum=checksum+header:byte(index) end
+        for index=157,512 do checksum=checksum+header:byte(index) end
+        local is_manifest=name=='info.txt'
+        check(recorded==checksum and size and size>0 and size<=(is_manifest and MAX_MANIFEST or MAX_ENTRY))
+        local first=offset+512
+        offset=first+math.ceil(size/512)*512
+        check(offset<=#data+1 and not data:sub(first+size,offset-1):find('[^%z]'))
+        if is_manifest then
+            check(not manifest)
+            manifest=data:sub(first,first+size-1)
+        else
+            check(not body)
+            body,body_name=data:sub(first,first+size-1),name
+        end
+    end
+    check(manifest and body and #data-offset+1>=1024 and not data:find('[^%z]',offset))
+    local info=manifest_decode(manifest)
+    local chapters=info.chapters
+    check(id(info.bookId)==book_id and type(chapters)=='table' and #chapters==1
+        and type(chapters[1])=='table' and id(chapters[1].chapterUid)==chapter_uid)
+    return {body=body,is_text=true,css='',assets={},body_parts={{source=body_name,data=body}},style_parts={},
+        image_signatures_recognized=true,unusable_resources=0,coordinate_source_authoritative=false}
+end
+
 local function le(s, p, n)
     if p < 1 or p+n-1 > #s then error("E-Ink ZIP 已截断") end
     local value = 0

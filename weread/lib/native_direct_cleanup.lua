@@ -35,7 +35,8 @@ local function valid(record,vid,book,folder)
     local allowed={schema=true,owner=true,book=true,chapter=true,key=true,copy=true,file_id=true,md5=true,files=true}
     for key in pairs(record) do if not allowed[key] then return false end end
     local expected=epub(book,record.chapter)
-    local paths={['entry.txt']=true,['receipt.txt']=true,['catalog.txt']=true,['native-source.txt']=true,[expected]=true}
+    local paths={['entry.txt']=true,['receipt.txt']=true,['catalog.txt']=true,['native-source.txt']=true,
+        [Cache.PLAIN_SOURCE]=true,[expected]=true}
     for key,value in pairs(record.files) do
         if not paths[key] or type(value)~='string' or #value>128
             or not value:match('^[%d%.eE+%-]+:[%d%.eE+%-]+:[%d%.eE+%-]+:[%d%.eE+%-]+$') then return false end
@@ -66,7 +67,8 @@ local function entries(dir,allowed,partial)
     return found
 end
 local function snapshot(dir,book,chapter)
-    local permitted={['entry.txt']=true,['receipt.txt']=true,['catalog.txt']=true,['native-source.txt']=true,[epub(book,chapter)]=true}
+    local permitted={['entry.txt']=true,['receipt.txt']=true,['catalog.txt']=true,['native-source.txt']=true,
+        [Cache.PLAIN_SOURCE]=true,[epub(book,chapter)]=true}
     local result={}
     for item in fs().dir(dir) do
         if item~='.' and item~='..' then
@@ -358,7 +360,7 @@ function M.step(settings,codec,plan,lease,index,current)
     end
     local stored=marker(codec,dir,plan.vid,plan.book,item.folder)
     if not stored or signature(stored)~=signature(item.record) then return false,'changed' end
-    local order={epub(plan.book,item.record.chapter),'native-source.txt','catalog.txt','receipt.txt','entry.txt'}
+    local order={epub(plan.book,item.record.chapter),'native-source.txt',Cache.PLAIN_SOURCE,'catalog.txt','receipt.txt','entry.txt'}
     for _,file in ipairs(order) do
         if item.record.files[file] then
             local attr,_,errno=fs().symlinkattributes(dir..'/'..file)

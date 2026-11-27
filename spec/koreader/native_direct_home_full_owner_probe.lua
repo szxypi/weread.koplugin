@@ -23,6 +23,10 @@ if live_cloud then
     end
 end
 if input.missing_resume_source then assert(live_cloud and input.exact_resume) end
+if input.native_txt then assert(live_cloud and input.exact_resume) end
+if input.missing_txt_resume_source or input.wrong_cloud_offset then
+    assert(input.mock_endpoint and input.exact_resume and input.plain_text and os.getenv('WEREAD_SYNTHETIC')=='1')
+end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
 local web_fixture=input.prefer_eink_chapters and {
@@ -84,8 +88,11 @@ Client.request=function(self,options)
         assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
             and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(base..'/book/chapterdownload?',1,true)==1 then
+        local chapter_fields=(input.plain_text or input.native_txt)
+            and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&'
+            or 'chapters=0%2C'..input.uid..'&bookType=epub&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and url:find('chapters=0%2C'..input.uid..'&',1,true)
+            and url:find(chapter_fields,1,true)
             and url:find('stopAutoPayWhenBNE=1',1,true) and url:find('preview=0',1,true))
         if input.missing_resume_source then
             local chapter=assert(io.open(home..'/chapter-count','ab'));assert(chapter:write('1'));assert(chapter:close())
@@ -163,10 +170,11 @@ end
 if input.exact_resume then
     local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
     CloudOpen.receive=function(next_host,...)
-        if input.missing_resume_source then
+        if input.missing_resume_source or input.missing_txt_resume_source then
             local path=assert(next_host.ui.document.file)
             assert(path:sub(1,#home+1)==home..'/' and require('weread.lib.native_direct_path').contains(next_host.settings,path))
-            assert(os.remove(assert(path:match('^(.*)/[^/]+$'))..'/native-source.txt'))
+            local source=input.missing_txt_resume_source and 'native-plain-source.txt' or 'native-source.txt'
+            assert(os.remove(assert(path:match('^(.*)/[^/]+$'))..'/'..source))
         end
         next_host.settings.mock_endpoint=input.mock_endpoint
         next_host.showInfo=function(_,message) resume_message=message end
@@ -306,19 +314,25 @@ if input.exact_resume then
     stage='cloud_position';pump(function()
         return resume_message~=nil or cloud_xpointer and not reader.weread._native_direct_cloud_open
     end)
-    assert(not resume_message,resume_message)
     local doc=reader.document
-    assert(cloud_xpointer and doc:isXPointerInCurrentPage(cloud_xpointer))
-    local normalize=require('weread.lib.source_dom').normalize
-    local quote=assert(normalize(input.cloud_excerpt or 'Chapter '..input.uid..', synthetic paragraph 70'))
-    local last=cloud_xpointer
-    for _i=1,#quote*2 do
-        local following=doc:getNextVisibleChar(last)
-        if not following or following==last then break end
-        last=following
+    if input.wrong_cloud_offset then
+        assert(resume_message==require('weread.lib.plugin_util').tr(
+            'The cloud position could not be located in this chapter. Your current page is kept.'))
+        assert(not cloud_xpointer and doc:getCurrentPage()==1,'mismatched offset moved the reader')
+    else
+        assert(not resume_message,resume_message)
+        assert(cloud_xpointer and doc:isXPointerInCurrentPage(cloud_xpointer))
+        local normalize=require('weread.lib.source_dom').normalize
+        local quote=assert(normalize(input.cloud_excerpt or 'Chapter '..input.uid..', synthetic paragraph 70'))
+        local last=cloud_xpointer
+        for _i=1,#quote*2 do
+            local following=doc:getNextVisibleChar(last)
+            if not following or following==last then break end
+            last=following
+        end
+        assert(assert(normalize(doc:getTextFromXPointers(cloud_xpointer,last))):sub(1,#quote)==quote,
+            'the reader did not open at the original cloud text')
     end
-    assert(assert(normalize(doc:getTextFromXPointers(cloud_xpointer,last))):sub(1,#quote)==quote,
-        'the reader did not open at the original cloud text')
 end
 if input.store_search_keyword and not input.prefer_eink_chapters then
     local css=assert(reader.document:getDocumentFileContent('OEBPS/style.css'))
@@ -341,7 +355,7 @@ end
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.book_version==input.book_version
     and entry.source_sha256==input.source_sha256 and not reader.weread:detectWeReadBook())
 local anchor
-if live_cloud then
+if live_cloud or input.plain_text and input.exact_resume and not input.wrong_cloud_offset then
     anchor=assert(reader.document:getXPointer())
 else
     if reader.document:getPageCount()<2 then assert(reader.font:onSetFontSize(48));UI:forceRePaint() end
@@ -414,5 +428,5 @@ if input.close_pending then
 end
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
-    cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,
+    cloud_position_verified=input.exact_resume==true and not input.wrong_cloud_offset,first_page_verified=input.start_unread==true,
     cloud_reads=count_reads('cloud-count'),chapter_reads=count_reads('chapter-count'),home_return_verified=live_cloud})

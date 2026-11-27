@@ -63,6 +63,7 @@ fail_at=nil;live=false;value,why=check(same);expect(not value and why=='invalid'
 
 local checked={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='file'}
 local raw,available,reads,identifications=nil,checked,0,0
+local txt
 local remote_source,source_requests=nil,0
 package.loaded['weread.lib.native_chapter_source']={fetch=function(_,_,grant,book,uid,options)
     assert(grant==native and book=='42' and uid=='38' and options.is_current()
@@ -71,7 +72,11 @@ package.loaded['weread.lib.native_chapter_source']={fetch=function(_,_,grant,boo
 end}
 package.loaded['weread.lib.native_direct_cache']={identify=function()
     identifications=identifications+1;return available
-end,read_raw_source=function() reads=reads+1;return raw end}
+end,read_raw_source=function(_,_,format)
+    reads=reads+1
+    if format=='txt' then return txt end
+    return raw
+end}
 require('weread.lib.native_read_access').guard=function(_,current) return current end
 local Resume=require('weread.lib.native_direct_resume')
 local quote='A unique excerpt from the original chapter'
@@ -124,4 +129,28 @@ remote_source.body=original:gsub('</body>','<p>A later edition.</p></body>')
 expect(not resume(hint.target),'the same quote in a changed chapter was accepted for the old EPUB')
 remote_source.body=original;remote_source.reading_catalog_sha256='new-catalog'
 expect(not resume(hint.target),'a changed catalog was accepted for the old EPUB')
+
+local prefix='\239\187\191原文😀\r\n\t'
+quote='Unique <literal> &amp; text in a TXT chapter'
+txt=prefix..quote..'\r\n'
+checked.source_sha256=require('weread.lib.crypto').sha256_hex(txt)
+progress.chapterOffset,progress.summary=8,quote -- BOM, two Han chars, one surrogate pair, CRLF, and tab.
+local wanted_txt=Resume.hint(progress,'42').target
+local before_txt=source_requests
+value=resume(wanted_txt)
+expect(value and value.anchor.basis=='raw_txt_utf16' and value.anchor.co==8
+    and source_requests==before_txt,'verified TXT sidecar did not locate the raw UTF-16 point')
+progress.chapterOffset=7
+expect(not resume(Resume.hint(progress,'42').target),'TXT accepted a different cloud offset')
+progress.chapterOffset=8
+local original_txt=txt
+txt=txt..quote
+expect(not resume(wanted_txt),'TXT accepted a repeated summary')
+txt=nil
+remote_source={book_id='42',chapter_uid='38',book_version=7,reading_catalog_sha256='catalog',is_text=true,body=original_txt}
+value=resume(wanted_txt)
+expect(value and value.anchor.basis=='raw_txt_utf16' and source_requests==before_txt+1,
+    'missing TXT sidecar could not use the independently verified chapter')
+remote_source.body=original_txt..'changed'
+expect(not resume(wanted_txt),'TXT accepted a changed chapter download')
 print('PASS: native direct cloud comparison is stable and read-only ('..n..' checks)')

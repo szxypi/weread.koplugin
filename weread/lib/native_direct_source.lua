@@ -45,14 +45,12 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
     if source.source_channel~='eink' or source.coordinate_source_authoritative~=false
         or type(source.body)~='string' or not hash(source.catalog_sha256) then return nil,'invalid_source' end
     local Content=require('weread.lib.content')
-    local prepared,source_raw
+    local prepared
     if source.is_text==true then
         prepared=prepare_text(Content,source.body)
         why='unsupported_format'
-        -- Native TXT has no verified XHTML anchor map; only XHTML goes in the resume sidecar.
     else
         prepared,why=Remote.complete(client,source,{is_current=current,allow_missing_images=options.allow_missing_images==true})
-        source_raw=source.body
     end
     if not prepared then return nil,why or 'unavailable' end
     if not current() then return nil,'session_changed' end
@@ -74,7 +72,8 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
     if not current() then return nil,'session_changed' end
     return {book_id=book_id,chapter_uid=chapter_uid,book_version=source.book_version,
         catalog_sha256=source.catalog_sha256,reading_catalog_sha256=source.reading_catalog_sha256,
-        source_sha256=Crypto.sha256_hex(source.body),source_raw=source_raw,xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
+        source_sha256=Crypto.sha256_hex(source.body),source_raw=source.body,source_is_text=source.is_text==true,
+        xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
         source_channel='eink',coordinate_source_authoritative=false}
 end
 return M
