@@ -78,6 +78,7 @@ function M.fetch(client, request, selected, options)
         local ok,data=pcall(client.get_gateway_discovery,client,request.kind,request,selected.api_key)
         current()
         if not ok then
+            if data=='discovery/rate_limited' then fail('rate_limited') end
             if data=='discovery/gateway_recoverable' and request.kind=='search'
                 and (request.cursor or 0)==0 and not request.source_kind then
                 local value=M.fetch(client,{kind='search',keyword=request.keyword,cursor=0,source_kind='public'})
@@ -98,6 +99,7 @@ function M.fetch(client, request, selected, options)
         auth:cancel();current()
         if not ok then
             local reason=tostring(data)
+            if reason=="native_auth/discovery_"..request.kind.."/http_429" then fail("rate_limited") end
             if reason=="native_auth/discovery_"..request.kind.."/http_401" and options.recover_auth
                 and not selected.native.renewal_pending then fail("native_expired") end
             local fallback=reason:match("/http_50%d$") or reason:match("/http_40[13]$")

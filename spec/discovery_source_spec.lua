@@ -122,7 +122,7 @@ for _,status in ipairs({401,403,500,503,"transport"}) do
 end
 f=fixture();f.change{status=429}
 local ok,err=pcall(Source.fetch,f.client,{kind="recommend",cursor=0},f.capture())
-expect(not ok and err=="discovery/native_unavailable" and f.gateway_count()==0,"rate limiting cannot trigger fallback or leak response")
+expect(not ok and err=="discovery/rate_limited" and f.gateway_count()==0,"rate limiting cannot trigger fallback or leak response")
 f=fixture();f.data.errcode=-2012
 expect(not pcall(Source.fetch,f.client,{kind="recommend",cursor=0},f.capture()) and f.gateway_count()==0,"API rejection stays rejected")
 f=fixture();selected=f.capture();f.change{revision=2}

@@ -787,6 +787,7 @@ function Client:get_gateway_discovery(kind, options, api_key)
         end})
     if exceeded then error("discovery/gateway_unavailable",0) end
     code=tonumber(code)
+    if code==429 then error("discovery/rate_limited",0) end
     if not ok or not code or code==401 or code==403 or code>=500 and code<=599 then
         error("discovery/gateway_recoverable",0)
     end
@@ -826,6 +827,7 @@ function Client:get_category_books(category_id, cursor, rank)
             if bytes>4*1024*1024 then exceeded=true;return nil,"category_books_limit" end
             chunks[#chunks+1]=chunk;return 1
         end}
+    if tonumber(code)==429 then error("discovery/rate_limited",0) end
     if exceeded or code~=200 then error("category_books/unavailable",0) end
     return self:decode_http_json(table.concat(chunks), {sensitive=true,api_name="public_category_books",code=code,headers=headers})
 end
@@ -846,6 +848,7 @@ function Client:get_public_book_search(keyword, cursor)
             if bytes>4*1024*1024 then exceeded=true;return nil,'public_search_limit' end
             chunks[#chunks+1]=chunk;return 1
         end}
+    if tonumber(code)==429 then error('discovery/rate_limited',0) end
     if exceeded or code~=200 then error('public_search/unavailable',0) end
     return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name='public_book_search',code=code,headers=headers})
 end

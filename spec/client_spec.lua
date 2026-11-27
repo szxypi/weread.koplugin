@@ -461,7 +461,7 @@ expect(not book_list_ok and book_list_error=='category_books/unavailable' and la
 logs={}
 responses[#responses+1]={body='private-category-body',code=429,headers={location='private-category-location'}}
 book_list_ok,book_list_error=pcall(public_client.get_category_books,public_client,'100000',0,false)
-expect(not book_list_ok and book_list_error=='category_books/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+expect(not book_list_ok and book_list_error=='discovery/rate_limited' and not table.concat(logs,'\n'):find('private-',1,true),
     'category failure exposed the response or location')
 local before_invalid = #requests
 expect(not pcall(public_client.get_category_books, public_client, "../../bad", 0), "invalid category path accepted")
@@ -483,7 +483,7 @@ end
 expect(#requests==before_public_invalid,'invalid public search sent HTTP')
 logs={};responses[#responses+1]={body='private-public-search-body',code=429}
 local public_ok,public_error=pcall(public_client.get_public_book_search,public_client,'word',0)
-expect(not public_ok and public_error=='public_search/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+expect(not public_ok and public_error=='discovery/rate_limited' and not table.concat(logs,'\n'):find('private-',1,true),
     'public search failure leaked response')
 logs = {}
 responses[#responses + 1] = { body = "private-response-token", code = 401, headers = { location = "private-location" } }
@@ -694,7 +694,7 @@ for _,item in ipairs({
     {response={code=403,body='private-response'},reason='discovery/gateway_recoverable'},
     {response={code=503,body='private-response'},reason='discovery/gateway_recoverable'},
     {response={raise='private-transport'},reason='discovery/gateway_recoverable'},
-    {response={code=429,body='private-response'},reason='discovery/gateway_unavailable'},
+    {response={code=429,body='private-response'},reason='discovery/rate_limited'},
     {response={code=302,body='private-response'},reason='discovery/gateway_unavailable'},
     {response={code=200,body=string.rep('x',4*1024*1024+1)},reason='discovery/gateway_unavailable'},
 }) do

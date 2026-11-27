@@ -64,6 +64,9 @@ Request.load(host,'search','新词',0);callback({ok=false})
 expect(host.discovery_state~=earlier_query and host.discovery_state.cached and read_query.keyword=='新词' and read_cursor==0,
     'failed new search did not restore its own saved results')
 local cached=host.discovery_state
+Request.load(host,'search','限流',0);callback({ok=false,rate_limited=true})
+expect(host.discovery_state==cached and message:find('requests are limited',1,true),
+    'rate limiting switched the current list or omitted the notice')
 available=false
 Request.load(host,'search','无缓存',0);callback({ok=false})
 expect(host.discovery_state==cached,'missing cache replaced the visible query on network failure')

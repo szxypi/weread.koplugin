@@ -117,9 +117,11 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host.discovery_request_context=nil;host.discovery_loading=nil
         if operation.busy and host.busy_message==operation.busy then host:closeBusy() end
         if type(value)~="table" or value.ok~=true or type(value.page)~="table" then
-            local message=_("Bookstore request failed. Cached books are still available.")
-            if not is_visible_batch(source_state,query,cursor) and Cache.open(host,query,cursor)
-                and host.showTransientInfo then
+            local limited=type(value)=="table" and value.rate_limited==true
+            local message=limited and _("Bookstore requests are limited. Please try again later.")
+                or _("Bookstore request failed. Cached books are still available.")
+            local use_cached=not source_state or (not limited and not is_visible_batch(source_state,query,cursor))
+            if use_cached and Cache.open(host,query,cursor) and host.showTransientInfo then
                 host:showTransientInfo(message,3)
             else
                 host:showInfo(message)
@@ -171,7 +173,8 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
                 local valid,page=pcall(Source.fetch,host.client,request,selected,{
                     recover_auth=host.native_renewal~=nil and not operation.recovery_attempted,skip_native=skip_native,
                 })
-                return valid and {ok=true,page=page} or {ok=false,native_expired=page=="discovery/native_expired"}
+                return valid and {ok=true,page=page} or {ok=false,native_expired=page=="discovery/native_expired",
+                    rate_limited=page=="discovery/rate_limited"}
             end,complete)
             if not ok or not running then complete(nil) end
         end
