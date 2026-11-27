@@ -273,6 +273,20 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     assert(#rows==(input.expected_rows or 3),'listing did not return all saved chapters')
     assert(cache.present(settings,scope.vid,'42',function() error('valid marker started a scan') end),
         'saved chapters did not repair the presence marker')
+    local checks=0
+    assert(not cache.present(settings,scope.vid,'999999',nil,function() checks=checks+1;return true end) and checks==0,
+        'missing directory consulted the marker read guard')
+    local marker_reads=0
+    rawset(io,'open',function(path,...)
+        if path:match('/%.native%-presence%-') then marker_reads=marker_reads+1 end
+        return open(path,...)
+    end)
+    assert(not cache.present(settings,scope.vid,'42',nil,function() checks=checks+1;return false end) and checks==1,
+        'existing marker bypassed the read guard')
+    assert(marker_reads==0,'denied marker was read before checking authorization')
+    assert(cache.present(settings,scope.vid,'42',nil,function() return true end) and marker_reads==1,
+        'authorized marker was lost')
+    rawset(io,'open',open)
     assert(not cache.present(settings,'87654321','42',current),'presence escaped its account')
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end

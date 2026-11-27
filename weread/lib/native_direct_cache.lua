@@ -396,11 +396,11 @@ local function repair_presence(lfs,book_dir,settings,account,book_id,current)
     return ok and available==true
 end
 
--- Ordinary shelf checks only read the marker. Callers that can scan provide
--- a live guard for the repair path.
-function M.present(settings,account,book_id,repair_current)
+-- Directory existence can rule out a cache before reading any marker files.
+-- Repair callers still provide a live guard for the scan and publication.
+function M.present(settings,account,book_id,repair_current,allow_read)
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
-    if not lfs then return false end
+    if not lfs or allow_read and allow_read()~=true then return false end
     if marker_present(lfs,book_dir,book_id,account) then return true end
     return type(repair_current)=='function'
         and repair_presence(lfs,book_dir,settings,account,book_id,repair_current)

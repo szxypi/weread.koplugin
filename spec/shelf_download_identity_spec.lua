@@ -34,18 +34,24 @@ assert(downloaded({bookId=42},{[42]={cached_file='/synthetic/book.epub'}},cache)
 assert(not downloaded({bookId='42',book_id='43'},{},cache),'cache bypassed conflicting shelf identifiers')
 local owner=require('weread.lib.crypto').sha256_hex('weread-library:123'):sub(1,20)
 local scope={vid='123',epoch=1};local calls,repairs=0,0
+local checks=0
 host.settings.get_auth_scope=function() return scope end
-host.settings.auth_scope_matches=function(_,value) return value==scope end
+host.settings.auth_scope_matches=function(_,value) checks=checks+1;return value==scope end
 host.library_db={accountKey=function() return owner end}
 package.loaded['weread.lib.native_direct_cache']={
-    present=function(_,vid,id,current)
+    present=function(_,vid,id,current,allow_read)
         calls=calls+1
+        if id~='42' and id~='43' then return false end
+        if allow_read and not allow_read() then return false end
         if vid=='123' and id=='42' then return true end
         if not current then return false end
         repairs=repairs+1;return vid=='123' and id=='43' and current()
     end,
 }
+for id=100,131 do assert(not downloaded({bookId=tostring(id)},{})) end
+assert(checks==0,'missing native directories caused disk authorization reads')
 assert(downloaded({bookId='42'},{}),'native cached chapter was not recognized')
+assert(checks==1,'existing native cache was not authorized exactly once')
 assert(not downloaded({bookId='43'},{}),'another book acquired native cache status')
 local before=calls
 assert(repairs==0,'shelf checks tried to repair the marker')
@@ -61,4 +67,13 @@ assert(not downloaded({bookId='42'},{}),'different library account inherited nat
 host.library_db.accountKey=function() return owner end
 host.settings.auth_scope_matches=function() return false end
 assert(not downloaded({bookId='42'},{}),'stale authorization inherited native cache status')
+local loaded
+host.settings.book_lookup=function()
+    return function(id)
+        assert(not loaded,'standalone badge loaded more than one book')
+        loaded=id
+        return {book_id=id,cached_full_book='/synthetic/book.epub'}
+    end
+end
+assert(downloaded({bookId='42'}) and loaded=='42','standalone badge did not use the indexed book lookup')
 print('PASS: shelf downloaded state uses exact book identities')
