@@ -173,8 +173,12 @@ local marker='A unique second body marker with enough text.'
 local expected=#first+#second:match('^(.-)A unique')-#'中文😀'+4 -- UTF-16 replaces ten UTF-8 bytes with four units.
 eq(locate(local_map,marker).co,expected)
 eq(assert(local_map:anchor(expected)).co,expected)
+local max_bodies=build(string.rep('<body>x</body>',256),{allow_multiple_bodies=true})
+eq(#max_bodies.segments,256)
+eq(max_bodies.flat,string.rep('x',256))
 for _i,invalid in ipairs({'<body>one<body>nested</body></body>','<body>one</body></body>','<body/>',
-    '<body>open','<!-- <body> --><body>one</body>',string.rep('<body>x</body>',257)}) do
+    '<body>open','<!-- <body> --><body>one</body>','<!-- </body> --><body>one</body>',
+    string.rep('<body>x</body>',257)}) do
     eq(Source.build(invalid,{allow_multiple_bodies=true}),nil)
 end
 

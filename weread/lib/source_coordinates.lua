@@ -112,11 +112,17 @@ local function parse(raw, options)
     -- Concatenated chapter documents are a separately opted-in local model.
     -- Cloud consumers opt in only when their source format supports it.
     local multiple = options and options.allow_multiple_bodies == true
-    local _, opens = raw:gsub("<body", "")
-    local _, closes = raw:gsub("</body", "")
-    if opens < 1 or opens > (multiple and 256 or 1) or closes ~= opens then
-        fail("multiple_or_incomplete_bodies")
+    -- Count matching prefixes without allocating copies of the chapter.
+    local opens, closes, limit = 0, 0, multiple and 256 or 1
+    for _match in raw:gmatch("<body") do
+        opens = opens + 1
+        if opens > limit then fail("multiple_or_incomplete_bodies") end
     end
+    for _match in raw:gmatch("</body") do
+        closes = closes + 1
+        if closes > opens then fail("multiple_or_incomplete_bodies") end
+    end
+    if closes ~= opens then fail("multiple_or_incomplete_bodies") end
     local map = setmetatable({ segments = {}, decode = options and options.decode_entity or decode_entity }, Map)
     local at, co, base, body, seen, raw_text = 1, 0, 0, false, false, nil
     local bodies = 0
