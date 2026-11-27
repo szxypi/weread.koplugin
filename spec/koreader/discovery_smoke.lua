@@ -427,6 +427,19 @@ plugin.isNetworkOnline = function() error('profile display attempted a synchrono
 plugin:showProfile()
 assert(not plugin._profile_view.data.has_data and not plugin.profile_request, "empty offline profile invented data")
 paint_profile("profile-empty")
+local old_profile=plugin._profile_view
+old_profile._navigation_buttons[1].callback()
+old_profile._profile_buttons[1].callback()
+plugin:showBookstore()
+local newer_store=assert(plugin.shelf_view)
+flush_tasks()
+assert(plugin.shelf_view==newer_store and newer_store._discovery_tab=='store' and not plugin._profile_goal_dialog,
+    'deferred profile actions interfered with the current bookstore')
+plugin:showProfile()
+plugin._profile_view._navigation_buttons[1].callback()
+flush_tasks()
+assert(plugin.shelf_view and plugin.shelf_view._discovery_tab=='home' and not plugin._profile_view,
+    'current profile could not navigate to home')
 plugin:closeWeReadUI()
 plugin.isNetworkConnected = function() return true end
 plugin:showProfile()

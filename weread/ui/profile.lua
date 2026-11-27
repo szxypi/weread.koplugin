@@ -5,6 +5,7 @@ local Request = require("weread.ui.statistics_request")
 local AccountName = require("weread.lib.profile_account")
 local NetworkLink = require("weread.lib.network_link")
 local PluginUtil = require("weread.lib.plugin_util")
+local Scope = require("weread.ui.page_scope")
 local UIManager = require("ui/uimanager")
 local _ = PluginUtil.tr
 local M = {}
@@ -35,7 +36,9 @@ function M:showProfile()
     local data = Data.build(snapshot, type(goal) == "table" and goal.minutes, now)
     data.account_name = not self.library_db:accountKey() and _("Not logged in")
         or AccountName.valid_name(name) and name or _("Unknown account")
-    data.navigation = self:discoveryNavigation("profile")
+    local view, is_current
+    local function current() return is_current and is_current() end
+    data.navigation = self:discoveryNavigation("profile", current)
     local connected = NetworkLink.available(self)
     data.cached = data.has_data and (not connected or not data.fetched_at
         or now - data.fetched_at >= Data.TTL or now < data.fetched_at)
@@ -44,11 +47,10 @@ function M:showProfile()
         self._profile_view = nil
         UIManager:close(old)
     end
-    local view
     view = require("weread.ui.read_stats_view").show(data, {
-        on_refresh = function() self:refreshProfileName() self:refreshProfile(false) end,
-        on_goal = function() self:showReadingGoal() end,
-        on_statistics = function() self:cancelProfileRefresh() self:showReadStats() end,
+        on_refresh = Scope.guard(current, function() self:refreshProfileName() self:refreshProfile(false) end),
+        on_goal = Scope.guard(current, function() self:showReadingGoal() end),
+        on_statistics = Scope.guard(current, function() self:cancelProfileRefresh() self:showReadStats() end),
         on_close = function()
             if self._profile_view == view then
                 self._profile_view = nil
@@ -57,6 +59,7 @@ function M:showProfile()
         end,
     })
     self._profile_view = view
+    is_current = Scope.capture(self, view, "_profile_view", {allow_shelf_snapshot_change=true})
     if connected and (not data.has_data or data.cached) then self:refreshProfile(true) end
     return view
 end

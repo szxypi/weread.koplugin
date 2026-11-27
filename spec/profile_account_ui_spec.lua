@@ -20,6 +20,8 @@ local host=setmetatable({
     settings={get_auth_scope=scope,get=function(_self,key,default)
         if key=='account' then return {user_vid=scope().vid,name='QR name'} end
         return default
+    end,auth_scope_matches=function(_self,saved)
+        local active=scope();return saved.vid==active.vid and saved.epoch==active.epoch
     end},
     library_db={accountKey=function() return account end,getProfileOverview=function()
         local current=states[account] or {}
@@ -32,9 +34,12 @@ local host=setmetatable({
     discoveryNavigation=function() return {} end,refreshProfile=function() end,closeWeReadUI=function(self) self:cancelProfileRefresh() end,
 },{__index=Profile})
 host:showProfile();expect(shown.data.account_name=='QR name')
+local original_page=shown
 shown.callbacks.on_refresh();expect(#tasks==1 and host.profile_name_request,'manual refresh did not start')
 host:refreshProfileName();expect(#tasks==1,'duplicate refresh started')
 tasks[1].callback(tasks[1].task());expect(writes==1 and shown.data.account_name=='Updated','verified name not displayed')
+original_page.callbacks.on_refresh();expect(#tasks==1,'replaced profile started another refresh')
+account='b';shown.callbacks.on_refresh();expect(#tasks==1,'old profile refreshed a different account');account='a'
 expect(states.a.account_name.name=='Updated' and states.a.account_name.epoch==1,'name was not saved for the login')
 online=false;host:showProfile();expect(shown.data.account_name=='Updated','offline reopen lost name')
 host:refreshProfileName();expect(#tasks==1,'offline refresh started');online=true
