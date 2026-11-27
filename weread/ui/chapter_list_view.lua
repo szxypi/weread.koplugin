@@ -153,38 +153,35 @@ end
 local ChapterListView = FocusManager:extend{
     title = nil,
     chapters = nil,
+    subtitle = nil,
+    empty_text = nil,
     on_refresh = nil,
     on_select_download = nil,
+    on_search = nil,
     on_select = nil,
     on_close = nil,
 }
 
 function ChapterListView:toolbar()
-    local half = math.floor(self.screen_w / 2)
-    local refresh_button = Button:new{
-        text = _("↻ Refresh chapter list"),
-        width = half,
-        radius = 0, margin = 0,
-        bordersize = Size.border.thin,
-        text_font_size = 19,
-        text_font_bold = false,
-        show_parent = self,
-        callback = function() if self.on_refresh then self.on_refresh() end end,
-    }
-    local select_button = Button:new{
-        text = _("✓ Select chapters to download"),
-        width = self.screen_w - half,
-        radius = 0, margin = 0,
-        bordersize = Size.border.thin,
-        text_font_size = 19,
-        text_font_bold = false,
-        show_parent = self,
-        callback = function()
-            if self.on_select_download then self.on_select_download() end
-        end,
-    }
-    self._toolbar_buttons = { refresh_button, select_button }
-    return HorizontalGroup:new{ refresh_button, select_button }
+    local width = math.floor(self.screen_w / (self.on_search and 3 or 2))
+    local function button(label, size, action)
+        return Button:new{
+            text = _(label), width = size,
+            radius = 0, margin = 0, bordersize = Size.border.thin,
+            text_font_size = 19, text_font_bold = false, show_parent = self,
+            callback = function() if action and not self._catalog_closed then action() end end,
+        }
+    end
+    local refresh = button(self.on_search and "Refresh" or "↻ Refresh chapter list", width, self.on_refresh)
+    local select_width = self.on_search and width or self.screen_w - width
+    local select = button(self.on_search and "Select download…" or "✓ Select chapters to download",
+        select_width, self.on_select_download)
+    local buttons = { refresh, select }
+    if self.on_search then
+        buttons[3] = button("Find chapter", self.screen_w - width - select_width, self.on_search)
+    end
+    self._toolbar_buttons = buttons
+    return HorizontalGroup:new{ unpack(buttons) }
 end
 
 function ChapterListView:content()
@@ -194,6 +191,16 @@ function ChapterListView:content()
     }
     self._chapter_rows = {}
     group._rows = self._chapter_rows
+    if self.empty_text then
+        group[#group + 1] = FrameContainer:new{
+            bordersize = 0, padding = Size.padding.large,
+            TextWidget:new{
+                text = self.empty_text, face = Font:getFace("cfont", 20),
+                max_width = self.list_width - 2 * Size.padding.large,
+            },
+        }
+        return group
+    end
     local probe = ChapterRow:new{ text = "", status = "", width = self.list_width }
     local height = probe:getSize().h
     probe:free()
@@ -234,6 +241,7 @@ function ChapterListView:init()
     self.title_bar = TitleBar:new{
         width = self.screen_w,
         title = self.title or _("Chapter list"),
+        subtitle = self.subtitle,
         title_face = Font:getFace("tfont", 28),
         title_multilines = true,
         align = "center",
@@ -290,8 +298,11 @@ function M.show(data, callbacks)
     local view = ChapterListView:new{
         title = data.title,
         chapters = data.chapters,
+        subtitle = data.subtitle,
+        empty_text = data.empty_text,
         on_refresh = callbacks.on_refresh,
         on_select_download = callbacks.on_select_download,
+        on_search = callbacks.on_search,
         on_select = callbacks.on_select,
         on_close = callbacks.on_close,
     }

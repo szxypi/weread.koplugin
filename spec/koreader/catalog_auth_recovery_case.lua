@@ -19,13 +19,19 @@ return function(host,view,book,pump,tick,press)
     if kind=='refresh' then
         host:showChapterList(saved)
         local original=assert(host._chapter_list_view)
+        local title=assert(original._chapter_rows[1]).text
+        assert(original._toolbar_buttons[3]):onTapSelectButton()
+        local search=assert(original._shelf_popup);search:setInputText(title);search.buttons[1][2].callback()
+        original=assert(host._chapter_list_view)
+        assert(#original._chapter_rows==1 and original.subtitle)
         local before=count('/web/login/renewal')
         request('/__control',{match='/web/book/chapterInfos',times=1,status=401,web_renewal_mode='rotate'})
         original._toolbar_buttons[1].callback()
         pump(function() return host._catalog_request and host._catalog_request_worker.job end)
         pump(function() return host._chapter_list_view and host._chapter_list_view~=original end)
         local refreshed=host._chapter_list_view
-        assert(#refreshed._chapter_rows==6 and count('/web/login/renewal')==before+1)
+        assert(#refreshed._chapter_rows==1 and refreshed._chapter_rows[1].text==title
+            and refreshed.subtitle==original.subtitle and count('/web/login/renewal')==before+1)
         while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=refreshed do UI:close(UI:getTopmostVisibleWidget()) end
         refreshed:onClose();pump(function() return host._chapter_list_view==nil end)
         press(view,'⇩ Download full book')

@@ -69,17 +69,30 @@ return function(input,host,reader,pump)
     pump(function() return host._chapter_list_view~=nil end)
     local view=assert(host._chapter_list_view)
     assert(type(view.chapters)=='table' and #view.chapters==#chapters,'quick-menu chapter list was incomplete')
-    local listed,original_listed=false,false
+    local neighbor_title,original_listed=nil,false
     for _,item in ipairs(view.chapters) do
         local chapter=item.source
         local uid=chapter and tostring(chapter.chapterUid or chapter.chapterId)
         if uid==neighbor.uid then
-            listed=true;assert(item.status==tr('Cached'),'downloaded neighbor was not marked cached')
+            neighbor_title=item.title;assert(item.status==tr('Cached'),'downloaded neighbor was not marked cached')
         elseif uid==input.chapter_uid then
             original_listed=true;assert(item.status==tr('Cached'),'original chapter was not marked cached')
         end
     end
-    assert(listed and original_listed,'quick-menu chapter list omitted a verified chapter')
+    assert(neighbor_title and original_listed,'quick-menu chapter list omitted a verified chapter')
+    assert(view._toolbar_buttons[3]):onTapSelectButton()
+    local search=assert(view._shelf_popup)
+    search:setInputText(neighbor_title)
+    search.buttons[1][2].callback()
+    local filtered=assert(host._chapter_list_view)
+    assert(filtered~=view and filtered.subtitle)
+    local matching=false
+    for _,item in ipairs(filtered.chapters) do
+        if tostring(item.source.chapterUid or item.source.chapterId)==neighbor.uid then
+            assert(item.status==tr('Cached'),'filtered chapter lost its cache status');matching=true
+        end
+    end
+    assert(matching,'verified neighbor was absent from chapter search')
     menu=quick()
     local original_open=host.openChapter
     local calls=0

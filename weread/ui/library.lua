@@ -2201,6 +2201,9 @@ end
 
 function M:showChapterList(book, on_close)
     local ChapterListView = require("weread.ui.chapter_list_view")
+    local Popup = require("weread.ui.shelf_popup")
+    local Query = require("weread.lib.search_query")
+    local search = ""
     local function reloadBookCache()
         if not self.settings then return end
         local book_id = book.book_id or book.bookId
@@ -2212,32 +2215,41 @@ function M:showChapterList(book, on_close)
         if self.library_db then self.library_db:putBook(latest) end
     end
     local showCatalog
-    showCatalog = function(chapters, old_view)
-        -- Downloads persist their cache paths before invoking on_complete.
-        -- Always rebuild from that persisted record instead of the snapshot
-        -- captured when the chapter list was first opened.
-        reloadBookCache()
-        local rows = {}
-        local is_cached=chapter_cache_lookup(self,book)
-        for _i, chapter in ipairs(chapters) do
-            local chapter_uid = chapter.chapterUid or chapter.chapterId
-            rows[#rows + 1] = {
-                title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
-                status = is_cached(chapter_uid) and _("Cached")
-                    or T(_("%1 words"), tostring(chapter.wordCount or 0)),
-                source = chapter,
-            }
+    showCatalog = function(chapters, old_view, rows)
+        if old_view and (self._chapter_list_view ~= old_view or old_view._catalog_closed) then return end
+        if not rows then
+            -- Downloads persist their cache paths before invoking on_complete.
+            reloadBookCache()
+            rows = {}
+            local is_cached = chapter_cache_lookup(self, book)
+            for _i, chapter in ipairs(chapters) do
+                local chapter_uid = chapter.chapterUid or chapter.chapterId
+                rows[#rows + 1] = {
+                    title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
+                    status = is_cached(chapter_uid) and _("Cached")
+                        or T(_("%1 words"), tostring(chapter.wordCount or 0)),
+                    source = chapter,
+                }
+            end
+        end
+        local visible = rows
+        local needle = ShelfSearch.prepare(search)
+        if needle then
+            visible = {}
+            local terms = ShelfSearch.terms(needle)
+            for _i, row in ipairs(rows) do
+                if ShelfSearch.matches(row, needle, terms) then visible[#visible + 1] = row end
+            end
         end
         if old_view then
             UIManager:close(old_view)
-            if self._chapter_list_view == old_view then
-                self._chapter_list_view = nil
-            end
         end
         local view
         view = ChapterListView.show({
             title = book.title or _("Chapter list"),
-            chapters = rows,
+            chapters = visible,
+            subtitle = needle and T(_("Chapter filter: %1"), search) or nil,
+            empty_text = #visible == 0 and _(needle and "No matching chapters." or "No chapters.") or nil,
         }, {
             on_refresh = self:safeCallback(_("Refresh chapter list"), function()
                 self:loadChapters(book, function(refreshed_chapters)
@@ -2251,7 +2263,30 @@ function M:showChapterList(book, on_close)
                     showCatalog(chapters, view)
                 end)
             end),
+            on_search = self:safeCallback(_("Find chapter"), function()
+                if self._chapter_list_view ~= view or view._catalog_closed then return end
+                local dialog
+                local function apply(value)
+                    if self._chapter_list_view ~= view or not Popup.current(view, dialog) then return end
+                    local query = Query.trim(value)
+                    if #query > 1024 then self:showInfo(_("Search text is too long.")); return end
+                    Popup.close(view)
+                    if search == query then return end
+                    search = query
+                    showCatalog(chapters, view, rows)
+                end
+                dialog = InputDialog:new{
+                    title = _("Find chapter"), input = search, input_type = "text",
+                    buttons = {{
+                        { text = _("Clear"), callback = function() apply("") end },
+                        { text = _("Search"), is_enter_default = true,
+                            callback = function() apply(dialog:getInputText()) end },
+                    }},
+                }
+                Popup.show(view, dialog, function(widget) self:showInputDialog(widget) end)
+            end),
             on_select = function(chapter)
+                if self._chapter_list_view ~= view or view._catalog_closed then return end
                 self:openChapter(book, chapter, function()
                     -- The downloader has persisted the new chapter path before
                     -- this callback runs. Rebuild beneath the completion dialog
@@ -2263,9 +2298,8 @@ function M:showChapterList(book, on_close)
             end,
             on_close = function()
                 require('weread.ui.catalog_request').cancel(self,view)
-                if self._chapter_list_view == view then
-                    self._chapter_list_view = nil
-                end
+                if self._chapter_list_view ~= view then return end
+                self._chapter_list_view = nil
                 if on_close then on_close() end
             end,
         })
@@ -2273,6 +2307,8 @@ function M:showChapterList(book, on_close)
         local on_close_widget=view.onCloseWidget
         view.onCloseWidget=function(widget,...)
             widget._catalog_closed=true
+            widget._shelf_closed=true
+            Popup.close(widget)
             require('weread.ui.catalog_request').cancel(self,widget)
             require('weread.ui.download_recovery').cancel(self,false,widget)
             if on_close_widget then return on_close_widget(widget,...) end

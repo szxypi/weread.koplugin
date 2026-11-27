@@ -104,6 +104,19 @@ local function ready(reader)
     pump(function() return reader.weread.source_position:current()~=nil end)
     return assert(reader.weread.source_position:current())
 end
+local function filter_chapters(current, view, query)
+    local button=assert(view._toolbar_buttons[3])
+    assert(button.text==tr('Find chapter'))
+    UI:forceRePaint()
+    button:onTapSelectButton()
+    local dialog=assert(view._shelf_popup)
+    dialog:setInputText(query)
+    dialog.buttons[1][2].callback()
+    local filtered=assert(current._chapter_list_view)
+    assert(filtered~=view and not view._shelf_popup)
+    UI:forceRePaint()
+    return filtered
+end
 local function check_full_chapter_status(current)
     local chapters=assert(current:ensureChaptersLoaded(book(current)))
     local manifest={}
@@ -157,6 +170,16 @@ if offline then
     local reader=read_from_shelf(expected.file)
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
+    local current=reader.weread
+    current:showChapterList(book(current))
+    local view=assert(current._chapter_list_view)
+    local title=assert(view._chapter_rows[1]).text
+    view=filter_chapters(current,view,title)
+    assert(#view._chapter_rows>=1 and view._chapter_rows[1].text==title)
+    local empty=filter_chapters(current,view,'unmatched synthetic chapter')
+    assert(#empty._chapter_rows==0 and empty.empty_text==tr('No matching chapters.'))
+    shot('chapter-filter-empty')
+    empty:onClose();pump(function() return current._chapter_list_view==nil end)
     if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then check_full_chapter_status(reader.weread) end
     if os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1' then
         dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
@@ -235,7 +258,17 @@ current:showChapterList(book(current))
 pump(function() return current._chapter_list_view~=nil end)
 local view=assert(current._chapter_list_view);assert(view._chapter_rows[4])
 if manual_case and manual_kind~='selected' then manual_case.arm_single(view) end
-view._chapter_rows[4].callback()
+if manual_case then
+    view._chapter_rows[4].callback()
+else
+    local title=view._chapter_rows[4].text
+    local duplicates=os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1'
+    view=filter_chapters(current,view,'　'..title..'　')
+    local index=duplicates and 2 or 1
+    assert(#view._chapter_rows==index and view._chapter_rows[index].text==title)
+    shot('chapter-filter-result')
+    view._chapter_rows[index]:onTapChapterRow()
+end
 if manual_case and manual_kind=='single-repeat' then manual_case.recover_single(view) end
 pump(function()
     local active=Reader.instance

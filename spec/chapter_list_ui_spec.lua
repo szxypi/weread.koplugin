@@ -22,7 +22,12 @@ package.preload["ui/widget/buttondialog"] = empty_module
 package.preload["ui/widget/confirmbox"] = empty_module
 package.preload["weread.lib.content"] = empty_module
 package.preload["ui/widget/infomessage"] = empty_module
-package.preload["ui/widget/inputdialog"] = empty_module
+package.preload["ui/widget/inputdialog"] = function()
+    return { new = function(_, options)
+        options.getInputText = function(self) return self.input end
+        return options
+    end }
+end
 package.preload["weread.lib.logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
@@ -216,6 +221,43 @@ expect(type(late)=='function','completed selection did not schedule its return')
 fake_menu:onCloseWidget();late()
 expect(not reopened,'closed selection reopened its parent after a late completion')
 manager.scheduleIn=old_schedule
+
+local input
+host.showInputDialog = function(_, widget) input = widget end
+local chapter_loads = 0
+host.loadChapters = function(_, _, callback)
+    chapter_loads = chapter_loads + 1
+    callback(chapters)
+end
+chapters[1].title = "Chapter Alpha"
+chapters[4].title = "Chapter Alpha"
+host:showChapterList(book)
+catalog_view_callbacks.on_search()
+input.input = "　ALPHA  chapter　"
+input.buttons[1][2].callback()
+local results = catalog_view_data.chapters
+expect(chapter_loads == 1 and catalog_view_data.subtitle and #results == 2,
+    "filter matches words without loading the catalog again")
+expect(results[1].source == chapters[1] and results[2].source == chapters[4],
+    "duplicate title results keep catalog order and chapter identity")
+catalog_view_callbacks.on_select(results[2].source)
+expect(opened_chapter == chapters[4], "filtered selection opens the matching chapter")
+catalog_view_callbacks.on_refresh()
+expect(chapter_loads == 2 and #catalog_view_data.chapters == 2, "refresh preserves the active filter")
+catalog_view_callbacks.on_search()
+input.input = "missing chapter"
+input.buttons[1][2].callback()
+expect(catalog_view_data.empty_text == "No matching chapters.", "no matches have a visible message")
+catalog_view_callbacks.on_search()
+input.buttons[1][1].callback()
+expect(not catalog_view_data.subtitle and #catalog_view_data.chapters == 7 and chapter_loads == 2,
+    "clearing restores the catalog from memory")
+catalog_view_callbacks.on_search()
+local old_query = input
+host._chapter_list_view:onCloseWidget()
+old_query.input = "Alpha"
+old_query.buttons[1][2].callback()
+expect(not catalog_view_data.subtitle and #catalog_view_data.chapters == 7, "closed catalog rejects a queued search")
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))
