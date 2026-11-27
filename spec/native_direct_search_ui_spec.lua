@@ -1,10 +1,17 @@
 package.path='./?.lua;'..package.path
 local displayed,tasks,workers=nil,{},{}
+local now=0
 local UI={}
 function UI:show(widget) displayed=widget end
 function UI:close(widget) if widget and widget.onCloseWidget then widget:onCloseWidget() end end
-function UI:scheduleIn(_,task) tasks[#tasks+1]=task end
-function UI:unschedule(task) for i=#tasks,1,-1 do if tasks[i]==task then table.remove(tasks,i) end end end
+function UI:scheduleIn(delay,task)
+    tasks[#tasks+1]={at=now+delay,run=task}
+    table.sort(tasks,function(a,b) return a.at<b.at end)
+end
+function UI:unschedule(task) for i=#tasks,1,-1 do if tasks[i].run==task then table.remove(tasks,i) end end end
+local function next_task()
+    local task=assert(table.remove(tasks,1));now=task.at;task.run()
+end
 package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/inputdialog']=function() return {new=function(_,value)
     function value:onShowKeyboard() end
@@ -58,8 +65,8 @@ function host:showBusy(_,cancel) self.busy_message={cancel=cancel} end
 function host:closeBusy() self.busy_message=nil end
 function host:showInfo(text) self.message=text end
 function host:showList(_,items)
-    local menu={item_table=items}
-    function menu.switchItemTable(widget,_,new) widget.item_table=new end
+    local menu={item_table=items,redraws=0}
+    function menu.switchItemTable(widget,_,new) widget.item_table=new;widget.redraws=widget.redraws+1 end
     return menu
 end
 local function start()
@@ -68,7 +75,7 @@ local function start()
 end
 local function finish(worker)
     while worker.task or #tasks>0 do
-        if worker.task then worker:complete() else local task=table.remove(tasks,1);task() end
+        if worker.task then worker:complete() else next_task() end
     end
 end
 local checks=0
@@ -79,13 +86,33 @@ expect(not Search.open(host,one,'bad\nquery'),'downloaded fallback accepted a co
 local owner=start();local worker=workers[#workers];finish(worker)
 expect(owner.finished and owner.checked==2 and owner.unavailable==0 and #owner.value==2,'search missed available chapters')
 expect(table.concat(scans,',')=='a,b,c','failed copy or old version was searched incorrectly')
+expect(owner.menu.redraws==2 and #tasks==0,'fast chapter results redrew before completion')
 local result
 for _,item in ipairs(owner.menu.item_table) do if item.text=='Second · match c' then result=item end end
 expect(result~=nil,'second chapter result missing');result.callback()
 expect(navigated and navigated.entry==two and navigated.keyword=='needle' and navigated.ignore==false
     and not host._native_direct_search,'result did not start guarded navigation')
+owner=start();worker=workers[#workers]
+worker:complete();next_task();worker:complete();next_task();worker:complete();next_task()
+expect(owner.menu.redraws==1 and owner.checked==1 and #owner.value==1,'partial result redrew immediately')
+next_task()
+expect(owner.menu.redraws==2 and owner.menu.item_table[1].text:find('1 of 2',1,true)
+    and owner.menu.item_table[3].text=='First · match b','progress redraw missed the latest partial results')
+worker:complete()
+host.busy_message.cancel()
+expect(not owner.finished and not owner.job and owner.menu.redraws==3 and #tasks==0
+    and owner.menu.item_table[1].text=='Continue searching downloaded chapters'
+    and owner.menu.item_table[5].text=='Second · match c','cancel did not show completed results immediately')
+owner.menu.item_table[1].callback();finish(worker)
+expect(owner.finished and owner.menu.redraws==4 and #tasks==0,'resumed search kept an older progress redraw')
+local previous_limit=Search.MAX_RESULTS;Search.MAX_RESULTS=1
+owner=start();finish(workers[#workers]);Search.MAX_RESULTS=previous_limit
+expect(owner.limit and not owner.job and owner.menu.redraws==2 and #tasks==0
+    and owner.menu.item_table[5].text=='First · match b','result limit did not flush immediately')
+Search.cancel(host)
 owner=start();worker=workers[#workers];local callback,task=worker.callback,worker.task;account='other';callback(task())
 expect(not host._native_direct_search and not owner.menu,'old account produced results');account='owner'
-start();page=2;Search.on_view_changed(host)
-expect(not host._native_direct_search and worker~=workers[#workers] and workers[#workers].cancelled,'page change did not stop search')
+owner=start();local menu=owner.menu;workers[#workers]:complete();page=2;Search.on_view_changed(host)
+expect(not host._native_direct_search and worker~=workers[#workers] and workers[#workers].cancelled
+    and menu.redraws==1 and #tasks==0,'page change did not stop the search and its deferred redraw')
 page=1;tasks={};print(('native_direct_search_ui_spec: %d checks'):format(checks))

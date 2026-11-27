@@ -7,6 +7,7 @@ local Context=require('weread.lib.source_context')
 local _=require('weread.lib.plugin_util').tr
 local T=require('ffi/util').template
 local M={MAX_RESULTS=300}
+local REDRAW_INTERVAL=.5
 local function location(reader,doc) return Context.location(doc,reader.view and reader.view.view_mode) end
 local function current(host,owner)
     local reader=host.ui
@@ -20,6 +21,7 @@ end
 local function stop(host,owner)
     local job=owner.job;owner.job=nil
     if owner.task then UI:unschedule(owner.task);owner.task=nil end
+    if job and job.redraw then UI:unschedule(job.redraw);job.redraw=nil end
     if owner.worker then owner.worker:cancel() end
     if job and job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
@@ -114,6 +116,14 @@ start=function(host,owner)
     host:showBusy(_('Searching downloaded chapters…\nTap or press a key to stop.'),function()
         if owner.job==job then stop(host,owner);render(host,owner) end
     end);job.busy=host.busy_message
+    local function progress()
+        if job.redraw then return end
+        job.redraw=function()
+            job.redraw=nil
+            if owner.job==job then render(host,owner) end
+        end
+        UI:scheduleIn(REDRAW_INTERVAL,job.redraw)
+    end
     local step
     local function later()
         local task;task=function() if owner.task==task then owner.task=nil;step() end end
@@ -131,7 +141,7 @@ start=function(host,owner)
                 if not current(host,owner) then M.cancel(host);return end
                 local queue=type(result)=='table' and group(result.rows,owner.entry,owner.scope.vid)
                 if not queue then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return end
-                owner.queue,owner.loaded=queue,true;render(host,owner);later()
+                owner.queue,owner.loaded=queue,true;progress();later()
             end)
             if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
             return
@@ -155,7 +165,7 @@ start=function(host,owner)
                 else owner.from=result.next_byte end
             end
             if #owner.value>=M.MAX_RESULTS then owner.limit=true;stop(host,owner);render(host,owner);return end
-            render(host,owner);later()
+            progress();later()
         end)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
     end
