@@ -14,6 +14,12 @@ local function view_position(view)
     return {anchor=(view.page-1)*view.page_size+1,focus=view:getFocusedBookId()}
 end
 
+local function home_recent(host,account,limit)
+    local settings=host.settings
+    local books=settings.home_recent_books and settings:home_recent_books(account) or settings:get('books',{})
+    return Data.recent(host.shelf_regular,books,account,limit)
+end
+
 function M:discoveryNavigation(active, current, on_leave)
     local function switch(callback)
         return function()
@@ -190,8 +196,7 @@ function M:showDiscoveryPage(tab, books, options)
         local updated=books
         if home then
             local prefs=self:homePreferences()
-            updated=Data.recent(self.shelf_regular,self.settings:get('books',{}),
-                self.library_db and self.library_db:accountKey(),prefs.recent_limit)
+            updated=home_recent(self,self.library_db and self.library_db:accountKey(),prefs.recent_limit)
         end
         return_to_page(updated)
     end
@@ -259,7 +264,7 @@ function M:showHome(refresh_progress, refreshed_shelf)
     self:applyShelfSnapshot(cached or {}, archives,
         volatile ~= nil and volatile.books == cached and volatile.archives == archives)
     local preferences = self:homePreferences()
-    self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}), account, preferences.recent_limit), {
+    self:showDiscoveryPage("home", home_recent(self,account,preferences.recent_limit), {
         title = _("WeRead home"),
         home = preferences,
         rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,

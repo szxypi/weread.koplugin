@@ -277,6 +277,10 @@ function Settings:get_book_indexes()
     return type(value)=='table' and value or nil
 end
 
+function Settings:home_recent_books(account)
+    return BookStore.home_books(self,self:get_book_indexes() or {},account)
+end
+
 -- Load only the records needed by one view update. Retain the stored key
 -- when loading a legacy numeric index.
 function Settings:book_lookup()

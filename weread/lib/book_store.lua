@@ -188,19 +188,16 @@ local function exists(path)
     file:close();return true
 end
 
-local function scoped_path(settings,dir)
+local function scoped_path(settings,dir,known_scope)
     if type(settings.account_state_scope)~='function' then return nil end
-    local scope=settings:account_state_scope()
+    local scope=known_scope or settings:account_state_scope()
     if scope~='anonymous' and (type(scope)~='string' or #scope~=20 or not scope:match('^[a-f0-9]+$')) then
         return false
     end
     return dir..'/.weread-accounts/'..scope..'/reading_state.json',scope
 end
 
-local function scoped_state(dir,metadata,path,scope)
-    local state=read_json(path)
-    if state then return state end
-    if exists(path) then return nil,'invalid account reading state' end
+local function legacy_state(dir,metadata,scope)
     local legacy_path=dir..'/reading_state.json'
     local legacy=read_json(legacy_path)
     if not legacy and exists(legacy_path) then return nil,'invalid legacy reading state' end
@@ -209,6 +206,13 @@ local function scoped_state(dir,metadata,path,scope)
     if not snapshot and exists(snapshot_path) then return nil,'invalid legacy metadata snapshot' end
     metadata=snapshot or metadata
     return require('weread.lib.account_book_state').legacy(metadata,legacy,reading_fields,scope)
+end
+
+local function scoped_state(dir,metadata,path,scope)
+    local state=read_json(path)
+    if state then return state end
+    if exists(path) then return nil,'invalid account reading state' end
+    return legacy_state(dir,metadata,scope)
 end
 
 local function make_dir(dir)
@@ -252,6 +256,48 @@ function BookStore.load(settings, book_id, index)
     book.book_id = book.book_id or book.bookId or tostring(book_id)
     book.cache_dir = dir
     return book
+end
+
+-- Home needs display metadata and recent events, not per-book download,
+-- article or synchronization data. Resume still loads the chosen book.
+local home_fields={'book_id','bookId','title','author','cover','category','_library_account_key',
+    'recent_read_at','recent_read_account','home_recent_at','home_recent_account'}
+local function merge_home(target,source)
+    if type(source)~='table' then return end
+    for _,key in ipairs(home_fields) do
+        if source[key]~=nil then target[key]=source[key] end
+    end
+end
+
+function BookStore.home_books(settings,indexes,account)
+    local result={}
+    if type(account)~='string' or account=='' or settings:account_state_scope()~=account then return result end
+    local valid_time=require('weread.lib.shelf_time').value
+    for key,index in pairs(indexes) do
+        -- Keep the preferred string key occupied even when its event is
+        -- absent, so a stale numeric alias cannot lend its reading time.
+        result[key]=false
+        local dir=resolved_dir(settings,key,index)
+        local path=scoped_path(settings,dir,account)
+        if not path then return {} end
+        local state=read_json(path)
+        if not state or state.home_recent_account==nil
+            or state.home_recent_account==account and valid_time(state.home_recent_at) then
+            local metadata=read_json(dir..'/metadata.json')
+            if not state and not exists(path) then state=legacy_state(dir,metadata,account) end
+            local book={}
+            merge_home(book,index)
+            merge_home(book,metadata)
+            book.home_recent_account,book.home_recent_at=nil,nil
+            merge_home(book,state)
+            book.book_id=book.book_id or book.bookId or tostring(key)
+            if book.home_recent_account==account and valid_time(book.home_recent_at)
+                or book.home_recent_account==nil and book.recent_read_account==account and valid_time(book.recent_read_at) then
+                result[key]=book
+            end
+        end
+    end
+    return result
 end
 
 local function directory_prefix(path)

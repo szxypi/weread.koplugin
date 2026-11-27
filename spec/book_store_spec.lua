@@ -409,6 +409,50 @@ local corrupt_scoped=assert(io.open(scoped_path,'wb'));corrupt_scoped:write('bro
 expect(not BookStore.patch_reading(scoped,'book/42',index,{progress=99})
     and bytes(scoped_path)=='broken account state' and bytes(index.cache_dir..'/reading_state.json')==old_state,
     'corrupt account state was replaced or fell back to legacy')
+
+active=owner_a
+local _,legacy_home=BookStore.save(settings,'51',{title='Legacy',recent_read_at=50,recent_read_account=owner_a})
+local _,current_home=BookStore.save(scoped,'52',{title='Local',author='Reader',home_recent_at=60,home_recent_account=owner_a,
+    mp_articles={{title='Unrelated'}},pending_upload_position={percent=4}})
+local _,preferred=BookStore.save(scoped,'53',{title='Preferred',home_recent_at=90,home_recent_account=owner_b,
+    cache_dir=root..'/home-preferred'})
+local _,numeric=BookStore.save(scoped,53,{title='Legacy alias',home_recent_at=89,home_recent_account=owner_a})
+local indexes={['51']=legacy_home,['52']=current_home,['53']=preferred,[53]=numeric}
+local previews,account_reads
+scoped.account_state_scope=function() account_reads=account_reads+1;return active end
+account_reads=0
+rawset(io,'open',function(path,...)
+    expect(not path:match('/articles%.json$') and path~=preferred.cache_dir..'/metadata.json',
+        'home opened articles or loaded metadata for an explicitly foreign event')
+    return original_open(path,...)
+end)
+previews=BookStore.home_books(scoped,indexes,owner_a)
+rawset(io,'open',original_open)
+expect(account_reads==1 and previews['51'].home_recent_at==50 and previews['52'].author=='Reader'
+    and not previews['52'].mp_articles and not previews['52'].pending_upload_position,
+    'home projection lost a legacy event or retained unrelated data')
+local function home(rows)
+    return require('weread.lib.discovery_data').recent({{bookId='53',title='Shelf',readUpdateTime=10}},rows,owner_a)
+end
+local complete={}
+for id,record in pairs(indexes) do complete[id]=BookStore.load(scoped,id,record) end
+local expected,actual=home(complete),home(previews)
+expect(#actual==#expected and actual[1].bookId=='52' and actual[2].bookId=='51'
+    and actual[3]._recent_time==expected[3]._recent_time and actual[3]._recent_time==10,
+    'home projection revived a stale numeric alias or changed the legacy order')
+active=owner_b
+expect(not next(BookStore.home_books(scoped,indexes,owner_a)) and not next(BookStore.home_books(scoped,indexes,nil)),
+    'home projection exposed another account or signed-out events')
+for _,record in pairs(indexes) do
+    local directory=record.cache_dir
+    os.remove(directory..'/.weread-accounts/'..owner_a..'/reading_state.json')
+    os.remove(directory..'/.weread-accounts/'..owner_a)
+    os.remove(directory..'/.weread-accounts')
+    os.remove(directory..'/reading_state.json')
+    os.remove(directory..'/articles.json')
+    os.remove(directory..'/metadata.json')
+    os.remove(directory)
+end
 local account_dir=index.cache_dir..'/.weread-accounts/'
 for _,owner in ipairs({owner_a,owner_b}) do
     os.remove(account_dir..owner..'/reading_state.json');os.remove(account_dir..owner)
