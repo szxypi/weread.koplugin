@@ -91,8 +91,8 @@ end
 
 function M:handleEndOfBook(status_self)
     local action = G_reader_settings and G_reader_settings:readSetting("end_document_action") or "pop-up"
-    local native_file=self.ui and self.ui.document and self.ui.document.file
-    if require('weread.lib.native_direct_path').contains(self.settings,native_file) then
+    local file=self.ui and self.ui.document and self.ui.document.file
+    if require('weread.lib.native_direct_path').contains(self.settings,file) then
         return require('weread.ui.native_direct_navigation').start(self,action=='next_file' and 1 or nil)
     end
     local book_id = self:detectWeReadBook()
@@ -100,14 +100,11 @@ function M:handleEndOfBook(status_self)
         return self._orig_onEndOfBook(status_self)
     end
 
-    local books = self.settings:get("books", {})
-    local book = books[book_id]
-    self:ensureChaptersLoaded(book)
-    local file = self.ui.document and self.ui.document.file
-    local current_idx, current_ch, is_full_book = self:getChapterInfoFromFile(book, file)
-    local next_ch = (not is_full_book) and current_idx and book.chapters[current_idx + 1]
-
     if action == "next_file" then
+        local book = ReadAccess.load_cached_book(self.settings, book_id)
+        local chapters = self:ensureChaptersLoaded(book)
+        local current_idx, _, is_full_book = self:getChapterInfoFromFile(book, file)
+        local next_ch = chapters and not is_full_book and current_idx and chapters[current_idx + 1]
         if next_ch then
             self:openChapter(book, next_ch)
         else
@@ -847,9 +844,10 @@ function M:detectWeReadBook()
     return nil
 end
 
-function M:ensureChaptersLoaded(book)
+function M:ensureChaptersLoaded(book, read_only)
     if not book then return nil end
     if type(book.chapters) == "table" and #book.chapters > 0 then
+        if read_only then return book.chapters end
         local book_id = book.book_id or book.bookId
         if self.library_db and book_id then
             self.library_db:putChapters(book_id, book.chapters)
@@ -870,7 +868,7 @@ function M:ensureChaptersLoaded(book)
     local chapters = Content.load_catalog_cache(
         self.client, self.settings, book)
     if type(chapters) == "table" and #chapters > 0 then
-        if self.library_db then
+        if self.library_db and not read_only then
             self.library_db:putChapters(book_id, chapters)
         end
         return chapters
@@ -879,6 +877,7 @@ function M:ensureChaptersLoaded(book)
     chapters = self.library_db and self.library_db:getChapters(book_id) or nil
     if type(chapters) == "table" and #chapters > 0 then
         book.chapters = chapters
+        if read_only then return chapters end
         local cache_ok, cache_err = Content.save_catalog_cache(
             self.client, self.settings, book, chapters)
         if not cache_ok then

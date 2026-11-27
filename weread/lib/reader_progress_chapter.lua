@@ -1,4 +1,5 @@
 -- Reload chapter metadata immediately before a cross-file navigation.
+local ReadAccess=require('weread.lib.read_access')
 local M={}
 local function id(row)
     if type(row)~='table' then return nil end
@@ -18,12 +19,15 @@ function M.resolve(host,expected,direction)
         or expected.index%1~=0 or expected.index<1 or (direction~=-1 and direction~=1)
         or not host.settings or type(host.settings.get_book)~='function'
         or type(host.getChapterInfoFromFile)~='function' then return nil end
-    local book=host.settings:get_book(expected.book_id)
-    if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=expected.book_id then return nil end
+    local book=ReadAccess.load_cached_book(host.settings,expected.book_id)
+    if not book or book.book_id==nil and book.bookId==nil then return nil end
     for _,key in ipairs({'bookVersion','book_version','version','fileId','file_id','cache_dir'}) do
         if not equal_field(book,expected.book,key) then return nil end
     end
-    local catalog=require('weread.lib.content').load_catalog_cache(host.client,host.settings,book)
+    local catalog=book.chapters
+    if type(catalog)~='table' or #catalog==0 then
+        catalog=require('weread.lib.content').load_catalog_cache(host.client,host.settings,book)
+    end
     if type(catalog)~='table' or #catalog==0 then
         local db=host.library_db
         catalog=db and type(db.getChapters)=='function' and db:getChapters(expected.book_id) or nil

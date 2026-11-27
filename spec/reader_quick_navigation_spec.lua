@@ -14,17 +14,25 @@ local epoch,account=1,'one'
 local original={book_id='123',bookVersion=1,cache_dir='/cache/123',chapters=catalog,
     cached_chapters={['2']=doc.file}}
 local fresh={book_id='123',bookVersion=1,cache_dir='/cache/123',cached_chapters={['2']=doc.file}}
-local books={['123']=original}
+local building_menu,lookups=false,0
 local opened,listing,details,sync,notice
 local host={ui={document=doc},_reader_session_gen=7,settings={}}
 function host.settings:get(key,default)
-    if key=='books' then return books elseif key=='auth_epoch' then return epoch end
+    assert(key~='books','reading navigation hydrated the whole library')
+    if key=='auth_epoch' then return epoch end
     return default
 end
-function host.settings:get_book() return fresh end
+function host.settings:get_book(id,legacy_numeric)
+    assert(id=='123' and legacy_numeric,'reading navigation did not use the indexed book lookup')
+    lookups=lookups+1
+    return building_menu and original or fresh
+end
 function host.settings:get_auth_scope() return {account=account} end
 function host.settings:auth_scope_matches(scope) return scope.account==account end
-function host:ensureChaptersLoaded(book) return book.chapters end
+function host:ensureChaptersLoaded(book,read_only)
+    assert(read_only==true,'opening the menu must not rewrite the catalog')
+    return book.chapters
+end
 function host:getChapterInfoFromFile(book,file)
     for index,row in ipairs(book.chapters) do
         if book.cached_chapters[tostring(row.chapterUid)]==file then return index,row,false end
@@ -36,9 +44,25 @@ function host:showCurrentBookDetails() details=true end
 function host:onWeReadSyncProgress() sync=true end
 function host:showTransientInfo(value) notice=value end
 for key,value in pairs(Navigation) do if host[key]==nil then host[key]=value end end
-local function menu() assert(host:showEndOfBookDialog('123'));return callbacks end
+local function menu()
+    building_menu=true
+    assert(host:showEndOfBookDialog('123'))
+    building_menu=false
+    return callbacks
+end
 local c=menu();c.on_next()
 assert(opened and opened.book==fresh and opened.chapter==catalog[3],'next used a stale book or wrong chapter')
+do
+    fresh.chapters=catalog
+    local content=require('weread.lib.content')
+    local load_catalog=content.load_catalog_cache
+    content.load_catalog_cache=function() error('legacy inline chapters do not need an external catalog') end
+    opened=nil
+    local actions=menu();actions.on_next()
+    assert(opened and opened.book==fresh and opened.chapter==catalog[3],'next lost a legacy inline chapter')
+    content.load_catalog_cache=load_catalog
+    fresh.chapters=nil
+end
 opened=nil;c=menu();catalog[3]={chapterUid='4'};c.on_next()
 assert(not opened and notice:find('Chapter information changed',1,true),'changed catalog was used')
 catalog[3]={chapterUid='3'};notice=nil
@@ -76,6 +100,8 @@ c=menu();assert(options.close_to_home);c.on_close_book()
 assert(home_opens==1 and reader_closes==1 and browser_opens==0,'WeRead book closed to the file browser')
 host.ui.document=doc;fm.instance=nil;after_scope='two';c=menu();c.on_close_book()
 assert(home_opens==1 and reader_closes==2,'a different account opened the old book home')
+local earlier_lookups=lookups
 host.ui.document=doc;assert(host:showEndOfBookDialog(nil));assert(not options.close_to_home);callbacks.on_close_book()
+assert(lookups==earlier_lookups,'ordinary local document looked up a WeRead book')
 assert(browser_opens==1 and reader_closes==3,'ordinary book did not keep KOReader close behavior')
 print('reader_quick_navigation_spec: fresh chapters and deferred session guards passed')

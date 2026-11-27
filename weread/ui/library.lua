@@ -3323,7 +3323,7 @@ end
 
 function M:showCurrentBookDetails()
     local book_id = self:detectWeReadBook()
-    local book = book_id and self.settings:get("books", {})[book_id] or nil
+    local book = book_id and ReadAccess.load_cached_book(self.settings, book_id) or nil
     if not book then
         self:showInfo(_("The current document is not a WeRead cached book."))
         return

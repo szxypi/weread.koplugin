@@ -1,6 +1,7 @@
 -- End-of-book navigation dialog integration.
 local EndOfBookDialog = require("weread.ui.end_of_book_dialog")
 local PluginUtil = require("weread.lib.plugin_util")
+local ReadAccess = require("weread.lib.read_access")
 local WeRead = require("weread.lib.protocol")
 
 local _ = PluginUtil.tr
@@ -66,10 +67,9 @@ function M:showEndOfBookDialog(book_id)
     local search_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
     local search_epoch = self.settings:get('auth_epoch', 0)
 
-    local books = self.settings:get("books", {})
-    local book = book_id and (books[tostring(book_id)] or books[book_id]) or nil
+    local book = book_id and ReadAccess.load_cached_book(self.settings, book_id) or nil
     local is_regular_weread_book = book ~= nil and not WeRead.is_mp_book(book_id)
-    local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book) or nil
+    local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book, true) or nil
 
     local current_idx, current_chapter, is_full_book
     if chapters then
@@ -189,7 +189,7 @@ function M:showEndOfBookDialog(book_id)
         on_chapter_list = function()
             if not valid_reader() then return end
             if chapters then
-                local ok,fresh=pcall(self.settings.get_book,self.settings,tostring(book_id))
+                local ok,fresh=pcall(ReadAccess.load_cached_book,self.settings,book_id)
                 if ok and matching_book(fresh) and valid_reader() then self:showChapterList(fresh)
                 else self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
             else
