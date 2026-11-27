@@ -54,14 +54,17 @@ local function receipt_values(source)
     return { schema = "1", book_id = quote(source.book_id), chapter_uid = quote(source.chapter_uid),
         format = source.format, raw_bytes = tostring(source.raw_bytes), raw_sha256 = source.raw_sha256 }
 end
-local function decode_receipt(raw)
-    local fields = parse(raw, RECEIPT_KEYS, "capture_id")
-    if not fields or fields.schema ~= "1" then return nil end
+local function receipt_from_fields(fields)
+    if fields.schema ~= "1" then return nil end
     local book, uid, bytes = unquote(fields.book_id), unquote(fields.chapter_uid), tonumber(fields.raw_bytes)
     if not id(book) or not id(uid) or not bytes or bytes % 1 ~= 0 or bytes < 1 or bytes > M.MAX_BYTES
         or not hash(fields.raw_sha256) or (fields.format ~= "web_xhtml" and fields.format ~= "web_txt") then return nil end
     return { book_id = book, chapter_uid = uid, format = fields.format, raw_bytes = bytes,
         raw_sha256 = fields.raw_sha256, capture_id = fields.capture_id }
+end
+local function decode_receipt(raw)
+    local fields = parse(raw, RECEIPT_KEYS, "capture_id")
+    return fields and receipt_from_fields(fields)
 end
 local function encode_receipt(source)
     local body = payload(receipt_values(source), RECEIPT_KEYS)
@@ -183,8 +186,8 @@ end
 
 function M.decode_metadata(raw)
     local fields = parse(raw, META_KEYS, "metadata_sha256")
-    if not fields then return nil end
-    local receipt = decode_receipt(payload(fields, RECEIPT_KEYS) .. "capture_id=" .. fields.capture_id .. "\n")
+    if not fields or Crypto.sha256_hex(payload(fields, RECEIPT_KEYS)) ~= fields.capture_id then return nil end
+    local receipt = receipt_from_fields(fields)
     local version, path = tonumber(fields.book_version), unquote(fields.render_path)
     if not receipt or not hash(fields.file_id) or not render_path(path) or not hash(fields.render_sha256)
         or not version or version < 0 or version % 1 ~= 0 or version > 2147483647 then return nil end
@@ -233,16 +236,20 @@ function M.snapshot_document(document, expected_book, uid, path)
     return snapshot
 end
 
-function M.verify_snapshot(snapshot)
+-- The optional loader reads members selected by sealed metadata. It only
+-- receives the validated render path and raw digest, and supplies their bytes.
+function M.verify_snapshot(snapshot, load_members)
     if type(snapshot) ~= "table" or type(snapshot.identity) ~= "table" then return nil, "position_source/invalid" end
     local record = M.decode_metadata(snapshot.metadata)
     if not record or record.book_id ~= snapshot.book_id or record.chapter_uid ~= snapshot.chapter_uid
         or record.file_id ~= snapshot.identity.file_id or record.book_id ~= snapshot.identity.book_id
-        or record.book_version ~= snapshot.identity.book_version or type(snapshot.raw) ~= "string"
-        or #snapshot.raw ~= record.raw_bytes or #snapshot.raw > M.MAX_BYTES or type(snapshot.rendered) ~= "string"
-        or #snapshot.rendered > M.MAX_RENDERED_BYTES or Crypto.sha256_hex(snapshot.raw) ~= record.raw_sha256
-        or Crypto.sha256_hex(snapshot.rendered) ~= record.render_sha256 then return nil, "position_source/invalid" end
-    record.raw = snapshot.raw
+        or record.book_version ~= snapshot.identity.book_version then return nil, "position_source/invalid" end
+    local raw, rendered = snapshot.raw, snapshot.rendered
+    if load_members then raw, rendered = load_members(record.render_path, record.raw_sha256) end
+    if type(raw) ~= "string" or #raw ~= record.raw_bytes or #raw > M.MAX_BYTES or type(rendered) ~= "string"
+        or #rendered > M.MAX_RENDERED_BYTES or Crypto.sha256_hex(raw) ~= record.raw_sha256
+        or Crypto.sha256_hex(rendered) ~= record.render_sha256 then return nil, "position_source/invalid" end
+    record.raw = raw
     -- book_version describes the file's observed metadata. It is not evidence
     -- that a currently connected service still serves this chapter version.
     return record

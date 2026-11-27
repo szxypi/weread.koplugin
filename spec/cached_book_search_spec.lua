@@ -79,6 +79,28 @@ local meta=original[Source.meta_path('2')];original[Source.meta_path('2')]='inva
 expect(Search.scan({book=input.book,chapter='2',paths={'/cached.epub'},keyword='needle',from=1},archive).missing,
     'invalid source metadata was treated as a searchable chapter')
 original[Source.meta_path('2')]=meta
+do
+    local request={book=input.book,chapter='2',paths={'/cached.epub'},keyword='absent term',from=1}
+    local digest,decode=Crypto.sha256_hex,Source.decode_metadata
+    local metadata_digests,metadata_decodes=0,0
+    function Crypto.sha256_hex(value)
+        if value==meta then metadata_digests=metadata_digests+1 end
+        return digest(value)
+    end
+    function Source.decode_metadata(value) metadata_decodes=metadata_decodes+1;return decode(value) end
+    local no_match=Search.scan(request,archive)
+    expect(no_match.complete and #no_match.hits==0 and metadata_digests==0 and metadata_decodes==1,
+        'search without hits still repeated metadata work')
+    request.keyword='needle'
+    local hit=assert(Search.scan(request,archive).hits[1])
+    expect(hit.metadata_hash==digest(meta) and metadata_digests==1 and metadata_decodes==2,
+        'search did not retain a single exact digest for its matches')
+    Crypto.sha256_hex,Source.decode_metadata=digest,decode
+    local alias=Source.path_meta_path('OEBPS/text/chapter.xhtml')
+    original[alias]='different bytes'
+    expect(Search.scan(request,archive).missing, 'search accepted inconsistent UID and render aliases')
+    original[alias]=meta
+end
 expect(Search.scan({book='CB_bad/path',chapter='2',paths={'/cached.epub'},keyword='x',from=1},archive).error=='invalid',
     'unsafe book identity was accepted')
 expect(Search.scan({book=input.book,chapter='2',paths={'/cached.epub'},keyword='   ',from=1},archive).error=='invalid',

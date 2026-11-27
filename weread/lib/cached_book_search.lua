@@ -26,7 +26,7 @@ end
 
 -- Read only members named by independently decoded metadata; a matching raw
 -- hash alone is not enough if the rendered chapter or archive identity changed.
-function M.snapshot(file,book,uid,read_archive)
+local function read_snapshot(file,book,uid,read_archive,with_metadata_hash)
     if not path(file) or not Access.display_book_id(book) or not Access.book_id(uid) then return nil end
     local read=read_archive or Archive.read
     local ok,value=pcall(function()
@@ -34,19 +34,24 @@ function M.snapshot(file,book,uid,read_archive)
         local head=read(file,{[Identity.PATH]=Identity.MAX_BYTES,[meta_path]=Source.MAX_META_BYTES})
         local identity=head and Identity.decode(head[Identity.PATH])
         local metadata=head and head[meta_path]
-        local record=Source.decode_metadata(metadata)
-        if not identity or not record or identity.book_id~=book or record.book_id~=book
-            or record.chapter_uid~=uid or record.file_id~=identity.file_id then return nil end
-        local alias=Source.path_meta_path(record.render_path)
-        local members=read(file,{[Source.raw_path(record.raw_sha256)]=Source.MAX_BYTES,
-            [record.render_path]=Source.MAX_RENDERED_BYTES,[alias]=Source.MAX_META_BYTES})
-        if not members or members[alias]~=metadata then return nil end
-        local verified=Source.verify_snapshot({metadata=metadata,identity=identity,book_id=book,chapter_uid=uid,
-            raw=members[Source.raw_path(record.raw_sha256)],rendered=members[record.render_path]})
+        local verified=Source.verify_snapshot({metadata=metadata,identity=identity,book_id=book,chapter_uid=uid},
+            function(render_path,raw_hash)
+                local raw_path=Source.raw_path(raw_hash)
+                local alias=Source.path_meta_path(render_path)
+                local members=read(file,{[raw_path]=Source.MAX_BYTES,[render_path]=Source.MAX_RENDERED_BYTES,
+                    [alias]=Source.MAX_META_BYTES})
+                if members and members[alias]==metadata then return members[raw_path],members[render_path] end
+            end)
         if not verified then return nil end
-        return {identity=identity,metadata=metadata,record=verified,metadata_hash=Crypto.sha256_hex(metadata)}
+        local snapshot={identity=identity,metadata=metadata,record=verified}
+        if with_metadata_hash then snapshot.metadata_hash=Crypto.sha256_hex(metadata) end
+        return snapshot
     end)
     return ok and value or nil
+end
+
+function M.snapshot(file,book,uid,read_archive)
+    return read_snapshot(file,book,uid,read_archive,true)
 end
 
 -- A full EPUB retains sealed UID-to-render-path metadata even when the
@@ -142,7 +147,7 @@ function M.scan(input,read_archive)
             if not path(file) then return {error='invalid'} end
             if not seen[file] then
                 seen[file]=true
-                local candidate=M.snapshot(file,input.book,input.chapter,read_archive)
+                local candidate=read_snapshot(file,input.book,input.chapter,read_archive)
                 local candidate_map=candidate and Coordinates.build(candidate.record.raw,
                     {format=candidate.record.format,allow_multiple_bodies=true})
                 if candidate_map and pcall(candidate_map._index,candidate_map) then
@@ -163,6 +168,7 @@ function M.scan(input,read_archive)
             else haystack,keyword=fold_ascii(haystack),fold_ascii(keyword) end
         end
         local hits,examined,unresolved={},0,0
+        local metadata_hash
         while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
             local first=haystack:find(keyword,at,true)
             if not first then return {hits=hits,complete=true,unresolved=unresolved} end
@@ -180,8 +186,9 @@ function M.scan(input,read_archive)
                 local found,co=pcall(map._point,map,source_first)
                 local anchor=found and type(co)=='number' and (map:anchor(co,{segment_only=true}) or map:anchor(co))
                 if anchor then
+                    metadata_hash=metadata_hash or Crypto.sha256_hex(snapshot.metadata)
                     hits[#hits+1]={chapter_uid=input.chapter,offset=co,source_hash=record.raw_sha256,
-                        file_id=record.file_id,metadata_hash=snapshot.metadata_hash,
+                        file_id=record.file_id,metadata_hash=metadata_hash,
                         context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)}
                 else unresolved=unresolved+1 end
             end

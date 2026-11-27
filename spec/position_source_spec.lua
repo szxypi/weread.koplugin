@@ -35,6 +35,10 @@ expect(not metadata:find('not-captured', 1, true) and not metadata:find('https:/
 expect(not Source.decode_metadata(metadata .. 'extra=1\n'), 'trailing field accepted')
 expect(not Source.decode_metadata(metadata:gsub('raw_bytes=', 'other_bytes=')), 'tampered metadata accepted')
 expect(not Source.decode_metadata(string.rep('x', Source.MAX_META_BYTES + 1)), 'oversized metadata accepted')
+local metadata_body = assert(metadata:match('^(.*\n)metadata_sha256='))
+local bad_capture = metadata_body:gsub('capture_id=[0-9a-f]+', 'capture_id=' .. string.rep('0', 64))
+expect(not Source.decode_metadata(bad_capture .. 'metadata_sha256=' .. Crypto.sha256_hex(bad_capture) .. '\n'),
+    'valid outer seal allowed an invalid capture ID')
 for _, invalid in ipairs({ '../text/chapter.xhtml', 'OEBPS/text/../chapter.xhtml', 'OEBPS/text/chapter-000.xhtml', 'OEBPS/text/chapter-100001.xhtml', 'https://example.invalid/chapter.xhtml' }) do
     expect(not Source.bind(source, identity, invalid, Crypto.sha256_hex(rendered)), 'invalid member path accepted')
 end
@@ -49,6 +53,23 @@ local doc = { getDocumentFileContent = function(_self, name) calls = calls + 1; 
 local snapshot = assert(Source.snapshot_document(doc, book.book_id, 42))
 expect(calls == 4 and snapshot.raw == raw and snapshot.rendered == rendered, 'archive envelope incomplete')
 expect(assert(Source.verify_snapshot(snapshot)).raw == raw, 'snapshot did not verify')
+local selection = { metadata = metadata, identity = identity, book_id = book.book_id, chapter_uid = '42' }
+local loads = 0
+local function load_members(render_path, raw_sha256)
+    loads = loads + 1
+    assert(render_path == path and raw_sha256 == source.raw_sha256)
+    return raw, rendered
+end
+expect(assert(Source.verify_snapshot(selection, load_members)).raw == raw and loads == 1,
+    'snapshot loader did not use the sealed member names')
+selection.chapter_uid = '43'
+expect(not Source.verify_snapshot(selection, load_members) and loads == 1,
+    'unverified chapter scope reached the loader')
+selection.chapter_uid = '42'
+expect(not Source.verify_snapshot(selection, function() return 'x' .. raw:sub(2), rendered end),
+    'loader accepted same-size raw corruption')
+expect(not Source.verify_snapshot(selection, function() return raw, rendered .. 'tamper' end),
+    'loader accepted rendered corruption')
 expect(assert(Source.read_document(doc, book.book_id, nil, path)).capture_id == source.capture_id, 'path alias failed')
 expect(not Source.read_document(doc, 'other-book', 42), 'wrong book accepted')
 expect(not Source.read_document(doc, book.book_id, 43), 'wrong chapter accepted')
