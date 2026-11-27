@@ -16,17 +16,22 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
     if on_created is not None and (not bookmark or not callable(on_created)):
         raise ValueError('direct_highlight_trial/callback')
     probe.current();selection=probe.source;p=selection.plan
+    txt=source.get('plain_text') is True
     if (source['book_id']!=p.bound['book_id'] or source['uid']!=p.bound['chapter_uid']
-            or source['source_sha256']!=selection.payload['source_raw_sha256']):raise ValueError('direct_highlight_trial/source')
+            or source['source_sha256']!=selection.payload['source_raw_sha256']
+            or txt and (not bookmark or source['book_version']!=0 or source['chapter_idx']!=p.bound['chapter_idx']
+                or source['source_sha256']!=p.bound['source_sha256'])):raise ValueError('direct_highlight_trial/source')
     selection.baseline(credentials,'direct_highlight_before_launch')
     if bookmark:
-        from bookmark_trial_model import bind
-        bound=bind(p.bound,probe.body,native=True)
+        from bookmark_trial_model import bind,bind_txt
+        bound=bind_txt(p.bound,probe.body) if txt else bind(p.bound,probe.body,native=True)
     else:bound=bind_native(p.bound,probe.body)
     token=secrets.token_hex(16)
     payload=dict(credentials=credentials,book_id=source['book_id'],uid=source['uid'],book_version=source['book_version'],
-        source_sha256=source['source_sha256'],web_cookies=selection.payload['cookies'],selection_preview=deepcopy(selection.payload['selection_preview']),
+        source_sha256=source['source_sha256'],web_cookies=selection.payload['cookies'],
         trial=dict(armed=armed,rpc_token=token,original_ids=sorted(p.baseline['marks']['updated']),create_body=deepcopy(probe.body)))
+    if txt:payload.update(plain_text=True,chapter_idx=source['chapter_idx'],source_bytes=source['source_bytes'])
+    else:payload['selection_preview']=deepcopy(selection.payload['selection_preview'])
     if bookmark:payload['trial']['bookmark']=True
     if armed and on_created is not None:payload['trial']['cross_check']=True
     if source.get('mock_endpoint') is not None:payload['mock_endpoint']=source['mock_endpoint']
@@ -45,7 +50,9 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
                         or seq!=steps+1 or claims!=steps or not armed and seq!=1):raise ValueError('direct_highlight_trial/sequence')
                 expected=probe.body if seq==1 else {'bookmarkIds':[target['id']]}
                 if value['body']!=expected:raise ValueError('direct_highlight_trial/body')
-                if seq==1:selection.baseline(credentials,'direct_highlight_before_create')
+                if seq==1:
+                    if armed and not store.owns(receipt,'create_pending'):raise ValueError('direct_highlight_trial/intent')
+                    selection.baseline(credentials,'direct_highlight_before_create')
                 else:
                     latest,_=probe.read(credentials)
                     if latest!=target or not store.owns(receipt,'delete_pending'):raise ValueError('direct_highlight_trial/target')

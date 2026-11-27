@@ -7,6 +7,7 @@ import resource
 from native_direct_highlight_trial_broker import execute
 from native_direct_cross_bookmark_trial import prepare_origin,verify as verify_cross
 from native_direct_selection_preflight import bind_native_source
+from native_direct_txt_bookmark import TxtBookmarkProbe
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_highlight_trial import HighlightTrialStore
 from secure_native_session import NativeSessionStore
@@ -23,11 +24,14 @@ from verify_translation_preflight import save_refreshed_web_session
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true')
-    parser.add_argument('--book-offset',type=int,choices=range(51),default=15)
+    parser.add_argument('--txt',action='store_true',help='Use a regular zero-version TXT chapter')
+    parser.add_argument('--book-offset',type=int,choices=range(51))
     parser.add_argument('--cross-runner-json',help='JSON array of private cross-chapter runner arguments')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command) or (args.apply or args.cross_runner_json) and not args.saved_session:
         parser.error('saved session and private runner required together')
+    if args.txt and args.cross_runner_json:
+        parser.error('cross-chapter validation currently requires EPUB')
     report={'result':'OFFLINE_ONLY','account_data_posts':0,'authentication_posts':0}
     if not args.saved_session:print(json.dumps(report));return 0
     saved=credentials=probe=None;phase='intent';store=BookmarkTrialStore(native=True)
@@ -42,10 +46,15 @@ def main(argv=None):
                 or BookmarkTrialStore().read()!=(None,None) or store.read()!=(None,None)):
             raise ValueError('direct_bookmark_trial/other_pending')
         phase='session';session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
-        phase='sample';sample,_,_=ChapterProbe().inspect(credentials,args.book_offset)
-        probe=NativeBookmarkProbe();probe.source.web.requested_book=sample['book_id']
-        phase='selection';probe.prepare(saved,credentials)
-        phase='source';source=bind_native_source(probe.source,credentials)
+        offset=args.book_offset if args.book_offset is not None else 0 if args.txt else 15
+        phase='sample'
+        if args.txt:
+            probe=TxtBookmarkProbe();source=probe.prepare(saved,credentials,offset)
+        else:
+            sample,_,_=ChapterProbe().inspect(credentials,offset)
+            probe=NativeBookmarkProbe();probe.source.web.requested_book=sample['book_id']
+            phase='selection';probe.prepare(saved,credentials)
+            phase='source';source=bind_native_source(probe.source,credentials)
         saved=prepare_web_handoff(session,saved,probe.source)
         origin=None
         if cross_runner:
@@ -54,7 +63,9 @@ def main(argv=None):
             on_final=lambda:save_refreshed_web_session(session,saved,probe.source.web))
         if args.apply:
             phase='recheck';saved=prepare_web_handoff(session,saved,probe.source)
-            fresh=bind_native_source(probe.source,credentials)
+            if args.txt:
+                probe.recheck_source(credentials);fresh=source
+            else:fresh=bind_native_source(probe.source,credentials)
             if any(source[key]!=fresh[key] for key in ('book_id','uid','book_version','source_sha256')):
                 raise ValueError('direct_bookmark_trial/source')
             if cross_runner and prepare_origin(credentials,fresh)!=origin:raise ValueError('direct_bookmark_trial/source')
@@ -66,17 +77,21 @@ def main(argv=None):
     except (Exception,KeyboardInterrupt) as error:
         report.update(result='UNVERIFIED',phase=phase,no_automatic_replay=True,authentication_posts=0)
         if phase!='apply':report['account_data_posts']=0
-        if 'HTTP 401' in str(error):report['reason']='auth_expired'
-        elif 'HTTP 429' in str(error):report['reason']='rate_limited'
+        if 'HTTP 401' in str(error) or str(error)=='chapter/http_401':report['reason']='auth_expired'
+        elif 'HTTP 429' in str(error) or str(error)=='chapter/http_429':report['reason']='rate_limited'
         elif str(error) in {'direct_bookmark_trial/other_pending','direct_bookmark_trial/source','native_bookmark/existing',
-                'direct_selection_preflight/chapter','direct_selection_preflight/source'}:report['reason']=str(error)
+                'direct_selection_preflight/chapter','direct_selection_preflight/source',
+                'direct_txt_bookmark/format','direct_txt_bookmark/chapter','direct_txt_bookmark/existing',
+                'direct_txt_bookmark/baseline_changed','direct_txt_bookmark/source_changed','bookmark_trial/txt_preview',
+                'direct_roundtrip/changed','direct_roundtrip/catalog','direct_roundtrip/source'}:report['reason']=str(error)
         if type(error).__name__ in {'ValueError','PreflightError','ProbeError','StoreError','KeyError','TypeError'}:report['error_type']=type(error).__name__
         try:
             state,_=store.read();report.update(intent_state=state['phase'] if state else 'absent',reserved_posts=state['reserved_posts'] if state else 0)
         except Exception:report['intent_state']='unverified'
     finally:
         if probe:
-            probe.source.web.shards.clear();probe.source.web.close()
+            if not args.txt:probe.source.web.shards.clear()
+            probe.source.web.close()
         if saved:saved.clear()
         if credentials:credentials.clear()
     print(json.dumps(report));return int(report['result']=='UNVERIFIED')

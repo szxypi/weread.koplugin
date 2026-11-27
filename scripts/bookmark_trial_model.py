@@ -1,19 +1,31 @@
 """A single new type-0 bookmark; never changes an original cloud mark."""
 from copy import deepcopy
+import re
 from annotation_experiment_model import digest,valid_key
 from selection_trial_model import validate_plan as selection_plan
 from highlight_trial_model import PendingObservation
 from bookmark_point import project,point_range
+from my_cloud_marks_model import identifier,integer
+from txt_coordinates import PlainSource
 
 PROTOCOL='source-point-bookmark-create-remove-v1'
 NATIVE_PROTOCOL='native-source-point-bookmark-create-remove-v1'
+NATIVE_TXT_PROTOCOL='native-txt-point-bookmark-create-remove-v1'
+TXT_HASHES={key+'_sha256' for key in ('source','catalog','baseline','web_position','grant')}
 
 
 def validate_plan(value,*,native=False):
-    if (not isinstance(value,dict) or set(value)!={'protocol','selection','request_sha256'}
-            or value['protocol']!=(NATIVE_PROTOCOL if native else PROTOCOL)
-            or not isinstance(value['request_sha256'],str) or len(value['request_sha256'])!=64
-            or any(c not in '0123456789abcdef' for c in value['request_sha256'])):raise ValueError('bookmark_trial/plan')
+    if not isinstance(value,dict) or not isinstance(value.get('request_sha256'),str) \
+            or not re.fullmatch('[a-f0-9]{64}',value['request_sha256']):raise ValueError('bookmark_trial/plan')
+    if native and value.get('protocol')==NATIVE_TXT_PROTOCOL:
+        if (set(value)!={'protocol','owner','book_id','chapter_uid','chapter_idx','request_sha256'}|TXT_HASHES
+                or any(not identifier(value[key]) for key in ('owner','book_id','chapter_uid'))
+                or not integer(value['chapter_idx'],1000000)
+                or any(not isinstance(value[key],str) or not re.fullmatch('[a-f0-9]{64}',value[key]) for key in TXT_HASHES)):
+            raise ValueError('bookmark_trial/txt_plan')
+        return value
+    if set(value)!={'protocol','selection','request_sha256'} or value['protocol']!=(NATIVE_PROTOCOL if native else PROTOCOL):
+        raise ValueError('bookmark_trial/plan')
     selection_plan(value['selection']);return value
 
 
@@ -25,6 +37,31 @@ def request(context,raw,co):
 
 def bind(selection,body,*,native=False):
     return validate_plan(dict(protocol=NATIVE_PROTOCOL if native else PROTOCOL,selection=deepcopy(selection),request_sha256=digest(body)),native=native)
+
+
+def txt_request(book,uid,raw):
+    """Independently locate the first visible character of a rendered TXT chapter."""
+    model=PlainSource(raw.removeprefix('\ufeff'))
+    if not model.visible:raise ValueError('bookmark_trial/txt_point')
+    first=model.visible[0]
+    offset=model.starts[first]
+    text=model.excerpt(offset,140)['text'].strip()
+    flat=''.join(text.split())
+    if len(flat)<12 or not model.flat.startswith(flat) or model.flat.find(flat,1)!=-1:
+        raise ValueError('bookmark_trial/txt_preview')
+    return dict(bookId=book,chapterUid=int(uid),bookVersion=0,type=0,style=0,range=str(offset),markText=text)
+
+
+def bind_txt(source,body):
+    if (not isinstance(source,dict) or not isinstance(body,dict)
+            or set(body)!={'bookId','chapterUid','bookVersion','type','style','range','markText'}
+            or body['bookId']!=source.get('book_id') or type(body['chapterUid']) is not int
+            or str(body['chapterUid'])!=source.get('chapter_uid')
+            or any(type(body[key]) is not int or body[key]!=0 for key in ('bookVersion','type','style'))
+            or not isinstance(body['markText'],str) or not 0<len(body['markText'].encode())<=4096):
+        raise ValueError('bookmark_trial/txt_scope')
+    point_range(body.get('range'))
+    return validate_plan(dict(source,protocol=NATIVE_TXT_PROTOCOL,request_sha256=digest(body)),native=True)
 
 
 def observe(baseline,current,body,*,deleted=False,target=None):

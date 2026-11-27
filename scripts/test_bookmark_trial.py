@@ -6,7 +6,7 @@ import io
 import json
 import unittest
 from unittest.mock import Mock,patch
-from bookmark_trial_model import bind,observe,validate_plan
+from bookmark_trial_model import TXT_HASHES,bind,bind_txt,observe,txt_request,validate_plan
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_highlight_trial import HighlightTrialStore
 from secure_weread_session import StoreError
@@ -31,6 +31,19 @@ class BookmarkTrialTests(unittest.TestCase):
         p,_s,_store,_plan,_added=self.fixture()
         self.assertEqual(set(p.body),{'bookId','chapterUid','bookVersion','type','style','range','markText'})
         self.assertEqual((p.body['type'],p.body['style'],p.body['range']),(0,0,'9'))
+
+    def test_txt_point_uses_zero_version_and_bom_relative_raw_coordinate(self):
+        raw='\ufeff\t　\r\n第一行😀 <literal> &amp;\r\n第二行保留原文。'
+        body=txt_request('42','37',raw)
+        self.assertEqual((body['bookVersion'],body['range'],body['markText']),(0,'4',raw[5:]))
+        hashes=dict.fromkeys(TXT_HASHES,'a'*64)
+        bound=bind_txt(dict(hashes,owner='12',book_id='42',chapter_uid='37',chapter_idx=1),body)
+        store=BookmarkTrialStore(Backend(),native=True)
+        store.reserve(bound)
+        self.assertEqual(store.read()[0]['plan'],bound)
+        with self.assertRaises(ValueError):validate_plan(bound)
+        with self.assertRaises(ValueError):bind_txt(bound,dict(body,bookVersion=1))
+        with self.assertRaises(ValueError):txt_request('42','37','原样字句包含足够字符。再重复这行。'*25)
 
     def test_missing_bookmark_text_is_not_synthesized_as_server_returned_text(self):
         p,_s,_store,plan,added=self.fixture();target=observe(plan.baseline,added,p.body)

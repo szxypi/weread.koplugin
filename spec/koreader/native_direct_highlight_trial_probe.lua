@@ -5,8 +5,11 @@ package.path=assert(arg[1])..'/?.lua;'..package.path
 G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefaults'):open()
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local size=assert(tonumber(io.stdin:read('*l')));assert(size>0 and size<=262144)
-local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial);local cfg=assert(input.selection_preview)
+local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial)
 local bookmark=trial.bookmark==true
+local txt=input.plain_text==true
+assert(not txt or bookmark and input.book_version==0)
+local cfg=not txt and assert(input.selection_preview)
 _G._direct_trial_error_token=trial.rpc_token
 local ffi=require('ffi');local parent=tonumber(ffi.C.getpid())
 local function rpc(kind,seq,extra)
@@ -47,14 +50,17 @@ client.request=function(self,options)
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
             and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(native..'/book/chapterdownload?',1,true)==1 then
+        local query=txt and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&' or 'chapters=0%2C'..input.uid..'&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and url:find('chapters=0%2C'..input.uid..'&',1,true) and url:find('stopAutoPayWhenBNE=1',1,true))
+            and url:find(query,1,true) and url:find('stopAutoPayWhenBNE=1',1,true))
     elseif url==web..'/api/userInfo?userVid='..scope.vid then assert(options.method=='GET')
     elseif url==web..'/web/book/chapterInfos' then
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id)
         for key in pairs(body) do assert(key=='bookIds') end
     elseif url==require('weread.lib.protocol').reader_url(input.book_id,input.uid) then assert(options.method=='GET')
-    elseif url==web..'/web/book/chapter/e_0' or url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3' then
+    elseif url==web..'/web/book/chapter/e_0'
+        or txt and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1')
+        or not txt and (url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3') then
         local body=json.decode(options.body);local p=require('weread.lib.protocol')
         assert(options.method=='POST' and body.b==p.e(input.book_id) and body.c==p.e(input.uid)
             and body.sc==1 and body.prevChapter==false and body.st==0)
@@ -80,11 +86,24 @@ local host={ui=reader,settings=settings,client=client,library_db=library,_reader
     showInputDialog=function(_,dialog) UI:show(dialog) end,showInfo=function(self,message) self.checked_message=message end,
     detectWeReadBook=function() return nil end,showList=require('weread.ui.common').showList}
 local gatepath=assert(arg[3]);gate=dofile(gatepath):new({permit_writes=trial.armed,book_id=input.book_id,
-    bookmarks=bookmark,original_ids=trial.original_ids,create_body=trial.create_body},library,client,home)
+    bookmarks=bookmark,original_ids=trial.original_ids,create_body=trial.create_body,
+    source_format=txt and 'web_txt' or nil},library,client,home)
 local Selection=require('weread.ui.selection_thought');assert(Selection.attach(host))
 if bookmark then
     reader.rolling:onGotoPage(1);reader.document:clearSelection();UI:forceRePaint()
-    assert(Selection.open_bookmark(host),'direct bookmark entry unavailable')
+    if txt then
+        assert(require('weread.ui.reader_navigation').onShowWeReadQuickMenu(host))
+        local button
+        wait(function()
+            local menu=UI:getTopmostVisibleWidget()
+            button=menu and menu.getButtonById and menu:getButtonById('native_save_bookmark')
+            return button or host.checked_message~=nil
+        end)
+        assert(button and button.enabled~=false,'TXT bookmark menu entry unavailable')
+        button:onTapSelectButton()
+    else
+        assert(Selection.open_bookmark(host),'direct bookmark entry unavailable')
+    end
 else
     local matches=assert(reader.document:findAllText(cfg.reference.markText,false,0,3,false,0))
     assert(#matches==1 and matches[1].start and matches[1]['end'])
@@ -95,13 +114,21 @@ else
 end
 wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
 local owner=assert(host._selection_thought_owner);wait(function() return owner.reference~=nil or host.checked_message~=nil end)
-local row=assert(owner.reference);local expected=cfg.reference
-assert(row.range==(bookmark and trial.create_body.range or expected.range)
-    and row.markText==(bookmark and trial.create_body.markText or expected.markText)
-    and (bookmark or row.bookmarkId==expected.bookmarkId)
-    and row.chapterUid==expected.chapterUid and row.source.book_id==expected.source.book_id
-    and row.source.chapter_uid==expected.source.chapter_uid and row.source.raw_sha256==expected.source.raw_sha256
-    and row.source.raw_bytes==expected.source.raw_bytes)
+local row=assert(owner.reference)
+if txt then
+    assert(row.range==trial.create_body.range and row.markText==trial.create_body.markText
+        and row.chapterUid==tonumber(input.uid) and row.chapterIdx==input.chapter_idx and row.source.book_id==input.book_id
+        and row.source.chapter_uid==input.uid and row.source.raw_sha256==input.source_sha256
+        and row.source.raw_bytes==input.source_bytes,'TXT bookmark differs from the independent raw-source check')
+else
+    local expected=cfg.reference
+    assert(row.range==(bookmark and trial.create_body.range or expected.range)
+        and row.markText==(bookmark and trial.create_body.markText or expected.markText)
+        and (bookmark or row.bookmarkId==expected.bookmarkId)
+        and row.chapterUid==expected.chapterUid and row.source.book_id==expected.source.book_id
+        and row.source.chapter_uid==expected.source.chapter_uid and row.source.raw_sha256==expected.source.raw_sha256
+        and row.source.raw_bytes==expected.source.raw_bytes)
+end
 local tr=require('weread.lib.plugin_util').tr
 local function tap(id)
     UI:forceRePaint();assert(owner.menu._shelf_popup.button_table:getButtonById(id)):onTapSelectButton()
@@ -132,7 +159,26 @@ for _,item in ipairs(assert(cache:read(input.book_id)).updated) do
     if not original[item.bookmarkId] then assert(not target);target=item end
 end
 assert(target);rpc('verified',1,{created_id=target.bookmarkId});gate:advance(target.bookmarkId);sequence=2
-perform(bookmark and 'bookmark_delete' or 'delete',target)
+if txt then
+    Selection.cancel(host);host.checked_message=nil
+    local Marks=require('weread.ui.my_cloud_marks')
+    host.showMyCloudBookmarks=function(self,id) return Marks.show(self,id,'bookmarks') end
+    assert(require('weread.ui.native_direct_navigation').open_notes(host,'bookmarks'))
+    wait(function() return host._my_marks_owner or host.checked_message~=nil end)
+    owner=assert(host._my_marks_owner)
+    local selected
+    for _,item in ipairs(owner.menu.item_table) do
+        if item.my_note_id==target.bookmarkId then selected=item;break end
+    end
+    assert(selected,'new TXT bookmark missing from the list').callback()
+    tap('delete_bookmark')
+    wait(function() return not owner.mark_editor or owner.mark_editor.service.preview end)
+    assert(owner.mark_editor and owner.mark_editor.service.preview)
+    tap('confirm_highlight_change');wait(function() return not owner.mark_editor end)
+    Marks.cancel(host)
+else
+    perform(bookmark and 'bookmark_delete' or 'delete',target)
+end
 assert(host.checked_message==tr(bookmark and 'Cloud bookmark change verified.' or 'Cloud highlight change verified.') and journal:read().phase=='idle')
 rpc('verified',2,{created_id=target.bookmarkId})
 Selection.cancel(host)

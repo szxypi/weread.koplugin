@@ -14,11 +14,11 @@ from urllib.parse import parse_qs,urlsplit
 
 from annotation_experiment_model import digest
 from bookmark_point import first_position
-from bookmark_trial_model import request
+from bookmark_trial_model import TXT_HASHES,bind_txt,request,txt_request
 from native_direct_highlight_trial_broker import execute
 from native_direct_cross_bookmark_trial import verify as verify_cross
 from secure_bookmark_trial import BookmarkTrialStore
-from test_native_direct_position_runtime import BODY,BODY2,Handler,REPO
+from test_native_direct_position_runtime import BODY,BODY2,Handler,REPO,TXT
 from test_native_direct_selection_trial_runtime import Probe as SourceProbe
 from test_secure_native_session import Backend
 
@@ -56,8 +56,19 @@ class Probe:
         self.source.baseline=baseline
         self.source.plan.web_position=dict(chapter='37',offset=10,percent=50)
         context=self.source.payload['selection_preview']['body']
-        self.raw=BODY;self.first=first_position(BODY)
-        self.body=request(context,BODY,self.first);self.target=None;self.server=server;server.expected=self.body
+        if server.plain_text:
+            self.raw=TXT
+            self.body=txt_request('42','37',self.raw)
+            source_hash=hashlib.sha256(self.raw.encode()).hexdigest()
+            binding=dict.fromkeys(TXT_HASHES,'b'*64)
+            binding.update(owner='12345678',book_id='42',chapter_uid='37',chapter_idx=1,source_sha256=source_hash)
+            self.source.plan.bound=bind_txt(binding,self.body)
+            self.source.payload['source_raw_sha256']=source_hash
+        else:
+            self.raw=BODY
+            self.first=first_position(BODY)
+            self.body=request(context,BODY,self.first)
+        self.target=None;self.server=server;server.expected=self.body
     def current(self):self.source.current()
     def read(self,_credentials,*,deleted=False):
         row=self.server.mark
@@ -72,8 +83,9 @@ class Probe:
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
     group=parser.add_mutually_exclusive_group();group.add_argument('--cross-only',action='store_true')
-    group.add_argument('--cross-fail-only',action='store_true');args=parser.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    group.add_argument('--cross-fail-only',action='store_true');group.add_argument('--txt',action='store_true');args=parser.parse_args()
+    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);server.plain_text=args.txt
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-direct-bookmark-test-',dir='/dev/shm') as directory:
             candidate=Path(directory)/'candidate.zip'
@@ -83,13 +95,14 @@ def main():
                 for armed,case in (((True,'normal'),) if focused else ((False,'normal'),(True,'normal'),(True,'lost_ack'),(True,'no_effect'))):
                     server.case=case;server.mode='selection_direct_trial';server.calls=[];server.leaked=False;server.valid=True;server.mark=None;server.review=None
                     probe=Probe(server);store=BookmarkTrialStore(Backend(),native=True);report={}
-                    source=dict(book_id='42',uid='37',book_version=1,source_sha256=probe.source.payload['source_raw_sha256'],
+                    source=dict(book_id='42',uid='37',book_version=0 if args.txt else 1,source_sha256=probe.source.payload['source_raw_sha256'],
                         mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                    if args.txt:source.update(plain_text=True,chapter_idx=1,source_bytes=len(probe.raw.encode()))
                     command=[sys.executable,str(REPO/'scripts/run_native_direct_selection_trial.py'),'--bookmark','--koreader',str(args.koreader),
                         '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
                     credentials=probe.source.payload['selection_preview']['credentials']
                     cross=None
-                    if width==600 and armed and case=='normal':
+                    if not args.txt and width==600 and armed and case=='normal':
                         origin=dict(book_id='42',uid='37',book_version=1,source_sha256=source['source_sha256'],
                             origin_uid='38',origin_source_sha256=hashlib.sha256(BODY2.encode()).hexdigest())
                         cross_command=[sys.executable,str(REPO/'scripts/run_native_direct_personal_owner.py'),

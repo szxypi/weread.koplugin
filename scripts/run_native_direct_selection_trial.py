@@ -43,6 +43,10 @@ def main(argv=None):
         match=re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})',endpoint) if isinstance(endpoint,str) else None
         if (not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token) or type(trial['armed']) is not bool
                 or (trial.get('bookmark') is True)!=args.bookmark or 'bookmark' in trial and trial['bookmark'] is not True
+                or 'plain_text' in payload and (payload['plain_text'] is not True or not args.bookmark
+                    or type(payload.get('book_version')) is not int or payload['book_version']!=0
+                    or type(payload.get('chapter_idx')) is not int or not 0<=payload['chapter_idx']<=1000000
+                    or type(payload.get('source_bytes')) is not int or not 0<payload['source_bytes']<=2*1024*1024)
                 or 'cross_check' in trial and (trial['cross_check'] is not True or not args.bookmark or not trial['armed'])
                 or endpoint is not None and (not match or int(match.group(1))>65535)
                 or not synthetic_endpoint_allowed(payload,endpoint)):

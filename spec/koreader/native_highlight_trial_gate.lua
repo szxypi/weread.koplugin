@@ -18,7 +18,8 @@ function M:new(input,library,codec,root)
     assert(not input.color_style or input.color_style==true and not input.styles and not input.bookmarks and not input.palette and not input.matrix)
     assert(not input.palette or input.palette==true and not input.styles and not input.color_style and not input.bookmarks and not input.matrix)
     assert(not input.matrix or input.matrix==true and not input.palette and not input.styles and not input.color_style and not input.bookmarks)
-    assert(Contract.validate_body(input.bookmarks and 'bookmark_create' or 'create',input.create_body))
+    assert(input.source_format==nil or input.bookmarks and input.source_format=='web_txt')
+    assert(Contract.validate_body(input.bookmarks and 'bookmark_create' or 'create',input.create_body,input.source_format))
     local value=setmetatable({input=input,library=library,codec=codec,path=root..(input.bookmarks and '/bookmark-trial-gate.db' or '/highlight-trial-gate.db')},self)
     local db=require('lua-ljsqlite3/init').open(value.path);db:exec('PRAGMA synchronous=FULL')
     db:exec('CREATE TABLE trial(id INTEGER PRIMARY KEY,phase TEXT,posts INTEGER,target TEXT,preview TEXT)')
@@ -61,7 +62,7 @@ function M:advance_color(target,color)
     end)
 end
 function M:claim(operation,body)
-    assert(Contract.validate_body(operation,body))
+    assert(Contract.validate_body(operation,body,self.input.source_format))
     local action=operation
     if self.input.bookmarks then
         assert(operation=='bookmark_create' or operation=='bookmark_delete');action=operation=='bookmark_create' and 'create' or 'delete'

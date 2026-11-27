@@ -22,10 +22,11 @@ from secure_weread_session import SessionStore, StoreError
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
 from verify_eink_login import BASE
-from verify_native_chapter_package import ChapterProbe
+from verify_native_chapter_package import ChapterProbe,identity as numeric_id
 from verify_native_txt_roundtrip import Probe
 from verify_reader_progress import find_node, project
 from verify_source_coordinates import CoordinateError, FilteredSource
+from verify_translation_preflight import catalog as native_catalog,catalog_body
 from verify_web_source_progress import BASE as WEB, WebSourceProbe
 
 PROTOCOL='native-direct-xhtml-zero-time-roundtrip-v1'
@@ -45,6 +46,17 @@ class DirectTrialStore(NativeTxtRoundtripStore):
 
 class Reads(Probe):
     max_reads=64
+
+
+def txt_sample(probe,credentials,offset):
+    shelf=probe.request('shelf',BASE+'/shelf/sync',credentials=credentials)
+    ids=list(dict.fromkeys(book for row in shelf.get('books',[]) if isinstance(row,dict) and row.get('format')=='txt'
+                           and (book:=numeric_id(row.get('bookId')))))
+    if offset>=len(ids):raise ValueError('direct_ui_trial/no_txt_sample')
+    book=ids[offset];probe.allowed={book}
+    info=probe.request('book',BASE+'/book/info?'+urlencode(dict(bookId=book)),credentials=credentials)
+    chapters=probe.request('catalog',BASE+'/book/chapterInfos',catalog_body(book),credentials=credentials)
+    return dict(book_id=book,expected=native_catalog(chapters,book,info))
 
 
 def select_target(raw,before):
