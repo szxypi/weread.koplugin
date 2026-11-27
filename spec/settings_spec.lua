@@ -64,11 +64,13 @@ package.preload["libs/libkoreader-lfs"] = function()
 end
 
 local saved_books = {}
+local loaded_book_keys = {}
 local minimal_index_checked = false
 local minimal_index, legacy_catalog = false, false
 package.preload["weread.lib.book_store"] = function()
     return {
         load = function(_settings, book_id, index)
+            loaded_book_keys[#loaded_book_keys + 1] = book_id
             return {
                 book_id = book_id,
                 cache_dir = index.cache_dir,
@@ -293,8 +295,26 @@ values.books = { [42] = { cache_dir = "/legacy/42" }, [9007199254740992] = { cac
 expect(settings:get_book("42") == nil and settings:get_book("42", true).cache_dir == "/legacy/42",
     "optional numeric lookup changed ordinary settings lookup or lost a legacy book")
 expect(settings:get_book("9007199254740993", true) == nil, "legacy numeric lookup rounded a large book ID")
+local Access = require("weread.lib.read_access")
+local load_count = #loaded_book_keys
+local lookup = Access.book_lookup(settings)
+expect(#loaded_book_keys == load_count, "creating a view lookup loaded stored books eagerly")
+local legacy_book = Access.cached_book(lookup, "42")
+expect(legacy_book and legacy_book.cache_dir == "/legacy/42" and loaded_book_keys[load_count + 1] == 42,
+    "view lookup did not use the original legacy key")
+expect(Access.cached_book(lookup, 42) == legacy_book and #loaded_book_keys == load_count + 1,
+    "view lookup loaded the same book twice")
+expect(Access.cached_book(lookup, "9007199254740993") == nil and Access.cached_book(lookup, "43") == nil
+    and #loaded_book_keys == load_count + 1, "view lookup loaded an unrelated record")
 values.books["42"] = { cache_dir = "/exact/42" }
 expect(settings:get_book("42", true).cache_dir == "/exact/42", "exact saved key must precede a legacy numeric key")
+local fresh = Access.cached_book(Access.book_lookup(settings), "42")
+expect(fresh and fresh.cache_dir == "/exact/42" and loaded_book_keys[#loaded_book_keys] == "42",
+    "a subsequent view must load the exact key and see the update")
+local conflict, reason = Access.cached_book(function() return { book_id = "43" } end, "42")
+expect(conflict == nil and reason == "identity_conflict", "view lookup accepted a conflicting book identity")
+local _, write_reason = Access.cached_book_for_update(lookup, "42")
+expect(write_reason == "invalid_identity", "a read-only book lookup was accepted for an update")
 values.books = old_books
 
 print(("settings_spec: %d checks"):format(checks))

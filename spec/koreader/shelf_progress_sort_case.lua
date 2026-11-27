@@ -1,7 +1,7 @@
 -- Real account-scoped SQLite, native menus and offline sort; synthetic only.
 return function(plugin,mode,pump,evidence)
     local UI=require('ui/uimanager')
-    local original_db,original_get=plugin.library_db,plugin.settings.get
+    local original_db,original_lookup=plugin.library_db,plugin.settings.book_lookup
     local original_filters=plugin.shelf_filters
     local original_shelf=plugin.settings:get('shelf')
     local original_sort,original_view,original_paged=original_shelf.sort_order,original_shelf.view_mode,original_shelf.paginated
@@ -26,10 +26,7 @@ return function(plugin,mode,pump,evidence)
     end
     local saved={['901001']={book_id='901001',pending_upload_account=owner,
         pending_upload_position={book_id='901001',percent=90}}}
-    plugin.settings.get=function(self,key,default)
-        if key=='books' then return saved end
-        return original_get(self,key,default)
-    end
+    plugin.settings.book_lookup=function() return saved end
     plugin.shelf_filters={};plugin.shelf_group_key=nil;plugin.shelf_multi_groups={}
     local shelf=plugin.settings:get('shelf');shelf.view_mode='cover';shelf.paginated=true;shelf.sort_order='default'
     plugin.settings:set('shelf',shelf);plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
@@ -69,7 +66,7 @@ return function(plugin,mode,pump,evidence)
     assert(view.books[1].bookId=='901007' and view.books[2].bookId=='901002' and view.books[2]._shelf_progress==7,
         'another account inherited cached or pending progress')
     UI:forceRePaint();plugin:closeWeReadUI()
-    plugin.settings.get=original_get;plugin.library_db=original_db;plugin.shelf_filters=original_filters
+    plugin.settings.book_lookup=original_lookup;plugin.library_db=original_db;plugin.shelf_filters=original_filters
     shelf=plugin.settings:get('shelf');shelf.sort_order=original_sort;shelf.view_mode=original_view;shelf.paginated=original_paged
     plugin.settings:set('shelf',shelf);plugin.settings:flush()
     plugin.shelf_group_key=nil;plugin.shelf_multi_groups={}

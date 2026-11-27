@@ -834,7 +834,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     self.shelf_view_mode = mode
     self.shelf_search_keyword = keyword
     self.shelf_view_pages = self.shelf_view_pages or { books = 1, public_account = 1 }
-    local saved_books = self.settings:get("books", {})
+    local saved_books = ReadAccess.book_lookup(self.settings)
     local recent_account = group_owner(self)
     local downloaded_cache = {}
     local shelf_settings = self.settings:get("shelf")

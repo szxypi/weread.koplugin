@@ -277,6 +277,24 @@ function Settings:get_book_indexes()
     return type(value)=='table' and value or nil
 end
 
+-- Load only the records needed by one view update. Retain the stored key
+-- when loading a legacy numeric index.
+function Settings:book_lookup()
+    local indexes = self:get_book_indexes() or {}
+    local loaded = {}
+    local cached_key = require("weread.lib.read_access").cached_key
+    return function(id)
+        local book = loaded[id]
+        if book then return book end
+        local index = cached_key(indexes, id)
+        if index == nil then return nil end
+        local key = indexes[id] ~= nil and id or tonumber(id)
+        book = BookStore.load(self, key, index)
+        loaded[id] = book
+        return book
+    end
+end
+
 function Settings:find_book_by_file(path)
     if type(path) ~= "string" or path == "" then return nil end
     return BookStore.find_file(self, self:get_book_indexes(), path)

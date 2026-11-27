@@ -58,14 +58,14 @@ function M:showDiscoveryPage(tab, books, options)
     options.page=page
     local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
-    local saved, downloaded = not downloads and self.settings:get("books", {}) or nil, {}
+    local saved, downloaded = not downloads and ReadAccess.book_lookup(self.settings) or nil, {}
     for index = (page - 1) * layout.page_size + 1, math.min(#books, page * layout.page_size) do
         local book = books[index]
         cover_paths[book] = cache:pathFor(book)
         if not downloads then book._cached = self:isBookDownloaded(book, saved, downloaded) end
         visible[#visible + 1] = book
     end
-    local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
+    local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible,saved)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if previous then
@@ -113,9 +113,8 @@ function M:showDiscoveryPage(tab, books, options)
         on_select = Scope.guard(current, function(book)
             if options.on_select then options.on_select(book)
             elseif tab == "home" then
-                local saved_books=self.settings:get("books", {})
                 local id=ShelfSnapshot.persisted_id(book)
-                local stored=id and ReadAccess.cached_book(saved_books,id)
+                local stored=id and ReadAccess.cached_book(ReadAccess.book_lookup(self.settings),id)
                 local resume=stored and stored.native_home_resume and require('weread.ui.native_home_resume')
                 if resume then
                     if resume.can_resume(self,stored,id) then resume.open(self,stored,id,view,current)

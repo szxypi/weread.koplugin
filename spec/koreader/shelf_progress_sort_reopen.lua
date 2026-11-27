@@ -38,11 +38,9 @@ local local_settings={data_dir=evidence,get=function(_,key,default)
 end}
 plugin.library_db=require('weread.lib.library_db'):new(local_settings)
 local owner=assert(plugin.library_db:accountKey())
-local settings_get=plugin.settings.get
-plugin.settings.get=function(self,key,default)
-    if key=='books' then return {['901001']={book_id='901001',pending_upload_account=owner,
-        pending_upload_position={book_id='901001',percent=90}}} end
-    return settings_get(self,key,default)
+plugin.settings.book_lookup=function()
+    return {['901001']={book_id='901001',pending_upload_account=owner,
+        pending_upload_position={book_id='901001',percent=90}}}
 end
 local books={}
 for i=1,26 do books[i]={bookId=tostring(901000+i),title='合成进度书 '..i,isTop=i==7 and 1 or 0} end

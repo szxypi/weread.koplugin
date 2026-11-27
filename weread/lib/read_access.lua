@@ -66,8 +66,16 @@ end
 
 function M.cached_book(entries, value)
     local id=exact_book_id(value)
-    if not id or type(entries)~='table' then return nil,'invalid_identity' end
+    if not id then return nil,'invalid_identity' end
+    if type(entries)=='function' then return verified_cached_book(entries(id),id) end
+    if type(entries)~='table' then return nil,'invalid_identity' end
     return verified_cached_book(M.cached_key(entries,id),id)
+end
+
+-- Read-only lookup for a single view. Older hosts can supply a book table.
+function M.book_lookup(settings)
+    if type(settings.book_lookup)=='function' then return settings:book_lookup() end
+    return settings:get('books',{})
 end
 
 function M.load_cached_book(settings,value)
@@ -82,6 +90,7 @@ end
 -- Writers must not choose between two independently stored legacy indices.
 -- Return the numeric key for an unambiguous migration; do not mutate entries.
 function M.cached_book_for_update(entries,value)
+    if type(entries)~='table' then return nil,'invalid_identity' end
     local book,reason=M.cached_book(entries,value)
     if reason then return nil,reason end
     local id=exact_book_id(value)

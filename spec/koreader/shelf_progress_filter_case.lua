@@ -1,7 +1,7 @@
 -- Synthetic, offline native filter tests with real account-scoped SQLite.
 return function(plugin,mode,pump,evidence)
     local UI=require('ui/uimanager')
-    local old_db,old_get=plugin.library_db,plugin.settings.get
+    local old_db,old_lookup=plugin.library_db,plugin.settings.book_lookup
     local old_filters=plugin.shelf_filters
     local old_refresh,old_notice=plugin.refreshVisibleShelfProgress,plugin.showTransientInfo
     local shelf=plugin.settings:get('shelf')
@@ -33,10 +33,7 @@ return function(plugin,mode,pump,evidence)
     end
     local saved={['902008']={book_id='902008',pending_upload_account=owner,
         pending_upload_position={book_id='902008',percent=0.3}}}
-    plugin.settings.get=function(self,key,default)
-        if key=='books' then return saved end
-        return old_get(self,key,default)
-    end
+    plugin.settings.book_lookup=function() return saved end
     local redraw,notices
     plugin.refreshVisibleShelfProgress=function(_,_,_,_,options) redraw=options.on_redraw end
     plugin.showTransientInfo=function() notices=(notices or 0)+1 end
@@ -76,7 +73,7 @@ return function(plugin,mode,pump,evidence)
     assert(#plugin.shelf_view.books==0,'another account inherited cached or local progress')
     vid='progress-filter-account-a';plugin:showShelfView('books')
     assert(#plugin.shelf_view.books==3,'returning account lost filtered progress')
-    plugin:closeWeReadUI();plugin.settings.get=old_get;plugin.library_db=old_db;plugin.shelf_filters=old_filters
+    plugin:closeWeReadUI();plugin.settings.book_lookup=old_lookup;plugin.library_db=old_db;plugin.shelf_filters=old_filters
     plugin.refreshVisibleShelfProgress=old_refresh;plugin.showTransientInfo=old_notice
     shelf=plugin.settings:get('shelf');shelf.sort_order=old_sort;shelf.view_mode=old_view;shelf.paginated=old_paged
     shelf.filter_reading=old_reading;shelf.filter_download=old_download
