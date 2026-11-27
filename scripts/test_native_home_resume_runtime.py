@@ -57,7 +57,7 @@ def run(runtime):
                                             str(REPO)], input=json.dumps(payload), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     path = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')['37']
-                    for mode in ('record', 'quick_home', 'quick_shelf', 'quick_store', 'reopen', 'detail', 'shelf_detail',
+                    for mode in ('record_suspended', 'quick_home', 'quick_shelf', 'quick_store', 'reopen', 'detail', 'shelf_detail',
                                  'damage', 'detail_damage', 'shelf_damage', 'detail_closed', 'downloads',
                                  'downloads_choose', 'quick_choose', 'switch'):
                         receipt = Path(path).parent/'receipt.txt'

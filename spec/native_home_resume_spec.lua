@@ -84,4 +84,31 @@ expect(not s.path,'closed or replaced detail opened the old chapter')
 host,s=fixture();Resume.record(host);s.finish(1);host._book_detail_view=view
 Resume.open_detail(host,s.book,'42',view);exists=false;s.finish(2)
 expect(not s.path and s.message and not host.busy_message,'damaged detail chapter was opened or failed silently')
+local function sleep(reader_host)
+    reader_host._weread_suspended=true
+    Resume.suspend(reader_host)
+end
+local function wake(reader_host)
+    reader_host._weread_suspended=nil
+    return Resume.resume(reader_host)
+end
+host,s=fixture();Resume.record(host)
+local initial_at=host._native_home_resume.at
+local completion=s.jobs[1].task()
+sleep(host);s.jobs[1].callback(completion)
+expect(not s.patches and not host._native_home_resume,'verification completed while suspended')
+expect(wake(host) and #s.jobs==2 and host._native_home_resume.at==initial_at,'wake did not preserve pending verification and opening time')
+s.jobs[1].callback(completion);s.finish(2)
+expect(s.patches==1 and s.book.native_home_resume.at==initial_at and not Resume.resume(host),'wake recorded twice or lost original time')
+for _,change in ipairs({'account','document','generation','cancel'}) do
+    host,s=fixture();Resume.record(host);sleep(host)
+    if change=='account' then s.owner='other'
+    elseif change=='document' then host.ui.document={file=path}
+    elseif change=='generation' then host._reader_session_gen=2
+    else Resume.cancel(host) end
+    expect(not wake(host) and #s.jobs==1 and not s.patches,'wake reused an invalid recording: '..change)
+end
+host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
+Resume.open(host,s.book,'42',view,function() return true end);sleep(host)
+expect(not wake(host) and #s.jobs==2 and not s.path and not host.busy_message,'wake replayed an explicit open')
 print('PASS: native home recording and verified offline resume ('..checks..' checks)')

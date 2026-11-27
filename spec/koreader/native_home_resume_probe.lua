@@ -12,7 +12,9 @@ local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local id=input.book_id or '42';local vid=input.vid or '12345678'
 assert(type(id)=='string' and type(vid)=='string')
 local settings=require('weread.lib.settings'):new()
-if input.mode=='record' then
+local suspend_record=input.mode=='record_suspended'
+local record=input.mode=='record' or suspend_record
+if record then
     settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
     settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
     local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
@@ -35,10 +37,30 @@ local function pump(fn)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
-if input.mode=='record' then
+if record then
+    local delay_record=suspend_record
+    if suspend_record then
+        local cache=require('weread.lib.native_direct_cache')
+        local identify=cache.identify
+        cache.identify=function(...)
+            if delay_record then socket.sleep(20) end -- The suspend event cancels this first worker.
+            return identify(...)
+        end
+    end
     Reader:showReader(input.path)
     pump(function() return Reader.instance and Reader.instance.weread end)
     local reader=Reader.instance
+    if suspend_record then
+        local active=reader.weread
+        local interrupted=assert(active._native_home_resume,'chapter verification was not pending at reader start')
+        assert(not active.settings:get_book(id).native_home_resume)
+        active:onSuspend()
+        assert(not active._native_home_resume and not active._native_home_resume_worker.job)
+        delay_record=false
+        active:onResume()
+        assert(active._native_home_resume and active._native_home_resume~=interrupted,
+            'waking on the same chapter did not restart its home verification')
+    end
     pump(function() local b=reader.weread.settings:get_book(id);return b and b.native_home_resume end)
     assert(not reader.weread:detectWeReadBook())
     if reader.document:getPageCount()<2 then

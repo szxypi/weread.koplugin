@@ -656,7 +656,7 @@ function M:onSuspend()
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
-    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.suspend(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close'];if direct_close then direct_close.cancel(self) end
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position'];if direct_position then direct_position.cancel(self) end
@@ -726,6 +726,7 @@ end
 function M:onResume()
     self._weread_suspended=nil
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.connected(self) end
+    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.resume(self) end
     local pending=self._resume_chapter_prefetch;self._resume_chapter_prefetch=nil
     if pending then
         UIManager:scheduleIn(.2,function()

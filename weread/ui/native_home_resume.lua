@@ -32,6 +32,7 @@ local function same(a,b)
 end
 
 function M.cancel(host)
+    host._native_home_resume_after_wake=nil
     local ctx=host._native_home_resume
     if not ctx then return end
     host._native_home_resume=nil
@@ -58,20 +59,24 @@ function M.can_resume(host,book,id)
         and type(pointer.entry)=='table'
 end
 
-function M.record(host)
+local function same_reader(host,ctx)
+    return not host._weread_suspended and host.ui==ctx.reader and ctx.reader.document==ctx.document
+        and ctx.document.file==ctx.path and (host._reader_session_gen or 0)==ctx.session
+        and account(host,ctx.scope)==ctx.owner
+end
+
+local function record(host,opened_at)
     local reader=host.ui;local document=reader and reader.document
     local path=document and document.file
     local scope=host.settings:get_auth_scope()
     local owner=account(host,scope)
-    if not owner or not Path.contains(host.settings,path) then return false end
+    if host._weread_suspended or not owner or not Path.contains(host.settings,path) then return false end
     M.cancel(host)
     local ctx={reader=reader,document=document,path=path,scope=scope,owner=owner,
-        session=host._reader_session_gen or 0,at=os.time()}
+        session=host._reader_session_gen or 0,at=opened_at,recording=true}
     host._native_home_resume=ctx
     local function current()
-        return host._native_home_resume==ctx and not host._weread_suspended and host.ui==reader and reader.document==document
-            and document.file==path and (host._reader_session_gen or 0)==ctx.session
-            and account(host,scope)==owner
+        return host._native_home_resume==ctx and same_reader(host,ctx)
     end
     local w=worker(host)
     if not w then M.cancel(host);return false end
@@ -99,6 +104,24 @@ function M.record(host)
     end)
     if not ok or not started then M.cancel(host);return false end
     return true
+end
+
+function M.record(host)
+    return record(host,os.time())
+end
+
+function M.suspend(host)
+    local ctx=host._native_home_resume
+    M.cancel(host)
+    -- Only passive recording can resume. A user's explicit open stays cancelled.
+    if ctx and ctx.recording then host._native_home_resume_after_wake=ctx end
+end
+
+function M.resume(host)
+    local ctx=host._native_home_resume_after_wake
+    host._native_home_resume_after_wake=nil
+    if not ctx or host._native_home_resume or not same_reader(host,ctx) then return false end
+    return record(host,ctx.at)
 end
 
 local function open(host,book,id,view,view_current,detail)
