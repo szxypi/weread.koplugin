@@ -115,6 +115,28 @@ local function pump(fn)
 end
 FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
+local failure,ui_failed,resume_message,cloud_xpointer
+if input.exact_resume then
+    assert(live_cloud or input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
+    host.showInfo=function() ui_failed=true end
+    local show_list=host.showList
+    host.showList=function(self,title,...)
+        assert(title~=require('weread.lib.plugin_util').tr('E-Ink chapters'),
+            'direct continuation opened a chapter selector')
+        return show_list(self,title,...)
+    end
+    local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
+    CloudOpen.receive=function(next_host,...)
+        next_host.settings.mock_endpoint=input.mock_endpoint
+        next_host.showInfo=function(_,message) resume_message=message end
+        return receive(next_host,...)
+    end
+    local geometry=require('weread.lib.reader_position');local goto_xpointer=geometry.goto_xpointer
+    geometry.goto_xpointer=function(reader,point)
+        cloud_xpointer=point
+        return goto_xpointer(reader,point)
+    end
+end
 local shelf_owner
 if input.read_entry then
     assert((live_cloud or os.getenv('WEREAD_SYNTHETIC')=='1') and not next(host.settings:get('cookies',{})))
@@ -178,59 +200,46 @@ if not shelf_owner then
     if input.read_entry then UI:forceRePaint();button:onTapFooterAction()
     else button.callback() end
 end
-stage='catalog';pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
-local ctx=assert(host._native_direct_reading);local index
-if shelf_owner then
-    assert(ctx.shelf_owner==shelf_owner and not host._book_detail_view,'shelf tap opened details')
-    require('weread.ui.shelf_popup').redrawForMetadata(host,shelf_owner,function()
-        error('shelf refresh replaced the native chapter selector')
-    end)
-end
-if input.offline then
-    assert(ctx.offline and not ctx.catalog and #ctx.menu.item_table==1,'offline shelf did not list the saved chapter')
-    index=1
-else
-    for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
-end
-assert(index and ctx.menu.item_table[index].select_enabled)
-if input.cloud_chapter_uid then
-    local prefix=require('weread.lib.plugin_util').tr('Cloud reading chapter')..' · '
-    assert(input.uid==input.cloud_chapter_uid and (live_cloud or index==2) and ctx.menu.page==ctx.menu:getPageNumber(index)
-        and ctx.menu.item_table[index].text:find(prefix,1,true)==1,'the catalog did not locate the cloud chapter')
-end
-local failure,ui_failed
-local worker=assert(host._native_direct_worker);local worker_start=worker.start
-worker.start=function(self,task,callback,...)
-    return worker_start(self,task,function(value)
-        local allowed={not_entitled=true,auth_expired=true,rate_limited=true,service_rejected=true,session_changed=true,
-            catalog_changed=true,unavailable=true,invalid_source=true,invalid_image=true,remote_unsupported=true,storage=true}
-        if type(value)=='table' and allowed[value.error] then failure=value.error end
-        local resources={missing=true,unsupported=true,ambiguous=true,inline_style=true,css=true,css_import=true,css_url=true,
-            html=true,body=true,link_tag=true,style_tag=true,unsupported_markup=true,background_attribute=true,
-            other_source_attribute=true,multiple_styles=true,source=true,source_changed=true,asset=true,assets=true,
-            remote_limit=true,missing_limit=true,options=true,unavailable=true}
-        local resource=type(value)=='table' and type(value.error)=='string' and value.error:match('^native_resources/([a-z_]+)$')
-        if resource and resources[resource] then failure='resource_'..resource end
-        return callback(value)
-    end,...)
-end
-host.showInfo=function() ui_failed=true end
-local resume_message,cloud_xpointer
-if input.exact_resume then
-    assert(live_cloud or input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
-    local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
-    CloudOpen.receive=function(next_host,...)
-        next_host.settings.mock_endpoint=input.mock_endpoint
-        next_host.showInfo=function(_,message) resume_message=message end
-        return receive(next_host,...)
+local function choose_chapter()
+    stage='catalog';pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+    local ctx=assert(host._native_direct_reading);local index
+    if shelf_owner then
+        assert(ctx.shelf_owner==shelf_owner and not host._book_detail_view,'shelf tap opened details')
+        require('weread.ui.shelf_popup').redrawForMetadata(host,shelf_owner,function()
+            error('shelf refresh replaced the native chapter selector')
+        end)
     end
-    local geometry=require('weread.lib.reader_position');local goto_xpointer=geometry.goto_xpointer
-    geometry.goto_xpointer=function(reader,point)
-        cloud_xpointer=point
-        return goto_xpointer(reader,point)
+    if input.offline then
+        assert(ctx.offline and not ctx.catalog and #ctx.menu.item_table==1,'offline shelf did not list the saved chapter')
+        index=1
+    else
+        for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
     end
+    assert(index and ctx.menu.item_table[index].select_enabled)
+    if input.cloud_chapter_uid then
+        local prefix=require('weread.lib.plugin_util').tr('Cloud reading chapter')..' · '
+        assert(input.uid==input.cloud_chapter_uid and (live_cloud or index==2) and ctx.menu.page==ctx.menu:getPageNumber(index)
+            and ctx.menu.item_table[index].text:find(prefix,1,true)==1,'the catalog did not locate the cloud chapter')
+    end
+    local worker=assert(host._native_direct_worker);local worker_start=worker.start
+    worker.start=function(self,task,callback,...)
+        return worker_start(self,task,function(value)
+            local allowed={not_entitled=true,auth_expired=true,rate_limited=true,service_rejected=true,session_changed=true,
+                catalog_changed=true,unavailable=true,invalid_source=true,invalid_image=true,remote_unsupported=true,storage=true}
+            if type(value)=='table' and allowed[value.error] then failure=value.error end
+            local resources={missing=true,unsupported=true,ambiguous=true,inline_style=true,css=true,css_import=true,css_url=true,
+                html=true,body=true,link_tag=true,style_tag=true,unsupported_markup=true,background_attribute=true,
+                other_source_attribute=true,multiple_styles=true,source=true,source_changed=true,asset=true,assets=true,
+                remote_limit=true,missing_limit=true,options=true,unavailable=true}
+            local resource=type(value)=='table' and type(value.error)=='string' and value.error:match('^native_resources/([a-z_]+)$')
+            if resource and resources[resource] then failure='resource_'..resource end
+            return callback(value)
+        end,...)
+    end
+    host.showInfo=function() ui_failed=true end
+    ctx.menu:onMenuSelect(ctx.menu.item_table[index])
 end
-ctx.menu:onMenuSelect(ctx.menu.item_table[index])
+if not input.exact_resume then choose_chapter() end
 stage='reader';pump(function() return ui_failed or Reader.instance and Reader.instance.weread and Reader.instance.document end)
 if ui_failed then print('WEREAD_DIRECT_HOME_REASON='..(failure or 'unavailable'));error('chapter preparation failed') end
 local reader=Reader.instance;local path=reader.document.file

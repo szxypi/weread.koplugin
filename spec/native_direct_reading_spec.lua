@@ -7,8 +7,10 @@ local scope={vid='123',epoch=1}
 local initial_access={scope=scope,fingerprint=fingerprint,revision=1,store={},credentials={vid='123'}}
 local selected=initial_access
 local account_valid=true
+local next_tick
 package.preload['ui/uimanager']=function() return {show=function() end,
-    close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
+    close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end,
+    nextTick=function(_,callback) next_tick=callback end} end
 package.preload['device']=function() return {screen={scaleBySize=function(_,n) return n end}} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) local args={...};return (text:gsub('%%(%d)',function(i) return args[tonumber(i)] or '' end)) end} end
@@ -102,7 +104,7 @@ local function fixture()
             state.choose=options.on_choice
             return menu
         end,
-        openFile=function(_,path) state.opened=state.opened+1;state.path=path end,
+        openFile=function(_,path,callback) state.opened=state.opened+1;state.path=path;state.handoff=callback end,
         _native_direct_worker={start=function(_,task,callback,progress) state.jobs[#state.jobs+1]={task=task,callback=callback,progress=progress};return true end,
             cancel=function() state.cancelled=true end}}
     function state.finish(index) local job=state.jobs[index];job.callback(job.task()) end
@@ -193,6 +195,28 @@ for _,point in ipairs({{bookId='457',chapterUid=2,progress=10},
     expect(progress_calls==1 and not s.page and not cloud_marked(s.items[2]) and #s.jobs==1 and s.info==0,
         'unverified cloud progress changed the normal catalog')
 end
+local function start_exact()
+    local exact_host,exact=fixture()
+    cloud_progress={book={bookId='456',chapterUid=1,chapterIdx=1,chapterOffset=40,progress=10,summary='A unique later passage'}}
+    expect(UI.start(exact_host,{book_id='456'},exact.view,{cloud_chapter=true}),'exact cloud reading did not start')
+    exact.finish(1)
+    expect(#exact.jobs==2 and not exact.items and not exact_host._native_direct_reading.menu,
+        'exact cloud continuation required an extra chapter selection')
+    return exact_host,exact
+end
+host,s=start_exact();s.finish(2)
+expect(s.opened==1 and type(s.handoff)=='function' and expected_chapter.chapterUid=='1' and not s.items,
+    'verified cloud chapter did not open with its text target')
+expect(not host._native_direct_reading,'completed direct continuation left its selector active')
+host,s=start_exact();build_error='service_rejected';s.finish(2)
+expect(host._native_direct_reading.menu and s.opened==0 and #s.jobs==2 and cloud_marked(s.items[1]) and s.info==1,
+    'failed direct continuation did not return to its chapter list')
+host,s=start_exact();ready=s.jobs[2].task();s.cancel();s.jobs[2].callback(ready)
+expect(s.opened==0 and not s.items and not host._native_direct_reading,'cancelled direct continuation opened the reader')
+host,s=fixture();cloud_progress={book={bookId='456',chapterUid=2,chapterIdx=2,chapterOffset=40,
+    progress=10,summary='A unique later passage'}}
+UI.start(host,{book_id='456'},s.view,{cloud_chapter=true});s.finish(1)
+expect(#s.jobs==1 and s.page==2 and not s.items[2].select_enabled,'a locked exact cloud chapter was prepared automatically')
 host,s=fixture();cloud_progress={book={bookId='456',chapterUid=1,progress=10}}
 UI.start(host,{book_id='456'},s.view,{anchor=anchor,cloud_chapter=true});s.finish(1)
 expect(progress_calls==0 and s.page==2 and marked(s.items[2]),'cloud lookup overrode the local chapter')
@@ -487,6 +511,17 @@ expect(host._native_direct_reading.copy_menu and #s.items==2 and s.opened==0
     'online catalog ignored the separate reading positions of complete copies')
 s.select(2);s.finish(3)
 expect(s.opened==1 and s.path:find('/alternate.epub',1,true),'complete copy chooser did not open the selected file')
+host,s=start_exact();s.finish(2)
+local direct_copies=assert(host._native_direct_reading.copy_menu)
+expect(not host._native_direct_reading.menu and s.opened==0,'direct continuation picked an arbitrary saved copy')
+require('ui/uimanager'):close(direct_copies)
+expect(not host._native_direct_reading.menu and type(next_tick)=='function','copy chooser opened a menu during close')
+next_tick()
+expect(host._native_direct_reading.menu and cloud_marked(s.items[1]) and #s.jobs==2,
+    'dismissing the direct copy chooser did not return to the cloud chapter')
+host,s=start_exact();s.finish(2);s.select(2);s.finish(3)
+expect(not host._native_direct_reading and s.opened==1 and s.path:find('/alternate.epub',1,true) and s.handoff,
+    'the selected copy lost the direct cloud position')
 cache.list=matching_list;cache.open=function() return nil end
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);s.finish(2)
 expect(s.opened==1 and s.path:find('/file.epub',1,true),'a damaged matching copy blocked a fresh download')

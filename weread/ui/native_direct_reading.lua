@@ -109,6 +109,13 @@ local function current_row(rows,entry,catalog)
     end
 end
 
+local function cloud_row(rows,hint)
+    if type(hint)~='table' or not Protocol.id(hint.uid) then return nil end
+    for index,row in ipairs(rows) do
+        if row.chapterUid==hint.uid and (row.chapterIdx==nil or hint.idx==nil or row.chapterIdx==hint.idx) then return index end
+    end
+end
+
 local function connected(host)
     return host.isNetworkConnected and host:isNetworkConnected()
         or not host.isNetworkConnected and host:isNetworkOnline()
@@ -236,14 +243,30 @@ function M.start(host,book,view,options)
         ctx.generation=ctx.generation+1
         ctx.entry=nil
         ctx.chapter=nil
+        ctx.cloud_target=nil
         ctx.recovery_attempted=nil
         host._native_direct_worker:cancel()
         close_busy()
     end
+    local show_chapter_menu
+    local function show_resume_catalog(after_close)
+        local cloud=ctx.auto_open;ctx.auto_open=nil
+        local copies=ctx.copy_menu;ctx.copy_menu=nil
+        if copies then UIManager:close(copies) end
+        stop_chapter_open()
+        local function show()
+            if host._native_direct_reading~=ctx then return end
+            if current() then show_chapter_menu(ctx.catalog.chapters,nil,nil,cloud) else M.cancel(host) end
+        end
+        if after_close then UIManager:nextTick(show) else show() end
+    end
     local function fail(message,close_catalog)
         if host._native_direct_reading~=ctx then return end
         local live=view_current()
-        if live and not close_catalog and ctx.menu and ctx.busy and phase_guard(ctx.phase)() then stop_chapter_open()
+        if live and not close_catalog and ctx.busy and phase_guard(ctx.phase)() then
+            if ctx.auto_open then show_resume_catalog()
+            elseif ctx.menu then stop_chapter_open()
+            else M.cancel(host) end
         else M.cancel(host) end
         if live then host:showInfo(_(message or 'Could not prepare the E-Ink chapter. Please try again.')) end
     end
@@ -306,7 +329,8 @@ function M.start(host,book,view,options)
         menu.onCloseWidget=function(widget,...)
             if ctx.copy_menu==widget then
                 ctx.copy_menu=nil
-                if ctx.busy then stop_chapter_open() end
+                if ctx.auto_open then show_resume_catalog(true)
+                elseif ctx.busy then stop_chapter_open() end
             end
             if closed then return closed(widget,...) end
         end
@@ -322,7 +346,7 @@ function M.start(host,book,view,options)
             end})
         if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.') end
     end
-    local function show_chapter_menu(rows,picker,saved_catalog,cloud_chapter)
+    show_chapter_menu=function(rows,picker,saved_catalog,cloud_chapter)
         if #rows==0 then
             fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.');return
         end
@@ -362,16 +386,7 @@ function M.start(host,book,view,options)
         else
             current_index=current_row(rows,anchor,ctx.catalog)
         end
-        local cloud_index
-        if not current_index and type(cloud_chapter)=='table' and Protocol.id(cloud_chapter.uid) then
-            for index,row in ipairs(rows) do
-                if row.chapterUid==cloud_chapter.uid
-                    and (row.chapterIdx==nil or cloud_chapter.idx==nil or row.chapterIdx==cloud_chapter.idx) then
-                    cloud_index=index
-                    break
-                end
-            end
-        end
+        local cloud_index=not current_index and cloud_row(rows,cloud_chapter) or nil
         local initial_index=picker and picker.start or current_index or cloud_index
         local screen=require('device').screen
         local indent=sections and screen:scaleBySize(16)
@@ -708,7 +723,7 @@ function M.start(host,book,view,options)
                 end
                 return result or {error='unavailable'}
             end
-            if phase=='chapter' and ctx.menu then
+            if phase=='chapter' and (ctx.menu or ctx.auto_open) then
                 local saved=lookup_saved(current,true)
                 if saved then return saved end
             end
@@ -724,7 +739,7 @@ function M.start(host,book,view,options)
                 ctx.batch_record=result.batch_record
             end
             local reason=type(result)=='table' and result.error
-            if phase=='chapter' and ctx.menu and reason=='transport' then
+            if phase=='chapter' and (ctx.menu or ctx.auto_open) and reason=='transport' then
                 begin_open('saved_matches');return
             end
             if reason=='auth_expired' then renew();return end
@@ -829,7 +844,18 @@ function M.start(host,book,view,options)
                     if not chapter.downloadable then fail('The adjacent E-Ink chapter is unavailable.');return end
                     ctx.chapter=chapter;ctx.phase='chapter';launch();return
                 end
-                show_chapter_menu(checked.chapters,nil,nil,result.cloud_chapter);return
+                local cloud=result.cloud_chapter
+                local index=cloud_row(checked.chapters,cloud)
+                local chapter=index and checked.chapters[index]
+                local position=chapter and cloud.target
+                if want_cloud_chapter and chapter and chapter.downloadable and position
+                    and require('weread.lib.native_direct_resume').valid_target(position)
+                    and position.book_id==id and position.chapter_uid==chapter.chapterUid
+                    and position.chapter_idx==cloud.idx and connected(host) then
+                    ctx.auto_open,ctx.chapter,ctx.cloud_target=cloud,chapter,position
+                    begin_open('chapter');return
+                end
+                show_chapter_menu(checked.chapters,nil,nil,cloud);return
             end
             if (phase=='saved_matches' or phase=='chapter') and type(result)=='table' then
                 if phase=='saved_matches' and result.error=='not_saved' then

@@ -67,15 +67,15 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         server.image_requests = server.tar_requests = 0
         partial = entry in ('shelf_partial', 'shelf_partial_offline')
         offline_shelf = entry == 'shelf_partial_offline'
-        server.cloud_chapter = '38' if entry in ('details', 'shelf', 'shelf_partial') else None
-        server.exact_resume = entry == 'shelf_partial'
+        server.cloud_chapter = '38' if entry in ('details', 'details_exact', 'shelf', 'shelf_partial') else None
+        server.exact_resume = entry in ('details_exact', 'shelf_partial')
         server.progress_requests = 0
         uid = server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
             mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid, book_version=1,
             source_sha256=hashlib.sha256(fixture.body(uid).encode()).hexdigest(),
-            read_entry='shelf' if partial else entry)
+            read_entry='shelf' if partial else entry.removesuffix('_exact'))
         if partial:
             seed = dict(credentials=payload['credentials'], mock_endpoint=payload['mock_endpoint'],
                         mode='single', plugin_profile=True)
@@ -98,7 +98,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         if partial:
             assert (Path(result['path']) == saved) == offline_shelf
         assert server.progress_requests == (3 if server.exact_resume else int(server.cloud_chapter is not None))
-        if entry in ('details', 'catalog'):
+        if entry in ('details', 'details_exact', 'catalog'):
             mode = 'detail_catalog_saved' if entry == 'catalog' else 'detail_read_saved'
             offline = dict(mode=mode, path=result['path'])
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
@@ -120,7 +120,7 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details', 'catalog', 'shelf', 'shelf_partial', 'shelf_partial_offline'):
+                for entry in ('details', 'details_exact', 'catalog', 'shelf', 'shelf_partial', 'shelf_partial_offline'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 server.cloud_chapter = None
                 if read_entries_only:
@@ -189,7 +189,7 @@ def run(runtime, read_entries_only=False):
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native-only reading and catalogs from details and bookshelf, and offline details reopening at both sizes')
         print('PASS: partial downloads keep cloud chapter selection online and are selectable offline at both sizes')
-        print('PASS: exact read-only native cloud location with a verified original quote at both sizes')
+        print('PASS: one-tap read from details and bookshelf to a verified cloud location at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:
