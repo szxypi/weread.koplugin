@@ -114,10 +114,16 @@ for key, value in pairs(Library) do
 end
 
 local persisted_books = {}
+local book_reads = 0
 host.settings = {
     get = function(_self, key, default)
-        if key == "books" then return persisted_books end
+        assert(key ~= "books", "catalog read the complete book collection")
         return default
+    end,
+    get_book = function(_self, id)
+        assert(id == "book-1", "catalog read an unrelated book")
+        book_reads = book_reads + 1
+        return persisted_books[id]
     end,
 }
 local book = { bookId = "book-1", title = "Book", cached_chapters = {} }
@@ -179,6 +185,7 @@ expect(closed == 1 and returned_to_parent,
     "successful multi-download closes selection and returns to parent list")
 expect(catalog_view_data.chapters[1].status == "Cached",
     "successful multi-download refreshes cached chapter status")
+expect(book_reads == 2, "opening and rebuilding the catalog read one book each")
 
 local claims=require('weread.lib.chapter_cache_claim')
 local old_combined,old_usable=claims.combined,claims.usable

@@ -73,6 +73,7 @@ local host = {
             if key == "books" then return books end
             return default
         end,
+        get_book = function(_self, id) return books[id] end,
     },
     ui = {
         openFile = function(_self, path) opened = path end,

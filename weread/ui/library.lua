@@ -1466,7 +1466,7 @@ end
 function M:showBookMenu(book)
     local book_id = ShelfSnapshot.persisted_id(book)
     if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
-    local saved,conflict=ReadAccess.cached_book(self.settings:get("books", {}),book_id)
+    local saved,conflict=ReadAccess.load_cached_book(self.settings,book_id)
     if conflict then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
     saved=saved or book
     local BookDetailView = require("weread.ui.book_detail_view")
@@ -1563,7 +1563,7 @@ function M:showBookMenu(book)
     local view,cache_scope
     local open_chapter_list = self:safeCallback(_("Chapter list"), function()
         self:showChapterList(book, function()
-            local latest = self.settings:get("books", {})[book_id] or book
+            local latest = ReadAccess.load_cached_book(self.settings,book_id) or book
             if view then UIManager:close(view) end
             self:showBookMenu(latest)
         end)
@@ -1719,7 +1719,7 @@ function M:showBookMenu(book)
             text = _("Clear book cache"),
             callback = self:safeCallback(_("Clear book cache"), function()
                 self:confirmClearBookCache(book_id, book.title or book_id, function()
-                    local latest = self.settings:get("books", {})[book_id] or book
+                    local latest = ReadAccess.load_cached_book(self.settings,book_id) or book
                     if view then UIManager:close(view) end
                     self:showBookMenu(latest)
                 end)
@@ -2207,7 +2207,7 @@ function M:showChapterList(book, on_close)
     local function reloadBookCache()
         if not self.settings then return end
         local book_id = book.book_id or book.bookId
-        local latest = book_id and self.settings:get("books", {})[book_id]
+        local latest = book_id and ReadAccess.load_cached_book(self.settings,book_id)
         if type(latest) ~= "table" then return end
         for field in pairs(local_cache_fields) do
             if latest[field] ~= nil then book[field] = latest[field] end
