@@ -72,6 +72,23 @@ if input.rotate then
     print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,rotated=true,requests=requests})
     return
 end
+if input.damage_before_receipt then
+    local content=require('weread.lib.content');local save=content.save_chapter_epub
+    local altered_path
+    content.save_chapter_epub=function(config,volume,section,xhtml,assets,css,...)
+        altered_path=save(config,volume,section,xhtml,assets,css..'\nbody { color: red; }',...)
+        return altered_path
+    end
+    local result,reason=build()
+    assert(not result and reason=='storage' and requests==4 and altered_path)
+    local members=assert(require('weread.lib.source_archive').read(altered_path,{['OEBPS/style.css']=4096}))
+    assert(members['OEBPS/style.css']:find('body { color: red; }',1,true))
+    local cache=require('weread.lib.native_direct_cache')
+    assert(#assert(cache.list(settings,scope.vid,'42',function() return true end))==0
+        and not cache.present(settings,scope.vid,'42'),'archive with mismatched content was indexed')
+    print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,wrong_member_rejected=true,requests=requests})
+    return
+end
 if input.damage_receipt then
     local content=require('weread.lib.content');local save=content.save_chapter_epub
     local damaged_path,damage_written
@@ -83,8 +100,11 @@ if input.damage_receipt then
     rawset(os,'rename',function(source,target)
         local ok,err=rename(source,target)
         if ok and damaged_path and target==damaged_path:match('^(.*)/[^/]+$')..'/receipt.txt' then
-            local file=assert(io.open(damaged_path,'ab'))
-            assert(file:write('synthetic damage after receipt') and file:close())
+            local file=assert(io.open(damaged_path,'r+b'))
+            assert(file:read(4)=='PK\003\004')
+            -- Change only the stored timestamp in the ZIP local header.
+            assert(file:seek('set',10));local byte=assert(file:read(1)):byte()
+            assert(file:seek('set',10) and file:write(string.char(require('bit').bxor(byte,1))) and file:close())
             damage_written=true
         end
         return ok,err
@@ -93,14 +113,24 @@ if input.damage_receipt then
     rawset(os,'rename',rename)
     assert(not result and reason=='storage' and requests==4)
     local cache=require('weread.lib.native_direct_cache')
-    assert(damage_written and #assert(cache.list(settings,scope.vid,'42',function() return true end))==0)
+    local members=assert(require('weread.lib.source_archive').read(damaged_path,{mimetype=128}))
+    assert(members.mimetype=='application/epub+zip' and damage_written
+        and #assert(cache.list(settings,scope.vid,'42',function() return true end))==0)
     print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,damaged_after_receipt=true,requests=requests})
     return
 end
+local archive=require('weread.lib.source_archive');local verify=archive.verify_members;local archive_checks=0
+archive.verify_members=function(...)
+    archive_checks=archive_checks+1
+    return verify(...)
+end
 local first=assert(build());assert(not first.reused and first.path:find('/native%-reader%-v1/')
     and first.missing_images==(input.missing and 1 or 0))
+assert(archive_checks==1,'first save scanned archive contents more than once')
 local lfs=require('libs/libkoreader-lfs');local before=assert(lfs.attributes(first.path))
 local second=assert(build());assert(second.reused and second.path==first.path)
+assert(archive_checks==2,'reuse did not scan archive contents exactly once')
+archive.verify_members=verify
 local after=assert(lfs.attributes(first.path));assert(before.ino==after.ino and before.size==after.size)
 local receipt=assert(io.open(first.path:match('^(.*)/[^/]+$')..'/receipt.txt','wb'))
 assert(receipt:write('invalid receipt'));assert(receipt:close())

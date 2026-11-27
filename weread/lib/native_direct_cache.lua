@@ -642,9 +642,10 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
             local ok,result=pcall(require('weread.lib.content').save_chapter_epub,settings,local_book,local_chapter,
                 prepared.xhtml,prepared.assets,prepared.css,Identity.capture(local_book),nil,nil,guard)
             if not ok or result~=path or not can_publish() then return nil,live() and 'storage' or 'session_changed' end
+            -- The receipt and its EPUB are checked together before the entry
+            -- makes this copy available to the offline reader.
             local size,digest=digest_file(lfs,path)
-            if not size or not Archive.verify_members(path,wanted)
-                or not can_publish() or not publish_receipt(dir,key,size,digest) or not can_publish()
+            if not size or not can_publish() or not publish_receipt(dir,key,size,digest) or not can_publish()
                 or not verified(lfs,dir,path,key,wanted)
                 or not can_publish() or not publish_entry(lfs,dir,entry,account)
                 or not publish_ref(lfs,dir,entry) or not can_publish() then

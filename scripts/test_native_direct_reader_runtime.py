@@ -20,7 +20,7 @@ def run(runtime):
     try:
         for width,height,dpi,scenario in ((600,800,167,'normal'),(1264,1680,300,'normal'),
                 (600,800,167,'switch'),(1264,1680,300,'switch_commit'),(1264,1680,300,'rotate'),
-                (1264,1680,300,'damage_receipt'),(1264,1680,300,'missing')):
+                (600,800,167,'damage_before_receipt'),(1264,1680,300,'damage_receipt'),(1264,1680,300,'missing')):
             with tempfile.TemporaryDirectory(prefix='weread-native-direct-',dir='/dev/shm') as root:
                 xdg=Path(root)/'xdg';xdg.mkdir(mode=0o700)
                 env=dict(os.environ,KO_HOME=root,XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
@@ -45,6 +45,8 @@ def run(runtime):
                     assert result==dict(ok=True,rotated=True,requests=1) and server.paths==['/book/info']
                 elif scenario=='switch_commit':
                     assert result==dict(ok=True,switched_before_commit=True,requests=4) and len(server.paths)==4
+                elif scenario=='damage_before_receipt':
+                    assert result==dict(ok=True,wrong_member_rejected=True,requests=4) and len(server.paths)==4
                 elif scenario=='damage_receipt':
                     assert result==dict(ok=True,damaged_after_receipt=True,requests=4) and len(server.paths)==4
                 else:
