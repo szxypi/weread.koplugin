@@ -44,6 +44,9 @@ rawset(os,'remove',function(path)
     files[path]=nil;return true
 end)
 package.preload.json=function() return {decode=function(raw) return assert(tokens[raw]) end} end
+package.preload['weread.lib.chapter_cache_claim']=function() return {combined=function(_book,path)
+    return files[path] and files[path].data=='full'
+end} end
 local Model=require('weread.lib.book_cache_cleanup')
 local root='/cache/900001'
 local checks=0
@@ -62,7 +65,7 @@ local function fixture()
     return Model.scan(root,'900001')
 end
 local function begin(plan)
-    local lease,fresh=Model.acquire(root,'900001');assert(lease)
+    local lease,fresh=Model.acquire(root,'900001',plan.full_path);assert(lease)
     expect(Model.same_plan(plan,fresh),'unchanged preview rejected')
     return {plan=fresh,lease=lease,files=0,bytes=0}
 end
@@ -125,5 +128,34 @@ expect(not Model.acquire(root,'900001') and not held[root],'busy MP article did 
 fixture();put(root..'/.mp-quarantine-test',nil,'directory');put(root..'/.mp-quarantine-test/unknown','protected')
 plan=Model.scan(root,'900001');job=begin(plan);ok=Model.step(job);job.lease:release()
 expect(ok and files[root..'/.mp-quarantine-test/unknown'],'quarantined recovery data erased')
+
+fixture()
+local full=root..'/full.epub'
+plan=Model.scan(root,'900001',full)
+expect(plan.files==1 and plan.bytes==4 and plan.entries[1].path==full,'preview included other files')
+expect(not Model.same_plan(plan,Model.scan(root,'900001')),'selective preview matched full cache cleanup')
+job=begin(plan)
+expect(not Model.acquire(root,'900001',full),'selective cleanup did not hold the book lease')
+ok,reason=Model.step(job);job.lease:release()
+expect(ok and reason=='done' and not files[full] and files[root..'/chapter.epub'] and files[root..'/catalog.json']
+    and files[root..'/resources/image.png'] and files[root..'/full.sdr/metadata.epub.lua']
+    and files[root..'/reading_state.json'].data=='opaque dispatch journal and pending positions',
+    'selective cleanup failed to retain other downloads or reading records')
+fixture();tokens.valid.cached_full_book=nil;tokens.valid.cached_file=full
+expect(Model.scan(root,'900001',full).files==1,'verified legacy full copy was not selectable')
+tokens.valid.cached_file=root..'/chapter.epub'
+expect(Model.scan(root,'900001',tokens.valid.cached_file).files==0,'single legacy chapter was selectable as a full copy')
+expect(not pcall(Model.scan,root,'900001',full),'stale metadata path was selectable')
+for _,directory in ipairs({'resources','full.sdr'}) do
+    fixture();local path=root..'/'..directory..'/full.epub'
+    if directory=='resources' then put(root..'/resources',nil,'link') end
+    put(path,'full');tokens.valid.cached_full_book=path
+    expect(not pcall(Model.scan,root,'900001',path),'linked or retained parent was selectable')
+end
+fixture();plan=Model.scan(root,'900001',full);put(full,'full')
+lease,fresh=Model.acquire(root,'900001',full)
+expect(lease and not Model.same_plan(plan,fresh),'replacement copy matched the original preview');lease:release()
+fixture();job=begin(Model.scan(root,'900001',full));put(full,'full')
+expect(not Model.step(job) and files[full],'replacement copy was removed after confirmation');job.lease:release()
 rawset(io,'open',open);rawset(os,'remove',remove)
 print(('book_cache_cleanup_spec: %d checks'):format(checks))

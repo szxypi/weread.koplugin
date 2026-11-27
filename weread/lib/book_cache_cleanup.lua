@@ -45,18 +45,41 @@ local function read_metadata(root,id)
     for target in pairs(data.annotation_documents or {}) do
         if not inside(target) then fail('ownership') end
     end
-    return raw,info
+    return raw,info,data
 end
-function M.scan(root,id)
+local function select_full_book(plan,book,path)
+    if path~=book.cached_full_book and path~=book.cached_file then fail('changed') end
+    local info=fs().symlinkattributes(path)
+    if not info then return end
+    if info.mode~='file' or not path:match('%.epub$') then fail('ownership') end
+    local parent=path:match('^(.*)/[^/]+$')
+    while parent~='' and parent~=plan.root do
+        local attrs=fs().symlinkattributes(parent)
+        if not attrs or attrs.mode~='directory' or M.retained(parent:match('[^/]+$'),true) then fail('ownership') end
+        plan.directories[parent]=attrs
+        parent=parent:match('^(.*)/[^/]+$') or ''
+    end
+    if parent~=plan.root then fail('ownership') end
+    if not require('weread.lib.chapter_cache_claim').combined(book,path) then return end
+    if not unchanged(info,fs().symlinkattributes(path)) then fail('changed') end
+    plan.entries[1]={path=path,info=info}
+    plan.files,plan.bytes=1,info.size
+end
+function M.scan(root,id,full_path)
     if not Operation.path(root) then fail('ownership') end
     root=root:gsub('/+$','')
     local basename=tostring(id):gsub('[^%w%._-]','_')
     if basename=='' or basename=='.' or basename=='..' or root:match('/([^/]+)$')~=basename then fail('ownership') end
     local owner=fs().symlinkattributes(root)
     if not owner or owner.mode~='directory' then fail('unavailable') end
-    local metadata,meta_info=read_metadata(root,id)
+    local metadata,meta_info,book=read_metadata(root,id)
     local plan={root=root,id=tostring(id),owner=owner,metadata=metadata,meta_info=meta_info,
-        entries={},retained=0,files=0,bytes=0,names={},directories={[root]=owner}}
+        entries={},retained=0,files=0,bytes=0,names={},directories={[root]=owner},full_path=full_path}
+    if full_path then
+        select_full_book(plan,book,full_path)
+        if not same(owner,fs().symlinkattributes(root)) then fail('changed') end
+        return plan
+    end
     local count=0
     local function walk(path,depth)
         if depth>M.MAX_DEPTH then fail('capacity') end
@@ -92,11 +115,16 @@ function M.scan(root,id)
     if not same(owner,fs().symlinkattributes(root)) then fail('changed') end
     return plan
 end
-function M.acquire(root,id)
+function M.acquire(root,id,full_path)
     if not Operation.path(root) then return nil,'ownership' end
     root=root:gsub('/+$','')
     local lease,reason=Operation.open(root,true)
     if not lease then return nil,reason end
+    if full_path then
+        local ok,plan=pcall(M.scan,root,id,full_path)
+        if not ok then lease:release();return nil,'changed' end
+        return lease,plan
+    end
     local locks={lease}
     local ok=pcall(function()
         M.scan(root,id)
@@ -131,7 +159,7 @@ function M.acquire(root,id)
 end
 function M.same_plan(left,right)
     if not left or not right or left.root~=right.root or left.id~=right.id or left.metadata~=right.metadata
-        or #left.entries~=#right.entries or not same(left.owner,right.owner) then return false end
+        or left.full_path~=right.full_path or #left.entries~=#right.entries or not same(left.owner,right.owner) then return false end
     for path,info in pairs(left.directories) do if not same(info,right.directories[path]) then return false end end
     for path in pairs(right.directories) do if not left.directories[path] then return false end end
     for i,entry in ipairs(left.entries) do

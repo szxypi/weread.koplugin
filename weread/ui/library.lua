@@ -1725,15 +1725,23 @@ function M:showBookMenu(book)
         end
     end
     if has_cache then
+        local function clear_cache(full_path)
+            if self._book_detail_view~=view or not cache_scope or not cache_scope() then return end
+            self:confirmClearBookCache(book_id, book.title or book_id, function()
+                local latest = ReadAccess.load_cached_book(self.settings,book_id) or book
+                UIManager:close(view)
+                self:showBookMenu(latest)
+            end, full_path)
+        end
+        if is_full_cached then
+            actions[#actions + 1] = {
+                text = _("Remove only the full-book copy"),
+                callback = self:safeCallback(_("Remove only the full-book copy"), function() clear_cache(cached_path) end),
+            }
+        end
         actions[#actions + 1] = {
             text = _("Clear book cache"),
-            callback = self:safeCallback(_("Clear book cache"), function()
-                self:confirmClearBookCache(book_id, book.title or book_id, function()
-                    local latest = ReadAccess.load_cached_book(self.settings,book_id) or book
-                    if view then UIManager:close(view) end
-                    self:showBookMenu(latest)
-                end)
-            end),
+            callback = self:safeCallback(_("Clear book cache"), function() clear_cache() end),
         }
     end
     local updated = book.detail_updated_at

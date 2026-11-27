@@ -139,6 +139,22 @@ local needs_migration = BookStore.has_legacy_catalog(settings, "routing", routin
 rawset(io, "open", original_open)
 expect(needs_migration and catalog_reads == 1, "legacy catalog behind a minimal index was missed")
 
+local removed_copy=routing_index.cache_dir..'/removed.epub'
+local chapter=routing_index.cache_dir..'/offline-chapter.epub'
+local download_metadata=require('json').encode({book_id='routing',cached_file=removed_copy,cached_full_book=removed_copy,
+    cached_chapters={['4']=removed_copy,['7']=chapter},annotation_documents={[removed_copy]={},[chapter]={chapter_uid='7'}}})
+local download_file=assert(io.open(legacy_metadata_path,'wb'))
+assert(download_file:write(download_metadata));assert(download_file:close())
+expect(not BookStore.clear_downloads(settings,'routing',routing_index,'outdated preview',removed_copy),
+    'selective cleanup overwrote metadata changed since preview')
+expect(BookStore.clear_downloads(settings,'routing',routing_index,download_metadata,removed_copy),
+    'selective cleanup could not reconcile metadata')
+local downloads=BookStore.load(settings,'routing',routing_index)
+expect(not downloads.cached_file and not downloads.cached_full_book and not downloads.cached_chapters['4']
+    and not downloads.annotation_documents[removed_copy] and downloads.cached_chapters['7']==chapter
+    and downloads.annotation_documents[chapter].chapter_uid=='7',
+    'selective reconciliation pruned references outside the deleted copy when another chapter was unavailable')
+
 local loaded = BookStore.load(settings, "book/42", index)
 local metadata_only = BookStore.without_reading_state(loaded)
 expect(metadata_only.title == loaded.title and metadata_only.cache_dir == loaded.cache_dir,

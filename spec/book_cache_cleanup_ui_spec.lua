@@ -1,12 +1,15 @@
 -- Confirmation lifetime, reader/download exclusion and cooperative cancellation.
 package.path='./?.lua;'..package.path
 local scheduled,shown,removed,patches,released={},nil,0,0,0
-local changed,fail_step=false,false
+local changed,fail_step,patched_path=false,false
 local root='/cache/900001'
+local full=root..'/full.epub'
 local metadata={mode='directory',dev=1,ino=1}
 package.preload['libs/libkoreader-lfs']=function() return {symlinkattributes=function() return metadata end} end
 package.preload['weread.lib.content']=function() return {book_resolved_dir=function(_settings,_id,book) return book.cache_dir end} end
-package.preload['weread.lib.book_store']=function() return {clear_downloads=function() patches=patches+1;return true end} end
+package.preload['weread.lib.book_store']=function() return {clear_downloads=function(_settings,_id,_index,_expected,path)
+    patches=patches+1;patched_path=path;return true
+end} end
 package.preload['weread.lib.plugin_util']=function() return {
     tr=function(value) return value end,T=function(value) return value end,file_exists=function() return true end,
 } end
@@ -16,15 +19,18 @@ package.preload['ui/uimanager']=function() return {
     scheduleIn=function(_self,delay,callback) assert(delay>=.1);scheduled[#scheduled+1]=callback end,
 } end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
+local function scan(_root,_id,path)
+    local files=path==full and 1 or path and 0 or 70
+    return {files=files,bytes=files,metadata='fixture',owner=metadata}
+end
 package.preload['weread.lib.book_cache_cleanup']=function() return {
-    scan=function() return {files=70,bytes=70,metadata='fixture',owner=metadata} end,
+    scan=scan,
     same_plan=function() return not changed end,
-    acquire=function() return {owns=function() return true end,release=function() released=released+1 end},
-        {files=70,bytes=70,metadata='fixture',owner=metadata} end,
+    acquire=function(...) return {owns=function() return true end,release=function() released=released+1 end},scan(...) end,
     step=function(job,limit)
         if fail_step then return false end
-        local amount=math.min(limit,70-job.files);removed=removed+amount;job.files=job.files+amount
-        return true,job.files==70 and 'done' or 'continue'
+        local amount=math.min(limit,job.plan.files-job.files);removed=removed+amount;job.files=job.files+amount
+        return true,job.files==job.plan.files and 'done' or 'continue'
     end,
 } end
 local Model=require('weread.ui.book_cache_cleanup')
@@ -32,6 +38,7 @@ local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
 local function fixture()
     scheduled={};shown=nil;removed=0;patches=0;released=0;changed=false;fail_step=false
+    patched_path=nil
     package.loaded['apps/reader/readerui']=nil
     local books={['900001']={book_id='900001',cache_dir=root}}
     local host={ui={},settings={cache_dir='/cache'},info={},done=0,refreshes=0}
@@ -101,4 +108,15 @@ host=fixture();host.client={};host.library_db={accountKey=function() return 'acc
 Model.show(host,{'900001'});shown.ok_callback();generation='replacement'
 while #scheduled>0 do table.remove(scheduled,1)() end
 expect(clears==2 and host.info[#host.info]:find('stopped',1,true),'changed checkpoint was removed or cleanup claimed success')
+host=fixture();host.library_db={accountKey=function() return 'account' end,open=function() end}
+expect(not Model.show(host,{'900001'},'Synthetic cache',nil,full..'.missing') and not shown and removed==0,
+    'missing copy offered a deletion confirmation')
+expect(Model.show(host,{'900001'},'Synthetic cache',function() host.done=host.done+1 end,full),
+    'verified full copy did not offer a deletion confirmation')
+expect(shown.text:find('Downloaded chapters',1,true) and not shown.text:find('Interrupted translation',1,true),
+    'selective confirmation described full cleanup')
+shown.ok_callback();while #scheduled>0 do table.remove(scheduled,1)() end
+expect(removed==1 and released==1 and patches==1 and patched_path==full and host.done==1
+    and not host.annotation_cleared and clears==2 and host.info[#host.info]=='Full-book copy removed',
+    'selective cleanup lost its removal path or cleared notes or translations')
 print(('book_cache_cleanup_ui_spec: %d checks'):format(checks))

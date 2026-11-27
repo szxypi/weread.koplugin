@@ -37,6 +37,49 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
         assert(Crypto.sha256_hex(read(note_dir..'/metadata.epub.lua'))==note_hash,'cleanup removed local notes')
         assert(host.settings:get_book(id).cache_dir==root,'cleanup dropped the pinned record directory')
     end
+    local full=assert(saved.cached_full_book)
+    local full_bytes=read(full)
+    local metadata_path=root..'/metadata.json'
+    local metadata_before=read(metadata_path)
+    local first,second=assert(saved.cached_chapters['2']),assert(saved.cached_chapters['4'])
+    local first_bytes,second_bytes=read(first),read(second)
+    press(view,'Remove only the full-book copy')
+    local selective=assert(host.book_cache_cleanup_job)
+    assert(selective.files==1 and selective.bytes==#full_bytes,'selective preview did not match the full copy')
+    selective.dialog:onClose();records()
+    assert(read(full)==full_bytes and not host.book_cache_cleanup_job,'cancelled selective cleanup removed the copy')
+    press(view,'Remove only the full-book copy')
+    assert(host.book_cache_cleanup_job).dialog.ok_callback()
+    pump(function() return not host.book_cache_cleanup_job end);records()
+    assert(not lfs.attributes(full) and read(first)==first_bytes and read(second)==second_bytes,
+        'selective cleanup removed the wrong EPUB')
+    assert(pending:get(token,'1') and lfs.attributes(root..'/cache-extra-001.bin'),
+        'selective cleanup removed other download data')
+    saved=assert(host.settings:get_book(id))
+    assert(not saved.cached_full_book and not saved.cached_file and saved.cached_chapters['2']==first and saved.cached_chapters['4']==second)
+    view=assert(host._book_detail_view)
+    assert(not view.data.status_line:find(tr('Full book cached'),1,true),'detail still showed the removed copy')
+    local Common=require('weread.ui.common')
+    local Client=require('weread.lib.client')
+    local online,connected,request=Common.isNetworkOnline,Common.isNetworkConnected,Client.request
+    Common.isNetworkOnline=function() return false end
+    Common.isNetworkConnected=Common.isNetworkOnline
+    local requests=0
+    Client.request=function() requests=requests+1;error('offline chapter requested network access') end
+    press(view,'Downloaded chapters')
+    local picker=assert(host._saved_chapter_menu)
+    assert(#picker.item_table==2,'downloaded picker did not list the two retained chapters')
+    picker:onMenuSelect(picker.item_table[1])
+    pump(function() return Reader.instance and Reader.instance.document.file==first end)
+    assert(require('weread.lib.position_source').read_document(Reader.instance.document,id,2),'wrong retained chapter opened')
+    close_reader()
+    Common.isNetworkOnline,Common.isNetworkConnected,Client.request=online,connected,request
+    assert(requests==0,'opening the retained chapter required network access')
+    report.cache_full_copy_selective=true
+    report.cache_selective_offline_chapter=true
+    -- Restore the synthetic download and journal to exercise the original full purge.
+    write(full,full_bytes);write(metadata_path,metadata_before);write(state_path,raw)
+    host,view=detail()
     host:confirmClearBookCache(id,'Synthetic cache');local job=assert(host.book_cache_cleanup_job)
     local dialog=assert(job.dialog);assert(UI:getTopmostVisibleWidget()==dialog)
     UI:forceRePaint();require('device').screen:shot(evidence..'/cache-clear-confirmation.png')

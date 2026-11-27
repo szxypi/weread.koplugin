@@ -688,8 +688,8 @@ function M:offerScanNewDir(new_dir, base_message)
     end)
 end
 
-function M:confirmClearBookCache(book_id, title, on_cleared)
-    return require('weread.ui.book_cache_cleanup').show(self,{book_id},title,on_cleared)
+function M:confirmClearBookCache(book_id, title, on_cleared, full_path)
+    return require('weread.ui.book_cache_cleanup').show(self,{book_id},title,on_cleared,full_path)
 end
 
 local function cache_ids(host,mp_only)
