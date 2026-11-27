@@ -2,6 +2,8 @@
 local Data=require('weread.lib.shelf_progress')
 local Recovery=require('weread.ui.shelf_progress_recovery')
 local Identity=require('weread.lib.shelf_snapshot')
+local NativeAccess=require('weread.lib.native_read_access')
+local ShelfSource=require('weread.lib.shelf_source')
 local Popup=require('weread.ui.shelf_popup')
 local UI=require('ui/uimanager')
 local Util=require('weread.lib.plugin_util')
@@ -32,6 +34,19 @@ function M.cancel(host,already_closed)
     if host.busy_message==job.dialog then host.busy_message=nil end
 end
 
+local function valid_snapshot(value)
+    if type(value)~='table' or type(value.fetched_at)~='number'
+        or value.fetched_at~=value.fetched_at or value.fetched_at<1 or value.fetched_at>253402300799
+        or value.source~='web' and value.source~='gateway' and value.source~='native' then return false end
+    if value.unavailable==true then
+        return value.percent==nil and value.exact_percent==nil
+    end
+    if type(value.percent)~='number' or value.percent%1~=0 or value.percent<0 or value.percent>100
+        or value.unavailable~=nil then return false end
+    return value.exact_percent==nil or type(value.exact_percent)=='number' and value.exact_percent>=0
+        and value.exact_percent<=100 and math.floor(value.exact_percent)==value.percent
+end
+
 local function valid_prefix(values,batch)
     if type(values)~='table' or #values>#batch then return false end
     local count=0
@@ -41,17 +56,22 @@ local function valid_prefix(values,batch)
     end
     if count~=#values then return false end
     for index,value in ipairs(values) do
-        if type(value)~='table' or value.book_id~=batch[index] or type(value.fetched_at)~='number'
-            or value.fetched_at~=value.fetched_at or value.fetched_at<1 or value.fetched_at>253402300799
-            or value.source~='web' and value.source~='gateway' and value.source~='native' then return false end
-        if value.unavailable==true then
-            if value.percent~=nil or value.exact_percent~=nil then return false end
-        elseif type(value.percent)~='number' or value.percent~=value.percent or value.percent%1~=0
-            or value.percent<0 or value.percent>100 or value.unavailable~=nil then return false end
-        if value.exact_percent~=nil and (type(value.exact_percent)~='number' or value.exact_percent~=value.exact_percent
-            or value.exact_percent<0 or value.exact_percent>100 or math.floor(value.exact_percent)~=value.percent) then return false end
+        if not valid_snapshot(value) or value.book_id~=batch[index] then return false end
     end
     return true
+end
+
+local function valid_summaries(values,allowed,total)
+    if type(values)~='table' or #values==0 or #values>total then return false end
+    local seen,length={},0
+    for index,value in pairs(values) do
+        if type(index)~='number' or index%1~=0 or index<1 or index>#values or not valid_snapshot(value)
+            or not allowed[value.book_id] or seen[value.book_id] or value.source~='native'
+            or value.exact_percent==nil or type(value.updated_at)~='number' or value.updated_at%1~=0
+            or value.updated_at<1 or value.updated_at>4102444800 then return false end
+        seen[value.book_id]=true;length=length+1
+    end
+    return length==#values
 end
 
 function M.start(host,origin,on_done)
@@ -123,6 +143,27 @@ function M.start(host,origin,on_done)
     end
     local worker=host.shelf_progress_all_worker
     if not worker or not worker:available() then M.cancel(host);host:showInfo(_('Could not start the progress update.'));return false end
+    local pending,processed=ids,0
+    local function start_worker(options,on_error)
+        local complete,delivered=options.on_done,false
+        options.on_done=function(result)
+            if delivered then return end;delivered=true
+            if not current(host,job) then if host.shelf_progress_all_context==job then M.cancel(host) end;return end
+            job.request=nil
+            complete(result)
+        end
+        local ok,started,request=pcall(worker.start,worker,options)
+        if delivered then return end
+        if not ok or not started then on_error();return end
+        if not current(host,job) then
+            pcall(worker.cancel,worker,request,'cancelled')
+            if host.shelf_progress_all_context==job then M.cancel(host) end
+        elseif request then job.request=request
+        else pcall(worker.cancel,worker,nil,'invalid_request');on_error() end
+    end
+    local function report()
+        dialog:reportProgress(job.done,T(_('Updating bookshelf progress: %1/%2'),tostring(job.done),tostring(#ids)))
+    end
     local launch
     local function later()
         job.scheduled=function()
@@ -135,9 +176,9 @@ function M.start(host,origin,on_done)
         if not current(host,job) then M.cancel(host);return end
         if not host:isNetworkOnline() or not Data.matches(host.settings,job.access) then finish('failed');return end
         local batch={}
-        for i=job.done+1,math.min(#job.ids,job.done+M.BATCH_SIZE) do batch[#batch+1]=job.ids[i] end
-        local batch_access=job.access;local delivered=false
-        local ok,started,request=pcall(worker.start,worker,{
+        for i=processed+1,math.min(#pending,processed+M.BATCH_SIZE) do batch[#batch+1]=pending[i] end
+        local batch_access=job.access
+        start_worker({
             kind='shelf_progress_all',queue=true,
             task=function(ctx)
                 local paced={checkCancelled=ctx.checkCancelled,emit=function(state)
@@ -154,9 +195,6 @@ function M.start(host,origin,on_done)
                 end
             end,
             on_done=function(result)
-                if delivered then return end;delivered=true
-                if not current(host,job) then if host.shelf_progress_all_context==job then M.cancel(host) end;return end
-                job.request=nil
                 if not Data.matches(host.settings,job.access) or type(result)~='table' or not result.ok
                     or type(result.value)~='table' or result.value.stale then finish('failed');return end
                 local value=result.value;local values=value.snapshots
@@ -168,7 +206,8 @@ function M.start(host,origin,on_done)
                     if not saved or committed~=true then finish('failed');return end
                 end
                 job.done=job.done+#values
-                dialog:reportProgress(job.done,T(_('Updating bookshelf progress: %1/%2'),tostring(job.done),tostring(#ids)))
+                processed=processed+#values
+                report()
                 if channel then
                     local started_renewal=Recovery.start(host,job,job.access,channel,{
                         is_current=function() return current(host,job) end,
@@ -184,13 +223,49 @@ function M.start(host,origin,on_done)
                 end
                 if value.failed then finish('failed') elseif job.done==#ids then finish('complete') else later() end
             end,
-        })
-        if ok and started then
-            if not delivered and current(host,job) then
-                if request then job.request=request else pcall(worker.cancel,worker,nil,'invalid_request');finish('failed') end
-            end
-        elseif not delivered then finish('failed') end
+        },function() finish('failed') end)
     end
-    launch();return true
+    local mode=ShelfSource.mode(host.settings)
+    local native=#ids>1 and mode~='gateway' and (access.native and access.native.grant or NativeAccess.capture(host.settings))
+    if not native or native.renewal_pending then launch();return true end
+    local function summary_current()
+        return ShelfSource.mode(host.settings)==mode and NativeAccess.matches(host.settings,native)
+            and Data.matches(host.settings,job.access)
+    end
+    start_worker({
+        kind='shelf_progress_summary',queue=true,
+        task=function(ctx)
+            local function still_current()
+                ctx.checkCancelled()
+                return summary_current()
+            end
+            local ok,snapshot=pcall(ShelfSource.read_native,host.client,native.credentials,native.scope,still_current)
+            if not still_current() then return {} end
+            if not ok then return {limited=snapshot=='native_auth/shelf/http_429'} end
+            local values={}
+            for _,value in ipairs(snapshot._display_progress or {}) do
+                if seen[value.book_id] then values[#values+1]=value end
+            end
+            return {snapshots=values}
+        end,
+        on_done=function(result)
+            local value=type(result)=='table' and result.ok and result.value
+            if summary_current() and type(value)=='table' then
+                if value.limited then finish('failed');return end
+                if valid_summaries(value.snapshots,seen,#ids) then
+                    local ok,saved,stored=pcall(job.db.putShelfProgress,job.db,value.snapshots,true)
+                    if ok and saved and type(stored)=='table' then
+                        pending={}
+                        for _,id in ipairs(ids) do
+                            if stored[id]==true then job.done=job.done+1 else pending[#pending+1]=id end
+                        end
+                        report()
+                    end
+                end
+            end
+            if #pending==0 then finish('complete') else launch() end
+        end,
+    },launch)
+    return true
 end
 return M

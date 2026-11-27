@@ -38,8 +38,13 @@ local function fixture(count)
     local worker={available=function() return true end,start=function(_,options)
         local request={options=options};state.tasks[#state.tasks+1]=request;return true,request
     end,cancel=function() state.cancelled=state.cancelled+1 end}
-    local db={accountKey=function() return state.account end,putShelfProgress=function(_,values)
-        state.saves[#state.saves+1]=values;return not state.fail_save
+    local db={accountKey=function() return state.account end,putShelfProgress=function(_,values,summary)
+        state.saves[#state.saves+1]=values
+        if state.fail_save then return false end
+        if not summary then return true end
+        local stored={}
+        for _,value in ipairs(values) do if value.book_id~=state.conflict then stored[value.book_id]=true end end
+        return true,stored
     end}
     local host={library_db=db,settings={cache_dir='/synthetic',data_dir='/synthetic',get=function(_,_,default) return default end},
         client={},shelf_regular={},shelf_progress_all_worker=worker}
@@ -156,4 +161,70 @@ first.options.on_done{ok=true,value={snapshots={{book_id='900001',percent=4,fetc
 host.busy_message.buttons[1][1].callback();renewal_callback(true)
 assert(renewal_cancelled==1 and not host.shelf_progress_all_context and #scheduled==0 and #state.tasks==1,
     'cancelled renewal resumed the old update')
+
+local Source=require('weread.lib.shelf_source')
+local fetch_native=Source.read_native
+local function summary_fixture()
+    local bulk_host,bulk_origin,bulk_state,bulk_done=fixture(6)
+    local scope={vid='900000',epoch=1}
+    bulk_state.native_revision=1
+    bulk_host.settings.get_auth_scope=function() return scope end
+    bulk_host.settings.auth_scope_matches=function(_,candidate) return candidate==scope end
+    package.loaded['weread.lib.native_credentials']={new=function()
+        return {read=function() return {vid=scope.vid,accessToken='synthetic-native'},bulk_state.native_revision end}
+    end}
+    Source.read_native=function(_client,grant,_scope,current)
+        assert(grant.vid==scope.vid and current())
+        if bulk_state.summary_error then error(bulk_state.summary_error,0) end
+        local function row(id)
+            return {book_id=id,source='native',fetched_at=1000,updated_at=900,percent=0,exact_percent=0.5}
+        end
+        if bulk_state.complete_summary then
+            local values={}
+            for _,book in ipairs(bulk_host.shelf_regular) do values[#values+1]=row(book.bookId) end
+            return {_display_progress=values}
+        end
+        return {_display_progress={row('900001'),row('900003'),row('900006'),row('999999')}}
+    end
+    bulk_state.conflict='900003'
+    return bulk_host,bulk_origin,bulk_state,bulk_done
+end
+host,origin,state,done=summary_fixture()
+assert(Bulk.start(host,origin,done));first=state.tasks[1]
+assert(first.options.kind=='shelf_progress_summary')
+first.options.on_done{ok=true,value=run_task(first)}
+local job=assert(host.shelf_progress_all_context)
+assert(job.done==2 and #state.saves[1]==3 and #state.tasks==2,'summary counted foreign or unsaved progress')
+second=state.tasks[2];second.options.on_done{ok=true,value=run_task(second)}
+assert(#sent==1 and table.concat(sent[1].ids,',')=='900002,900003,900004,900005'
+    and #state.saves==2 and state.notices[1]:find('6/6',1,true),'summary failed to prefill only committed books')
+
+host,origin,state,done=summary_fixture();state.conflict=nil;state.complete_summary=true
+assert(Bulk.start(host,origin,done));first=state.tasks[1];first.options.on_done{ok=true,value=run_task(first)}
+assert(#state.saves==1 and #state.tasks==1 and state.notices[1]:find('6/6',1,true),'complete summary launched individual reads')
+
+host,origin,state,done=summary_fixture();assert(Bulk.start(host,origin,done));first=state.tasks[1]
+first.options.on_done{ok=true,value=run_task(first)};second=state.tasks[2]
+host.busy_message.buttons[1][1].callback();second.options.on_done{ok=true,value=run_task(second)}
+assert(#state.saves==1 and state.notices[1]:find('2/6',1,true),'cancelling the missing books lost the saved summary or committed a stale batch')
+
+host,origin,state,done=summary_fixture();assert(Bulk.start(host,origin,done));first=state.tasks[1]
+local ready=run_task(first)
+host.busy_message.buttons[1][1].callback();first.options.on_done{ok=true,value=ready}
+assert(#state.saves==0 and #state.tasks==1 and state.cancelled==1,'cancelled summary wrote progress or started lookup')
+
+host,origin,state,done=summary_fixture();assert(Bulk.start(host,origin,done));first=state.tasks[1]
+ready=run_task(first);state.native_revision=2;first.options.on_done{ok=true,value=ready}
+assert(#state.saves==0 and state.tasks[2].options.kind=='shelf_progress_all',
+    'late summary from a replaced grant was saved or blocked the independent Web route')
+
+host,origin,state,done=summary_fixture();state.summary_error='native_auth/shelf/http_429'
+assert(Bulk.start(host,origin,done));first=state.tasks[1];first.options.on_done{ok=true,value=run_task(first)}
+assert(#state.saves==0 and #state.tasks==1 and state.notices[1]:find('stopped',1,true),'limited summary caused a burst of individual requests')
+
+host,origin,state,done=summary_fixture();state.summary_error='native_auth/shelf/http_401'
+assert(Bulk.start(host,origin,done));first=state.tasks[1];first.options.on_done{ok=true,value=run_task(first)}
+second=state.tasks[2];second.options.on_done{ok=true,value=run_task(second)}
+assert(#state.saves==1 and sent[1].ids[1]=='900001','expired optional summary blocked the established per-book route')
+Source.read_native=fetch_native
 print('PASS: bulk shelf progress batching, cancellation, ownership, failures and one renewal')

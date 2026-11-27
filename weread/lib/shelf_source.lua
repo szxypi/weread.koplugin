@@ -167,6 +167,22 @@ local function canonical_gateway(data, normalized)
     return copy
 end
 
+function M.read_native(client, credentials, scope, is_current)
+    local auth = Auth:new(client, { expected_vid = scope.vid, is_current = is_current })
+    local ok, result = pcall(function()
+        local requested_at = os.time()
+        local raw = auth:read_shelf(credentials)
+        local shelf = M.normalize(raw)
+        if type(raw.bookProgress) == "table" and #raw.bookProgress > 0 then
+            shelf._display_progress = require("weread.lib.shelf_progress").from_native_shelf(raw.bookProgress, shelf.books, requested_at)
+        end
+        return shelf
+    end)
+    auth:cancel()
+    if not ok then error(result, 0) end
+    return result
+end
+
 function M.fetch(client, options)
     options = options or {}
     local settings = client.settings
@@ -189,17 +205,7 @@ function M.fetch(client, options)
         selected.credentials, selected.revision, fallback = nil, nil, true
     end
     if selected.credentials then
-        local auth = Auth:new(client, { expected_vid = selected.scope.vid, is_current = function() return current(true) end })
-        local ok, result = pcall(function()
-            local requested_at = os.time()
-            local raw = auth:read_shelf(selected.credentials)
-            local shelf = M.normalize(raw)
-            if type(raw.bookProgress) == "table" and #raw.bookProgress > 0 then
-                shelf._display_progress = require("weread.lib.shelf_progress").from_native_shelf(raw.bookProgress, shelf.books, requested_at)
-            end
-            return shelf
-        end)
-        auth:cancel()
+        local ok, result = pcall(M.read_native, client, selected.credentials, selected.scope, function() return current(true) end)
         if not current(true) then fail("session_changed") end
         if ok then
             result._shelf_source, result._native_revision = "native", selected.revision

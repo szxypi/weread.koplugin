@@ -180,8 +180,32 @@ return function(plugin,books,count,control,wait_progress,evidence,imported)
     for _,book in ipairs(plugin.shelf_view:getVisibleBooks()) do if book.bookId==missing then home_missing=1 end end
     assert(count('/shelf/sync')-shelf_gets==1 and count(native_path)-summary_gets==home_missing
         and plugin.shelf_view.books[1]._shelf_progress==83,'home refresh repeated a summary read or lost pending local progress')
+    plugin:closeWeReadUI()
+    plugin:applyShelfSnapshot(sample,{})
+    plugin:showShelfView('books');wait_progress()
+    expire(sample)
+    summary_gets,shelf_gets=count(native_path),count('/shelf/sync')
+    notices={};job=start();wait_done()
+    assert(job.done==#sample and count(native_path)-summary_gets==2 and count('/shelf/sync')-shelf_gets==1
+        and #notices==1,'bulk refresh did not reuse summary and query only two missing books')
+    local all_saved=plugin.library_db:getShelfProgress(ids)
+    assert(all_saved[sample[1].bookId].updated_at==1700000000 and all_saved[imported.bookId].exact_percent==0,
+        'bulk summary or imported fallback was not committed')
+    expire(sample)
+    control{match='/shelf/sync',times=0,delay=0.6}
+    notices={};summary_gets=count(native_path);job=start()
+    job.dialog.buttons[1][1].callback();wait_done()
+    local unchanged=plugin.library_db:getShelfProgress({sample[1].bookId})[sample[1].bookId]
+    assert(job.done==0 and count(native_path)==summary_gets and unchanged.fetched_at==0,
+        'cancelled native summary committed progress or started further reads')
+    control{match='/shelf/sync',times=1,status=429,delay=0}
+    notices={};summary_gets=count(native_path);job=start();wait_done()
+    assert(job.done==0 and count(native_path)==summary_gets and #notices==1,
+        'limited native summary caused individual progress requests')
+    control{match='',times=0,delay=0}
     assert(count('/book/read')==native_writes and count('/web/book/read')==writes,'shelf summary updated reading state')
     print(('PASS: native shelf summary reused (%d -> 1 progress GETs); home refresh reused summary'):format(baseline))
+    print(('PASS: bulk shelf reused one summary (%d -> 2 individual progress GETs); cancel and 429'):format(#sample))
     control{shelf_progress=false}
     plugin.client.request=original_request
     local _,updated_revision=store:read()
