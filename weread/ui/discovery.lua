@@ -65,11 +65,11 @@ function M:showDiscoveryPage(tab, books, options)
     local page = math.max(1, math.min(target_page, math.max(1, math.ceil(#books / layout.page_size))))
     options.page=page
     local cover_paths, visible = {}, {}
-    local cache = self:getShelfCoverCache()
+    local cache = cover_mode and self:getShelfCoverCache()
     local saved, downloaded = not downloads and ReadAccess.book_lookup(self.settings) or nil, {}
     for index = (page - 1) * layout.page_size + 1, math.min(#books, page * layout.page_size) do
         local book = books[index]
-        cover_paths[book] = cache:pathFor(book)
+        if cache then cover_paths[book] = cache:pathFor(book) end
         if not downloads then book._cached = self:isBookDownloaded(book, saved, downloaded) end
         visible[#visible + 1] = book
     end
@@ -232,7 +232,10 @@ function M:showDiscoveryPage(tab, books, options)
             end,
         })
     elseif self.cancelShelfProgress then self:cancelShelfProgress() end
-    if cover_mode and not downloads then self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw }) end
+    if cover_mode and not downloads then
+        self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw },
+            { page = page, page_size = layout.page_size, paths = cover_paths })
+    end
 end
 
 function M:recordRecentReading(book_id)

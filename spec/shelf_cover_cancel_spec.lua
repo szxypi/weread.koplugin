@@ -55,8 +55,8 @@ local function fixture()
     local function book(id) return {bookId=id,cover='https://example.invalid/'..id} end
     local first,tail=book('first'),book('tail')
     local options={on_redraw=function() redraws=redraws+1 end}
-    local function start(target,items)
-        host.shelf_view=target;host:fetchVisibleShelfCovers(target,items or {first,tail},options)
+    local function start(target,items,prepared)
+        host.shelf_view=target;host:fetchVisibleShelfCovers(target,items or {first,tail},options,prepared)
         return host.shelf_cover_job
     end
     local function finish(job,success)
@@ -110,6 +110,14 @@ f.finish(job);f.finish(host.shelf_cover_job,true)
 expect(f.stats().downloads==1 and f.stats().redraws==1,'resume fetched a stale page or duplicated work')
 host:resumeShelfCovers()
 expect(f.stats().runs==2,'repeated wake replayed completed covers')
+
+f=fixture();host=f.host;job=f.start(f.view(),{f.first})
+local prepared_view=f.view()
+f.start(prepared_view,{f.tail},{page=prepared_view.page,page_size=prepared_view.page_size,plan={missing={f.tail},online=true}})
+expect(host.shelf_cover_pending and f.stats().runs==1,'prepared cover started alongside a retiring worker')
+f.files[f.tail]='/cached/during-cancellation';f.set_link(false);f.finish(job)
+expect(f.stats().runs==1 and f.stats().link_checks==1 and not host.shelf_cover_job,
+    'queued work reused an outdated cache or link check')
 
 for _,event in ipairs({'closeWeReadUI','onWeReadAccountChanged'}) do
     f=fixture();host=f.host;job=f.start(f.view());host:cancelShelfCovers(true)

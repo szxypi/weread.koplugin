@@ -222,7 +222,8 @@ expect(shown[8].data.cover_mode == true and shown[8].data.paged == true
 
 local cover_requests = {}
 for index = 1, 12 do shelf[index].cover = "https://cdn.example/" .. tostring(index) end
-host.isNetworkOnline = function() return true end
+local cover_link_checks = 0
+host.isNetworkOnline = function() cover_link_checks = cover_link_checks + 1; return true end
 host.client = {
     get_binary = function(_self, url, options)
         cover_requests[#cover_requests + 1] = { url = url, options = options }
@@ -248,6 +249,8 @@ expect(#shown == 10 and shown[10].data.cover_paths[shelf[1]] ~= nil,
     "cover batch did not refresh the page once with cached paths")
 expect(shown[10].data.cover_loading[shelf[1]] ~= true,
     "cached cover incorrectly remained in its loading state")
+expect(cover_path_lookups == 27 and cover_link_checks == 1,
+    "cover drawing and immediate worker startup repeated a lookup: " .. cover_path_lookups .. "/" .. cover_link_checks)
 
 local requests_before_unsafe_url = #cover_requests
 local unsafe_view = { page = 1 }

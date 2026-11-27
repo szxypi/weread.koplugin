@@ -670,25 +670,33 @@ function M:resumeShelfCovers()
     end
 end
 
-function M:fetchVisibleShelfCovers(view, items, options)
-    if not view or not items or #items == 0 then return end
-    options = options or {}
-    local cache = self:getShelfCoverCache()
-    local visible = shelf_page_items(items, view.page, view.page_size or 6)
-    local missing, candidates = {}, {}
+local function plan_visible_covers(host, cache, visible, paths)
+    local missing, online = {}, nil
     for _, book in ipairs(visible) do
-        if shelf_cover_url(book)
-            and not cache:pathFor(book) then
-            candidates[#candidates + 1] = book
+        if shelf_cover_url(book) then
+            local path
+            if paths then path = paths[book] else path = cache:pathFor(book) end
+            if not path then
+                if online == nil then online = not not require('weread.lib.network_link').available(host) end
+                -- A saved full-size cover can still be converted offline.
+                if online or cache:sourcePathFor(book) then missing[#missing + 1] = book end
+            end
         end
     end
-    if #candidates == 0 then return end
-    local online = require('weread.lib.network_link').available(self)
-    for _,book in ipairs(candidates) do
-        -- Legacy full-resolution cache entries can be converted while
-        -- offline. A network request is only needed when no source exists.
-        if online or cache:sourcePathFor(book) then missing[#missing + 1] = book end
+    return { missing = missing, online = online }
+end
+
+function M:fetchVisibleShelfCovers(view, items, options, prepared)
+    if not view or self.shelf_view ~= view or view._shelf_closed or not items or #items == 0 then return end
+    options = options or {}
+    local cache = self:getShelfCoverCache()
+    if prepared and (prepared.page ~= view.page or prepared.page_size ~= view.page_size) then prepared = nil end
+    local plan = prepared and prepared.plan
+    if not plan then
+        local visible = shelf_page_items(items, view.page, view.page_size or 6)
+        plan = plan_visible_covers(self, cache, visible, prepared and prepared.paths)
     end
+    local missing, online = plan.missing, plan.online
     if #missing == 0 then return end
 
     if self.shelf_cover_job then
@@ -957,25 +965,16 @@ function M:showShelfView(mode, keyword, old_view, options)
         last_read_times = book_status(visible, saved_books, downloaded_cache)
         progress_snapshots = visible_progress(visible, saved_books, progress_by_id)
     end
-    local cover_paths, cover_loading
+    local cover_paths, cover_loading, cover_plan
     if cover_mode then
         cover_paths = {}
         cover_loading = {}
         local cache = self:getShelfCoverCache()
-        local unresolved = {}
         for _, book in ipairs(visible) do
-            local path = cache:pathFor(book)
-            cover_paths[book] = path
-            if not path and shelf_cover_url(book) then
-                unresolved[#unresolved + 1] = book
-            end
+            cover_paths[book] = cache:pathFor(book)
         end
-        if #unresolved>0 then
-            local online = require('weread.lib.network_link').available(self)
-            for _,book in ipairs(unresolved) do
-                cover_loading[book] = online or cache:sourcePathFor(book) ~= nil
-            end
-        end
+        cover_plan = plan_visible_covers(self, cache, visible, cover_paths)
+        for _, book in ipairs(cover_plan.missing) do cover_loading[book] = true end
     end
     if old_view then UIManager:close(old_view) end
     local view, update_progress
@@ -1288,7 +1287,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         for key, value in pairs(options) do fetch_options[key] = value end
         fetch_options.prepared_books = books
         fetch_options.prepared_accounts = accounts
-        self:fetchVisibleShelfCovers(view, source, fetch_options)
+        self:fetchVisibleShelfCovers(view, source, fetch_options, { page = page, page_size = page_size, plan = cover_plan })
     end
 end
 
