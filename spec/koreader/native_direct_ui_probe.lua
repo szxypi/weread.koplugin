@@ -44,6 +44,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     closeBusy=function(self) UIManager:close(self.busy_message);self.busy_message=nil end,
     showInfo=function(_,message) error('unexpected info: '..message) end,
     showOffline=function() error('unexpected offline') end,
+    showInputDialog=require('weread.ui.common').showInputDialog,
     showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,
@@ -58,6 +59,17 @@ wait(function() return host._native_direct_reading and host._native_direct_readi
 local menu=host._native_direct_reading.menu
 assert(#menu.item_table==1 and menu.item_table[1].select_enabled)
 assert(menu.subtitle==require('weread.lib.plugin_util').tr('Online: sync position or save selected highlights and private thoughts.'))
+local original_item=menu.item_table[1]
+local function filter(query)
+    assert(menu.title_bar.left_button).callback()
+    local search=assert(menu._shelf_popup);search:setInputText(query);search.buttons[1][2].callback()
+end
+filter('unmatched synthetic chapter')
+assert(#menu.item_table==1 and not menu.item_table[1].select_enabled)
+menu:onMenuChoice(original_item)
+assert(host._native_direct_reading.menu==menu and not host._native_direct_worker.job)
+filter(original_item.text)
+assert(#menu.item_table==1 and menu.item_table[1].chapter_index==original_item.chapter_index)
 menu:onMenuSelect(menu.item_table[1])
 wait(function() return host.opened~=nil end)
 assert(not host._native_direct_reading and not host.busy_message)

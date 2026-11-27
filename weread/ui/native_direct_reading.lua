@@ -4,6 +4,8 @@ local UIManager=require('ui/uimanager')
 local Access=require('weread.lib.native_read_access')
 local Recovery=require('weread.lib.native_read_recovery')
 local Protocol=require('weread.lib.native_position_protocol')
+local ChapterSearch=require('weread.ui.chapter_search')
+local Popup=require('weread.ui.shelf_popup')
 local Crypto=require('weread.lib.crypto')
 local PluginUtil=require('weread.lib.plugin_util')
 local _,T=PluginUtil.tr,PluginUtil.T
@@ -136,63 +138,61 @@ function M.start(host,book,view,options)
             end})
         if not started then fail('E-Ink authorization expired. Please authorize again.') end
     end
-    local function show_catalog(catalog)
+    local function show_chapter_menu(rows)
+        if #rows==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
         close_busy()
-        local items={}
-        for index,chapter in ipairs(catalog.chapters) do
-            local label=chapter.title~='' and chapter.title or _('Untitled chapter')
-            if not chapter.downloadable then label=label..'  ·  '.._('Unavailable') end
-            items[index]={text=label,select_enabled=chapter.downloadable,chapter_index=index}
+        local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
+        local empty_title=_('Untitled chapter')
+        local subtitle=offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
+            or _('Online: sync position or save selected highlights and private thoughts.')
+        local search=''
+        local by_index,menu
+        local function items()
+            local matches,counts=ChapterSearch.filter(rows,search,empty_title)
+            local result={}
+            by_index={}
+            for number=1,(matches and #matches or #rows) do
+                local index=matches and matches[number] or number
+                local row=rows[index]
+                local enabled=offline or row.downloadable
+                local chapter_title=row.title~='' and row.title or empty_title
+                local label=ChapterSearch.label(chapter_title,row.catalog_order,counts,saved_labels and saved_labels[index])
+                if not enabled then label=label..'  ·  '.._('Unavailable') end
+                if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
+                local item={text=label,select_enabled=enabled,chapter_index=index}
+                result[number],by_index[index]=item,item
+            end
+            if #result==0 then result[1]={text=_('No matching chapters.'),select_enabled=false} end
+            return result
         end
-        local menu
-        menu=host:showList(_('E-Ink chapters'),items,_('No chapters.'),
-            {subtitle=_('Online: sync position or save selected highlights and private thoughts.'),on_choice=function(item)
+        menu=host:showList(_(offline and 'Saved E-Ink chapters' or 'E-Ink chapters'),items(),nil,
+            {subtitle=subtitle,left_icon='appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
-                local chapter=type(index)=='number' and catalog.chapters[index]
-                if not current() or ctx.menu~=menu or not chapter or not chapter.downloadable then return end
+                if ctx.menu~=menu or not index or by_index[index]~=item or not item.select_enabled then return end
+                if not current() then M.cancel(host);return end
                 ctx.menu=nil;UIManager:close(menu)
-                ctx.chapter=chapter;ctx.phase='chapter'
-                host:showBusy(_('Preparing E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
+                if offline then ctx.entry=rows[index];ctx.phase='offline_open'
+                else ctx.chapter=rows[index];ctx.phase='chapter' end
+                host:showBusy(_(offline and 'Checking saved E-Ink chapter...' or 'Preparing E-Ink chapter...'),
+                    function() M.cancel(host) end);ctx.busy=host.busy_message
                 launch()
             end})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
         local closed=menu.onCloseWidget
         menu.onCloseWidget=function(widget,...)
+            widget._shelf_closed=true
+            Popup.close(widget)
             if ctx.menu==widget and host._native_direct_reading==ctx then ctx.menu=nil;M.cancel(host) end
             if closed then return closed(widget,...) end
         end
-        menu.close_callback=function()
-            if ctx.menu==menu and host._native_direct_reading==ctx then ctx.menu=nil;M.cancel(host) end
-        end
-    end
-    local function show_offline_catalog(rows)
-        close_busy()
-        local items={};local labels=require('weread.ui.native_direct_copies').labels(rows)
-        for index,row in ipairs(rows) do
-            items[index]={text=labels[index]..(row.pending_offline and '  ·  '.._('Offline position to review') or ''),chapter_index=index}
-        end
-        if #items==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
-        local menu
-        menu=host:showList(_('Saved E-Ink chapters'),items,nil,
-            {subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.'),on_choice=function(item)
-                local index=type(item)=='table' and item.chapter_index
-                local entry=type(index)=='number' and rows[index]
-                if not current() or ctx.menu~=menu or not entry then return end
-                ctx.menu=nil;UIManager:close(menu)
-                ctx.entry=entry;ctx.phase='offline_open'
-                host:showBusy(_('Checking saved E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
-                launch()
-            end})
-        if not menu then M.cancel(host);return end
-        ctx.menu=menu
-        local closed=menu.onCloseWidget
-        menu.onCloseWidget=function(widget,...)
-            if ctx.menu==widget and host._native_direct_reading==ctx then ctx.menu=nil;M.cancel(host) end
-            if closed then return closed(widget,...) end
-        end
-        menu.close_callback=function()
-            if ctx.menu==menu and host._native_direct_reading==ctx then ctx.menu=nil;M.cancel(host) end
+        menu.onLeftButtonTap=function()
+            ChapterSearch.prompt(host,menu,search,function() return ctx.menu==menu and current() end,function(query)
+                search=query
+                menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
+                menu:switchItemTable(nil,items(),nil,nil,menu.subtitle)
+            end)
+            return true
         end
     end
     ctx.phase=offline and 'offline_list' or 'catalog'
@@ -281,7 +281,7 @@ function M.start(host,book,view,options)
                     seen[identity]=true
                 end
                 if count~=#rows then fail();return end
-                show_offline_catalog(rows);return
+                show_chapter_menu(rows);return
             end
             if phase=='catalog' then
                 local checked=type(result)=='table' and project({book_id=result.book_id,version=result.version,
@@ -325,7 +325,7 @@ function M.start(host,book,view,options)
                     if not chapter.downloadable then fail('The adjacent E-Ink chapter is unavailable.');return end
                     ctx.chapter=chapter;ctx.phase='chapter';launch();return
                 end
-                show_catalog(checked);return
+                show_chapter_menu(checked.chapters);return
             end
             local version=phase=='offline_open' and ctx.entry.book_version or ctx.catalog.version
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)

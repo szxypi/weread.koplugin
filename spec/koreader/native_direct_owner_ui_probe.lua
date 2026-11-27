@@ -57,6 +57,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     end,
     closeBusy=function(self) UIManager:close(self.busy_message);self.busy_message=nil end,
     showInfo=function(self) self.failed=true end,showOffline=function(self) self.failed=true end,
+    showInputDialog=require('weread.ui.common').showInputDialog,
     showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,openFile=function(self,path)
@@ -83,7 +84,15 @@ local ctx=assert(host._native_direct_reading);local menu=assert(ctx.menu);local 
 for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
 assert(index and menu.item_table[index].select_enabled)
 assert(menu.subtitle==require('weread.lib.plugin_util').tr('Online: sync position or save selected highlights and private thoughts.'))
-menu:onMenuSelect(menu.item_table[index])
+local title=ctx.catalog.chapters[index].title
+assert(menu.title_bar.left_button).callback()
+local search=assert(menu._shelf_popup)
+search:setInputText(title~='' and title or require('weread.lib.plugin_util').tr('Untitled chapter'))
+search.buttons[1][2].callback()
+local item
+for _,row in ipairs(menu.item_table) do if row.chapter_index==index then item=row end end
+assert(item and item.select_enabled,'real chapter search omitted the selected chapter')
+menu:onMenuSelect(item)
 wait(function() return host.failed or host.opened end)
 if host.failed then
     local allowed={not_entitled=true,auth_expired=true,rate_limited=true,service_rejected=true,session_changed=true,

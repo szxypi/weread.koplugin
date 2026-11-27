@@ -187,6 +187,7 @@ function M:showList(title, items, empty_text, options)
         item_table = items,
         is_borderless = true,
         title_bar_fm_style = true,
+        title_bar_left_icon = options.left_icon,
         items_per_page = options.items_per_page,
         subtitle = options.subtitle,
     }

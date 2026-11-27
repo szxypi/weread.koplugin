@@ -19,6 +19,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     end,
     closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
     showInfo=function(self,message) self.message=message end,showOffline=function() error('unexpected offline error') end,
+    showInputDialog=require('weread.ui.common').showInputDialog,
     showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,openFile=function(self,file) self.opened=file end}
@@ -46,6 +47,13 @@ else
     end
     if test=='copies' then
         assert(#menu.item_table==2 and menu.item_table[1].text~=menu.item_table[2].text)
+        local first,second=menu.item_table[1].text,menu.item_table[2].text
+        assert(menu.title_bar.left_button).callback()
+        local search=assert(menu._shelf_popup)
+        search:setInputText(assert(first:match('^(.-)  ·  ')));search.buttons[1][2].callback()
+        assert(#menu.item_table==2 and menu.item_table[1].chapter_index==1 and menu.item_table[2].chapter_index==2)
+        assert(menu.item_table[1].text:sub(-#first)==first and menu.item_table[2].text:sub(-#second)==second,
+            'filter changed the saved copy labels')
     else assert(#menu.item_table==1) end
     if test=='damage' then local file=assert(io.open(path,'ab'));assert(file:write('corrupt'));assert(file:close()) end
     if test=='switch' then scope={vid='87654321',epoch=2} end

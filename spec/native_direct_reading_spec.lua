@@ -11,6 +11,9 @@ package.preload['ui/uimanager']=function() return {show=function() end,
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) local args={...};return (text:gsub('%%(%d)',function(i) return args[tonumber(i)] or '' end)) end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_,value) return value end} end
+package.preload['ui/widget/inputdialog']=function()
+    return {new=function(_,value) value.getInputText=function(self) return self.input end;return value end}
+end
 package.preload['weread.ui.download_dialog']=function() return {new=function(_,value)
     value.show=function() end;value.reportProgress=function() end;return value end} end
 package.preload['weread.lib.native_read_access']=function() return {
@@ -66,10 +69,15 @@ local function fixture()
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) state.info=state.info+1;state.message=message end,
         showOffline=function() error('unexpected offline') end,
+        showInputDialog=function(_,dialog) state.input=dialog end,
         showList=function(_,title,items,_,options)
-            state.title=title;state.items=items;state.subtitle=options.subtitle
-            state.select=function(index) options.on_choice(items[index]) end
-            return {}
+            local menu={item_table=items,switchItemTable=function(self,_,rows)
+                self.item_table=rows;state.items=rows
+            end}
+            state.title=title;state.items=items;state.subtitle=options.subtitle;state.icon=options.left_icon
+            state.select=function(index) options.on_choice(menu.item_table[index]) end
+            state.choose=options.on_choice
+            return menu
         end,
         openFile=function(_,path) state.opened=state.opened+1;state.path=path end,
         _native_direct_worker={start=function(_,task,callback,progress) state.jobs[#state.jobs+1]={task=task,callback=callback,progress=progress};return true end,
@@ -88,6 +96,29 @@ s.finish(2)
 expect(s.opened==1 and s.path:find('/native-reader-v1/',1,true),'chapter not opened')
 expect(expected_book.book_id=='456' and expected_chapter.chapterUid=='1' and expected_args.reading_catalog_sha256==digest
     and expected_args.access_fingerprint==fingerprint,'source identity not bound')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+local menu=assert(host._native_direct_reading.menu)
+expect(s.icon=='appbar.search','native catalog has no search entry')
+local old_item=s.items[1]
+menu:onLeftButtonTap();s.input.input='　LOCKED　';s.input.buttons[1][2].callback()
+expect(#s.items==1 and s.items[1].chapter_index==2 and not s.items[1].select_enabled,
+    'filter did not preserve unavailable chapter identity')
+s.select(1);s.choose(old_item)
+expect(#s.jobs==1,'unavailable or stale result started a download')
+menu:onLeftButtonTap();s.input.input='missing';s.input.buttons[1][2].callback()
+expect(s.items[1].text=='No matching chapters.' and not s.items[1].select_enabled,'empty filter result was not shown')
+menu:onLeftButtonTap();s.input.buttons[1][1].callback()
+expect(#s.items==2 and #s.jobs==1,'clearing filter reloaded the catalog')
+menu:onLeftButtonTap();local stale_search=s.input
+UI.cancel(host)
+stale_search.input='First';stale_search.buttons[1][2].callback()
+expect(not menu._shelf_popup and #s.items==2 and #s.jobs==1,'closed native catalog accepted search submit')
+sample.reading_chapters[2].title='First'
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+host._native_direct_reading.menu:onLeftButtonTap();s.input.input='First';s.input.buttons[1][2].callback()
+expect(#s.items==2 and s.items[1].text=='1. First' and s.items[2].text=='2. First  ·  Unavailable'
+    and not s.items[2].select_enabled,'duplicate titles lost the catalog position or access hint')
+sample.reading_chapters[2].title='Locked'
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
 expect(s.opened==0 and host._native_direct_reading==nil,'stale account opened chapter')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='catalog_changed';s.finish(2)
@@ -140,5 +171,8 @@ expect(UI.start(host,{book_id='456'},s.view,{cached=true}),'saved chapter list d
 s.finish(1)
 expect(s.items and s.items[1].text:find('Offline position to review',1,true),
     'saved chapter list did not expose the pending position')
+host._native_direct_reading.menu:onLeftButtonTap();s.input.input='Saved';s.input.buttons[1][2].callback()
+expect(#s.items==1 and s.items[1].text:find('Offline position to review',1,true) and #s.jobs==1,
+    'offline filter lost the pending position or reloaded the catalog')
 cache.list,cache.valid_entry,pending.mark=old_list,old_valid,old_mark
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')

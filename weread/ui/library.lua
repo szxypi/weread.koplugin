@@ -2201,8 +2201,8 @@ end
 
 function M:showChapterList(book, on_close)
     local ChapterListView = require("weread.ui.chapter_list_view")
+    local ChapterSearch = require("weread.ui.chapter_search")
     local Popup = require("weread.ui.shelf_popup")
-    local Query = require("weread.lib.search_query")
     local search = ""
     local function reloadBookCache()
         if not self.settings then return end
@@ -2222,33 +2222,24 @@ function M:showChapterList(book, on_close)
             reloadBookCache()
             rows = {}
             local is_cached = chapter_cache_lookup(self, book)
-            for index, chapter in ipairs(chapters) do
+            for _index, chapter in ipairs(chapters) do
                 local chapter_uid = chapter.chapterUid or chapter.chapterId
                 rows[#rows + 1] = {
                     title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
                     status = is_cached(chapter_uid) and _("Cached")
                         or T(_("%1 words"), tostring(chapter.wordCount or 0)),
                     source = chapter,
-                    catalog_index = index,
                 }
             end
         end
+        local matches, counts = ChapterSearch.filter(rows, search)
         local visible = rows
-        local needle = ShelfSearch.prepare(search)
-        if needle then
+        if matches then
             visible = {}
-            local terms = ShelfSearch.terms(needle)
-            local counts = {}
-            for _i, row in ipairs(rows) do
-                if ShelfSearch.matches(row, needle, terms) then
-                    visible[#visible + 1] = row
-                    counts[row.title] = (counts[row.title] or 0) + 1
-                end
-            end
-            for i, row in ipairs(visible) do
-                if counts[row.title] > 1 then
-                    visible[i] = { title = T("%1. %2", row.catalog_index, row.title), status = row.status, source = row.source }
-                end
+            for _, index in ipairs(matches) do
+                local row = rows[index]
+                local title = ChapterSearch.label(row.title, index, counts)
+                visible[#visible + 1] = title == row.title and row or { title = title, status = row.status, source = row.source }
             end
         end
         if old_view then
@@ -2258,8 +2249,8 @@ function M:showChapterList(book, on_close)
         view = ChapterListView.show({
             title = book.title or _("Chapter list"),
             chapters = visible,
-            subtitle = needle and T(_("Chapter filter: %1"), search) or nil,
-            empty_text = #visible == 0 and _(needle and "No matching chapters." or "No chapters.") or nil,
+            subtitle = counts and T(_("Chapter filter: %1"), search) or nil,
+            empty_text = #visible == 0 and _(counts and "No matching chapters." or "No chapters.") or nil,
         }, {
             on_refresh = self:safeCallback(_("Refresh chapter list"), function()
                 self:loadChapters(book, function(refreshed_chapters)
@@ -2274,26 +2265,12 @@ function M:showChapterList(book, on_close)
                 end)
             end),
             on_search = self:safeCallback(_("Find chapter"), function()
-                if self._chapter_list_view ~= view or view._catalog_closed then return end
-                local dialog
-                local function apply(value)
-                    if self._chapter_list_view ~= view or not Popup.current(view, dialog) then return end
-                    local query = Query.trim(value)
-                    if #query > 1024 then self:showInfo(_("Search text is too long.")); return end
-                    Popup.close(view)
-                    if search == query then return end
+                ChapterSearch.prompt(self, view, search, function()
+                    return self._chapter_list_view == view and not view._catalog_closed
+                end, function(query)
                     search = query
                     showCatalog(chapters, view, rows)
-                end
-                dialog = InputDialog:new{
-                    title = _("Find chapter"), input = search, input_type = "text",
-                    buttons = {{
-                        { text = _("Clear"), callback = function() apply("") end },
-                        { text = _("Search"), is_enter_default = true,
-                            callback = function() apply(dialog:getInputText()) end },
-                    }},
-                }
-                Popup.show(view, dialog, function(widget) self:showInputDialog(widget) end)
+                end)
             end),
             on_select = function(chapter)
                 if self._chapter_list_view ~= view or view._catalog_closed then return end
