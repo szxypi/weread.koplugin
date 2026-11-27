@@ -7,9 +7,11 @@ local Navigation=require('weread.ui.my_mark_navigation')
 local Popup=require('weread.ui.shelf_popup')
 local Reading=require('weread.ui.book_reading')
 local UI=require('ui/uimanager')
+local Time=require('ui/time')
 local _=require('weread.lib.plugin_util').tr
 local T=require('ffi/util').template
-local M={MAX_RESULTS=1000}
+local M={MAX_RESULTS=1000,MAX_SCANS_PER_WORKER=4}
+local BATCH_TIME=Time.ms(350)
 
 local function current(host,owner)
     local document=host.ui and host.ui.document
@@ -175,6 +177,51 @@ render=function(host,owner)
     end)
 end
 
+local function scan_batch(requests,room)
+    local results={}
+    local deadline=Time.now()+BATCH_TIME
+    for index,request in ipairs(requests) do
+        local result=Search.scan(request)
+        results[index]=type(result)=='table' and result or {error='unavailable'}
+        if type(result)~='table' or result.error or type(result.hits)~='table' then break end
+        room=room-#result.hits
+        if room<=0 or not (result.missing==true or result.complete==true) or Time.now()>=deadline then break end
+    end
+    return {results=results}
+end
+
+local function accept_scan(owner,result,request)
+    local chapter=owner.queue[owner.index]
+    if not chapter or chapter.uid~=request.chapter or owner.from~=request.from
+        or type(result)~='table' or type(result.hits)~='table' or #result.hits>Search.MAX_HITS
+        or result.error or type(result.unresolved or 0)~='number' or (result.unresolved or 0)%1~=0
+        or (result.unresolved or 0)<0 or (result.unresolved or 0)>Search.MAX_EXAMINED
+        or result.complete~=nil and type(result.complete)~='boolean'
+        or result.missing~=nil and type(result.missing)~='boolean'
+        or result.complete==true and result.next_byte~=nil
+        or result.missing==true and (#result.hits~=0 or result.complete or result.next_byte or (result.unresolved or 0)~=0)
+        or result.missing~=true and result.complete~=true
+            and (type(result.next_byte)~='number' or result.next_byte%1~=0 or result.next_byte<=request.from
+                or result.next_byte>require('weread.lib.position_source').MAX_BYTES*4+1) then return false end
+    for _i,hit in ipairs(result.hits) do
+        if type(hit)~='table' or hit.chapter_uid~=chapter.uid or type(hit.context)~='string'
+            or #hit.context>1024 or not Target.row(owner.id,owner.keyword,hit) then return false end
+    end
+    owner.unresolved=owner.unresolved+(result.unresolved or 0)
+    local overflow={}
+    for _i,hit in ipairs(result.hits) do
+        if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
+        else overflow[#overflow+1]=hit end
+    end
+    owner.overflow=#overflow>0 and overflow or nil
+    if result.missing or result.complete then
+        owner.checked=owner.checked+1
+        if result.missing then owner.missing=owner.missing+1 end
+        owner.index=owner.index+1;owner.from=1
+    else owner.from=result.next_byte end
+    return true
+end
+
 start=function(host,owner)
     if not current(host,owner) or owner.job or owner.navigation or owner.download or owner.finished or owner.limit or owner.show_previous then return false end
     local ok,worker=pcall(function()
@@ -243,42 +290,28 @@ start=function(host,owner)
                 owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
             end
         end
-        local chapter=owner.queue[owner.index]
-        if not chapter then owner.finished=true;stop(host,owner);render(host,owner);return end
-        local from=owner.from
-        local request={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,from=from,
-            ignore_ascii_case=owner.ignore_ascii_case}
-        local called,started=pcall(worker.start,worker,function() return Search.scan(request) end,function(result)
+        if not owner.queue[owner.index] then owner.finished=true;stop(host,owner);render(host,owner);return end
+        local requests={}
+        local last=job.single_scan and owner.index or math.min(#owner.queue,owner.index+M.MAX_SCANS_PER_WORKER-1)
+        for index=owner.index,last do
+            local chapter=owner.queue[index]
+            requests[#requests+1]={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,
+                from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case}
+        end
+        local room=M.MAX_RESULTS-#owner.value
+        local called,started=pcall(worker.start,worker,function() return scan_batch(requests,room) end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
-            if type(result)~='table' or type(result.hits)~='table' or #result.hits>Search.MAX_HITS
-                or result.error or type(result.unresolved or 0)~='number' or (result.unresolved or 0)%1~=0
-                or (result.unresolved or 0)<0 or (result.unresolved or 0)>Search.MAX_EXAMINED
-                or result.complete==true and result.next_byte~=nil
-                or result.missing==true and (#result.hits~=0 or result.complete or result.next_byte or (result.unresolved or 0)~=0)
-                or result.missing~=true and result.complete~=true
-                    and (type(result.next_byte)~='number' or result.next_byte%1~=0 or result.next_byte<=from
-                        or result.next_byte>require('weread.lib.position_source').MAX_BYTES*4+1) then
+            local results=type(result)=='table' and result.results
+            if type(results)~='table' or #results==0 or #results>#requests then
+                if #requests>1 then job.single_scan=true;later();return end
                 stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return
             end
-            for _i,hit in ipairs(result.hits) do
-                if type(hit)~='table' or hit.chapter_uid~=chapter.uid or type(hit.context)~='string'
-                    or #hit.context>1024 or not Target.row(owner.id,owner.keyword,hit) then
+            for index,scan in ipairs(results) do
+                if #owner.value>=M.MAX_RESULTS or not accept_scan(owner,scan,requests[index]) then
                     stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return
                 end
             end
-            owner.unresolved=owner.unresolved+(result.unresolved or 0)
-            local overflow={}
-            for _i,hit in ipairs(result.hits) do
-                if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
-                else overflow[#overflow+1]=hit end
-            end
-            owner.overflow=#overflow>0 and overflow or nil
-            if result.missing or result.complete then
-                owner.checked=owner.checked+1
-                if result.missing then owner.missing=owner.missing+1 end
-                owner.index=owner.index+1;owner.from=1
-            else owner.from=result.next_byte end
             if #owner.value>=M.MAX_RESULTS then
                 owner.finished=not owner.overflow and not owner.queue[owner.index]
                 owner.limit=not owner.finished;stop(host,owner);render(host,owner);return

@@ -1,11 +1,13 @@
 package.path='./?.lua;'..package.path
 local displayed,scheduled
+local now=0
 local UI={}
 function UI:show(widget) displayed=widget end
 function UI:close(widget) if widget and widget.onCloseWidget then widget:onCloseWidget() end end
 function UI:scheduleIn(_delay,task) scheduled=task end
 function UI:unschedule(task) if scheduled==task then scheduled=nil end end
 package.preload['ui/uimanager']=function() return UI end
+package.preload['ui/time']=function() return {now=function() return now end,ms=function(value) return value end} end
 package.preload['ui/widget/inputdialog']=function() return {new=function(_self,options)
     function options:onShowKeyboard() end
     function options:getInputText() return self.input end
@@ -53,15 +55,17 @@ package.preload['weread.ui.my_mark_navigation']=function() return {
     start=function(host,owner,row,guard) assert(guard(host,owner));navigations=navigations+1;owner.navigation={row=row} end,
     cancel=function(_host,owner) owner.navigation=nil end,
 } end
-local worker
+local worker,starts=nil,0
 package.preload['weread.lib.memory_worker']=function() return {new=function()
     local instance={}
-    function instance:start(task,callback) self.task,self.callback=task,callback;worker=self;return true end
+    function instance:start(task,callback) self.task,self.callback=task,callback;worker=self;starts=starts+1;return true end
     function instance:cancel() self.cancelled=true end
     function instance:complete() self.callback(self.task()) end
     return instance
 end} end
 local Cached=require('weread.ui.cached_book_search')
+local scan_batch_limit=Cached.MAX_SCANS_PER_WORKER
+Cached.MAX_SCANS_PER_WORKER=1
 local checks=0
 local function expect(value,label) checks=checks+1;if not value then error(label) end end
 local account,scope,epoch='account',{vid='123',epoch=1},1
@@ -323,4 +327,72 @@ owner=open(nil);worker:complete();task=scheduled;scheduled=nil;task();worker:com
 expect(owner.finished and owner.discovery_incomplete and find_item(owner.menu,
     'Some chapters in the downloaded book could not be indexed.'),'partial full-book index was presented as complete')
 Cached.cancel(host)
+
+-- Exercise the same batch worker as the reader, with a controlled clock and
+-- enough downloaded chapters to cross more than one worker boundary.
+Cached.MAX_SCANS_PER_WORKER=scan_batch_limit
+book.cached_chapters={}
+host.ui.document.file='/one.epub';host.getFullBookCachePath=nil
+local many={}
+for index=1,9 do
+    local uid=tostring(index)
+    many[index]={chapterUid=uid,title='Chapter '..uid}
+    book.cached_chapters[uid]='/chapter-'..uid..'.epub'
+end
+local function next_task()
+    local callback=assert(scheduled);scheduled=nil;callback()
+end
+local initial_starts,initial_scans=starts,scans
+owner=open(many,true)
+worker:complete()
+expect(owner.index==5 and owner.checked==4 and #owner.value==4 and last_case==true,'worker did not scan four ordered chapters')
+next_task();worker:complete();next_task();worker:complete();next_task()
+expect(owner.finished and owner.checked==9 and #owner.value==9 and scans-initial_scans==9 and starts-initial_starts==3,
+    'full search did not use three workers for nine chapters')
+for index,hit in ipairs(owner.value) do assert(hit.chapter_uid==tostring(index)) end
+Cached.cancel(host)
+
+local visited={}
+search_module.scan=function(request)
+    visited[#visited+1]=request.chapter..':'..request.from
+    if request.chapter=='1' and request.from==1 then return {hits={},next_byte=32,unresolved=2} end
+    if request.chapter=='2' then return {hits={},missing=true} end
+    if request.chapter=='3' then return {error='unavailable'} end
+    return original_scan(request)
+end
+owner=open(many)
+worker:complete()
+expect(table.concat(visited,',')=='1:1' and owner.index==1 and owner.from==32 and owner.unresolved==2,
+    'worker advanced past an unfinished chapter')
+next_task();worker:complete()
+expect(table.concat(visited,',')=='1:1,1:32,2:1,3:1' and owner.index==3 and owner.checked==2 and owner.missing==1
+    and #owner.value==1 and not owner.job and host.info=='Could not search downloaded chapters.',
+    'worker error discarded the valid prefix or scanned later chapters')
+Cached.cancel(host)
+
+search_module.scan=function(request) now=now+360;return original_scan(request) end
+owner=open(many)
+worker:complete()
+expect(owner.index==2 and owner.checked==1 and #owner.value==1,'worker started another chapter past the time budget')
+next_task();local late_batch=worker;local late_callback=late_batch.callback;local in_flight=late_batch.task
+host.busy_message.cancel();late_callback(in_flight())
+expect(owner.index==2 and owner.checked==1 and #owner.value==1 and not owner.job,'cancelled worker consumed its partial result')
+search_module.scan=original_scan
+assert(find_item(owner.menu,'Continue searching downloaded chapters')).callback()
+worker:complete()
+expect(owner.index==6 and owner.value[2].chapter_uid=='2','resume did not start at the first uncommitted chapter')
+Cached.cancel(host)
+
+owner=open(many)
+worker.callback(nil)
+expect(owner.job and owner.index==1 and scheduled,'failed batch transport was not retried from the same chapter')
+next_task();worker:complete()
+expect(owner.index==2 and #owner.value==1,'failed batch transport did not fall back to a single scan')
+Cached.cancel(host)
+
+Cached.MAX_RESULTS=3;initial_scans=scans
+owner=open(many);worker:complete()
+expect(owner.limit and owner.index==4 and scans-initial_scans==3 and #owner.value==3,
+    'worker scanned beyond the current result batch capacity')
+Cached.cancel(host);Cached.MAX_RESULTS=1000
 print(('cached_book_search_ui_spec: %d checks'):format(checks))
