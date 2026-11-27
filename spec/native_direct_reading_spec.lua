@@ -100,6 +100,16 @@ s.finish(2)
 expect(s.opened==1 and s.path:find('/native-reader-v1/',1,true),'chapter not opened')
 expect(expected_book.book_id=='456' and expected_chapter.chapterUid=='1' and expected_args.reading_catalog_sha256==digest
     and expected_args.access_fingerprint==fingerprint,'source identity not bound')
+host,s=fixture()
+local reader_path='/tmp/settings/native-reader-v1/current.epub'
+host._book_detail_view=nil
+host.ui.document={file=reader_path}
+expect(UI.start(host,{book_id='456'},host.ui,{from_reader=true}),'reader catalog did not start')
+local ready=s.jobs[1].task()
+host.ui.document={file=reader_path}
+s.jobs[1].callback(ready)
+expect(not host._native_direct_reading and not host.busy_message and not s.items,
+    'catalog opened over a replacement document at the same path')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 local menu=assert(host._native_direct_reading.menu)
 expect(s.icon=='appbar.search','native catalog has no search entry')

@@ -81,7 +81,13 @@ function M.cancel(host)
 end
 
 function M.start(host,book,view,options)
-    if type(book)~='table' or not view or host._book_detail_view~=view then return false end
+    local from_reader=type(options)=='table' and options.from_reader==true
+    local owner_key=from_reader and 'ui' or '_book_detail_view'
+    if type(book)~='table' or not view or host[owner_key]~=view then return false end
+    local document=host.ui and host.ui.document
+    if from_reader and not require('weread.lib.native_direct_path').contains(host.settings,document and document.file) then
+        return false
+    end
     local cleanup=package.loaded['weread.ui.native_direct_cleanup'];if cleanup then cleanup.cancel(host) end
     local id=Protocol.id(book.book_id or book.bookId)
     if not id then return false end
@@ -114,14 +120,13 @@ function M.start(host,book,view,options)
     M.cancel(host)
     local title=text(book.title,2048) and book.title or id
     local author=text(book.author,2048) and book.author or ''
-    local document=host.ui and host.ui.document
-    local ctx={view=view,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
+    local ctx={epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
         book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch}
     host._native_direct_reading=ctx
     local function view_current()
         local now=host.ui and host.ui.document
-        return host._native_direct_reading==ctx and not host._weread_suspended and host._book_detail_view==view
+        return host._native_direct_reading==ctx and not host._weread_suspended and host[owner_key]==view
             and (host.discovery_epoch or 0)==ctx.epoch and host._reader_session_gen==ctx.session
             and now==ctx.document and (not now or now.file==ctx.file)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)

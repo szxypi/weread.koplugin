@@ -64,6 +64,16 @@ local function press(id)
     local action=assert(dialog:getButtonById(id))
     assert(action.enabled~=false);action:onTapSelectButton()
 end
+if online then
+    press('next_chapter')
+    wait(function() return host.opened or host.message or host._native_direct_reading and host._native_direct_reading.target end)
+    assert(host._native_direct_reading and host.busy_message and not host._book_detail_view,
+        'starting the adjacent download put book details over the reader')
+    host.busy_message:onTapClose()
+    assert(not host._native_direct_reading and not host.busy_message and not host.opened and not host.message
+        and UI:getTopmostVisibleWidget()==base and host.ui.document.file==input.first,
+        'cancelling the adjacent download did not keep the current chapter')
+end
 press('next_chapter')
 wait(function() return host.opened or host.message or host._native_direct_navigation and host._native_direct_navigation.menu end)
 if input.mode=='copies' then
@@ -122,7 +132,10 @@ else
         assert(not host.message and not ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
             and not menu.item_table[1].text:find(prefix,1,true) and host.opened==second,
             'online reader did not open the catalog at its current chapter')
-        UI:close(menu)
+        menu:onClose()
+        assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
+            and UI:getTopmostVisibleWidget()==base and host.ui.document.file==second,
+            'closing the online catalog did not return to the current chapter')
     end
     if input.mode=='two' then
         host.opened=nil

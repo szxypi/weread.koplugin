@@ -367,6 +367,8 @@ function M:onCloseDocument()
     local direct_interval=package.loaded['weread.lib.native_direct_interval'];if direct_interval then direct_interval.cancel(self) end
     local direct_navigation=package.loaded['weread.ui.native_direct_navigation']
     if direct_navigation then direct_navigation.cancel(self) end
+    local native_direct=package.loaded['weread.ui.native_direct_reading']
+    if native_direct then native_direct.cancel(self) end
     local direct_position=package.loaded['weread.ui.native_direct_position']
     if direct_position then direct_position.cancel(self) end
     local direct_cloud=package.loaded['weread.ui.native_direct_cloud_open']

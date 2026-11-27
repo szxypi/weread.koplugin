@@ -65,16 +65,20 @@ function M.start(host,direction,notes)
         local live=current();M.cancel(host)
         if live then host:showInfo(_(message)) end
     end
-    local function details()
-        if not current() then return end
+    local function active_book()
         local id=ctx.entry.book_id
         local book=host.settings.get_book and host.settings:get_book(id) or nil
         if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=id then
-            book={book_id=id,title=id,author=''}
+            return {book_id=id,title=id,author=''}
         end
+        return book
+    end
+    local function choose_chapter(options)
+        if not current() then return end
+        local book=active_book()
+        options.from_reader=true
         M.cancel(host)
-        host:showBookMenu(book)
-        return book,host._book_detail_view
+        require('weread.ui.native_direct_reading').start(host,book,reader,options)
     end
     if not host._native_direct_navigation_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
@@ -157,8 +161,7 @@ function M.start(host,direction,notes)
                 end
                 local target={uid=uid,from_uid=entry.chapter_uid,catalog_sha256=entry.catalog_sha256,
                     book_version=entry.book_version,count=entry.catalog_count,order=entry.catalog_order+which,direction=which}
-                local book,view=details()
-                if book and view then require('weread.ui.native_direct_reading').start(host,book,view,{target=target}) end
+                choose_chapter({target=target})
                 return
             end
             if type(value)=='table' and type(value.choices)=='table' then
@@ -221,13 +224,14 @@ function M.start(host,direction,notes)
             enable_next_chapter=not known_order or ctx.entry.catalog_next~=nil,enable_book_details=true,show_sync_row=false,
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
             enable_search_book=true,enable_search_cached=true}, {
-            on_chapter_list=function()
-                local entry=ctx.entry
-                local book,view=details()
-                if book and view then require('weread.ui.native_direct_reading').start(host,book,view,{anchor=entry}) end
-            end,
+            on_chapter_list=function() choose_chapter({anchor=ctx.entry}) end,
             on_previous=function() step(-1) end,on_next=function() step(1) end,
-            on_book_details=function() details() end,
+            on_book_details=function()
+                if not current() then return end
+                local book=active_book()
+                M.cancel(host)
+                host:showBookMenu(book)
+            end,
             on_native_position_check=function()
                 if not current() then return end
                 local entry=ctx.entry;M.cancel(host)

@@ -104,6 +104,7 @@ do
     local perpage=G_reader_settings:readSetting('items_per_page')
     local font_size=G_reader_settings:readSetting('items_font_size')
     local connected=host.isNetworkConnected
+    local second_point=assert(second.document:getXPointer())
     G_reader_settings:saveSetting('items_per_page',1)
     G_reader_settings:saveSetting('items_font_size',20)
     host.isNetworkConnected=function() return false end
@@ -126,8 +127,10 @@ do
     assert(menu._shelf_popup).buttons[1][1].callback()
     assert(menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1,
         'clearing offline chapter search did not return to the current chapter')
-    UI:close(menu)
-    assert(host._book_detail_view):onClose()
+    menu:onClose()
+    assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
+        and UI:getTopmostVisibleWidget()==second and second.document:isXPointerInCurrentPage(second_point),
+        'closing the offline catalog did not return directly to the same reading page')
     host.isNetworkConnected=connected
     G_reader_settings:saveSetting('items_per_page',perpage)
     G_reader_settings:saveSetting('items_font_size',font_size)

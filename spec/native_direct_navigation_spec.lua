@@ -83,6 +83,10 @@ shown.callbacks.on_next();s.finish(2)
 expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub') and listed_uid=='38',
     'adjacent saved chapter not found through its targeted lookup')
 host,s=fixture();Nav.start(host);s.finish(1)
+shown.callbacks.on_book_details()
+expect(host._book_detail_view and not host._native_direct_navigation and not auto_target,
+    'explicit book details did not open over the reader')
+host,s=fixture();Nav.start(host);s.finish(1)
 expect(not shown.callbacks.on_native_refresh_images,'complete chapter offered image retry')
 source.missing_images=2;host,s=fixture();Nav.start(host);s.finish(1)
 expect(type(shown.callbacks.on_native_refresh_images)=='function','missing image retry was not offered')
