@@ -41,7 +41,7 @@ function M.resolve(client,settings,entry,file,context,native,web,current,wanted,
         if source.is_text~=false or source.book_version~=catalog.version or source.reading_catalog_sha256~=catalog.reading_digest
             or type(source.body)~='string' or source.body=='' then return {error='source_changed'} end
         local digest=Crypto.sha256_hex(source.body)
-        local rows=Cache.list(settings,native.scope.vid,entry.book_id,active)
+        local rows=Cache.list(settings,native.scope.vid,entry.book_id,active,wanted.chapter_uid)
         if not rows then return {error='storage'} end
         local path,target_entry,reused
         for _,candidate in ipairs(rows) do

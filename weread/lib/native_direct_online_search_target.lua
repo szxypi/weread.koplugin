@@ -68,7 +68,7 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
             local resolved,why=prepare(source,file)
             return resolved or {error=why}
         end
-        local rows=Cache.list(settings,scope.vid,source.book_id,live)
+        local rows=Cache.list(settings,scope.vid,source.book_id,live,uid)
         if not rows then return {error='storage'} end
         local failed
         for _,entry in ipairs(rows) do

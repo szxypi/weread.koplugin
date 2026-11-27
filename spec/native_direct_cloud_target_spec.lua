@@ -39,7 +39,10 @@ package.preload['weread.lib.native_chapter_source']=function() return {fetch=fun
     return {is_text=false,book_version=7,reading_catalog_sha256=catalog_sha,body=source_mismatch and body..'x' or body}
 end} end
 package.preload['weread.lib.native_direct_cache']=function() return {
-    list=function() return cache_hit and {cached} or {} end,
+    list=function(_,owner,book,current,uid)
+        assert(owner=='123' and book=='42' and uid==target.chapter_uid and current())
+        return cache_hit and {cached} or {}
+    end,
     open=function() return {path='/target'} end,
     identify=function(_,_,path) return path=='/target' and cached or nil end,
     valid_entry=function(value,id,owner) return value==cached and id=='42' and owner=='123' end,

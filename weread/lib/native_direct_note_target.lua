@@ -50,7 +50,7 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
             or not active() then return nil end
         return {path=opened.path,entry=pinned}
     end
-    local rows=Cache.list(settings,scope.vid,source.book_id,active)
+    local rows=Cache.list(settings,scope.vid,source.book_id,active,uid)
     if not rows then return nil,'storage' end
     local choices,digest,ambiguous={},nil,false
     for _,candidate in ipairs(rows) do

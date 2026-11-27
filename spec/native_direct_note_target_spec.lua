@@ -13,7 +13,10 @@ function cache.identify(_,_,path,current)
     if path=='/native/source' then return state.source end
     if path=='/native/target' then return state.target end
 end
-function cache.list() return state.rows end
+function cache.list(_,owner,book,current,uid)
+    assert(owner==scope.vid and book==source.book_id and uid==target.chapter_uid and current())
+    return state.rows
+end
 function cache.open(_,_,_,entry,current)
     if current() and not state.damaged and entry==state.target then return {path='/native/target'} end
 end
