@@ -9,6 +9,7 @@ local Util = require('weread.lib.plugin_util')
 local UI = require('ui/uimanager')
 local _, T = Util.tr, Util.T
 local M = {}
+local run
 
 local function owned(record, account)
     return record and account and (record._library_account_key == account
@@ -113,35 +114,67 @@ local function show_actions(host, book, view, current)
     Popup.show(view, dialog)
 end
 
-local function show_plan_actions(host, entry, view, menu, current)
+local function confirm_remove_plan(host, entry, view, menu, current, removed)
+    local dialog
+    dialog=require('ui/widget/confirmbox'):new{
+        text=_('Remove this resume record? Downloaded chapters will still be available.'),
+        ok_text=_('Remove resume record'),cancel_text=_('Cancel'),keep_dialog_open=true,
+        ok_callback=function()
+            if not current() or not Popup.current(view,menu) or not Popup.current(menu,dialog) then return end
+            Popup.close(menu)
+            run(host,current,_('Removing resume record…'),function()
+                local scope=host.settings:get_auth_scope()
+                if not scope then return {removed=false} end
+                local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+                return {removed=store:remove(entry.book.bookId,entry.record,current)}
+            end,function(result)
+                if not Popup.current(view,menu) then return end
+                if result and result.removed==true then removed(entry,view,menu)
+                else host:showInfo(_('Could not remove this resume record. Refresh the list and try again.')) end
+            end)
+        end,
+    }
+    Popup.show(menu,dialog)
+end
+
+local function show_plan_actions(host, entry, view, menu, current, removed)
     if menu._shelf_popup then return end
     local dialog
-    local function action(options)
+    local function action(callback)
         return function()
             UI:nextTick(function()
                 if not current() or not Popup.current(view,menu) or not Popup.current(menu,dialog) then return end
-                if not options then Popup.close(menu);return end
-                Popup.close(view)
-                if not current() then return end
-                local detail=host:showBookMenu(entry.book,{read_saved_native=options.cached==true})
-                if detail then require('weread.ui.native_direct_reading').start(host,entry.book,detail,options) end
+                Popup.close(menu)
+                if callback and current() then callback() end
             end)
+        end
+    end
+    local function open(options)
+        return function()
+            Popup.close(view)
+            if not current() then return end
+            local detail=host:showBookMenu(entry.book,{read_saved_native=options.cached==true})
+            if detail then require('weread.ui.native_direct_reading').start(host,entry.book,detail,options) end
         end
     end
     dialog=require('ui/widget/buttondialog'):new{
         title=entry.book.title,buttons={
-            {{text=_('Continue download'),callback=action({batch=true,resume_plan=entry.record})}},
-            {{text=_('Saved E-Ink chapters'),callback=action({cached=true})}},
+            {{text=_('Continue download'),callback=action(open({batch=true,resume_plan=entry.record}))}},
+            {{text=_('Saved E-Ink chapters'),callback=action(open({cached=true}))}},
+            {{text=_('Remove resume record'),callback=action(function()
+                confirm_remove_plan(host,entry,view,menu,current,removed)
+            end)}},
             {{text=_('Cancel'),callback=action()}},
         },
     }
     Popup.show(menu,dialog)
 end
 
-local function show_plans(host,plans)
+local function show_plans(host,plans,removed,page)
     local view=host.shelf_view
     if not view or view._shelf_popup then return end
-    local current=Scope.capture(host,view)
+    local page_current=Scope.capture(host,view)
+    local function current() return not host._weread_suspended and page_current() end
     local items,menu={}
     for index,entry in ipairs(plans) do
         local text=T(_('Chapters %1–%2'),entry.record.first,entry.record.last)
@@ -150,7 +183,7 @@ local function show_plans(host,plans)
     menu=host:showList(_('Unfinished downloads'),items,nil,{on_choice=function(item)
         if type(item)~='table' or not item.index or items[item.index]~=item or not current()
             or not Popup.current(view,menu) then return end
-        show_plan_actions(host,plans[item.index],view,menu,current)
+        show_plan_actions(host,plans[item.index],view,menu,current,removed)
     end})
     if not menu then return end
     local closed=menu.onCloseWidget
@@ -160,10 +193,11 @@ local function show_plans(host,plans)
         if closed then return closed(widget,...) end
     end
     Popup.show(view,menu,function() end)
+    if page and page>1 then menu:onGotoPage(math.min(page,menu.page_num)) end
 end
 
 local load
-local function render(host, rows, plans, query, page)
+local function render(host, rows, plans, query, page, plan_page)
     local needle = Search.prepare(query)
     local terms = Search.terms(needle)
     local books = {}
@@ -171,10 +205,21 @@ local function render(host, rows, plans, query, page)
         if Search.matches(row, needle, terms) then books[#books+1] = row end
     end
     local function reload(next_page) load(host, query, next_page) end
+    local function open_plans()
+        show_plans(host,plans,function(entry,view,menu)
+            local remaining={}
+            for _,candidate in ipairs(plans) do
+                if candidate~=entry then remaining[#remaining+1]=candidate end
+            end
+            local previous_page=menu.page
+            Popup.close(view)
+            render(host,rows,remaining,query,view.page,previous_page)
+        end,plan_page)
+    end
     host:showDiscoveryPage('downloads', books, {
         title = query == '' and _('Downloaded books') or T(_('Downloaded books · %1'), query),
         page = page,
-        actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=function() show_plans(host,plans) end}} or nil,
+        actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=open_plans}} or nil,
         empty_text = query == '' and _('No downloaded books for this account.') or _('No matching books.'),
         on_refresh = reload,
         on_return = function(next_page)
@@ -204,6 +249,7 @@ local function render(host, rows, plans, query, page)
             show_actions(host, book, view, current)
         end,
     })
+    if plan_page and #plans>0 then open_plans() end
 end
 
 function M.cancel(host)
@@ -214,30 +260,43 @@ function M.cancel(host)
     if job.busy and host.busy_message == job.busy then host:closeBusy() end
 end
 
-load = function(host, query, page)
+run = function(host,current,label,task,done,cancellable)
     M.cancel(host)
-    local current = Scope.capture(host, host.shelf_view)
     local ok, worker = pcall(function()
         return require('weread.lib.memory_worker'):new{ scheduler=UI, codec=host.client, max_bytes=4*1024*1024 }
     end)
-    local message = _('Could not load downloaded books.')
-    if not ok then host:showInfo(message); return end
+    if not ok or not worker then
+        if current() then done() end
+        return
+    end
     local job = { worker=worker }
     host._download_library_job = job
-    host:showBusy(_('Loading downloaded books…'), function() M.cancel(host) end)
+    local cancel=cancellable and function()
+        if host._download_library_job==job then M.cancel(host) end
+    end or nil
+    host:showBusy(label,cancel)
     job.busy = host.busy_message
-    local started = worker:start(function()
-        local rows,plans=collect(host,current)
-        return {rows=rows,plans=plans}
-    end, function(result)
+    local function complete(result)
         if host._download_library_job ~= job then return end
         local live = not host._weread_suspended and current()
         M.cancel(host)
-        if not live then return end
-        if not result or type(result.rows)~='table' or type(result.plans)~='table' then host:showInfo(message); return end
+        if live then done(result) end
+    end
+    local called,started=pcall(worker.start,worker,task,complete)
+    if not called or not started then complete() end
+end
+
+load = function(host, query, page)
+    local current = Scope.capture(host, host.shelf_view)
+    run(host,current,_('Loading downloaded books…'),function()
+        local rows,plans=collect(host,current)
+        return {rows=rows,plans=plans}
+    end,function(result)
+        if not result or type(result.rows)~='table' or type(result.plans)~='table' then
+            host:showInfo(_('Could not load downloaded books.'));return
+        end
         render(host, result.rows, result.plans, query, page)
-    end)
-    if not started then M.cancel(host); host:showInfo(message) end
+    end,true)
 end
 
 function M.show(host)

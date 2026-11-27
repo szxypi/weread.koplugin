@@ -652,6 +652,7 @@ function M:onSuspend()
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.suspend(self) end
     if self._weread_suspended then return end
     self._weread_suspended=true
+    local downloads=package.loaded['weread.ui.download_library'];if downloads then downloads.cancel(self) end
     local native_direct=package.loaded['weread.ui.native_direct_reading'];if native_direct then native_direct.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end

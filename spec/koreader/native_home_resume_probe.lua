@@ -118,7 +118,7 @@ else
         menu:onMenuSelect(menu.item_table[2])
         local dialog=assert(menu._shelf_popup)
         assert(dialog.buttons[1][1].text==util.tr('Continue download'))
-        dialog.buttons[3][1].callback()
+        dialog.buttons[4][1].callback()
         pump(function() return not menu._shelf_popup end)
         assert(view._shelf_popup==menu,'cancelling an action lost the unfinished list')
         menu:onMenuSelect(menu.item_table[1])
@@ -130,6 +130,58 @@ else
         assert(saved.offline and saved.book.book_id==id and #saved.menu.item_table>0 and not view._shelf_popup)
         saved.menu:onMenuSelect(saved.menu.item_table[1])
         pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==input.path end)
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        os.exit(0)
+    end
+    if input.mode=='downloads_discard' then
+        local scope=assert(host.settings:get_auth_scope())
+        local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+        local tr=require('weread.lib.plugin_util').tr
+        local empty_id='999991'
+        local function current() return true end
+        local function open_plans()
+            require('weread.ui.download_library').show(host)
+            pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+            local downloads=host.shelf_view
+            assert(downloads._action_buttons[1]):onTapSelectButton()
+            pump(function() return downloads._shelf_popup end)
+            return downloads,downloads._shelf_popup
+        end
+        local function remove_prompt(menu,index)
+            menu:onMenuSelect(menu.item_table[index])
+            local action=assert(menu._shelf_popup)
+            assert(action.buttons[3][1].text==tr('Remove resume record'))
+            action.buttons[3][1].callback()
+            pump(function() return menu._shelf_popup and menu._shelf_popup~=action end)
+            local dialog=menu._shelf_popup
+            assert(dialog.text==tr('Remove this resume record? Downloaded chapters will still be available.'))
+            return dialog
+        end
+        local downloads,menu=open_plans()
+        local original=assert(store:read(empty_id,current))
+        remove_prompt(menu,2):onClose()
+        assert(not menu._shelf_popup and #menu.item_table==2 and store:read(empty_id,current).revision==original.revision)
+        local confirmation=remove_prompt(menu,2)
+        local newer=assert(store:begin({book_id=empty_id,version=1,reading_digest=original.digest,chapters={{},{},{}}},
+            {first=1,last=1},original,current))
+        local failure
+        host.showInfo=function(_,message) failure=message end
+        confirmation.ok_callback()
+        pump(function() return failure end)
+        assert(failure==tr('Could not remove this resume record. Refresh the list and try again.')
+            and host.shelf_view==downloads and downloads._shelf_popup==menu
+            and store:read(empty_id,current).revision==newer.revision,'a stale confirmation removed the replacement')
+        downloads,menu=open_plans()
+        remove_prompt(menu,2).ok_callback()
+        pump(function() return host.shelf_view~=downloads and host.shelf_view and host.shelf_view._shelf_popup end)
+        downloads=host.shelf_view;menu=downloads._shelf_popup
+        assert(#menu.item_table==1 and not store:read(empty_id,current),'removing a record lost the remaining task')
+        remove_prompt(menu,1).ok_callback()
+        pump(function() return host.shelf_view~=downloads and host.shelf_view and not host.shelf_view._action_buttons end)
+        assert(not store:read(id,current) and #host.shelf_view.books==1 and host.shelf_view.books[1].bookId==id)
+        local cache=require('weread.lib.native_direct_cache')
+        assert(cache.identify(host.settings,scope.vid,input.path,current)
+            and cache.identify(host.settings,scope.vid,input.alternative,current),'removing a plan affected a saved chapter')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         os.exit(0)
     end

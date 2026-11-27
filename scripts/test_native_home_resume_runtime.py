@@ -62,7 +62,8 @@ def run(runtime):
                                  'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
-                                 'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all', 'downloads_pending', 'switch'):
+                                 'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all',
+                                 'downloads_pending', 'downloads_discard', 'switch'):
                         receipt = path.parent/'receipt.txt'
                         original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'no_alternative') else None
                         repair = mode in ('downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all')
