@@ -19,7 +19,7 @@ local function fixture(kind,options)
     local settings={data_dir="/unused",get=function(_self,key,default)
         if key=="api_key" then return state.key end
         if key=="books" then return books end
-        if key=="cookies" then return {wr_vid="900000",wr_skey="synthetic-cookie"} end
+        if key=="cookies" then return options.native_only and {} or {wr_vid="900000",wr_skey="synthetic-cookie"} end
         return default
     end,get_auth_scope=function() return scope end,auth_scope_matches=function(_self,value) return state.current and value==scope end,
         set=function(_self,key,value) assert(key=="books");books=value end,flush=function() end}
@@ -57,6 +57,10 @@ local function fixture(kind,options)
         get_public_book_search=function(_self,keyword,cursor)
             assert(keyword=='Synthetic' and cursor==0);state.public=state.public+1;return page({cursor=cursor})
         end,
+        get_public_book_metadata=function(_self,id)
+            assert(id=="900001");state.public=state.public+1
+            return {data={{bookId=id,title="Public metadata",intro="Public introduction"}}}
+        end,
         get_gateway_discovery=function(_self,_kind,query) state.gateway=state.gateway+1;return page(query) end,
         get_display_book_metadata=function() state.gateway=state.gateway+1;return {bookId="900001",title="Fallback metadata"} end}
     local host={settings=settings,client=client,library_db={accountKey=function() return "owner-a" end,
@@ -89,6 +93,18 @@ local function fixture(kind,options)
         end,
         empty=function() return #queue==0 end,
         cancel=function() if kind=="metadata" then Metadata.cancel(host) else Discovery.cancel(host) end end}
+end
+for _,lost in ipairs({false,true}) do
+    local f=fixture('metadata',{native_only=true,lost=lost,codes={401,401}});f.state.key=''
+    f.load();f.tick('read');f.tick('renew');f.tick('read')
+    expect(f.state.posts==1 and f.state.reads==(lost and 1 or 2) and f.state.public==1 and f.state.gateway==0
+        and f.state.saves==1 and f.state.shown.detail_source=='public' and f.state.shown.progress==83
+        and f.state.pending==lost and f.empty(),'unavailable native-only metadata did not safely fall back after one renewal')
+    if lost then
+        f.state.codes={401};f.load();f.tick('read')
+        expect(f.state.posts==1 and f.state.pending and f.state.public==2 and f.empty(),
+            'public metadata replayed an uncertain renewal')
+    end
 end
 for _,lost in ipairs({false,true}) do
     local f=fixture('search',{lost=lost,codes={401,401}});f.state.key=''

@@ -28,6 +28,10 @@ local function fixture(book_id)
         get_display_book_metadata=function(_self,id,access)
             routes[#routes+1]=access.kind
             return {bookId=id,title="Fallback title"}
+        end,
+        get_public_book_metadata=function(_self,id)
+            routes[#routes+1]="public"
+            return {data={{bookId=id,title="Public title",intro="Public introduction",progress=55,version=90}}}
         end}
     return {settings=settings,client=client,store=store,source=source,requests=requests,routes=routes,
         capture=function() return Metadata.capture(settings,store) end,
@@ -77,6 +81,32 @@ f=fixture();selected=f.capture();f.change{on_request=function() f.change{revisio
 expect(not pcall(Metadata.fetch,f.client,"900001",selected) and #f.routes==0,"renewal during HTTP cannot apply or fall back")
 f=fixture();f.change{key="",cookies={}}
 expect(Metadata.fetch(f.client,"900001",f.capture()).source=="native","native grant does not require Web Cookie or Skill key")
+local public_option={public_fallback=true}
+for _,code in ipairs({403,503,"transport"}) do
+    f=fixture();f.change{key="",cookies={},code=code}
+    result=Metadata.fetch(f.client,"900001",f.capture(),public_option)
+    expect(result.source=="public" and result.metadata.intro=="Public introduction" and #f.requests==1
+        and table.concat(f.routes,",")=="public" and not result.metadata.progress and not result.metadata.version,
+        "native-only metadata did not fetch the exact public record once")
+end
+for _,code in ipairs({429,404,302}) do
+    f=fixture();f.change{key="",cookies={},code=code}
+    expect(not pcall(Metadata.fetch,f.client,"900001",f.capture(),public_option) and #f.routes==0,
+        "native-only refusal fanned out to the public endpoint")
+end
+f=fixture();f.change{key="",cookies={},code=401}
+local ok,err=pcall(Metadata.fetch,f.client,"900001",f.capture(),{recover_auth=true,public_fallback=true})
+expect(not ok and err=="book_metadata/native_expired" and #f.routes==0,"public fallback bypassed authorized recovery")
+f=fixture();f.change{key="",cookies={}};f.source.bookId="900002"
+expect(not pcall(Metadata.fetch,f.client,"900001",f.capture(),public_option) and #f.routes==0,
+    "wrong native book disclosed the selected public lookup")
+f=fixture();f.change{key="",cookies={},code=503}
+f.client.get_public_book_metadata=function()
+    f.change{revision=2}
+    return {data={{bookId="900001",title="Stale public title"}}}
+end
+ok,err=pcall(Metadata.fetch,f.client,"900001",f.capture(),public_option)
+expect(not ok and err=="book_metadata/session_changed","authorization changed while reading public metadata")
 local auth=Auth:new(f.client,{expected_vid="900000"})
 local before=#f.requests
 for _,id in ipairs({"0","900001&other=1",false,"MP_WXS_test",string.rep("9",21)}) do
@@ -96,6 +126,9 @@ f=fixture(cb);f.source.bookId='CB_SyntheticOther'
 expect(not pcall(Metadata.fetch,f.client,cb,f.capture()) and #f.routes==0,'another CB book overwrote the target')
 f=fixture(cb);f.change{code=429}
 expect(not pcall(Metadata.fetch,f.client,cb,f.capture()) and #f.requests==1 and #f.routes==0,'CB metadata rate failure fanned out')
+f=fixture(cb);f.change{key='',cookies={},code=503}
+expect(not pcall(Metadata.fetch,f.client,cb,f.capture(),public_option) and #f.routes==0,
+    'private imported book identity reached a public lookup')
 f=fixture(cb);auth=Auth:new(f.client,{expected_vid='900000'});before=#f.requests
 expect(not pcall(auth.write_shelf_membership,auth,{vid='900000',accessToken='synthetic'},cb,'remove') and #f.requests==before,
     'CB metadata expanded a membership write identity')
@@ -160,4 +193,27 @@ f,host,state=host_fixture(cb);UI.refresh(host,{book_id=cb},nil,{automatic=true})
 f.change{revision=2};job.callback(result)
 local cb_written=select(3,state())
 expect(cb_written==0 and not host.book_metadata_context,'old CB authorization metadata was committed')
+for _, authenticated in ipairs({'none','before','during'}) do
+    f,host,state=host_fixture();f.change{key="",cookies={},code=503}
+    books=select(2,state())
+    local function authenticated_cache()
+        local cached=books['900001']
+        cached.detail_source,cached.detail_updated_at,cached.intro='native',123,'Authenticated introduction'
+    end
+    if authenticated=='before' then authenticated_cache() end
+    expect(UI.refresh(host,{book_id='900001'},nil,{automatic=true}),'native-only metadata controller failed to start')
+    job=state();result=job.task()
+    if authenticated=='during' then authenticated_cache() end
+    job.callback(result)
+    saves,shown=select(3,state())
+    if authenticated=='none' then
+        expect(saves==1 and shown.detail_source=='public' and shown.intro=='Public introduction' and shown.progress==80
+            and shown.bookVersion==7 and shown.pending_upload_position.percent==80 and shown.version==nil,
+            'native-only public detail did not preserve local reading state or persist')
+    else
+        expect(saves==0 and books['900001'].intro=='Authenticated introduction'
+            and books['900001'].detail_source=='native' and #f.routes==(authenticated=='before' and 0 or 1),
+            'public fallback overwrote a verified authenticated cache or sent an unnecessary lookup')
+    end
+end
 print("PASS: "..checks.." native metadata route/projection/session checks")

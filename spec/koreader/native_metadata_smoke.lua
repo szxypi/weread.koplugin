@@ -97,6 +97,45 @@ return function(plugin,count,flush_tasks,home,pump_until)
         and count("/api/agent/gateway","/book/info")==gateway,"native rate limit discarded cache or fanned out")
     assert(count("/web/book/read")==writes
         and count("/web/book/getProgress")+count("/api/agent/gateway","/book/getprogress")==progress,"native metadata queried or wrote reading progress")
+    local native_only_id, saved_cookies = '900025', settings:get('cookies', {})
+    local public_reads = count('/web/book/publicinfos')
+    settings:set('cookies', {});settings:set('api_key','');settings:flush()
+    assert(store:read() and not require('weread.lib.read_access').capture(settings),'metadata fixture is not native-only')
+    control{match='/book/info',times=1,status=503,delay=0}
+    refresh();wait()
+    assert(cached().detail_source=='gateway' and count('/web/book/publicinfos')==public_reads,
+        'known authenticated details triggered a public request')
+    plugin:closeWeReadUI()
+    books=settings:get('books',{})
+    local previous_public=books[native_only_id]
+    books[native_only_id]={book_id=native_only_id,title='Sparse book',progress=82,chapter_uid=99,
+        bookVersion=47,pending_upload_position={percent=82},pending_upload_account=plugin.library_db:accountKey(),
+        _library_account_key=plugin.library_db:accountKey()}
+    settings:set('books',books);settings:flush()
+    local native_reads=count('/book/info')
+    control{match='/book/info',times=1,status=503,delay=0}
+    plugin:showBookRecord({bookId=native_only_id,title='Sparse book'})
+    assert(plugin.book_metadata_context and plugin.book_metadata_worker.job,'native-only book did not start metadata')
+    wait()
+    local public=assert(settings:get_book(native_only_id))
+    local public_detail=assert(plugin._book_detail_view)
+    assert(public.detail_source=='public' and public.intro:find('自写合成简介',1,true) and public.progress==82
+        and public.chapter_uid==99 and public.bookVersion==47 and public.pending_upload_position.percent==82
+        and public.secret==nil and public.version==nil and public_detail.data.intro==public.intro,
+        'public fallback lost the native detail or changed local reading state')
+    assert(plugin.library_db:getBook(native_only_id).detail_source=='public' and count('/book/info')==native_reads+1
+        and count('/web/book/publicinfos')==public_reads+1 and count(reader_path)==web
+        and count('/api/agent/gateway','/book/info')==gateway,'public fallback used unexpected transport or lost account cache')
+    UIManager:forceRePaint()
+    plugin:closeWeReadUI()
+    plugin.library_db.getBook=function(db,other_id) if other_id~=native_only_id then return get_book(db,other_id) end end
+    plugin:showBookRecord({bookId=native_only_id,title='Sparse book'})
+    plugin.library_db.getBook=get_book
+    assert(not plugin.book_metadata_context and plugin._book_detail_view.data.intro==public.intro
+        and count('/web/book/publicinfos')==public_reads+1,'cached public detail depended on a fresh network or SQLite copy')
+    plugin:closeWeReadUI()
+    books=settings:get('books',{});books[native_only_id]=previous_public
+    settings:set('books',books);settings:set('cookies',saved_cookies);settings:set('api_key',saved_key);settings:flush()
     control{match="",times=0,delay=0}
     plugin:closeWeReadUI()
     local numeric_id=id
@@ -143,5 +182,5 @@ return function(plugin,count,flush_tasks,home,pump_until)
     books=settings:get('books',{});books[id]=previous_cb;settings:set('books',books)
     id=numeric_id
     books=settings:get("books",{});books[id]=previous;settings:set("books",books);settings:flush()
-    print("PASS: keyless native metadata GET -> responsive worker -> totalWords/publisher/rating/native details/SQLite; grant revision/cancel/close; Skill/Web fallback and 429 cache; local reading state preserved")
+    print("PASS: native metadata -> responsive worker and SQLite; Skill/Web and native-only public fallback; local reader state preserved")
 end

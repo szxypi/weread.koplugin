@@ -115,6 +115,11 @@ function M.fetch(client, book_id, selected, options)
             end
         end
     end
+    if options.public_fallback and selected.native and not selected.display and Access.book_id(book_id) then
+        local result = M.fetch_public(client, book_id)
+        current()
+        return result
+    end
     fail("unavailable")
 end
 

@@ -17,6 +17,12 @@ local function resume_shelf(host, context)
     if popup and popup.resumeMetadata then popup.resumeMetadata(host,context) end
 end
 
+local function has_authenticated_details(book)
+    if not book or (tonumber(book.detail_updated_at) or 0) <= 0 then return false end
+    local source = book.detail_source
+    return source == 'native' or source == 'gateway' or source == 'web'
+end
+
 function M.cancel(host)
     local context = host.book_metadata_context
     if not context then return end
@@ -47,6 +53,8 @@ function M.refresh(host, book, old_view, options)
     end
     local access = Metadata.capture(host.settings)
     local guest=not access and not (host.library_db and host.library_db:accountKey()) and Access.book_id(id)~=nil
+    local public_fallback = access and access.native and not access.display and Access.book_id(id) ~= nil
+        and not has_authenticated_details(initial)
     if not access and not guest then
         if options.automatic then
             host:showBookMenu(book)
@@ -169,7 +177,7 @@ function M.refresh(host, book, old_view, options)
                 end,
                 complete = function(success, renewed)
                     access = renewed
-                    if success or renewed.display then launch(not success)
+                    if success or renewed.display or public_fallback then launch(not success)
                     else finish(); failed() end
                 end })
             if recovering then return end
@@ -177,16 +185,19 @@ function M.refresh(host, book, old_view, options)
         if not guest and type(result) == 'table' and result.web_expired then recover_web(); return end
         finish()
         local valid, metadata = pcall(Metadata.normalize, type(result) == "table" and result.metadata, id)
-        local source_ok=type(result)=='table' and (guest and result.source=='public'
+        local source_ok=type(result)=='table' and ((guest or public_fallback) and result.source=='public'
             or not guest and (result.source=='gateway' or result.source=='web' or result.source=='native'))
         if not valid or not source_ok then failed(); return end
         -- Re-read after the network task: reading and downloads may have
         -- changed local state while the metadata request was outstanding.
-        local committed, latest = pcall(function()
+        local committed, latest, preserved = pcall(function()
             local books = host.settings:get("books", {})
             local original,conflict,legacy_key=Access.cached_book_for_update(books,id)
             if conflict then error('book_metadata/identity_conflict',0) end
             if context.had_saved_record and not original then error('book_metadata/record_removed',0) end
+            if public_fallback and result.source == 'public' and has_authenticated_details(original) then
+                return original, true
+            end
             -- Never mutate a stale in-memory record before identity validation
             -- or while a storage failure may still reject this refresh.
             local saved={};for key,value in pairs(original or {}) do saved[key]=value end
@@ -213,7 +224,7 @@ function M.refresh(host, book, old_view, options)
         end
         if old_view then UIManager:close(old_view) end
         show_details(latest)
-        host:showTransientInfo(_("Book information updated."), 2)
+        if not preserved then host:showTransientInfo(_("Book information updated."), 2) end
     end
     launch = function(skip_native, web_only)
         local ok, started = pcall(host.book_metadata_worker.start, host.book_metadata_worker, function()
@@ -221,7 +232,7 @@ function M.refresh(host, book, old_view, options)
             if guest then valid,result=pcall(Metadata.fetch_public,host.client,id)
             else valid,result=pcall(Metadata.fetch,host.client,id,access,{
                 recover_auth=host.native_renewal~=nil and not context.recovery_attempted,skip_native=skip_native,
-                recover_web=true,web_only=web_only,
+                recover_web=true,web_only=web_only,public_fallback=public_fallback,
             }) end
             return valid and result or { native_expired = result == "book_metadata/native_expired",
                 web_expired = result == 'book_metadata/web_expired' }

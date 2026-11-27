@@ -1525,7 +1525,7 @@ local function store_book_record(self, book, book_id)
     local source=saved.detail_source
     local saved_details = saved._library_account_key == account_key and (tonumber(saved.detail_updated_at) or 0) > 0
         and (account_key and (source == 'native' or source == 'web' or source == 'gateway')
-            or not account_key and source == 'public')
+            or source == 'public' and ReadAccess.book_id(book_id) ~= nil)
     local cached = self.library_db and self.library_db:getBook(book_id) or nil
     for key, value in pairs(cached or {}) do
         if saved[key] == nil and not BookStore.is_reading_field(key) then saved[key] = value end
