@@ -32,4 +32,6 @@
 
 真实服务器先由独立 Python 原生协议完成一次 XHTML 位置变更与原位恢复。随后同一本书在 600×800 的隔离 KOReader 原生阅读器中，使用正式同步界面、后台服务及 SQLite 完成第二次变更与恢复：宿主在每次发送前独立核对来源、可见页面位置、签名请求和云端状态，明确回执及两端回读均成功后才继续；两次原生数据写入后原位置和摘要恢复，阅读计数及可见书架未变。全新只读检查再次确认原状态和已结束的测试记录。两次测试均没有网页进度写入或授权请求，不能证明最近阅读时间或服务端全部历史恢复。
 
+零版本 TXT 也通过了真实账号的手动、定时和关书位置往返。定时与关书验收接入了 KOReader 原生翻页和关闭事件，范围见[原生 TXT 阅读说明](native-direct-reading.md)。
+
 在合成往返中发现 KOReader JSON 解析器会把转义的表情符号拆成无效的代理项，导致回执后无法确认摘要。现只对 JSON 字符串内有效的代理对进行转换，保留转义反斜杠及无效输入，普通响应使用快速检查；实际 KOReader 解析器及两尺寸原生往返回归通过。真实账号完整插件宿主、缺少摘要时的真实写入、更多书籍及实体 Kindle 仍待验收。见[只读预检记录](validation-assets/2026-11-23/native-direct-upload-preview.json)、[真实协议记录](validation-assets/2026-11-23/native-direct-upload-roundtrip.json)及[原生界面记录](validation-assets/2026-11-23/native-direct-ui-roundtrip.json)。

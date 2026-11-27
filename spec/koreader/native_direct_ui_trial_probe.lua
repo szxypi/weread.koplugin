@@ -156,6 +156,7 @@ local Service=require('weread.lib.native_position_service');local start=Service.
 local trial_finished=false
 Service.start=function(self,value,guard,callback)
     assert(sequence==1 and Contract.valid(value) and anchor)
+    assert(not trial.closed or not reader.document,'direct_ui_trial/reader_still_open')
     service,metadata=self,value;self.task_options.zone=trial.time_zone
     rpc('plan',1,{metadata=value,anchor=anchor})
     return start(self,value,guard,function(result,token)
@@ -185,8 +186,34 @@ if trial.timed or trial.closed then
     local Interval=require('weread.lib.native_direct_interval')
     assert(Interval.arm_session(host,entry,ctx,initial,'before'))
     local timer=assert(host._native_direct_interval)
+    -- Route real ReaderUI events to WeRead's installed lifecycle. The
+    -- ordinary reader's unrelated services are inactive in this isolated host.
+    local Lifecycle=require('weread.lib.reader_lifecycle')
+    local function inactive() end
+    host.progress_sync={on_page_update=inactive,prepare_close=inactive,on_close_document=inactive}
+    host.downloader={cancelPrefetch=inactive}
+    host.read_report={on_close_document=inactive}
+    host._removeReaderHighlightTapGuard=Lifecycle._removeReaderHighlightTapGuard
+    host._teardownThoughtInterception=inactive
+    host._teardownXPointerOverlayPrototype=inactive
+    local page_event,close_event=false,false
+    reader:registerModule(nil,require('ui/widget/container/inputcontainer'):new{
+        onPageUpdate=function()
+            Lifecycle.onPageUpdate(host)
+            page_event=true
+        end,
+        onPosUpdate=function()
+            Lifecycle.onPosUpdate(host)
+            page_event=true
+        end,
+        onCloseDocument=function()
+            Lifecycle.onCloseDocument(host)
+            close_event=true
+        end,
+    })
     assert(reader.rolling and doc:getPageCount()>input.start_page)
-    reader.rolling:onGotoPage(input.start_page+1);UI:forceRePaint();timer:changed()
+    reader.rolling:onGotoPage(input.start_page+1);UI:forceRePaint()
+    assert(page_event and timer.dirty and timer.task and timer.due,'direct_ui_trial/page_event')
     if trial.closed then
         local Context=require('weread.lib.source_context');local original_capture=Context.capture
         Context.capture=function(...)
@@ -202,13 +229,13 @@ if trial.timed or trial.closed then
                 assert(not closed,'direct_ui_trial/closed_document');return original(self,...)
             end end
         end
-        local Close=require('weread.lib.native_direct_close');local token=assert(Close.freeze(host))
-        Context.capture=original_capture;timer:stop();reader:onClose(false);closed=true
-        assert(Close.start(host,token));wait(function() return trial_finished or host.transient_message~=nil end)
+        reader:onClose(false);closed=true;Context.capture=original_capture
+        assert(close_event and not reader.document and not host._native_direct_interval
+            and host._reader_session_gen==2,'direct_ui_trial/close_event')
+        wait(function() return trial_finished or host.transient_message~=nil end)
         assert(trial_finished,'direct_ui_trial/close_incomplete')
         if trial.armed then assert(not host.transient_message) else assert(host.transient_message) end
     else
-        assert(timer.task and timer.due)
         if not trial.natural then
             local due=timer.due;timer.now=function() return due end
             local fire=timer.task;UI:unschedule(fire);fire()
