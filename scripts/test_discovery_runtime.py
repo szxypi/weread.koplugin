@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
+    parser.add_argument('--long-reading-catalog',action='store_true',help='Sync progress in the final chapter of a 20,000-chapter book')
     parser.add_argument('--quick-read',action='store_true',help='Finish the signed-in reading flow via the book hold menu')
     parser.add_argument('--shelf-tap-read',choices=('cover','list'),help='Open a shelf book by tapping its cover or list row')
     parser.add_argument('--eink-standard-fallback',action='store_true',help='Recover from a native catalog outage using standard reading')
@@ -91,6 +92,8 @@ def main():
         parser.error('--chapter-link-preflight uses a separate fixture')
     if args.quick_read and not args.reading_flow:
         parser.error('--quick-read requires --reading-flow')
+    if args.long_reading_catalog and (not args.reading_flow or args.owner_roundtrip or args.process_loss):
+        parser.error('--long-reading-catalog requires --reading-flow and its own progress baseline')
     if args.shelf_tap_read and (not args.reading_flow or args.quick_read or args.reading_auth_recovery or args.process_loss):
         parser.error('--shelf-tap-read requires the regular --reading-flow')
     if args.eink_standard_fallback and (not args.reading_flow or args.quick_read or args.reading_auth_recovery or args.process_loss):
@@ -194,6 +197,14 @@ def main():
         environment['WEREAD_TEST_PROCESS_LOSS_KIND'] = args.process_loss_kind
     else:
         server = MockServer(0, root / "evidence/requests.jsonl")
+    starting_chapter = 2
+    if args.long_reading_catalog:
+        starting_chapter = 20000
+        mock_weread.CHAPTERS = mock_weread.CHAPTERS + [
+            dict(chapterUid=i, chapterIdx=i, title=f"合成章节 {i}", level=1, wordCount=1800)
+            for i in range(len(mock_weread.CHAPTERS) + 1, starting_chapter + 1)
+        ]
+        environment['WEREAD_TEST_LONG_READING_CATALOG'] = str(starting_chapter)
     server.content_format=args.content_format
     server.guest_login_fixture=guest_read
     if guest_read:server.control['guest_login_pending']=True
@@ -216,7 +227,8 @@ def main():
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
         environment['WEREAD_TEST_RESUME_HANDOFF']='1'
-    server.progress[target_book_id] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
+    server.progress[target_book_id] = dict(chapterUid=starting_chapter, chapterIdx=starting_chapter,
+                                           chapterOffset=120, progress=37, summary="合成进度")
     if args.cb_resume:server.progress[CB_READING_ID]=server.progress[target_book_id].copy()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

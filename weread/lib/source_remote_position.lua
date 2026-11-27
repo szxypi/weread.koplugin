@@ -1,5 +1,6 @@
 -- Source coordinates need a unique explicit catalog index. List order and
 -- default zeros never grant position or synchronization authority.
+local Catalog=require('weread.lib.chapter_catalog')
 local Remote=require('weread.lib.remote_progress')
 local M={}
 local function positive(value)
@@ -7,17 +8,17 @@ local function positive(value)
     return type(value)=='string' and #value<=20 and value:match('^[1-9]%d*$') and value or nil
 end
 local function catalog_index(chapters,uid)
-    if type(chapters)~='table' or #chapters<1 or #chapters>10000 then return nil end
+    if type(chapters)~='table' or #chapters<1 or #chapters>Catalog.MAX_CHAPTERS then return nil end
     local selected,seen,indices=nil,{},{}
     for _i,row in ipairs(chapters) do
         if type(row)~='table' then return nil end
         local id,index
-        for _j,key in ipairs({'chapterUid','chapterId','chapter_uid'}) do
+        for _j,key in ipairs(Catalog.UID_FIELDS) do
             if row[key]~=nil then
                 local v=positive(row[key]);if not v or id and id~=v then return nil end;id=v
             end
         end
-        for _j,key in ipairs({'chapterIdx','chapterIndex','chapter_idx'}) do
+        for _j,key in ipairs(Catalog.INDEX_FIELDS) do
             if row[key]~=nil then
                 local v=row[key]
                 if type(v)~='number' or v~=v or v%1~=0 or v<0 or v>1000000 or index and index~=v then return nil end

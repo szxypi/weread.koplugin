@@ -46,6 +46,18 @@ class CandidateTests(unittest.TestCase):
                      [dict(chapterUid=11,chapterIdx=1,chapter_idx=2)],[dict(chapterUid=11,chapterId=22,chapterIdx=1)]):
             with self.assertRaises(ValueError):project(self.raw,self.point,rows,10)
 
+    def test_last_chapter_in_maximum_catalog_and_oversize_rejection(self):
+        rows=[dict(chapterUid=i,chapterIdx=i) for i in range(1,20001)]
+        point=dict(self.point,chapter_uid='20000')
+        self.assertEqual(project(self.raw,point,rows,37)['chapter_idx'],20000)
+        rows[19998]['chapterUid']=20000
+        with self.assertRaisesRegex(ValueError,'candidate_catalog'):
+            project(self.raw,point,rows,37)
+        rows[19998]['chapterUid']=19999
+        rows.append(dict(chapterUid=20001,chapterIdx=20001))
+        with self.assertRaisesRegex(ValueError,'candidate_catalog'):
+            project(self.raw,point,rows,37)
+
     def test_invalid_point_identity_and_percent_rejected(self):
         for percent in (True,-1,101,.5,float('nan')):
             with self.assertRaises(ValueError):project(self.raw,self.point,self.chapters,percent)

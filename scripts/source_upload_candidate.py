@@ -11,7 +11,7 @@ def identifier(value):
 
 
 def chapter_index(chapters,uid):
-    if not isinstance(chapters,list) or not 1<=len(chapters)<=10000:raise ValueError('candidate_catalog')
+    if not isinstance(chapters,list) or not 1<=len(chapters)<=20000:raise ValueError('candidate_catalog')
     selected=[]
     for row in chapters:
         if not isinstance(row,dict):raise ValueError('candidate_catalog')

@@ -36,4 +36,17 @@ p=assert(Resolve(raw(),'book',{{chapterUid='22',chapterId=22,chapterIdx=0,chapte
 reject({bookId='other',data=raw()},nil,'progress_book_mismatch')
 reject({data={raw(),raw()}},nil,'progress_ambiguous')
 eq(raw().book.chapterIdx,nil);eq(catalog[1].chapterIdx,7)
+local long_catalog={}
+for i=1,20000 do long_catalog[i]={chapterUid=i,chapterIdx=i} end
+local long_raw=raw()
+long_raw.book.chapterUid=20000
+eq(assert(Resolve(long_raw,'book',long_catalog,'web')).chapter_idx,20000)
+long_raw.book.chapterIdx=19999
+reject(long_raw,long_catalog)
+long_raw.book.chapterIdx=nil
+long_catalog[19999].chapterIdx=20000
+reject(long_raw,long_catalog)
+long_catalog[19999].chapterIdx=19999
+long_catalog[20001]={chapterUid=20001,chapterIdx=20001}
+reject(long_raw,long_catalog)
 print('source_remote_position_spec: '..n..' checks')

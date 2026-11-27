@@ -536,6 +536,16 @@ local saved = assert(current.settings:get_book(book_id))
 assert(saved.last_uploaded_position and not saved.pending_upload_position, "sync action did not persist acknowledgement")
 local remote = current.client:get_progress(book_id)
 assert(remote.book.progress == saved.last_uploaded_position.percent, "synthetic cloud readback differs")
+local last_chapter=os.getenv('WEREAD_TEST_LONG_READING_CATALOG')
+if last_chapter then
+    local chapters=assert(current.library_db:getChapters(book_id))
+    assert(#chapters==tonumber(last_chapter) and tostring(chapters[#chapters].chapterUid)==last_chapter,
+        'the complete long catalog was not retained')
+    assert(tostring(saved.last_uploaded_position.chapter_uid)==last_chapter
+        and saved.last_uploaded_position.chapter_idx==tonumber(last_chapter)
+        and tostring(remote.book.chapterUid)==last_chapter and remote.book.chapterIdx==tonumber(last_chapter),
+        'the final chapter did not round-trip through the long catalog')
+end
 shot("reading-sync-result")
 if os.getenv('WEREAD_TEST_PROCESS_LOSS') then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)') .. 'process_loss_smoke.lua').prepare(reader, current)

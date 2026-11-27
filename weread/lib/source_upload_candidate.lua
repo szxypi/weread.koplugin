@@ -1,6 +1,7 @@
 -- A transient upload candidate, never a grant to send or persist source text.
 local Dom = require('weread.lib.source_dom')
 local Access = require('weread.lib.read_access')
+local Catalog = require('weread.lib.chapter_catalog')
 local M = {}
 local function identifier(value)
     if type(value)=='number' and value%1==0 then value=tostring(value) end
@@ -10,12 +11,12 @@ end
 -- A malformed identifier anywhere invalidates the catalog; a malformed or
 -- duplicated index invalidates that UID only, as in chapter_index.
 function M.chapter_indices(chapters)
-    if type(chapters)~='table' or #chapters<1 or #chapters>10000 then return nil end
+    if type(chapters)~='table' or #chapters<1 or #chapters>Catalog.MAX_CHAPTERS then return nil end
     local indexes,counts={},{}
     for _i,row in ipairs(chapters) do
         if type(row)~='table' then return nil end
         local id
-        for _j,key in ipairs({'chapterUid','chapterId','chapter_uid'}) do
+        for _j,key in ipairs(Catalog.UID_FIELDS) do
             if row[key]~=nil then
                 local value=identifier(row[key])
                 if not value or id and id~=value then return nil end
@@ -25,7 +26,7 @@ function M.chapter_indices(chapters)
         if not id then return nil end
         counts[id]=(counts[id] or 0)+1
         local index,valid=nil,true
-        for _j,key in ipairs({'chapterIdx','chapterIndex','chapter_idx'}) do
+        for _j,key in ipairs(Catalog.INDEX_FIELDS) do
             local value=row[key]
             if value~=nil then
                 if type(value)~='number' or value%1~=0 or value<0 or value>1000000
@@ -38,12 +39,12 @@ function M.chapter_indices(chapters)
     return indexes
 end
 function M.chapter_index(chapters,uid)
-    if type(chapters)~='table' or #chapters<1 or #chapters>10000 then return nil end
+    if type(chapters)~='table' or #chapters<1 or #chapters>Catalog.MAX_CHAPTERS then return nil end
     local selected,count=nil,0
     for _i,row in ipairs(chapters) do
         if type(row)~='table' then return nil end
         local id
-        for _j,key in ipairs({'chapterUid','chapterId','chapter_uid'}) do
+        for _j,key in ipairs(Catalog.UID_FIELDS) do
             if row[key]~=nil then
                 local value=identifier(row[key])
                 if not value or id and id~=value then return nil end
@@ -53,7 +54,7 @@ function M.chapter_index(chapters,uid)
         if not id then return nil end
         if id==uid then
             local index
-            for _j,key in ipairs({'chapterIdx','chapterIndex','chapter_idx'}) do
+            for _j,key in ipairs(Catalog.INDEX_FIELDS) do
                 local value=row[key]
                 if value~=nil then
                     if type(value)~='number' or value%1~=0 or value<0 or value>1000000

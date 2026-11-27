@@ -45,6 +45,16 @@ class SourceRemoteTests(unittest.TestCase):
     def test_unrelated_missing_index_does_not_replace_the_selected_explicit_index(self):
         rows=[CAT[0],dict(chapterUid=33)]
         self.assertEqual(resolve(raw(),BOOK,rows)['chapter_idx'],7)
+    def test_last_chapter_in_maximum_catalog_and_oversize_rejection(self):
+        rows=[dict(chapterUid=i,chapterIdx=i) for i in range(1,20001)]
+        value=raw()
+        value['book']['chapterUid']=20000
+        self.assertEqual(resolve(value,BOOK,rows)['chapter_idx'],20000)
+        rows[19998]['chapterIdx']=20000
+        self.assertEqual(outcome(value,BOOK,rows)['reason'],'progress_source_incomplete')
+        rows[19998]['chapterIdx']=19999
+        rows.append(dict(chapterUid=20001,chapterIdx=20001))
+        self.assertEqual(outcome(value,BOOK,rows)['reason'],'progress_source_incomplete')
     def test_explicit_catalog_zero_and_numeric_aliases_are_preserved(self):
         rows=[dict(chapterUid='22',chapterId=22,chapterIdx=0,chapterIndex=0)]
         self.assertEqual(resolve(raw(),BOOK,rows)['chapter_idx'],0)

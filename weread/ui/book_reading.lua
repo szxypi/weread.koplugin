@@ -1,5 +1,6 @@
 -- Prepare an uncached book without blocking the native UI event loop.
 local Access = require("weread.lib.read_access")
+local Catalog = require("weread.lib.chapter_catalog")
 local Content = require("weread.lib.content")
 local Source = require("weread.lib.shelf_source")
 local WorkerSettings = require("weread.lib.worker_settings")
@@ -14,7 +15,7 @@ end
 
 -- Only catalog fields needed by downloading/rendering leave the child.
 function M.catalog(value)
-    if type(value) ~= "table" or #value == 0 or #value > 20000 then return end
+    if type(value) ~= "table" or #value == 0 or #value > Catalog.MAX_CHAPTERS then return end
     local chapters, seen = {}, {}
     for index, row in ipairs(value) do
         if type(row) ~= "table" then return end

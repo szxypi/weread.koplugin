@@ -34,6 +34,21 @@ for _i,bad in ipairs({{chapterUid=11},{chapterUid=11,chapterIdx=true},{chapterUi
     expect(not Candidate.project(point,'ABCDEFGHIJKLMNOPQRST',{bad},37),'ambiguous catalog accepted')
 end
 expect(not Candidate.project(point,'ABCDEFGHIJKLMNOPQRST',{chapter,chapter},37),'duplicate UID accepted')
+do
+    local catalog={}
+    for i=1,20000 do catalog[i]={chapterUid=i,chapterIdx=i} end
+    local last=copy(point)
+    last.chapter_uid='20000'
+    local candidate=Candidate.project(last,'ABCDEFGHIJKLMNOPQRST',catalog,37)
+    expect(candidate and candidate.chapter_idx==20000,'long catalog lost its final chapter')
+    expect(Candidate.chapter_indices(catalog)['20000']==20000,'bulk lookup lost the final chapter')
+    catalog[19999].chapterUid=20000
+    expect(not Candidate.project(last,'ABCDEFGHIJKLMNOPQRST',catalog,37),'long catalog accepted a duplicate UID')
+    catalog[19999].chapterUid=19999
+    catalog[20001]={chapterUid=20001,chapterIdx=20001}
+    expect(not Candidate.chapter_index(catalog,'20000') and not Candidate.chapter_indices(catalog),
+        'catalog over the reading limit was accepted')
+end
 for _i,catalog in ipairs({chapters,{{chapterUid=11,chapterIdx=0},{chapterUid=12,chapterIdx=1}},
     {{chapterUid=11,chapterIdx=1,chapter_idx=2},{chapterUid=12,chapterIdx=1}},
     {{chapterUid=11,chapterIdx=0},{chapterUid=11,chapterIdx=0}},

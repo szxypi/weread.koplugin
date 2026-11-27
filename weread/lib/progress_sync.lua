@@ -1332,11 +1332,13 @@ function ProgressSync:_compare_source(local_position,remote,chapters)
         or type(remote)~='table' or remote.book_id~=local_position.book_id or not remote.has_chapter_offset
         or not remote.has_chapter_index then return nil end
     if source.basis=='raw_txt_utf16' and remote.source~='web' and remote.source~='native' then return nil end
-    local local_index=SourceCandidate.chapter_index(chapters,tostring(source.chapter_uid))
-    local remote_index=SourceCandidate.chapter_index(chapters,tostring(remote.chapter_uid))
-    if not local_index or remote_index~=remote.chapter_idx or not remote_index then return nil end
+    local local_uid,remote_uid=tostring(source.chapter_uid),tostring(remote.chapter_uid)
+    local local_index=SourceCandidate.chapter_index(chapters,local_uid)
+    if local_index==nil then return nil end
+    local remote_index=local_uid==remote_uid and local_index or SourceCandidate.chapter_index(chapters,remote_uid)
+    if remote_index==nil or remote_index~=remote.chapter_idx then return nil end
     if local_index~=remote_index then return remote_index>local_index and 'remote_ahead' or 'local_ahead' end
-    if tostring(source.chapter_uid)~=tostring(remote.chapter_uid) then return nil end
+    if local_uid~=remote_uid then return nil end
     if source.chapter_offset==remote.chapter_offset then return 'same' end
     return remote.chapter_offset>source.chapter_offset and 'remote_ahead' or 'local_ahead'
 end

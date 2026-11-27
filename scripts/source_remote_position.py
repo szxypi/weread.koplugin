@@ -9,7 +9,7 @@ def positive(value):
 
 
 def catalog_index(chapters,uid):
-    if not isinstance(chapters,list) or not 1<=len(chapters)<=10000:raise ProgressError('progress_source_incomplete')
+    if not isinstance(chapters,list) or not 1<=len(chapters)<=20000:raise ProgressError('progress_source_incomplete')
     selected=None;seen=set();indices=set()
     for row in chapters:
         if not isinstance(row,dict):raise ProgressError('progress_source_incomplete')

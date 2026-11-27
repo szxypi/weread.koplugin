@@ -1,5 +1,6 @@
 -- Load a book's chapter list off the UI thread; renew one definite Web 401.
 local UIManager=require('ui/uimanager')
+local Catalog=require('weread.lib.chapter_catalog')
 local Content=require('weread.lib.content')
 local ReaderContext=require('weread.lib.reader_context')
 local Source=require('weread.lib.shelf_source')
@@ -8,7 +9,7 @@ local _=require('weread.lib.plugin_util').tr
 local M={}
 
 local function valid_catalog(chapters)
-    if type(chapters)~='table' or #chapters>20000 then return false end
+    if type(chapters)~='table' or #chapters>Catalog.MAX_CHAPTERS then return false end
     local count,seen=0,{}
     for key in pairs(chapters) do
         if type(key)~='number' or key%1~=0 or key<1 or key>#chapters then return false end
