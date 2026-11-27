@@ -565,7 +565,9 @@ if handoff_position then
     Task.capture=function(input) socket.sleep(.8);return capture(input) end
     reader.rolling:onGotoXPointer(located.xpointer)
     current.source_position:on_view_changed(true)
-    current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
+    -- The chapter list navigates inside an open combined EPUB. Open the
+    -- separate cached copy explicitly to exercise the handoff between files.
+    assert(current:openFile(first,nil,book(current)))
     assert(Reader.instance==reader and current._read_resume_token and not current._read_resume_token.dispatched)
     pump(function() return current.source_position.worker and current.source_position.worker.job~=nil end)
     local pid=current.source_position.worker.job.pid
@@ -580,7 +582,7 @@ if handoff_position then
     local location=assert(require('weread.lib.source_context').location(reader.document,reader.view.view_mode))
     local live_expected=assert(live_index:capture(location.xpointer)).co
     assert(not current.source_position:current())
-    current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
+    assert(current:openFile(first,nil,book(current)))
     assert(Reader.instance==reader and current._read_resume_token and not current._read_resume_token.dispatched)
     pump(function() return Reader.instance and Reader.instance.document.file==first
         and Reader.instance.weread.progress_sync:current_source_target()~=nil end)
