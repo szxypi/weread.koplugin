@@ -386,12 +386,31 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         assert(rows[1].chapter_uid=='37' and rows[2].chapter_uid=='38')
         local source=assert(cache.open(settings,scope.vid,'42',rows[1],current))
         local target=assert(cache.open(settings,scope.vid,'42',rows[2],current))
-        local unrelated=assert(source.path:match('^(.*)/[^/]+$'))..assert(target.path:match('(/[^/]+)$'))
+        local source_dir=assert(source.path:match('^(.*)/[^/]+$'))
+        local unrelated=source_dir..assert(target.path:match('(/[^/]+)$'))
         local file=assert(io.open(unrelated,'wb'));assert(file:write('synthetic'));assert(file:close())
         local selected=assert(cache.list(settings,scope.vid,'42',current,'38'))
         assert(#selected==1 and selected[1].key==rows[2].key and selected[1].copy==rows[2].copy
             and selected[1].catalog_sha256==rows[2].catalog_sha256,'chapter lookup trusted the filename over metadata')
         assert(os.remove(unrelated))
+        local open,catalog_reads=io.open,0
+        rawset(io,'open',function(path,...)
+            if path:match('/catalog%.txt$') then catalog_reads=catalog_reads+1 end
+            return open(path,...)
+        end)
+        local subset=cache.list(settings,scope.vid,'42',current,{['37']=true,['39']=true})
+        rawset(io,'open',open)
+        assert(catalog_reads==2,'range lookup read unrelated catalog records')
+        assert(subset and #subset==2 and subset[1].key==rows[1].key and subset[2].key==rows[3].key
+            and subset[2].catalog_sha256==rows[3].catalog_sha256,'range lookup returned the wrong copies or order')
+        local entry_path=source_dir..'/entry.txt'
+        local original=assert(io.open(entry_path,'rb'));local bytes=assert(original:read('*a'));assert(original:close())
+        local corrupt=assert(io.open(entry_path,'wb'));assert(corrupt:write((bytes:gsub('title=','title=Changed ',1))))
+        assert(corrupt:close())
+        local checked=cache.list(settings,scope.vid,'42',current,{['37']=true,['39']=true})
+        original=assert(io.open(entry_path,'wb'));assert(original:write(bytes));assert(original:close())
+        assert(checked and #checked==1 and checked[1].key==rows[3].key,'range lookup accepted a changed entry')
+        assert(#assert(cache.list(settings,scope.vid,'42',current,{}))==0,'empty selection returned cached chapters')
         assert(#assert(cache.list(settings,scope.vid,'42',current,'99'))==0,'missing chapter found a copy')
         assert(cache.list(settings,scope.vid,'42',current,'../38')==nil,'invalid chapter selector was accepted')
         assert(cache.list(settings,scope.vid,'42',function() return false end,'38')==nil,
@@ -409,6 +428,8 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
             assert(cache.list(settings,scope.vid,'42',function() return true end)==nil,'overfull metadata list accepted')
             assert(cache.list(settings,scope.vid,'42',function() return true end,rows[1].chapter_uid)==nil,
                 'targeted lookup ignored the metadata scan limit')
+            assert(cache.list(settings,scope.vid,'42',function() return true end,{[rows[1].chapter_uid]=true})==nil,
+                'range lookup ignored the metadata scan limit')
         else assert(remaining==3-#rows-index,'incorrect cache capacity') end
     end
     for _,path in ipairs(added) do assert(lfs.rmdir(path)) end

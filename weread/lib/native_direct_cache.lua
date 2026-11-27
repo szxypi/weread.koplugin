@@ -180,13 +180,15 @@ function M.read_raw_source(file,entry)
         or not raw or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil end
     return raw
 end
-local function read_entry(lfs,dir,key,copy,book_id,account)
+local function read_entry(lfs,dir,key,copy,book_id,account,chapter_set)
     local raw=read_file(lfs,dir..'/entry.txt',4096)
     if not raw then return nil end
     local payload,checksum=raw:match('^(.-)entry_digest=([a-f0-9]+)\n$')
-    if not payload or not hash(checksum) or Crypto.sha256_hex(payload)~=checksum then return nil end
+    if not payload or not hash(checksum) then return nil end
     local owner,book,uid,version,index,title,missing,text_digest,source=payload:match('^native%-direct%-entry%-v1\nowner=([a-f0-9]+)\nbook=([^\n]+)\nchapter=([^\n]+)\nversion=(%d+)\nindex=([^\n]+)\ntitle=([^\n]*)\nmissing=(%d+)\ntext=([a-f0-9]+)\nsource=([a-f0-9]+)\n$')
-    if not book or not version or not missing or index~='-' and not index:match('^%d+$') then return nil end
+    if not book or not version or not missing or index~='-' and not index:match('^%d+$')
+        or chapter_set and chapter_set[uid]~=true then return nil end
+    if Crypto.sha256_hex(payload)~=checksum then return nil end
     local entry={owner=owner,book_id=book,chapter_uid=uid,book_version=tonumber(version),
         chapter_idx=index~='-' and tonumber(index) or nil,title=title,missing_images=tonumber(missing),
         text_digest=text_digest,source_sha256=source,key=key,copy=copy}
@@ -350,8 +352,13 @@ end
 
 -- List bounded metadata only; a selected file is fully checked by open().
 -- Missing/corrupt sidecars and old pre-index files are left untouched.
-function M.list(settings,account,book_id,current,chapter_uid)
-    if chapter_uid~=nil and NativeProtocol.id(chapter_uid)~=chapter_uid then return nil end
+-- A single chapter uses its filename; a set is matched against entry records.
+function M.list(settings,account,book_id,current,selection)
+    local chapter_uid=type(selection)=='string' and selection
+    local chapter_set=type(selection)=='table' and selection
+    if selection~=nil and not chapter_set and (not chapter_uid or NativeProtocol.id(chapter_uid)~=chapter_uid) then
+        return nil
+    end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return {} end
     local selected_file=chapter_uid and '/'..filename(book_id,chapter_uid)
@@ -374,7 +381,7 @@ function M.list(settings,account,book_id,current,chapter_uid)
                     local entry=attr and attr.mode=='directory'
                         and (not selected_file or is_chapter_file(mode(lfs,dir..selected_file)))
                         and not mode(lfs,dir..'/'..RETIRING)
-                        and read_entry(lfs,dir,key,copy,book_id,account)
+                        and read_entry(lfs,dir,key,copy,book_id,account,chapter_set)
                     if entry and (not chapter_uid or entry.chapter_uid==chapter_uid) then
                         local file=mode(lfs,dir..(selected_file or '/'..filename(book_id,entry.chapter_uid)))
                         if is_chapter_file(file) then rows[#rows+1]=attach_ref(lfs,dir,entry) end
@@ -392,7 +399,7 @@ function M.list(settings,account,book_id,current,chapter_uid)
         end)
         -- A full listing can repair the badge from any usable chapter.
         -- Opening a verified result can also repair its presence marker.
-        if not selected_file and not M.present(settings,account,book_id) then
+        if selection==nil and not M.present(settings,account,book_id) then
             if current()~=true then return nil end
             for index,entry in ipairs(rows) do
                 if index%32==0 and current()~=true then return nil end

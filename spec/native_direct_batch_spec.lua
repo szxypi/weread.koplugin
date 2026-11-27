@@ -1,7 +1,7 @@
 package.path='./?.lua;'..package.path
-local rows,usable,room,failed,downloads,live,progress
+local rows,usable,room,failed,downloads,live,progress,cache_selection
 package.preload['weread.lib.native_direct_cache']=function() return {
-    list=function() return rows end,
+    list=function(_,_,_,_,selection) cache_selection=selection;return rows end,
     open=function(_,_,_,entry) return usable[entry.chapter_uid] and {missing_images=entry.missing_images} end,
     remaining=function() return room end,
 } end
@@ -25,7 +25,7 @@ local catalog={book_id='42',version=1,reading_digest='digest',chapters={
 local function setup()
     rows={{chapter_uid='1',book_version=1,catalog_sha256='digest',catalog_order=1,catalog_count=3,
         catalog_next='2',missing_images=0}}
-    usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={}
+    usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={};cache_selection=nil
 end
 local function run(range)
     return Batch.run({}, {},book,catalog,selected,function() return live end,function(value) progress[#progress+1]=value end,range)
@@ -35,7 +35,8 @@ local function expect(value,message) checks=checks+1;assert(value,message) end
 setup();local result=run()
 expect(result.ok and result.saved==1 and result.downloaded==1 and result.unavailable==1 and result.missing==1,
     'batch did not distinguish verified, downloaded and unavailable chapters')
-expect(#downloads==1 and downloads[1]=='3' and #progress==3 and progress[3]==99,'batch downloaded locked or cached chapter')
+expect(#downloads==1 and downloads[1]=='3' and #progress==3 and progress[3]==99 and cache_selection==nil,
+    'full batch limited its lookup or downloaded a locked or cached chapter')
 setup();usable['1']=false;result=run()
 expect(result.ok and result.downloaded==2 and downloads[1]=='1','damaged copy was treated as usable')
 setup();rows[1].catalog_sha256='old';result=run()
@@ -47,7 +48,12 @@ expect(not result.ok and result.error=='storage' and #downloads==0,'full cache d
 setup();live=false;result=run();expect(result.error=='invalid' and #downloads==0,'stale account started a batch')
 setup();result=run({first=2,last=3})
 expect(result.ok and result.downloaded==1 and result.saved==0 and result.unavailable==1
-    and #downloads==1 and downloads[1]=='3' and progress[1]==50 and progress[2]==99,'range skipped or counted the wrong chapters')
+    and #downloads==1 and downloads[1]=='3' and progress[1]==50 and progress[2]==99 and cache_selection=='3',
+    'range with one readable chapter did not use its targeted lookup')
+setup();result=run({first=1,last=3})
+expect(result.ok and result.saved==1 and result.downloaded==1 and type(cache_selection)=='table'
+    and cache_selection['1'] and cache_selection['3'] and not cache_selection['2'],
+    'range with multiple readable chapters searched the wrong cache entries')
 setup();rows[2]={chapter_uid='3',book_version=1,catalog_sha256='digest',catalog_order=3,catalog_count=3,
     catalog_prev='2',missing_images=1};usable['3']=true
 result=run({first=3,last=3})

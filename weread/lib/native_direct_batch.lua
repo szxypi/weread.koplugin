@@ -15,9 +15,19 @@ function M.run(client,settings,book,catalog,selected,current,progress,range)
     local total=#catalog.chapters
     if range~=nil and (type(range)~='table' or not Protocol.integer(range.first,1,total)
         or not Protocol.integer(range.last,range.first,total)) then return {error='invalid'} end
-    local first,last=1,total
-    if range then first,last=range.first,range.last end
-    local rows=Cache.list(settings,selected.scope.vid,book.book_id,current)
+    local first,last,selection=1,total
+    if range then
+        first,last=range.first,range.last
+        local chapters={}
+        for index=first,last do
+            local chapter=catalog.chapters[index]
+            if chapter.downloadable then chapters[chapter.chapterUid]=true end
+        end
+        local uid=next(chapters)
+        selection=chapters
+        if uid and not next(chapters,uid) then selection=uid end
+    end
+    local rows=Cache.list(settings,selected.scope.vid,book.book_id,current,selection)
     if not rows then return {error='storage'} end
     local by_chapter={}
     for _,entry in ipairs(rows) do
