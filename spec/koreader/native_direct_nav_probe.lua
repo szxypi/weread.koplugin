@@ -69,6 +69,18 @@ local function press(id)
     assert(action.enabled~=false);action:onTapSelectButton()
 end
 if online then
+    local interrupted=home..'/interrupt-catalog'
+    assert(assert(io.open(interrupted,'wb')):close())
+    press('chapter_list')
+    wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+    local fallback=assert(host._native_direct_reading)
+    assert(not host.message and fallback.offline and #fallback.menu.item_table==2
+        and fallback.menu.subtitle==tr('The online catalog is unavailable. Showing saved chapters.')
+        and not host.opened and not host.busy_message,'rate limited catalog did not offer saved copies')
+    fallback.menu:onClose()
+    assert(os.remove(interrupted))
+    assert(not host._native_direct_reading and UI:getTopmostVisibleWidget()==base and host.ui.document.file==input.first,
+        'closing the fallback did not keep the current page')
     press('next_chapter')
     wait(function() return host.opened or host.message or host._native_direct_reading and host._native_direct_reading.target end)
     assert(host._native_direct_reading and host.busy_message and not host._book_detail_view,

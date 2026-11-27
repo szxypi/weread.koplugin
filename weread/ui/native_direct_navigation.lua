@@ -225,6 +225,7 @@ function M.start(host,direction,notes)
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
             enable_search_book=true,enable_search_cached=true}, {
             on_chapter_list=function() choose_chapter({anchor=ctx.entry}) end,
+            on_saved_chapters=function() choose_chapter({anchor=ctx.entry,cached=true}) end,
             on_previous=function() step(-1) end,on_next=function() step(1) end,
             on_book_details=function()
                 if not current() then return end

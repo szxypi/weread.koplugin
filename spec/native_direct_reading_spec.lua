@@ -295,6 +295,28 @@ local old_list,old_valid,old_open,old_mark=cache.list,cache.valid_entry,cache.op
 local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0,source_sha256=digest}
 cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
 pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end
+host,s=fixture();selected=nil
+expect(UI.start(host,{book_id='456'},s.view),'saved chapters should be available when E-Ink access is missing')
+expect(host._native_direct_reading.phase=='offline_list','missing E-Ink access started an online request')
+s.finish(1)
+expect(s.title=='Saved E-Ink chapters' and s.subtitle=='The online catalog is unavailable. Showing saved chapters.'
+    and s.opened==0,'missing E-Ink access did not offer the saved catalog')
+host,s=fixture();UI.start(host,{book_id='456'},s.view)
+catalog_error='native_auth/native_catalog_catalog/timeout';s.finish(1)
+expect(#s.jobs==2 and host._native_direct_reading.phase=='offline_list','online catalog timeout did not start a local lookup')
+selected=nil;s.finish(2)
+expect(s.title=='Saved E-Ink chapters' and s.opened==0,'local lookup still required the E-Ink grant or opened without a choice')
+cache.list=function() return {} end
+host,s=fixture();UI.start(host,{book_id='456'},s.view)
+catalog_error='native_auth/native_catalog_info/http_429';s.finish(1);s.finish(2)
+expect(s.message=='WeRead is limiting requests. Please try again later.' and not host._native_direct_reading,
+    'empty local fallback did not report the original error')
+cache.list=function() return {saved_entry} end
+host,s=fixture();UI.start(host,{book_id='456'},s.view)
+catalog_error='native_auth/native_catalog_catalog/http_401';s.finish(1);s.finish(2)
+expect(#s.jobs==3 and host._native_direct_reading.phase=='offline_list','repeated 401 should fall back after one renewal')
+account_valid=false;s.finish(3)
+expect(not host._native_direct_reading and not s.items and s.info==0,'account change exposed a fallback catalog')
 host,s=fixture();host.isNetworkConnected=function() error('saved chapter menu probed network state') end
 expect(UI.start(host,{book_id='456'},s.view,{cached=true}),'saved chapter list did not start')
 s.finish(1)

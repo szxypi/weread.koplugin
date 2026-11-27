@@ -19,6 +19,10 @@ class Handler(fixture.Handler):
                 and target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos'):
             incoming = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
             self.server.valid &= incoming == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
+            if self.server.interrupt_catalog.is_file():
+                self.server.catalog_interruptions += 1
+                self.send_error(429)
+                return
             chapters = [dict(chapterUid=37+index, title=title, level=level, wordCount=250, price=0)
                         for index, (title, level) in enumerate((('Chapter group', 0), ('Chapter inside group', 2),
                                                                ('Chapter outside group', 0)))]
@@ -79,6 +83,8 @@ def run_cases(runtime,server,candidate,full_only=False):
                     server.valid=True;server.leaked=False;server.image_requests=server.tar_requests=0
                     server.interrupt_download=Path(root)/'interrupt-download' if mode=='online' else None
                     server.interruptions=0
+                    server.interrupt_catalog=Path(root)/'interrupt-catalog'
+                    server.catalog_interruptions=0
                     server.hierarchical=mode=='online'
                     payload=dict(credentials=credentials,mock_endpoint=endpoint,mode=mode,plugin_profile=mode=='full')
                     if mode=='full':
@@ -118,6 +124,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                     expected={'copies':['37','38','38'],'online':['37','37','38','37'],'gap':['37','39']}.get(mode,['37','38'])
                     assert server.chapters==expected and server.valid and not server.leaked
                     assert server.interruptions==int(mode=='online')
+                    assert server.catalog_interruptions==int(mode=='online')
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)

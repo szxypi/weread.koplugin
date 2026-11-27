@@ -104,11 +104,15 @@ do
     local perpage=G_reader_settings:readSetting('items_per_page')
     local font_size=G_reader_settings:readSetting('items_font_size')
     local connected=host.isNetworkConnected
+    local access=require('weread.lib.native_read_access')
+    local capture=access.capture
     local second_point=assert(second.document:getXPointer())
     G_reader_settings:saveSetting('items_per_page',1)
     G_reader_settings:saveSetting('items_font_size',20)
-    host.isNetworkConnected=function() return false end
-    quick(host,'chapter_list')
+    -- The saved-only route must not depend on the network status or E-Ink grant.
+    host.isNetworkConnected=function() return true end
+    access.capture=function() error('saved-only chapter list read the online grant') end
+    quick(host,'saved_chapters')
     pump(function()
         return host._native_direct_reading and host._native_direct_reading.menu
     end)
@@ -131,6 +135,14 @@ do
     assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
         and UI:getTopmostVisibleWidget()==second and second.document:isXPointerInCurrentPage(second_point),
         'closing the offline catalog did not return directly to the same reading page')
+    host.isNetworkConnected=function() return false end
+    quick(host,'chapter_list')
+    pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+    ctx=host._native_direct_reading
+    assert(ctx.offline and ctx.menu.page==2 and ctx.menu.item_table[2].text:find(prefix,1,true)==1,
+        'the regular chapter list no longer opens the saved catalog offline')
+    ctx.menu:onClose()
+    access.capture=capture
     host.isNetworkConnected=connected
     G_reader_settings:saveSetting('items_per_page',perpage)
     G_reader_settings:saveSetting('items_font_size',font_size)

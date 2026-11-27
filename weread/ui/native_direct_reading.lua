@@ -166,9 +166,11 @@ function M.start(host,book,view,options)
     local anchor=type(options)=='table' and options.anchor or nil
     if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
     local selected=not offline and capture(host.settings) or nil
+    local fallback_reason
     if not offline and (not selected or selected.native.renewal_pending) then
-        host:showInfo(_('E-Ink authorization is required to read these chapters.'))
-        return false
+        fallback_reason='E-Ink authorization is required to read these chapters.'
+        if batch or target then host:showInfo(_(fallback_reason));return false end
+        offline,selected=true,nil
     end
     local title=text(book.title,2048) and book.title or id
     local author=text(book.author,2048) and book.author or ''
@@ -220,6 +222,7 @@ function M.start(host,book,view,options)
     end
     local launch
     local function load_chapters(phase)
+        close_busy()
         ctx.phase=phase
         local busy
         host:showBusy(_(phase=='offline_list' and 'Loading saved E-Ink chapters...' or 'Loading E-Ink chapters...'),function()
@@ -227,6 +230,15 @@ function M.start(host,book,view,options)
         end)
         busy=host.busy_message;ctx.busy=busy
         launch()
+    end
+    local function catalog_unavailable(message)
+        if ctx.phase~='catalog' or ctx.batch or ctx.target or ctx.catalog or not view_current() then
+            fail(message,true);return
+        end
+        fallback_reason=message or 'Could not prepare the E-Ink chapter. Please try again.'
+        offline,ctx.offline,ctx.selected=true,true,nil
+        current=view_current
+        load_chapters('offline_list')
     end
     local function begin_open(phase)
         ctx.phase=phase
@@ -270,19 +282,22 @@ function M.start(host,book,view,options)
             stale=function() if host._native_direct_reading==ctx then M.cancel(host) end end,
             complete=function(ok,fresh)
                 ctx.selected=fresh
-                if not ok then fail('E-Ink authorization expired. Please authorize again.',true);return end
+                if not ok then catalog_unavailable('E-Ink authorization expired. Please authorize again.');return end
                 current=Access.guard(host.settings,view_current,fresh.native)
                 launch()
             end})
-        if not started then fail('E-Ink authorization expired. Please authorize again.',true) end
+        if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.') end
     end
     local function show_chapter_menu(rows,picker)
-        if #rows==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
+        if #rows==0 then
+            fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.');return
+        end
         close_busy()
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
         local subtitle=picker and picker.subtitle
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
+            or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
         local current_index=not picker and current_row(rows,anchor,ctx.catalog)
@@ -584,6 +599,10 @@ function M.start(host,book,view,options)
                 and (reason=='transport' or reason=='rate_limited') then
                 show_batch_retry(reason);return
             end
+            if phase=='catalog' and reason then
+                catalog_unavailable(reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.' or nil)
+                return
+            end
             if reason=='rate_limited' then
                 fail('WeRead is limiting requests. Please try again later.');return
             end
@@ -609,7 +628,7 @@ function M.start(host,book,view,options)
             end
             if phase=='offline_list' then
                 local rows=type(result)=='table' and result.rows
-                if not valid_saved_rows(rows,id,scope.vid) then fail();return end
+                if not valid_saved_rows(rows,id,scope.vid) then fail(fallback_reason);return end
                 if failed_copy then
                     for index,row in ipairs(rows) do
                         if row.key==failed_copy.key and row.copy==failed_copy.copy then table.remove(rows,index);break end
@@ -620,7 +639,7 @@ function M.start(host,book,view,options)
             if phase=='catalog' then
                 local checked=type(result)=='table' and project({book_id=result.book_id,version=result.version,
                     reading_digest=result.reading_digest,reading_chapters=result.chapters},id)
-                if not checked then fail();return end
+                if not checked then catalog_unavailable();return end
                 local previous=ctx.catalog
                 ctx.catalog=checked
                 if ctx.batch then

@@ -116,12 +116,20 @@ function M.show(opts, callbacks)
         },
     })
 
-    table.insert(buttons, {{
+    local downloaded_row={{
         id = 'search_cached',
         text = _("Search downloaded chapters"),
         enabled = opts.enable_search_cached == true,
         callback = function() dismiss_then(callbacks.on_search_cached) end,
-    }})
+    }}
+    if callbacks.on_saved_chapters then
+        table.insert(downloaded_row, {
+            id = 'saved_chapters',
+            text = _("Saved chapters"),
+            callback = function() dismiss_then(callbacks.on_saved_chapters) end,
+        })
+    end
+    table.insert(buttons, downloaded_row)
 
     if callbacks.on_native_position_check or callbacks.on_native_offline_reminder then
         local row={}
