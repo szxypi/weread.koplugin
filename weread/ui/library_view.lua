@@ -68,6 +68,7 @@ end
 -- keep every row's geometry current for gestures and physical-key focus.
 local ShelfListGroup = VerticalGroup:extend{}
 function ShelfListGroup:paintTo(bb, x, y)
+    if self._status_view then self._status_view:prepareVisibleStatus() end
     ShelfListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
     self._shelf_rows_positioned = true
 end
@@ -383,9 +384,12 @@ local function shelf_row_frame(self)
     local padding = Size.padding.large
     local inner_width = self.width - 2 * padding
     local face = Font:getFace("cfont", self.font_size)
-    local status_widget = TextWidget:new{ text = self.status or "", face = face }
-    local status_width = status_widget:getSize().w
     local gap = Size.padding.large
+    -- Deferred rows keep their width while status text changes. Leave room
+    -- for the title even when several status labels appear together.
+    local status_limit = self.defer_status and math.max(1, inner_width - gap - 2 * self.font_size) or nil
+    local status_widget = TextWidget:new{ text = self.status or "", face = face, max_width = status_limit }
+    local status_width = status_widget:getSize().w
     local title_widget = TextWidget:new{
         text = self.text,
         face = face,
@@ -419,7 +423,9 @@ function ShelfRow:_ensureFrame()
 end
 
 function ShelfRow:init()
-    if self.lazy_frame then
+    if self.defer_status then
+        self.dimen = Geom:new{ w = self.width, h = self.lazy_row_height }
+    elseif self.lazy_frame then
         local status = self.status or ""
         local widths = self.lazy_status_widths
         local status_width = widths and widths[status]
@@ -460,6 +466,15 @@ function ShelfRow:init()
     if self.hold_callback then
         self.ges_events.HoldShelfRow = { GestureRange:new{ ges = "hold", range = self.dimen } }
         self.ges_events.HoldReleaseShelfRow = { GestureRange:new{ ges = "hold_release", range = self.dimen } }
+    end
+end
+
+function ShelfRow:setStatus(status)
+    if status == self.status then return end
+    self.status = status
+    if self.frame then
+        self.frame:free()
+        self.frame, self[1] = nil, nil
     end
 end
 
@@ -1074,6 +1089,45 @@ function LibraryView:getVisibleBooks()
     return result
 end
 
+function LibraryView:prepareVisibleStatus(books)
+    if not self.on_prepare_visible_status then return {} end
+    books = books or self:getVisibleBooks()
+    local first, last = books[1], books[#books]
+    if self._visible_status_snapshots and first == self._visible_status_first and last == self._visible_status_last then
+        return self._visible_status_snapshots
+    end
+    local added, current_books = {}, {}
+    local known = self._visible_status_books or {}
+    for _, book in ipairs(books) do
+        current_books[book] = true
+        if not known[book] then added[#added + 1] = book end
+    end
+    local fresh, dates = self.on_prepare_visible_status(added)
+    if not fresh then return {} end
+    local snapshots, read_times = {}, {}
+    for _, book in ipairs(books) do
+        local id = ShelfSnapshot.persisted_id(book)
+        if known[book] then
+            if id then snapshots[id] = self._visible_status_snapshots[id] end
+            read_times[book] = self.last_read_times[book]
+        else
+            if id then snapshots[id] = fresh[id] end
+            read_times[book] = dates[book]
+        end
+    end
+    self._visible_status_first, self._visible_status_last = first, last
+    self._visible_status_books = current_books
+    self._visible_status_snapshots = snapshots
+    self.last_read_times = read_times
+    if first then
+        local index = ShelfVisible.first(self._list_bottoms, self:getScrollOffset().y)
+        for offset, book in ipairs(books) do
+            if not known[book] then self._item_rows[index + offset - 1]:setStatus(self:itemStatus(book)) end
+        end
+    end
+    return snapshots
+end
+
 function LibraryView:getBrowsePosition()
     local visible = self:getVisibleBooks()
     local position = { page = self.page, book_id = ShelfSnapshot.persisted_id(visible[1]) }
@@ -1363,6 +1417,7 @@ function LibraryView:content()
     self._focus_item_rows = {}
     self._list_bottoms = nil
     if group == ShelfListGroup then content._shelf_rows = self._item_rows end
+    if self.on_prepare_visible_status then content._status_view = self end
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
@@ -1428,6 +1483,7 @@ function LibraryView:content()
         end
     else
         local lazy_height, lazy_status_widths
+        local defer_status = self.on_prepare_visible_status ~= nil
         local list_y = 0
         if not self.paged then
             self._list_bottoms = {}
@@ -1442,7 +1498,8 @@ function LibraryView:content()
             local shelf_row = ShelfRow:new{
                 book = book,
                 text = book.title or book.bookId or book.book_id or _("Untitled"),
-                status = self:itemStatus(book),
+                status = defer_status and "" or self:itemStatus(book),
+                defer_status = defer_status,
                 width = self.list_width,
                 font_size = self.mode == "books" and 20 or 22,
                 lazy_frame = not self.paged,
@@ -1836,6 +1893,7 @@ function M.show(data, callbacks)
         on_select = callbacks.on_select,
         on_hold = callbacks.on_hold,
         on_page_changed = callbacks.on_page_changed,
+        on_prepare_visible_status = callbacks.on_prepare_visible_status,
         on_visible_changed = callbacks.on_visible_changed,
     }
     UIManager:show(view)

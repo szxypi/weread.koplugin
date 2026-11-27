@@ -53,10 +53,43 @@ if mode=='live' then
     prefs.view_mode,prefs.paginated,prefs.sort_order='list',false,'default'
     plugin.settings:set('shelf',prefs)
     plugin:applyShelfSnapshot(books,archives)
+    local download,progress=plugin.isBookDownloaded,plugin.library_db.getShelfProgress
+    local checked,queries={},{}
+    plugin.isBookDownloaded=function(self,book,...)
+        checked[book.bookId]=(checked[book.bookId] or 0)+1
+        return download(self,book,...)
+    end
+    plugin.library_db.getShelfProgress=function(self,ids)
+        for _,id in ipairs(ids) do queries[id]=(queries[id] or 0)+1 end
+        return progress(self,ids)
+    end
     plugin:showShelfView('books')
     local shelf_view=plugin.shelf_view
     assert(not shelf_view.paged)
     UI:forceRePaint()
+    local first_screen={}
+    for _,book in ipairs(shelf_view:getVisibleBooks()) do first_screen[book.bookId]=true end
+    assert(not first_screen[shelf_view.books[#shelf_view.books].bookId])
+    for _,book in ipairs(shelf_view.books) do
+        local expected=first_screen[book.bookId] and 1 or nil
+        assert(checked[book.bookId]==expected and queries[book.bookId]==expected,
+            'continuous shelf opened with unrelated or repeated status reads')
+    end
+    shelf_view.scroll:_scrollBy(0,shelf_view._item_rows[1]:getSize().h+1)
+    UI:forceRePaint()
+    local arrived=0
+    for _,book in ipairs(shelf_view:getVisibleBooks()) do
+        if not first_screen[book.bookId] then arrived=arrived+1;first_screen[book.bookId]=true end
+    end
+    assert(arrived>0)
+    UI:setDirty(shelf_view,'ui');UI:forceRePaint()
+    for _,book in ipairs(shelf_view.books) do
+        local expected=first_screen[book.bookId] and 1 or nil
+        assert(checked[book.bookId]==expected and queries[book.bookId]==expected,
+            'scrolling or repainting reread unchanged or invisible statuses')
+    end
+    plugin.isBookDownloaded,plugin.library_db.getShelfProgress=download,progress
+    shelf_view.scroll:_scrollBy(0,-shelf_view:getScrollOffset().y)
     shelf_view.scroll:_scrollBy(0,600)
     UI:forceRePaint()
     local offset=shelf_view:getScrollOffset().y

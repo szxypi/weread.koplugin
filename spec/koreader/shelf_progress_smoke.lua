@@ -100,6 +100,31 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     shelf.sort_order = "default"
     settings:set("shelf", shelf)
     plugin:closeWeReadUI()
+    shelf.paginated = false
+    settings:set("shelf", shelf)
+    expires(books)
+    before = count("/web/book/getProgress")
+    plugin:showBookshelf()
+    wait_progress()
+    local list = assert(plugin.shelf_view)
+    local first_screen = {}
+    local visible_books = list:getVisibleBooks()
+    for _, book in ipairs(visible_books) do first_screen[book.bookId] = true end
+    assert(not list.paged and count("/web/book/getProgress") == before + #visible_books,
+        "continuous shelf fetched more than the first viewport")
+    list.scroll:_scrollBy(0, list._item_rows[1]:getSize().h + 1)
+    UIManager:forceRePaint()
+    local entered = 0
+    for _, book in ipairs(list:getVisibleBooks()) do
+        if not first_screen[book.bookId] then entered = entered + 1 end
+    end
+    require("socket").sleep(0.35)
+    wait_progress()
+    assert(entered > 0 and count("/web/book/getProgress") == before + #visible_books + entered,
+        "scrolling repeated a fresh visible progress request or missed a new row")
+    shelf.paginated = true
+    settings:set("shelf", shelf)
+    plugin:closeWeReadUI()
     expires({books[1]})
     plugin:showHome()
     wait_progress()

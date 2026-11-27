@@ -928,27 +928,34 @@ function M:showShelfView(mode, keyword, old_view, options)
     options.rotation_anchor,options.focus_book_id=nil,nil
     local visible = source
     if paged then visible, page = shelf_page_items(source, page, page_size) end
-    local last_read_times={}
-    if mode == "books" then
-        for _, book in ipairs(visible) do
+    local lazy_status = mode == "books" and not paged
+    local function book_status(visible_books, lookup, downloads)
+        local times = {}
+        for _, book in ipairs(visible_books) do
             -- Filtered results already carry the download state used for membership.
-            if not filters.download then book._cached = self:isBookDownloaded(book, saved_books, downloaded_cache) end
-            if not cover_mode then last_read_times[book]=DiscoveryData.recent_time(book,saved_books,recent_account) end
+            if not filters.download then book._cached = self:isBookDownloaded(book, lookup, downloads) end
+            if not cover_mode then times[book] = DiscoveryData.recent_time(book, lookup, recent_account) end
         end
+        return times
     end
-    local progress_books, progress_snapshots
-    if mode == "books" and self.prepareShelfProgress then
-        progress_books = visible
-        if progress_by_id then
+    local function visible_progress(visible_books, lookup, prepared_progress)
+        if prepared_progress then
             -- Retain only the visible snapshots for the background refresh.
-            progress_snapshots = {}
-            for _, book in ipairs(visible) do
+            local snapshots = {}
+            for _, book in ipairs(visible_books) do
                 local id = ShelfSnapshot.persisted_id(book)
-                if id then progress_snapshots[id] = progress_by_id[id] end
+                if id then snapshots[id] = prepared_progress[id] end
             end
-        else
-            progress_snapshots = self:prepareShelfProgress(progress_books, saved_books)
+            return snapshots
+        elseif self.prepareShelfProgress then
+            return self:prepareShelfProgress(visible_books, lookup)
         end
+        return {}
+    end
+    local last_read_times, progress_snapshots
+    if mode == "books" and not lazy_status then
+        last_read_times = book_status(visible, saved_books, downloaded_cache)
+        progress_snapshots = visible_progress(visible, saved_books, progress_by_id)
     end
     local cover_paths, cover_loading
     if cover_mode then
@@ -1010,6 +1017,18 @@ function M:showShelfView(mode, keyword, old_view, options)
         next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
         self:showShelfView('books',keyword,view,next_options)
     end
+    local prepare_visible_status
+    if lazy_status then
+        local initial_lookup, initial_progress = saved_books, progress_by_id
+        prepare_visible_status = function(visible_books)
+            if not current() then return end
+            local lookup = initial_lookup or ReadAccess.book_lookup(self.settings)
+            local times = book_status(visible_books, lookup, {})
+            local snapshots = visible_progress(visible_books, lookup, initial_progress)
+            initial_lookup, initial_progress = nil, nil
+            return snapshots, times
+        end
+    end
     if navigation then
         navigation = self:discoveryNavigation("shelf", current, function()
             if not recent_account then return end
@@ -1052,6 +1071,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_paths = cover_paths,
         cover_loading = cover_loading,
     }, {
+        on_prepare_visible_status = prepare_visible_status,
         on_visible_changed = function()
             if current() and update_progress then update_progress() end
         end,
@@ -1234,11 +1254,13 @@ function M:showShelfView(mode, keyword, old_view, options)
             if self.shelf_view==view and not view._shelf_closed then view._shelf_snapshot_redraw() end
         end
     end
-    if progress_books then
+    if mode == "books" and self.prepareShelfProgress then
         local force = options.refresh_progress
         options.refresh_progress = nil
         update_progress = function(refresh)
-            self:refreshVisibleShelfProgress(view, paged and progress_books or view:getVisibleBooks(), progress_snapshots, {
+            local progress_books = paged and visible or view:getVisibleBooks()
+            local snapshots = lazy_status and view:prepareVisibleStatus(progress_books) or progress_snapshots
+            self:refreshVisibleShelfProgress(view, progress_books, snapshots, {
                 force = refresh,
                 on_redraw = function()
                     require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()
