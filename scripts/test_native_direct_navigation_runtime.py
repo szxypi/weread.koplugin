@@ -59,7 +59,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     saved=frame(child,'WEREAD_DIRECT_NAV_PREPARED=')
                     assert '37' in saved and (('38' in saved)==(mode in ('two','full','copies'))) and (('39' in saved)==(mode=='gap'))
-                    payload.update(first=saved['37'],second=saved.get('38'),missing_copy=saved.get('missing_copy'))
+                    payload.update(first=saved['37'],second=saved.get('38'),missing_copy=saved.get('missing_copy'),last=saved.get('39'))
                     if mode!='online':payload.pop('credentials')
                     probe='native_direct_full_reader_probe.lua' if mode=='full' else 'native_direct_nav_probe.lua'
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader'/probe),str(REPO)],
@@ -80,9 +80,12 @@ def run_cases(runtime,server,candidate,full_only=False):
                         if mode=='copies':
                             assert result['path']==saved['missing_copy']
                             payload['choose']='complete'
+                            damaged=Path(saved['missing_copy'])
+                            original=damaged.read_bytes()
                             child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader'/probe),str(REPO)],
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
+                            assert damaged.read_bytes()==original+b'corrupt'
                     expected=['37','38','38'] if mode=='copies' else ['37','38'] if mode in ('two','online','full') else ['37','39']
                     assert server.chapters==expected and server.valid and not server.leaked
 

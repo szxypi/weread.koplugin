@@ -29,13 +29,13 @@ client.request=function(self,options)
     return request(self,options)
 end
 local base=require('ui/widget/infomessage'):new{text='Fixture'};base.modal=false;UI:show(base)
+local Common=require('weread.ui.common')
 local host={settings=settings,client=client,discovery_epoch=1,_reader_session_gen=1,
     library_db={accountKey=function() return 'synthetic' end,getChapters=function() return {} end},ui={document={file=input.first}},
     isNetworkConnected=function() return online end,
-    showBusy=function(self,label,cancel) self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message) end,
-    closeBusy=function(self) UI:close(self.busy_message);self.busy_message=nil end,
+    showBusy=Common.showBusy,closeBusy=Common.closeBusy,refreshUI=function() end,
     showInfo=function(self,message) self.message=message end,showOffline=function() error('unexpected offline') end,
-    showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
+    showList=Common.showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,
     openFile=function(self,path) self.opened=path;self.ui.document={file=path};self._reader_session_gen=self._reader_session_gen+1 end,
@@ -48,7 +48,7 @@ local function wait(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
-local function press(id)
+local function quick_menu()
     assert(host:onShowWeReadQuickMenu())
     wait(function()
         local top=UI:getTopmostVisibleWidget()
@@ -57,23 +57,57 @@ local function press(id)
     end)
     assert(not host.message)
     local dialog=assert(UI:getTopmostVisibleWidget());UI:forceRePaint()
+    return dialog
+end
+local function press(id)
+    local dialog=quick_menu()
     local action=assert(dialog:getButtonById(id))
     assert(action.enabled~=false);action:onTapSelectButton()
 end
 press('next_chapter')
 wait(function() return host.opened or host.message or host._native_direct_navigation and host._native_direct_navigation.menu end)
 if input.mode=='copies' then
-    local menu=assert(host._native_direct_navigation.menu)
+    local ctx=assert(host._native_direct_navigation)
+    local menu=assert(ctx.menu)
     assert(#menu.item_table==2 and not host.opened)
-    local wanted=input.choose=='complete' and tr('No missing images') or tr('%1 images unavailable'):gsub('%%1','1')
-    local selected
-    for _,item in ipairs(menu.item_table) do if item.text:find(wanted,1,true) then selected=item end end
-    assert(selected,'copy completeness label not found');menu:onMenuSelect(selected)
+    local complete,missing
+    for _,item in ipairs(menu.item_table) do
+        if item.text:find(tr('No missing images'),1,true) then complete=item end
+        if item.text:find(tr('%1 images unavailable'):gsub('%%1','1'),1,true) then missing=item end
+    end
+    assert(complete and missing,'copy completeness labels not found')
+    if input.choose=='complete' then
+        local file=assert(io.open(input.missing_copy,'ab'));assert(file:write('corrupt'));assert(file:close())
+        local page=menu.page
+        menu:onMenuSelect(missing)
+        wait(function() return host.opened or host.message end)
+        assert(not host.opened and host.message==tr('The saved chapter changed or could not be verified. Existing files were kept.')
+            and not host.busy_message and ctx.menu==menu and menu.page==page,'damaged copy closed or reset the chooser')
+        host.message=nil
+        menu:onMenuSelect(complete)
+        assert(host._native_direct_navigation_worker.job)
+        assert(host.busy_message):onTapClose()
+        assert(host._native_direct_navigation==ctx and ctx.menu==menu and not host.busy_message
+            and not host._native_direct_navigation_worker.job and not host.opened,'cancel did not return to the chooser')
+    end
+    menu:onMenuSelect(input.choose=='complete' and complete or missing)
     wait(function() return host.opened or host.message end)
     assert(not host.message and host.opened==(input.choose=='complete' and input.second or input.missing_copy))
 end
 if input.mode=='gap' then
     assert(not host.opened and host.message==tr('The adjacent chapter is not saved. Connect to download it.'))
+    host.message=nil
+    local first=quick_menu()
+    assert(first:getButtonById('previous_chapter').enabled==false)
+    UI:close(first)
+    host.ui.document={file=assert(input.last)};host._reader_session_gen=host._reader_session_gen+1
+    local last=quick_menu()
+    assert(last:getButtonById('next_chapter').enabled==false and last:getButtonById('previous_chapter').enabled~=false)
+    UI:close(last)
+    G_reader_settings:saveSetting('end_document_action','next_file')
+    assert(require('weread.lib.reader_lifecycle').handleEndOfBook(host,{}))
+    wait(function() return host.opened or host.message end)
+    assert(not host.opened and host.message==tr('You have reached the last chapter.'))
 else
     assert(host.opened and (input.mode=='online' or input.mode=='copies' or host.opened==input.second))
     local second=host.opened

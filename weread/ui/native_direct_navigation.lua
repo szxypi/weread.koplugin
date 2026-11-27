@@ -48,8 +48,13 @@ function M.start(host,direction,notes)
         return not ctx.location or context.same_location(ctx.location,
             context.location(document,reader.view and reader.view.view_mode or 'page'))
     end
-    local function busy(label)
-        host:showBusy(_(label),function() M.cancel(host) end);ctx.busy=host.busy_message
+    local function busy(label,cancel)
+        local dialog
+        host:showBusy(_(label),function()
+            if host._native_direct_navigation~=ctx or ctx.busy~=dialog then return end
+            if cancel then cancel() else M.cancel(host) end
+        end)
+        dialog=host.busy_message;ctx.busy=dialog
     end
     local function close_busy()
         if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
@@ -94,10 +99,11 @@ function M.start(host,direction,notes)
         if not entry.catalog_sha256 then
             fail('Chapter order is unavailable. Reopen this chapter online to update it.');return
         end
-        local uid=which==1 and entry.catalog_next or entry.catalog_prev
+        local uid=entry[which==1 and 'catalog_next' or 'catalog_prev']
         if not uid then
             fail(which==1 and 'You have reached the last chapter.' or 'You have reached the first chapter.');return
         end
+        local cannot_verify='The saved chapter changed or could not be verified. Existing files were kept.'
         busy('Checking adjacent saved chapter...')
         local function source_unchanged()
             local source=Cache.identify(host.settings,scope.vid,path,current)
@@ -108,17 +114,20 @@ function M.start(host,direction,notes)
                 and source.catalog_next==entry.catalog_next
         end
         local function matches(candidate)
-            local reciprocal=which==1 and candidate.catalog_prev or candidate.catalog_next
+            local reciprocal=candidate[which==1 and 'catalog_prev' or 'catalog_next']
             return candidate.chapter_uid==uid and candidate.book_version==entry.book_version
                 and candidate.catalog_sha256==entry.catalog_sha256 and candidate.catalog_count==entry.catalog_count
                 and candidate.catalog_order==entry.catalog_order+which and reciprocal==entry.chapter_uid
         end
         local function finish(value)
             close_busy()
+            if type(value)=='table' and value.error=='copy_changed' and ctx.menu then
+                host:showInfo(_(cannot_verify));return
+            end
             if type(value)~='table' or not Path.contains(host.settings,value.path)
                 or value.book_version~=entry.book_version or type(value.source_sha256)~='string'
                 or #value.source_sha256~=64 or not value.source_sha256:match('^[a-f0-9]+$') then
-                fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+                fail(cannot_verify);return
             end
             local destination=value.path
             M.cancel(host);host:openFile(destination)
@@ -133,16 +142,19 @@ function M.start(host,direction,notes)
             end
             if #choices>1 then return {choices=choices} end
             if #choices==1 then
-                local saved=Cache.open(host.settings,scope.vid,entry.book_id,choices[1],current)
-                if saved then return saved end
+                return Cache.open(host.settings,scope.vid,entry.book_id,choices[1],current) or {error='copy_changed'}
             end
             return {error='not_saved'}
         end,function(value)
             close_busy()
-            if type(value)=='table' and value.error=='not_saved' then
+            local reason=type(value)=='table' and value.error
+            if reason=='not_saved' or reason=='copy_changed' then
                 local online=host.isNetworkConnected and host:isNetworkConnected()
                     or not host.isNetworkConnected and host:isNetworkOnline()
-                if not online then fail('The adjacent chapter is not saved. Connect to download it.');return end
+                if not online then
+                    fail(reason=='copy_changed' and cannot_verify or 'The adjacent chapter is not saved. Connect to download it.')
+                    return
+                end
                 local target={uid=uid,from_uid=entry.chapter_uid,catalog_sha256=entry.catalog_sha256,
                     book_version=entry.book_version,count=entry.catalog_count,order=entry.catalog_order+which,direction=which}
                 local book,view=details()
@@ -151,46 +163,50 @@ function M.start(host,direction,notes)
             end
             if type(value)=='table' and type(value.choices)=='table' then
                 local choices=value.choices;local seen={}
-                if #choices<2 or #choices>Cache.MAX_ENTRIES then fail('The saved chapter changed or could not be verified. Existing files were kept.');return end
+                if #choices<2 or #choices>Cache.MAX_ENTRIES then fail(cannot_verify);return end
                 local count=0
                 for key in pairs(choices) do
                     if type(key)~='number' or key%1~=0 or key<1 or key>#choices then
-                        fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+                        fail(cannot_verify);return
                     end
                     count=count+1
                 end
-                if count~=#choices then fail('The saved chapter changed or could not be verified. Existing files were kept.');return end
+                if count~=#choices then fail(cannot_verify);return end
                 for _,candidate in ipairs(choices) do
                     if not Cache.valid_entry(candidate,entry.book_id,scope.vid) or not matches(candidate) then
-                        fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+                        fail(cannot_verify);return
                     end
                     local id=candidate.key..':'..tostring(candidate.copy)
-                    if seen[id] then fail('The saved chapter changed or could not be verified. Existing files were kept.');return end
+                    if seen[id] then fail(cannot_verify);return end
                     seen[id]=true
                 end
                 local labels=require('weread.ui.native_direct_copies').labels(choices);local items={};local menu
-                for index,candidate in ipairs(choices) do
-                    local selected=candidate
-                    items[index]={text=labels[index],callback=function()
-                        if not current() or ctx.menu~=menu then return end
-                        ctx.menu=nil;UI:close(menu);busy('Checking saved E-Ink chapter...')
+                for index,label in ipairs(labels) do items[index]={text=label,copy_index=index} end
+                menu=host:showList(_('Choose a saved chapter copy'),items,nil,{
+                    subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.'),
+                    on_choice=function(item)
+                        local index=type(item)=='table' and item.copy_index
+                        if ctx.menu~=menu or ctx.busy or not index or items[index]~=item then return end
+                        if not current() then M.cancel(host);return end
+                        local selected=choices[index]
+                        busy('Checking saved E-Ink chapter...',function()
+                            if not current() then M.cancel(host);return end
+                            ctx.generation=ctx.generation+1
+                            worker:cancel()
+                            close_busy()
+                        end)
                         run(function()
                             if not source_unchanged() or not matches(selected) then return {error='changed'} end
-                            return Cache.open(host.settings,scope.vid,entry.book_id,selected,current) or {error='changed'}
+                            return Cache.open(host.settings,scope.vid,entry.book_id,selected,current) or {error='copy_changed'}
                         end,finish)
-                    end}
-                end
-                menu=host:showList(_('Choose a saved chapter copy'),items,nil,
-                    {subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.')})
-                if not menu then fail('The saved chapter changed or could not be verified. Existing files were kept.');return end
+                    end,
+                })
+                if not menu then fail(cannot_verify);return end
                 ctx.menu=menu
                 local closed=menu.onCloseWidget
                 menu.onCloseWidget=function(widget,...)
                     if ctx.menu==widget and host._native_direct_navigation==ctx then ctx.menu=nil;M.cancel(host) end
                     if closed then return closed(widget,...) end
-                end
-                menu.close_callback=function()
-                    if ctx.menu==menu and host._native_direct_navigation==ctx then ctx.menu=nil;M.cancel(host) end
                 end
                 return
             end
@@ -199,9 +215,10 @@ function M.start(host,direction,notes)
     end
     local function menu()
         close_busy()
+        local known_order=ctx.entry.catalog_sha256~=nil
         require('weread.ui.end_of_book_dialog').show({show_chapter_nav=true,show_previous_chapter=true,
-            show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=true,
-            enable_next_chapter=true,enable_book_details=true,show_sync_row=false,
+            show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=not known_order or ctx.entry.catalog_prev~=nil,
+            enable_next_chapter=not known_order or ctx.entry.catalog_next~=nil,enable_book_details=true,show_sync_row=false,
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
             enable_search_book=true,enable_search_cached=true}, {
             on_chapter_list=function()

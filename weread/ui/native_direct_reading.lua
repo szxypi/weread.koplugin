@@ -399,7 +399,7 @@ function M.start(host,book,view,options)
                 end
                 if ctx.target then
                     local wanted=ctx.target;local chapter=checked.chapters[wanted.order]
-                    local neighbor=chapter and (wanted.direction==1 and chapter.catalog_prev or chapter.catalog_next)
+                    local neighbor=chapter and chapter[wanted.direction==1 and 'catalog_prev' or 'catalog_next']
                     if checked.version~=wanted.book_version or checked.reading_digest~=wanted.catalog_sha256
                         or #checked.chapters~=wanted.count or not chapter or chapter.chapterUid~=wanted.uid
                         or neighbor~=wanted.from_uid then

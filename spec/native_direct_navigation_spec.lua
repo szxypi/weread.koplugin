@@ -61,7 +61,11 @@ local function fixture()
         showBusy=function(self,_,cancel) self.busy_message={};s.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) s.message=message end,
-        showList=function(_,title,items,_,options) s.title=title;s.items=items;s.subtitle=options.subtitle;return {} end,
+        showList=function(_,title,items,_,options)
+            s.title=title;s.items=items;s.subtitle=options.subtitle
+            s.select=function(index) options.on_choice(items[index]) end
+            return {}
+        end,
         showBookMenu=function(self) self._book_detail_view={} end,
         showMyCloudMarks=function(_,id) s.notes={'marks',id} end,
         showMyCloudBookmarks=function(_,id) s.notes={'bookmarks',id} end,
@@ -88,22 +92,35 @@ host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.
 expect(s.opened==0 and s.title=='Choose a saved chapter copy' and #s.items==2,'multiple copies were silently opened')
 expect(s.items[1].text:find('2 images unavailable',1,true) and s.items[2].text:find('No missing images',1,true),
     'copy image completeness was not shown')
-s.items[2].callback();s.finish(3)
+s.select(2);s.finish(3)
 expect(s.opened==1 and s.path:find('/full.epub',1,true),'selected complete copy did not open')
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
-local old_copy=s.items[1].callback;s.account='other';old_copy()
+local old_select=s.select;s.account='other';old_select(1)
 expect(s.opened==0 and #s.jobs==2,'stale account opened a selected copy')
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
-s.items[1].callback();can_open=false;s.finish(3)
-expect(s.opened==0 and s.message:find('could not be verified',1,true),'damaged selected copy opened')
+local chooser=host._native_direct_navigation.menu
+s.select(1);can_open=false;s.finish(3)
+expect(s.opened==0 and s.message:find('could not be verified',1,true) and not host.busy_message
+    and host._native_direct_navigation.menu==chooser,'damaged selected copy closed the chooser')
+can_open=true;s.select(2);s.select(1)
+expect(#s.jobs==4,'repeated choice replaced the in-flight check')
+local stopped_job=s.jobs[4];local stopped_result=stopped_job.task();local stop=s.cancel
+stop()
+expect(s.cancelled and not host.busy_message and host._native_direct_navigation.menu==chooser,
+    'cancelling a saved-file check closed the chooser')
+s.select(2);stop();stopped_job.callback(stopped_result)
+expect(#s.jobs==5 and s.opened==0 and host.busy_message,'cancelled check affected a newer choice')
+s.finish(5)
+expect(s.opened==1 and s.path:find('/full.epub',1,true),'replacement copy did not open from the chooser')
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
-s.items[2].callback();local queued=s.jobs[3];local ready=queued.task();s.account='other';queued.callback(ready)
+s.select(2);local queued=s.jobs[3];local ready=queued.task();s.account='other';queued.callback(ready)
 expect(s.opened==0 and not host._native_direct_navigation,'late selection opened under a different account')
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
-s.items[2].callback();source_ok=false;s.finish(3)
-expect(s.opened==0 and s.message:find('could not be verified',1,true),'changed source opened a selected copy')
+s.select(2);source_ok=false;s.finish(3)
+expect(s.opened==0 and not host._native_direct_navigation and s.message:find('could not be verified',1,true),
+    'changed source retained a stale chooser')
 host,s=fixture();Nav.start(host);s.finish(1);rows={next_entry,full_entry};shown.callbacks.on_next();s.finish(2)
-local dismissed=s.items[1].callback;host._native_direct_navigation.menu.close_callback();dismissed()
+local dismissed=s.select;require('ui/uimanager'):close(host._native_direct_navigation.menu);dismissed(1)
 expect(s.opened==0 and #s.jobs==2 and not host._native_direct_navigation,'dismissed copy menu remained active')
 host,s=fixture();Nav.start(host);s.finish(1)
 expect(shown.opts.enable_search_cached,'native quick menu did not enable downloaded search')
@@ -136,9 +153,25 @@ expect(s.opened==0 and not host._native_direct_navigation,'old account opened a 
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next();source_ok=false;s.finish(2)
 expect(s.opened==0 and s.message:find('could not be verified',1,true),'changed source file was accepted')
 host,s=fixture();Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_next();s.finish(2)
-expect(s.opened==0 and s.message:find('not saved',1,true),'unverified destination opened')
+expect(s.opened==0 and s.message:find('could not be verified',1,true),'unverified destination reported as missing or opened')
+host,s=fixture();s.online=true;Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_next();s.finish(2)
+expect(s.opened==0 and auto_target and auto_target.options.target.uid=='38','online corrupt copy could not be downloaded again')
 host,s=fixture();Nav.start(host,1);s.finish(1);expect(#s.jobs==2,'end-of-book did not navigate');s.finish(2)
 expect(s.opened==1,'end-of-book did not open adjacent chapter')
+source.catalog_order=3;source.catalog_next=nil
+host,s=fixture();Nav.start(host);s.finish(1)
+expect(shown.opts.enable_next_chapter==false and shown.opts.enable_previous_chapter,'last chapter menu offered Next')
+for _,online in ipairs({false,true}) do
+    host,s=fixture();s.online=online;Nav.start(host,1);s.finish(1)
+    expect(s.message=='You have reached the last chapter.' and #s.jobs==1 and s.opened==0 and not auto_target,
+        'last chapter attempted another lookup or download')
+end
+source.catalog_order=1;source.catalog_prev=nil;source.catalog_next='38'
+host,s=fixture();Nav.start(host);s.finish(1)
+expect(shown.opts.enable_previous_chapter==false and shown.opts.enable_next_chapter,'first chapter menu offered Previous')
+host,s=fixture();Nav.start(host,-1);s.finish(1)
+expect(s.message=='You have reached the first chapter.' and #s.jobs==1 and s.opened==0,'first chapter attempted another lookup')
+source.catalog_order=2;source.catalog_prev='36'
 local sha=source.catalog_sha256;source.catalog_sha256=nil
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next()
 expect(s.opened==0 and s.message=='Chapter order is unavailable. Reopen this chapter online to update it.',
