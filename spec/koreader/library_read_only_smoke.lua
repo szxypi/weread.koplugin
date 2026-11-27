@@ -73,6 +73,60 @@ rows=assert(store:getChapters('100'));assert(#rows==1 and rows[1].title=='old')
 writer:exec('COMMIT');writer:close()
 rows=assert(store:getChapters('100'));assert(#rows==1 and rows[1].title=='new')
 
+-- A single prepared catalog feeds SQLite and the file cache.
+local chapters={}
+for i=1,65 do
+    chapters[i]={chapterUid=tostring(1000-i),title='章节 '..i,chapterIdx=i}
+end
+chapters[1].chapterUid='9007199254740993'
+local Content=require('weread.lib.content')
+local function encoded()
+    return assert(Content.encode_catalog_cache(codec,chapters))
+end
+local payload,catalog_book=encoded(),{book_id='300'}
+assert(store:putChapters('300',chapters,payload))
+assert(Content.save_catalog_cache(codec,settings,catalog_book,chapters,payload))
+local function check_saved_catalog(saved)
+    assert(#saved==#chapters)
+    for i,chapter in ipairs(saved) do
+        assert(chapter.title==chapters[i].title and chapter.chapterIdx==i)
+        assert(chapter.chapterUid==chapters[i].chapterUid and chapter.chapterId==chapters[i].chapterId)
+    end
+end
+check_saved_catalog(assert(store:getChapters('300')))
+check_saved_catalog(assert(Content.load_catalog_cache(codec,settings,catalog_book)))
+local last=chapters[65]
+chapters[65]={chapterUid=chapters[1].chapterUid,title='duplicate',chapterIdx=65}
+assert(not store:putChapters('300',chapters,encoded()),'duplicate chapter replaced the old catalog')
+chapters[65]={title='missing UID',chapterIdx=65}
+assert(not store:putChapters('300',chapters,encoded()),'incomplete payload replaced the old catalog')
+chapters[65]=last
+check_saved_catalog(assert(store:getChapters('300')))
+check_saved_catalog(assert(Content.load_catalog_cache(codec,settings,catalog_book)))
+local original_open=store.open
+local compatibility_writes=0
+store.open=function(self)
+    local db=assert(original_open(self))
+    return {
+        exec=function(_self,sql) return db:exec(sql) end,
+        close=function() db:close() end,
+        prepare=function(_self,sql)
+            if sql:find('json_each',1,true) then
+                compatibility_writes=compatibility_writes+1
+                error('JSON functions unavailable')
+            end
+            return db:prepare(sql)
+        end,
+    }
+end
+chapters[32].chapterId,chapters[32].chapterUid=chapters[32].chapterUid,nil
+chapters[33].chapterUid=nil
+assert(store:putChapters('300',chapters,encoded()) and compatibility_writes==1)
+store.open=original_open
+check_saved_catalog(assert(store:getChapters('300')))
+assert(store:putChapters('300',{}) and not store:getChapters('300'))
+assert(store:getChapters('100')[1].title=='new','clearing one catalog touched another book')
+
 -- Reads do not migrate old schemas; the existing write open still does so.
 account='900002'
 local legacy=assert(SQ3.open(assert(store:databasePath())))

@@ -696,7 +696,8 @@ function LibraryDB:getShelfStatus(book_id)
     return ok and result or nil
 end
 
-function LibraryDB:putChapters(book_id, chapters)
+-- encoded_catalog is the file payload for this same, normalized chapter list.
+function LibraryDB:putChapters(book_id, chapters, encoded_catalog)
     if not book_id or type(chapters) ~= "table" then return false end
     local db = self:open()
     if not db then return false end
@@ -705,21 +706,36 @@ function LibraryDB:putChapters(book_id, chapters)
     local ok, err = pcall(function()
         db:exec("BEGIN")
         transaction_open = true
-        local delete_stmt = db:prepare("DELETE FROM chapters WHERE book_id=?")
-        delete_stmt:reset():bind(tostring(book_id)):step()
-        delete_stmt:close()
-        stmt = db:prepare([[
-            INSERT INTO chapters (book_id, chapter_uid, position, payload, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-        ]])
+        local id = tostring(book_id)
+        stmt = db:prepare("DELETE FROM chapters WHERE book_id=?")
+        stmt:bind(id):step()
+        stmt:close()
+        stmt = nil
+
         local now = os.time()
-        for position, chapter in ipairs(chapters) do
-            local uid = chapter.chapterUid or chapter.chapterId or position
-            local payload, encode_err = encode(chapter)
-            if payload then
-                stmt:reset():bind(tostring(book_id), tostring(uid), position, payload, now):step()
-            else
-                error(encode_err)
+        if type(encoded_catalog) == "string" then
+            -- Older SQLite builds can lack the JSON functions.
+            local supported, bulk = pcall(db.prepare, db, [[
+                INSERT INTO chapters (book_id, chapter_uid, position, payload, updated_at)
+                SELECT ?1, json_extract(value, '$.chapterUid'), key + 1, value, ?2
+                FROM json_each(?3, '$.chapters')
+                WHERE typeof(key) = 'integer' AND json_type(value, '$.chapterUid') = 'text'
+            ]])
+            if supported then stmt = bulk end
+        end
+        if stmt then
+            stmt:bind(id, now, encoded_catalog):step()
+            if db:rowexec("SELECT changes()") ~= #chapters then error("catalog payload count mismatch") end
+        else
+            stmt = db:prepare([[
+                INSERT INTO chapters (book_id, chapter_uid, position, payload, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            ]])
+            for position, chapter in ipairs(chapters) do
+                local uid = chapter.chapterUid or chapter.chapterId or position
+                local payload, encode_err = encode(chapter)
+                if not payload then error(encode_err) end
+                stmt:reset():bind(id, tostring(uid), position, payload, now):step()
             end
         end
         close_statement(stmt)

@@ -276,8 +276,11 @@ function M.start(host, book, view, origin)
             local target=M.choose(chapters,latest,result.remote,context.account)
             latest.chapters=chapters
             local saved=pcall(function()
-                if host.library_db and not host.library_db:putChapters(id,chapters) then error('catalog_save_failed',0) end
-                if not Content.save_catalog_cache(host.client,host.settings,latest,chapters) then error('catalog_save_failed',0) end
+                local encoded=Content.encode_catalog_cache(host.client,chapters)
+                if not encoded or host.library_db and not host.library_db:putChapters(id,chapters,encoded) then
+                    error('catalog_save_failed',0)
+                end
+                if not Content.save_catalog_cache(host.client,host.settings,latest,chapters,encoded) then error('catalog_save_failed',0) end
             end)
             if not saved then fail();return end
             close_busy(host,context)

@@ -9,6 +9,7 @@ package.preload["ui/uimanager"] = function()
 end
 package.preload["weread.lib.plugin_util"] = function() return { tr = function(text) return text end } end
 local saved_catalogs,source_version = 0,0
+local encoded_catalog = "synthetic catalog payload"
 local catalog = { { chapterUid = 1, chapterIdx = 1, title = "One", wordCount = 100 },
     { chapterUid = 2, chapterIdx = 2, title = "Two", wordCount = 100 } }
 package.preload["weread.lib.content"] = function() return {
@@ -20,7 +21,12 @@ package.preload["weread.lib.content"] = function() return {
             current_chapter = { chapterUid = 1 } }
     end,
     fetch_catalog = function() return catalog,source_version end,
-    save_catalog_cache = function() saved_catalogs = saved_catalogs + 1; return true end,
+    encode_catalog_cache = function() return encoded_catalog end,
+    save_catalog_cache = function(_client,_settings,_book,_chapters,encoded)
+        expect(encoded == encoded_catalog, "file cache did not reuse the prepared catalog")
+        saved_catalogs = saved_catalogs + 1
+        return true
+    end,
 } end
 local Reading = require("weread.ui.book_reading")
 local projected = assert(Reading.catalog(catalog))
@@ -103,7 +109,11 @@ local function fixture()
         flush = function() end,
     }, library_db = {
         accountKey = function() return state.owner end,
-        putChapters = function() state.catalog_writes = state.catalog_writes + 1; return true end,
+        putChapters = function(_self,_id,_chapters,encoded)
+            expect(encoded == encoded_catalog, "SQLite did not reuse the prepared catalog")
+            state.catalog_writes = state.catalog_writes + 1
+            return true
+        end,
     }, isNetworkOnline = function() return state.online end,
         requireLogin = function() return state.login end,
         showOffline = function() state.errors = state.errors + 1 end,

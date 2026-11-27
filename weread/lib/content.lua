@@ -81,16 +81,10 @@ function Content.catalog_cache_path(settings, book)
     return Content.book_resolved_dir(settings, book_id, book) .. "/catalog.json"
 end
 
-function Content.save_catalog_cache(client, settings, book, chapters)
+function Content.encode_catalog_cache(client, chapters)
     if type(chapters) ~= "table" then
         return false, "chapter list is not a table"
     end
-    local path = Content.catalog_cache_path(settings, book)
-    if not path then
-        return false, "missing book id"
-    end
-    local dir = path:match("^(.*)/[^/]+$")
-    os.execute("mkdir -p " .. string.format("%q", dir))
     local ok, encoded = pcall(function()
         return client:json_encode({
             version = 1,
@@ -100,6 +94,27 @@ function Content.save_catalog_cache(client, settings, book, chapters)
     end)
     if not ok then
         return false, encoded
+    end
+    if type(encoded) ~= "string" then
+        return false, "could not encode chapter list"
+    end
+    return encoded
+end
+
+function Content.save_catalog_cache(client, settings, book, chapters, encoded)
+    if type(chapters) ~= "table" then
+        return false, "chapter list is not a table"
+    end
+    local path = Content.catalog_cache_path(settings, book)
+    if not path then
+        return false, "missing book id"
+    end
+    local dir = path:match("^(.*)/[^/]+$")
+    os.execute("mkdir -p " .. string.format("%q", dir))
+    if type(encoded) ~= "string" then
+        local err
+        encoded, err = Content.encode_catalog_cache(client, chapters)
+        if not encoded then return false, err end
     end
     local tmp_path = path .. ".tmp"
     local file, err = io.open(tmp_path, "wb")
