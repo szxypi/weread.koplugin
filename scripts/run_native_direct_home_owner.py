@@ -35,6 +35,7 @@ def main(argv=None):
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--full-ui', action='store_true')
+    parser.add_argument('--cloud-resume', action='store_true')
     parser.add_argument('--store-search', action='store_true')
     parser.add_argument('--quick-search', action='store_true')
     parser.add_argument('--progress-estimate', action='store_true')
@@ -44,6 +45,9 @@ def main(argv=None):
     parser.add_argument('--offline-time-preflight', action='store_true')
     parser.add_argument('--no-position-guidance', action='store_true')
     args = parser.parse_args(argv)
+    if args.cloud_resume and (not args.full_ui or args.store_search or args.progress_estimate
+                              or args.offline_reminder or args.offline_time):
+        parser.error('cloud resume requires full UI without other probe modes')
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
     if args.quick_search and not args.store_search:
@@ -76,6 +80,17 @@ def main(argv=None):
         payload = json.loads(raw)
         if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
             raise ValueError('endpoint')
+        if 'live_cloud_resume' in payload:
+            raise ValueError('cloud_resume_mode')
+        excerpt = payload.get('cloud_excerpt')
+        if args.cloud_resume:
+            if (payload.get('mock_endpoint') is not None or payload.get('web_cookies')
+                    or not isinstance(excerpt, str) or not 12 <= len(excerpt.encode()) <= 512
+                    or any(not isinstance(payload.get(key), str) or re.fullmatch(r'[1-9][0-9]{0,19}', payload[key]) is None
+                           for key in ('book_id', 'uid'))):
+                raise ValueError('cloud_resume_payload')
+        elif excerpt is not None:
+            raise ValueError('cloud_resume_payload')
         if args.store_search != (isinstance(payload.get('store_search_keyword'), str)
                 and 0 < len(payload['store_search_keyword'].encode()) <= 512):
             raise ValueError('search_keyword')
@@ -106,6 +121,8 @@ def main(argv=None):
             if args.offline_time_ui: env['TZ'] = 'Asia/Shanghai'
             phase = 'native_chapter'
             prepare = dict(payload, plugin_home=True, quick_search=args.quick_search)
+            if args.cloud_resume:
+                prepare.update(live_cloud_resume=True, read_entry='shelf', cloud_chapter_uid=payload['uid'], exact_resume=True)
             probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
             probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
             code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -115,7 +132,7 @@ def main(argv=None):
                 match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                 if match:
                     report['probe_line'] = int(match.group(1))
-                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|home_record|quick_menu|quick_input|quick_results)$',out)
+                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|cloud_position|home_record|quick_menu|quick_input|quick_results)$',out)
                 if stage:
                     report['probe_stage'] = stage.group(1).decode()
                 reason = re.search(rb'(?m)^WEREAD_DIRECT_HOME_REASON=(not_entitled|auth_expired|rate_limited|service_rejected|session_changed|catalog_changed|unavailable|invalid_source|invalid_image|remote_unsupported|storage|resource_[a-z_]+)$',out)
@@ -149,6 +166,8 @@ def main(argv=None):
                     or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
                     or args.full_ui and prepared.get('store_search') is not args.store_search
                     or args.full_ui and prepared.get('quick_search') is not args.quick_search
+                    or args.cloud_resume and (prepared.get('cloud_position_verified') is not True
+                        or prepared.get('cloud_reads') != 3)
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
             for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
@@ -279,6 +298,8 @@ def main(argv=None):
                           credential_file_audit=True, installed_bytes_match=True)
             if args.full_ui:
                 report['full_ui'] = True
+            if args.cloud_resume:
+                report.update(cloud_position_verified=True, cloud_reads=3)
             if args.store_search:
                 report['store_search'] = True
                 report['inline_style_verified'] = True

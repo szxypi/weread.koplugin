@@ -48,19 +48,20 @@ function M.matches_entry(entry,wanted)
         and (entry.chapter_idx==nil or wanted.chapter_idx==nil or entry.chapter_idx==wanted.chapter_idx)
 end
 
-function M.prepare_destination(client,settings,entry,file,native,current,wanted)
+local function verify_entry(settings,entry,file,native,current,wanted)
     local active=Access.guard(settings,current,native)
     if not active or not active() or not M.valid_target(wanted) or not M.matches_entry(entry,wanted) then
-        return nil,'unavailable'
+        return nil
     end
     local pinned=Cache.identify(settings,native.scope.vid,file,active)
     if not M.matches_entry(pinned,wanted) or pinned.file_id~=entry.file_id or pinned.book_version~=entry.book_version
         or pinned.source_sha256~=entry.source_sha256 or pinned.catalog_sha256~=entry.catalog_sha256 then
-        return nil,'unavailable'
+        return nil
     end
-    local raw=Cache.read_raw_source(file,pinned)
-    local map=raw and Coordinates.build(raw,{format='web_xhtml',allow_multiple_bodies=true})
-    if not map or not active() then return nil,'unavailable' end
+    return pinned,active
+end
+
+local function read_target(client,native,active,wanted)
     local auth=Auth:new(client,{expected_vid=native.scope.vid,is_current=active})
     local ok,progress=pcall(auth._request,auth,'direct_progress',
         'https://i.weread.qq.com/book/getProgress?bookId='..wanted.book_id,nil,native.credentials,{2,3})
@@ -68,9 +69,31 @@ function M.prepare_destination(client,settings,entry,file,native,current,wanted)
     if not ok then return nil,'unavailable' end
     local hint,quote=M.hint(progress,wanted.book_id)
     if not hint or not M.same_target(hint.target,wanted) then return nil,'cloud_changed' end
+    return quote
+end
+
+function M.prepare_destination(client,settings,entry,file,native,current,wanted)
+    local pinned,active=verify_entry(settings,entry,file,native,current,wanted)
+    if not pinned then return nil,'unavailable' end
+    local quote,reason=read_target(client,native,active,wanted)
+    if not quote then return nil,reason end
+    local raw=Cache.read_raw_source(file,pinned)
+    local map=raw and Coordinates.build(raw,{format='web_xhtml',allow_multiple_bodies=true})
+    if not map then return nil,'unavailable' end
     local point=map:locate_point(quote,0)
     if not point or point.co~=wanted.chapter_offset or not active() then return nil,'unavailable' end
     return {target=wanted,anchor={co=point.co,basis=point.basis,point_unit='unicode_scalars',text=quote,point_offset=0}}
+end
+
+-- The live reader has already matched the original quote. Recheck the pinned
+-- EPUB and fresh cloud target immediately before following that same anchor.
+function M.recheck_destination(client,settings,entry,file,native,current,wanted)
+    local pinned,active=verify_entry(settings,entry,file,native,current,wanted)
+    if not pinned then return nil,'unavailable' end
+    local quote,reason=read_target(client,native,active,wanted)
+    if not quote then return nil,reason end
+    if not active() then return nil,'unavailable' end
+    return {target=wanted}
 end
 
 return M

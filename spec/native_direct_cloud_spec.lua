@@ -62,9 +62,10 @@ expect(not value and why=='rate_limited' and calls==1,'limited request was retri
 fail_at=nil;live=false;value,why=check(same);expect(not value and why=='invalid' and calls==0,'stale account reached network')
 
 local checked={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='file'}
-local raw
-package.loaded['weread.lib.native_direct_cache']={identify=function() return checked end,
-    read_raw_source=function() return raw end}
+local raw,available,reads,identifications=nil,checked,0,0
+package.loaded['weread.lib.native_direct_cache']={identify=function()
+    identifications=identifications+1;return available
+end,read_raw_source=function() reads=reads+1;return raw end}
 require('weread.lib.native_read_access').guard=function(_,current) return current end
 local Resume=require('weread.lib.native_direct_resume')
 local quote='A unique excerpt from the original chapter'
@@ -87,8 +88,19 @@ end
 live=true;value=resume(hint.target)
 expect(value and value.anchor.co==point.co and value.anchor.point_offset==0 and calls==1,
     'unique summary at its saved offset could not be located')
+local function recheck()
+    calls=0;snapshots={progress}
+    return Resume.recheck_destination({}, {},checked,'/native',native,function() return live end,hint.target)
+end
+expect(recheck() and reads==1 and identifications==2 and calls==1,
+    'final cloud check reread the original or omitted a fresh check')
+available={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='changed'}
+expect(not recheck() and calls==0,'the final check accepted a replaced EPUB')
+available=checked
 progress.chapterOffset=point.co+1;value,why=resume(hint.target)
 expect(not value and why=='cloud_changed','a changed cloud point was used')
+value,why=recheck()
+expect(not value and why=='cloud_changed' and reads==1,'a changed position passed the final check')
 expect(not resume(Resume.hint(progress,'42').target),'a unique summary at a different offset was used')
 progress.chapterOffset=point.co;raw='<html><body><p>'..quote..'</p><p>'..quote..'</p></body></html>'
 expect(not resume(hint.target),'a repeated summary was used')

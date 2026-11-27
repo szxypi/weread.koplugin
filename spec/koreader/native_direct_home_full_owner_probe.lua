@@ -7,6 +7,11 @@ G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua');G_de
 G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
+local live_cloud=input.live_cloud_resume==true
+if live_cloud then
+    assert(not input.mock_endpoint and input.read_entry=='shelf' and input.exact_resume==true
+        and type(input.cloud_excerpt)=='string' and #input.cloud_excerpt>=12 and #input.cloud_excerpt<=512)
+end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
 settings:set('cookies',{})
@@ -50,8 +55,9 @@ Client.request=function(self,options)
     if query and url==base..'/store/search?'..query then assert(options.method=='GET')
     elseif url==base..'/book/info?bookId='..input.book_id then assert(options.method=='GET')
     elseif input.cloud_chapter_uid and url==base..'/book/getProgress?bookId='..input.book_id then
-        assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1' and options.method=='GET')
+        assert((live_cloud or input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1') and options.method=='GET')
         assert(self.settings.mock_endpoint==input.mock_endpoint)
+        local cloud=assert(io.open(home..'/cloud-count','ab'));assert(cloud:write('1'));assert(cloud:close())
     elseif url==base..'/book/chapterInfos' then
         local body=json.decode(options.body)
         assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -111,7 +117,7 @@ FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
 local shelf_owner
 if input.read_entry then
-    assert(os.getenv('WEREAD_SYNTHETIC')=='1' and not next(host.settings:get('cookies',{})))
+    assert((live_cloud or os.getenv('WEREAD_SYNTHETIC')=='1') and not next(host.settings:get('cookies',{})))
     host.qr_login.start=function() error('native-only reading tried to start Web login') end
     if input.cloud_chapter_uid then G_reader_settings:saveSetting('items_per_page',1) end
 end
@@ -189,7 +195,7 @@ end
 assert(index and ctx.menu.item_table[index].select_enabled)
 if input.cloud_chapter_uid then
     local prefix=require('weread.lib.plugin_util').tr('Cloud reading chapter')..' · '
-    assert(input.uid==input.cloud_chapter_uid and index==2 and ctx.menu.page==2
+    assert(input.uid==input.cloud_chapter_uid and (live_cloud or index==2) and ctx.menu.page==ctx.menu:getPageNumber(index)
         and ctx.menu.item_table[index].text:find(prefix,1,true)==1,'the catalog did not locate the cloud chapter')
 end
 local failure,ui_failed
@@ -211,7 +217,7 @@ end
 host.showInfo=function() ui_failed=true end
 local resume_message,cloud_xpointer
 if input.exact_resume then
-    assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
+    assert(live_cloud or input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
     local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
     CloudOpen.receive=function(next_host,...)
         next_host.settings.mock_endpoint=input.mock_endpoint
@@ -235,9 +241,15 @@ if input.exact_resume then
     assert(resume_message==tr('Opened the cloud reading position in this chapter.'),resume_message)
     local doc=reader.document
     assert(cloud_xpointer and doc:isXPointerInCurrentPage(cloud_xpointer))
+    local normalize=require('weread.lib.source_dom').normalize
+    local quote=assert(normalize(input.cloud_excerpt or 'Chapter '..input.uid..', synthetic paragraph 70'))
     local last=cloud_xpointer
-    for _i=1,38 do last=assert(doc:getNextVisibleChar(last)) end
-    assert(doc:getTextFromXPointers(cloud_xpointer,last):find('synthetic paragraph 70',1,true)==13,
+    for _i=1,#quote*2 do
+        local following=doc:getNextVisibleChar(last)
+        if not following or following==last then break end
+        last=following
+    end
+    assert(assert(normalize(doc:getTextFromXPointers(cloud_xpointer,last))):sub(1,#quote)==quote,
         'the reader did not open at the original cloud text')
 end
 if input.store_search_keyword then
@@ -250,10 +262,15 @@ stage='home_record';pump(function() local book=reader.weread.settings:get_book(i
 local entry=reader.weread.settings:get_book(input.book_id).native_home_resume.entry
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.book_version==input.book_version
     and entry.source_sha256==input.source_sha256 and not reader.weread:detectWeReadBook())
-if reader.document:getPageCount()<2 then assert(reader.font:onSetFontSize(48));UI:forceRePaint() end
-assert(reader.document:getPageCount()>=2)
-local first=assert(reader.document:getXPointer());reader.rolling:onGotoPage(2);UI:forceRePaint()
-local anchor=assert(reader.document:getXPointer());assert(anchor~=first)
+local anchor
+if live_cloud then
+    anchor=assert(reader.document:getXPointer())
+else
+    if reader.document:getPageCount()<2 then assert(reader.font:onSetFontSize(48));UI:forceRePaint() end
+    assert(reader.document:getPageCount()>=2)
+    local first=assert(reader.document:getXPointer());reader.rolling:onGotoPage(2);UI:forceRePaint()
+    anchor=assert(reader.document:getXPointer());assert(anchor~=first)
+end
 if input.quick_search then
     local active=reader.weread;active.settings.mock_endpoint=input.mock_endpoint
     assert(active.settings:get('api_key','')=='' and not next(active.settings:get('cookies',{})),
@@ -291,5 +308,8 @@ reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance
 local count=io.open(home..'/request-count','rb');local requests=0
 if count then requests=#assert(count:read('*a'));assert(count:close()) end
 assert(input.offline~=true or requests==0)
+local cloud=io.open(home..'/cloud-count','rb');local cloud_reads
+if cloud then cloud_reads=#assert(cloud:read('*a'));assert(cloud:close()) end
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
-    store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true})
+    store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
+    cloud_position_verified=input.exact_resume==true,cloud_reads=cloud_reads})

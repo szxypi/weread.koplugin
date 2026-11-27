@@ -80,14 +80,17 @@ function M.start(host,entry,wanted,native,web,native_resume)
         host._native_direct_cloud_open_worker=worker
     end
     local worker=host._native_direct_cloud_open_worker
-    local function run(callback)
+    local function run(callback,confirm)
+        local confirm_native=confirm and native_resume
         local ok,started=pcall(worker.start,worker,function()
             local function active()
                 return host.settings:auth_scope_matches(scope)
                     and (native_resume or access_current(host.settings,native,web,false))
             end
             local result,reason
-            if native_resume then
+            if confirm_native then
+                result,reason=proof.recheck_destination(host.client,host.settings,entry,ctx.file,native,active,wanted)
+            elseif native_resume then
                 result,reason=proof.prepare_destination(host.client,host.settings,entry,ctx.file,native,active,wanted)
             else
                 result,reason=proof.prepare_destination(host.client,host.settings,entry,ctx.file,native,web,active,wanted)
@@ -97,9 +100,12 @@ function M.start(host,entry,wanted,native,web,native_resume)
             if host._native_direct_cloud_open~=ctx then return end
             if not current() then M.cancel(host);return end
             local value=type(result)=='table' and result.value
-            local anchor=type(value)=='table' and value.anchor
-            if type(anchor)~='table' or not proof.same_target(value.target,wanted)
-                or anchor.co~=wanted.chapter_offset or anchor.basis~='filtered_xhtml_utf16'
+            if type(value)~='table' or not proof.same_target(value.target,wanted) then
+                fail(type(result)=='table' and result.error);return
+            end
+            if confirm_native then callback();return end
+            local anchor=value.anchor
+            if type(anchor)~='table' or anchor.co~=wanted.chapter_offset or anchor.basis~='filtered_xhtml_utf16'
                 or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12 or #anchor.text>8192
                 or not P.integer(anchor.point_offset,0,8192) then
                 fail(type(result)=='table' and result.error);return
@@ -133,8 +139,10 @@ function M.start(host,entry,wanted,native,web,native_resume)
                 or point.render_path~='OEBPS/text/chapter.xhtml' or type(point.xpointer)~='string'
                 or #point.xpointer>4096 or not current() then fail();return end
             run(function(fresh)
-                for _,key in ipairs({'co','text','point_offset','point_unit','basis'}) do
-                    if fresh[key]~=anchor[key] then fail('cloud_changed');return end
+                if fresh then
+                    for _,key in ipairs({'co','text','point_offset','point_unit','basis'}) do
+                        if fresh[key]~=anchor[key] then fail('cloud_changed');return end
+                    end
                 end
                 if not current() then M.cancel(host);return end
                 local geometry=require('weread.lib.reader_position');ctx.committing=true
@@ -146,7 +154,7 @@ function M.start(host,entry,wanted,native,web,native_resume)
                 M.cancel(host)
                 host:showInfo(_(verified and 'Opened the cloud reading position in this chapter.'
                     or 'Could not confirm the cloud position. Please check the current page.'))
-            end)
+            end,true)
         end
         ctx.task=step;UI:scheduleIn(0.1,step)
     end
