@@ -527,6 +527,22 @@ active=owner_b
 expect(not BookStore.load_pending_progress(scoped,'51',legacy_home,owner_b)
     and not BookStore.load_pending_progress(scoped,'book/42',index,owner_b),
     'another account or a damaged checkpoint inherited legacy pending progress')
+do
+    local path = current_home.cache_dir..'/metadata.json'
+    local account_path = current_home.cache_dir..'/.weread-accounts/'..owner_a..'/reading_state.json'
+    local codec = require('json')
+    local metadata = codec.decode(bytes(path))
+    metadata.chapters = {{chapterUid=7}}
+    local file = assert(io.open(path,'wb'))
+    assert(file:write(codec.encode(metadata)));assert(file:close())
+    local checkpoint = bytes(account_path)
+    expect(BookStore.clear_legacy_catalog(scoped,'52',current_home) and bytes(account_path)==checkpoint,
+        'retiring an inline catalog changed the account reading state')
+    local updated_metadata = codec.decode(bytes(path))
+    expect(not updated_metadata.chapters and updated_metadata.cached_chapters['7']==chapter_path
+        and updated_metadata.book_id=='52',
+        'retiring an inline catalog changed cache paths or kept the old chapters')
+end
 for _,record in pairs(indexes) do
     local directory=record.cache_dir
     os.remove(directory..'/.weread-accounts/'..owner_a..'/reading_state.json')

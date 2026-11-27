@@ -67,6 +67,7 @@ local saved_books = {}
 local loaded_book_keys = {}
 local minimal_index_checked = false
 local minimal_index, legacy_catalog = false, false
+local retired_catalog_id
 package.preload["weread.lib.book_store"] = function()
     return {
         load = function(_settings, book_id, index)
@@ -92,6 +93,10 @@ package.preload["weread.lib.book_store"] = function()
         has_legacy_catalog = function(_settings, id, index)
             expect(id == "7" and index == values.books["7"], "legacy catalog check did not use the stored book directory")
             return legacy_catalog
+        end,
+        clear_legacy_catalog = function(_settings, id)
+            retired_catalog_id = id
+            return true
         end,
     }
 end
@@ -172,6 +177,27 @@ local stored_books = values.books
 values.books = false
 expect(not settings:has_legacy_book_records(), "an empty legacy book index forced migration")
 values.books = stored_books
+
+do
+    local before_flush = flush_count
+    local other = stored_books["7"]
+    expect(settings:remember_catalog_book("42", {book_id="42",title="First catalog"})
+        and saved_books["42"].title=="First catalog" and values.books["42"].cache_dir=="/saved/42"
+        and values.books["7"]==other and not stored_books["42"] and flush_count==before_flush+1,
+        "first catalog registration changed another book or reused the old index snapshot")
+    values.books[53]={cache_dir="/old/53",chapters={{chapterUid=1}},cached_file="/old/53/chapter.epub"}
+    local older_index=values.books
+    expect(settings:remember_catalog_book("53", {book_id="53"})
+        and retired_catalog_id=="53" and not saved_books["53"] and not values.books["53"]
+        and not values.books[53].chapters and values.books[53].cached_file=="/old/53/chapter.epub"
+        and older_index[53].chapters and flush_count==before_flush+2,
+        "legacy retirement rewrote book state or lost the original numeric index")
+    values.books["53"]={cache_dir="/conflict"}
+    retired_catalog_id=nil
+    expect(not settings:remember_catalog_book("53", {book_id="53"}) and not retired_catalog_id
+        and flush_count==before_flush+2, "ambiguous catalog target was updated")
+    values.books=stored_books
+end
 
 settings:update_auth({
     cookies = { wr_gid = "12345" },

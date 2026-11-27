@@ -338,6 +338,38 @@ function Settings:get_book(book_id, legacy_numeric)
     return index and BookStore.load(self, book_id, index) or nil
 end
 
+-- Register a first catalog or retire a superseded inline copy for one book.
+-- The caller saves the separate catalog before retiring any legacy data.
+function Settings:remember_catalog_book(book_id, book)
+    local indexes = self:get_book_indexes()
+    if not indexes then return false, "invalid book index" end
+    local Access = require("weread.lib.read_access")
+    local index, reason, legacy_key = Access.cached_book_for_update(indexes, book_id)
+    if reason then return false, reason end
+    if not Access.cached_book({ [book_id] = book }, book_id) then return false, "book identity conflict" end
+
+    if index then
+        local ok, err = BookStore.clear_legacy_catalog(self, book_id, index)
+        if not ok then return false, err end
+        if index.chapters == nil then return true end
+        local trimmed = {}
+        for key, value in pairs(index) do
+            if key ~= "chapters" then trimmed[key] = value end
+        end
+        index = trimmed
+    else
+        local ok, value = BookStore.save(self, book_id, book)
+        if not ok then return false, value end
+        index = value
+    end
+    local updated = {}
+    for key, value in pairs(indexes) do updated[key] = value end
+    updated[legacy_key or book_id] = index
+    self.store:saveSetting("books", updated)
+    self:flush()
+    return true
+end
+
 function Settings:patch_reading_state(book_id, patch)
     book_id = tostring(book_id)
     local indexes = self.store:readSetting('books',{})

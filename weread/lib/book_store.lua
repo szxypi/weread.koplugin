@@ -553,4 +553,20 @@ function BookStore.has_legacy_catalog(settings, book_id, index)
     return metadata ~= nil and metadata.chapters ~= nil
 end
 
+-- Remove a superseded inline catalog without saving a reading-state snapshot.
+function BookStore.clear_legacy_catalog(settings, book_id, index)
+    local path = resolved_dir(settings, book_id, index) .. "/metadata.json"
+    local metadata = read_json(path)
+    if not metadata then
+        if exists(path) then return false, "invalid book metadata" end
+        return true
+    end
+    if metadata.chapters == nil then return true end
+    if not require("weread.lib.read_access").cached_book({ [book_id] = metadata }, book_id) then
+        return false, "book identity conflict"
+    end
+    metadata.chapters = nil
+    return write_json(path, metadata)
+end
+
 return BookStore

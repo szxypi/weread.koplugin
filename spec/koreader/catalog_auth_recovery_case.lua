@@ -27,9 +27,28 @@ return function(host,view,book,pump,tick,press)
         assert(#original._chapter_rows==1 and original.subtitle)
         local before=count('/web/login/renewal')
         request('/__control',{match='/web/book/chapterInfos',times=1,status=401,web_renewal_mode='rotate'})
+        local store=host.settings
+        local get,set=store.get,store.set
+        store.get=function(self,key,...)
+            assert(key~='books','one catalog refresh hydrated the bookshelf')
+            return get(self,key,...)
+        end
+        store.set=function(self,key,...)
+            assert(key~='books','one catalog refresh rewrote the bookshelf')
+            return set(self,key,...)
+        end
         original._toolbar_buttons[1].callback()
         pump(function() return host._catalog_request and host._catalog_request_worker.job end)
+        local last_pull=saved.last_pull_at
+        local checkpoint=(last_pull or 0)+123
+        assert(store:patch_reading_state(id,{last_pull_at=checkpoint}))
         pump(function() return host._chapter_list_view and host._chapter_list_view~=original end)
+        store.get,store.set=get,set
+        local updated=book(host)
+        assert(updated.last_pull_at==checkpoint and #assert(host.library_db:getChapters(id))==6,
+            'refresh lost an updated checkpoint or failed to persist the catalog')
+        for uid,path in pairs(saved.cached_chapters or {}) do assert(updated.cached_chapters[uid]==path) end
+        assert(store:patch_reading_state(id,{last_pull_at=last_pull or false}))
         local refreshed=host._chapter_list_view
         assert(#refreshed._chapter_rows==1 and refreshed._chapter_rows[1].text==title
             and refreshed.subtitle==original.subtitle and count('/web/login/renewal')==before+1)

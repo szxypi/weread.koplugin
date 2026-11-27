@@ -2339,25 +2339,35 @@ function M:loadChapters(book, callback, force_refresh, read_only_cache)
         local same_id,current_id=pcall(reader_context.book_id,book)
         if not same_id or current_id~=requested_id or not current()
             or chapter_view and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return end
-        require('weread.ui.catalog_request').start(self,book,function(chapters_or_err)
-            book.chapters=chapters_or_err
-            local cache_ok, cache_err = Content.save_catalog_cache(
-                self.client, self.settings, book, chapters_or_err)
+        require('weread.ui.catalog_request').start(self,book,function(chapters)
+            local indexes = self.settings:get_book_indexes()
+            local index, conflict = ReadAccess.cached_book_for_update(indexes, requested_id)
+            local latest = index and ReadAccess.load_cached_book(self.settings, requested_id)
+            if not indexes or conflict or index and not latest then
+                self:showInfo(_("Saved book information does not match. Check the local cache before opening."))
+                return
+            end
+            local target = latest or book
+            local cache_ok, cache_err = Content.save_catalog_cache(self.client, self.settings, target, chapters)
             if not cache_ok then
                 logger.warn("save chapter catalog cache failed:", log_error(cache_err))
             end
-            local books = self.settings:get("books", {})
-            local book_id = book.book_id or book.bookId
-            if book_id then
-                if self.library_db then
-                    self.library_db:putChapters(book_id, chapters_or_err)
-                    self.library_db:putBook(book)
+            if self.library_db then self.library_db:putChapters(requested_id, chapters) end
+            if not latest or latest.chapters ~= nil and cache_ok then
+                local registered, err = self.settings:remember_catalog_book(requested_id, target)
+                if not registered then
+                    logger.warn("save catalog book record failed:", log_error(err))
+                elseif not latest and self.library_db and not self.library_db:getBook(requested_id) then
+                    local detail = {}
+                    for key, value in pairs(target) do
+                        if key ~= "chapters" then detail[key] = value end
+                    end
+                    self.library_db:putBook(detail)
                 end
-                books[book_id] = book
-                self.settings:set("books", books)
-                self.settings:flush()
             end
-            callback(chapters_or_err)
+            book.cache_dir = target.cache_dir
+            book.chapters = chapters
+            callback(chapters)
         end,{current=current,chapter_view=chapter_view})
     end)
 end

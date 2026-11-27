@@ -3,6 +3,7 @@ package.path = "./?.lua;" .. package.path
 local existing_paths = {}
 local path_probes = {}
 local catalog_save_count = 0
+local catalog_target
 local last_dialog
 local function empty_module() return {} end
 package.preload["weread.lib.book_reviews"] = function()
@@ -46,8 +47,9 @@ package.preload["weread.lib.content"] = function()
         ensure_reader_state = function() end,
         fetch_catalog = function() return fetched_chapters end,
         catalog_cache_path = function() return "/cache/42/catalog.json" end,
-        save_catalog_cache = function()
+        save_catalog_cache = function(_client, _settings, book)
             catalog_save_count = catalog_save_count + 1
+            catalog_target = book
             return true
         end,
         load_catalog_cache = function() return nil end,
@@ -73,6 +75,7 @@ local single_download_options
 local single_download_refreshed = false
 local current_owner='account-a'
 local prefer_eink=false
+local catalog_registrations=0
 local host = {
     settings = {
         get = function(_self, key, default)
@@ -83,6 +86,18 @@ local host = {
         end,
         set = function(_self, key, value)
             if key == "books" then books = value end
+        end,
+        get_book_indexes = function() return books end,
+        get_book = function(_self, id)
+            return require('weread.lib.read_access').cached_key(books,id)
+        end,
+        remember_catalog_book = function(_self, id, book)
+            catalog_registrations = catalog_registrations + 1
+            if books[id] then books[id].chapters = nil
+            else
+                books[id] = {book_id=id,title=book.title,cache_dir=book.cache_dir}
+            end
+            return true
         end,
         flush = function() end,
     },
@@ -203,6 +218,54 @@ expect(written_chapters == fetched_chapters,
     "fetched chapter catalog was not written to SQLite")
 expect(callback_chapters == fetched_chapters,
     "chapter callback did not receive the fetched catalog")
+
+do
+    local registration_count=catalog_registrations
+    local initial_writes=catalog_save_count
+    local prior_request=package.loaded['weread.ui.catalog_request']
+    local latest={book_id='61',cache_dir='/cache/current',cached_chapters={['7']='/cache/current/chapter.epub'},
+        pending_upload_position={chapter_uid='7',chapter_offset=71}}
+    local old={book_id='61',cache_dir='/cache/old'}
+    books['61']={book_id='61',cache_dir='/cache/old'}
+    local queued,displayed
+    package.loaded['weread.ui.catalog_request']={start=function(_,_,done) queued=done end,cancel=function() end}
+    local get,set=host.settings.get,host.settings.set
+    host.settings.get=function(self,key,default)
+        assert(key~='books','catalog refresh hydrated the whole library')
+        return get(self,key,default)
+    end
+    host.settings.set=function() error('catalog refresh saved the whole library') end
+    local prior_details=written_book
+    host:loadChapters(old,function(value) displayed=value end,true)
+    books['61']=latest
+    assert(queued)(fetched_chapters)
+    expect(displayed==fetched_chapters and catalog_target==latest and old.cache_dir==latest.cache_dir,
+        'catalog refresh used the changed cached book directory')
+    expect(books['61']==latest and latest.pending_upload_position.chapter_offset==71 and latest.cached_chapters['7']
+        and written_book==prior_details and catalog_registrations==registration_count,
+        'catalog refresh saved stale metadata or lost concurrent download or progress')
+
+    local prior_writes=catalog_save_count
+    books[61]={book_id='61',cache_dir='/cache/duplicate'}
+    queued(fetched_chapters)
+    expect(catalog_save_count==prior_writes and catalog_registrations==registration_count,
+        'ambiguous legacy index allowed a catalog write')
+    books[61]=nil
+    latest.chapters={{chapterUid=3}}
+    local save= require('weread.lib.content').save_catalog_cache
+    require('weread.lib.content').save_catalog_cache=function() return false,'synthetic failure' end
+    queued(fetched_chapters)
+    expect(latest.chapters and catalog_registrations==registration_count,
+        'a failed catalog file save retired the only inline catalog')
+    require('weread.lib.content').save_catalog_cache=save
+    queued(fetched_chapters)
+    expect(not latest.chapters and catalog_registrations==registration_count+1,
+        'a successful save did not retire the superseded inline catalog')
+    catalog_save_count=initial_writes
+    books['61']=nil
+    host.settings.get,host.settings.set=get,set
+    package.loaded['weread.ui.catalog_request']=prior_request
+end
 
 local content=require("weread.lib.content")
 local previous_reader,previous_info=content.ensure_reader_state,host.showInfo
