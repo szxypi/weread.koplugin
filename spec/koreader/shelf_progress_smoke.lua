@@ -97,6 +97,15 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     wait_progress()
     assert(count("/web/book/getProgress") == before + 1 and progress(seed).percent == 37
         and plugin.shelf_view.books[1]._shelf_progress == 83, "progress search fetched other books or lost local progress")
+    local unchanged=assert(progress(seed));unchanged.fetched_at=0
+    assert(plugin.library_db:putShelfProgress({unchanged}))
+    before=count("/web/book/getProgress")
+    plugin:showShelfView("books",seed)
+    local opened_shelf=plugin.shelf_view
+    wait_progress()
+    assert(count("/web/book/getProgress")==before+1 and progress(seed).fetched_at>0,
+        'unchanged progress did not refresh its cached timestamp')
+    assert(plugin.shelf_view==opened_shelf,'unchanged progress rebuilt the bookshelf')
     shelf.sort_order = "default"
     settings:set("shelf", shelf)
     plugin:closeWeReadUI()
@@ -112,6 +121,16 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     for _, book in ipairs(visible_books) do first_screen[book.bookId] = true end
     assert(not list.paged and count("/web/book/getProgress") == before + #visible_books,
         "continuous shelf fetched more than the first viewport")
+    local snapshots=list:prepareVisibleStatus(visible_books)
+    local visible_id=visible_books[2].bookId
+    snapshots[visible_id].fetched_at=0
+    before=count("/web/book/getProgress")
+    plugin:refreshVisibleShelfProgress(list,visible_books,snapshots,{
+        on_redraw=function() error('unchanged progress rebuilt the continuous shelf') end,
+    })
+    wait_progress()
+    assert(count("/web/book/getProgress")==before+1 and list:prepareVisibleStatus()[visible_id].fetched_at>0,
+        'unchanged progress did not renew the visible list expiry')
     list.scroll:_scrollBy(0, list._item_rows[1]:getSize().h + 1)
     UIManager:forceRePaint()
     local entered = 0
@@ -120,7 +139,7 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     end
     require("socket").sleep(0.35)
     wait_progress()
-    assert(entered > 0 and count("/web/book/getProgress") == before + #visible_books + entered,
+    assert(entered > 0 and count("/web/book/getProgress") == before + 1 + entered,
         "scrolling repeated a fresh visible progress request or missed a new row")
     shelf.paginated = true
     settings:set("shelf", shelf)
@@ -131,6 +150,15 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     assert(progress(seed).source=="web" and progress(seed).percent==37,"keyless home did not refresh")
     assert(plugin.shelf_view.books[1]._shelf_progress==83,"keyless home lost pending location")
     assert_local_badge(plugin.shelf_view._item_rows[1])
+    unchanged=assert(progress(seed));unchanged.fetched_at=0
+    assert(plugin.library_db:putShelfProgress({unchanged}))
+    before=count("/web/book/getProgress")
+    plugin:showHome()
+    local opened_home=plugin.shelf_view
+    wait_progress()
+    assert(count("/web/book/getProgress")==before+1 and progress(seed).fetched_at>0,
+        'unchanged home progress did not refresh its cached timestamp')
+    assert(plugin.shelf_view==opened_home,'unchanged progress rebuilt the home page')
     UIManager:forceRePaint();Screen:shot(evidence.."/web-home-progress.png")
     local selected={{bookId=seed},{bookId=books[2].bookId}}
     settings:set("api_key","synthetic-invalid-key");settings:flush()

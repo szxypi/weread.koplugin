@@ -23,6 +23,12 @@ return function(host,response,cover,evidence)
         host:showShelfView('books',nil,nil,{refresh_progress=force})
         return assert(host.shelf_view)
     end
+    local function seed_different_progress()
+        local book=assert(host.shelf_view:getVisibleBooks()[1])
+        local id=assert(require('weread.lib.shelf_progress').book_id(book.bookId))
+        -- The mock service returns 37% or 0%. Force a real display change.
+        assert(host.library_db:putShelfProgress({{book_id=id,percent=99,exact_percent=99,fetched_at=os.time()}}))
+    end
     for _action_index,action in ipairs({'cancel','select'}) do
         local view=show(false,false)
         local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
@@ -115,6 +121,7 @@ return function(host,response,cover,evidence)
             'progress replaced the shelf while book details were open')
         UI:close(detail);pump(function() return host.shelf_view~=view end)
     end
+    seed_different_progress()
     local view=show(true,true)
     local worker=assert(host.shelf_progress_worker);assert(worker.job and worker.job.pid)
     view:showSourceMenu();local picker=assert(view._shelf_popup)
@@ -142,6 +149,7 @@ return function(host,response,cover,evidence)
     UI:forceRePaint();require('device').screen:shot(evidence..'/portal-home-thumbnail-search.png')
     search.buttons[1][1].callback();pump(function() return host.shelf_view~=view end)
     assert(cache:pathFor(book),'home search cancel lost thumbnail')
+    seed_different_progress()
     host:closeWeReadUI()
     host.isNetworkOnline=function() return true end;host.isNetworkConnected=host.isNetworkOnline
     host:showHome(true);view=host.shelf_view

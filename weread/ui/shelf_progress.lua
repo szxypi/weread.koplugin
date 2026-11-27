@@ -56,6 +56,8 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     end
     if current and current.key == key and (current.request or current.renewing) then
         current.redraw = options.on_redraw
+        current.snapshots = snapshots
+        current.view = view
         return
     end
     self:cancelShelfProgress()
@@ -77,7 +79,8 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
         }
     end
     if not self.shelf_progress_worker:available() then return end
-    local context = { key = key, redraw = options.on_redraw }
+    local context = { key = key, redraw = options.on_redraw, snapshots = snapshots, view = view }
+    local saved_progress = {}
     local epoch = self.discovery_epoch or 0
     local document=self.ui and self.ui.document
     local file=document and document.file
@@ -102,7 +105,20 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
         if not owner_current() then return end
         context.renewing=false
         if failure then failed() end
-        if context.changed and context.redraw and self.shelf_view then context.redraw() end
+        local visible = context.view and context.view._visible_status_snapshots or context.snapshots
+        local changed = false
+        for id, snapshot in pairs(saved_progress) do
+            local before, _, before_exact = Data.display(nil, visible[id] or context.snapshots[id])
+            local after, _, after_exact = Data.display(nil, snapshot)
+            -- Exact zero and unknown legacy zero render alike, but filter differently.
+            if before ~= after or before_exact ~= after_exact then
+                changed = true
+            else
+                -- Keep the live scroll viewport's expiry current without rebuilding it.
+                visible[id] = snapshot
+            end
+        end
+        if changed and context.redraw and self.shelf_view then context.redraw() end
     end
     local launch
     launch=function()
@@ -128,7 +144,7 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
             if type(values)~='table' then finish(true);return end
             if #values>0 then
                 if not self.library_db:putShelfProgress(values) then finish(true);return end
-                context.changed=true
+                for _, snapshot in ipairs(values) do saved_progress[snapshot.book_id] = snapshot end
             end
             -- Keep the valid prefix, then resume only the failed suffix. Do
             -- not redraw into a new request while renewal owns this context.

@@ -241,4 +241,33 @@ local count_before=#tasks
 host:refreshVisibleShelfProgress({}, {books[1]}, {["900001"]={unavailable=true,fetched_at=os.time()}}, {})
 expect(#tasks==count_before,"fresh unavailable position was repeatedly fetched")
 expect(Data.display({}, {unavailable=true}, "account-a", "900001")==nil,"duration-only cache invented 0 percent")
+
+local progress_id='900002'
+for _,case in ipairs({
+    {name='new cache time and origin', old={percent=37,exact_percent=37,source='gateway'},
+        new={percent=37,exact_percent=37,source='web'}},
+    {name='unavailable progress stays hidden', new={unavailable=true}},
+    {name='legacy zero becomes known', old={percent=0}, new={percent=0,exact_percent=0}, repaint=true},
+    {name='a sub-one-percent position replaces zero', old={percent=0,exact_percent=0},
+        new={percent=0,exact_percent=0.25}, repaint=true},
+    {name='a known position disappears', old={percent=37}, new={unavailable=true}, repaint=true},
+}) do
+    local previous_writes,previous_redraws=#writes,redrawn
+    case.new.book_id,case.new.fetched_at=progress_id,os.time()
+    host:refreshVisibleShelfProgress(host.shelf_view,{books[2]},{[progress_id]=case.old},
+        {force=true,on_redraw=function() redrawn=redrawn+1 end})
+    tasks[#tasks].options.on_done{ok=true,value={snapshots={case.new}}}
+    expect(#writes==previous_writes+1 and writes[#writes][1]==case.new,'snapshot not saved: '..case.name)
+    expect(redrawn==previous_redraws+(case.repaint and 1 or 0),'incorrect redraw: '..case.name)
+end
+local previous_redraws=redrawn
+local updated={book_id=progress_id,percent=37,exact_percent=37,fetched_at=os.time()}
+local refresh={force=true,on_redraw=function() redrawn=redrawn+1 end}
+host:refreshVisibleShelfProgress(host.shelf_view,{books[2]},{},refresh)
+local carried=tasks[#tasks]
+host.shelf_view={}
+host:refreshVisibleShelfProgress(host.shelf_view,{books[2]},{[progress_id]=updated},refresh)
+expect(tasks[#tasks]==carried,'rebuilding the same page restarted its progress worker')
+carried.options.on_done{ok=true,value={snapshots={updated}}}
+expect(redrawn==previous_redraws,'progress was compared with the view that had already closed')
 print("shelf_progress_spec: " .. checks .. " checks")
