@@ -11,6 +11,16 @@ local function same(a,b)
     end
     return true
 end
+function M.prepare(client,settings,selected,entry,current)
+    local expected={book_id=entry.book_id,chapter_uid=entry.chapter_uid,book_version=entry.book_version,
+        reading_catalog_sha256=entry.catalog_sha256,access_fingerprint=selected.fingerprint}
+    local prepared,why=require('weread.lib.native_direct_source').fetch(client,settings,entry.book_id,entry.chapter_uid,
+        expected,{is_current=current,allow_missing_images=true})
+    if not prepared then return nil,why or 'unavailable' end
+    if prepared.source_sha256~=entry.source_sha256 then return nil,'changed' end
+    if prepared.missing_images>=entry.missing_images then return nil,'unchanged' end
+    return prepared
+end
 function M.run(client,settings,selected,entry,path,book,current)
     if type(current)~='function' or not current() or not Access.matches(settings,selected)
         or not Cache.valid_entry(entry,entry and entry.book_id,selected and selected.scope and selected.scope.vid)
@@ -32,13 +42,10 @@ function M.run(client,settings,selected,entry,path,book,current)
         or #catalog.chapters~=entry.catalog_count or not chapter or not chapter.downloadable
         or chapter.chapterUid~=entry.chapter_uid or chapter.chapterIdx~=entry.chapter_idx
         or chapter.catalog_prev~=entry.catalog_prev or chapter.catalog_next~=entry.catalog_next then return {error='catalog_changed'} end
-    local expected={book_id=entry.book_id,chapter_uid=entry.chapter_uid,book_version=entry.book_version,
-        reading_catalog_sha256=entry.catalog_sha256,access_fingerprint=selected.fingerprint}
-    local prepared,why=require('weread.lib.native_direct_source').fetch(client,settings,entry.book_id,entry.chapter_uid,
-        expected,{is_current=active,allow_missing_images=true})
-    if not prepared then return {error=why or 'unavailable'} end
-    if prepared.source_sha256~=entry.source_sha256 or not source_current() then return {error='changed'} end
-    if prepared.missing_images>=entry.missing_images then return {kind='unchanged'} end
+    local prepared,why=M.prepare(client,settings,selected,entry,active)
+    if not prepared and why~='unchanged' then return {error=why} end
+    if not source_current() then return {error='changed'} end
+    if not prepared then return {kind='unchanged'} end
     local saved,reason=Cache.publish(settings,selected.scope.vid,book,chapter,prepared,active)
     if not saved then return {error=reason or 'storage'} end
     if not source_current() then return {error='changed'} end

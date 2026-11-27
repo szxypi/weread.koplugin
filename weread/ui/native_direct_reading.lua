@@ -171,9 +171,11 @@ function M.start(host,book,view,options)
     if not id then return false end
     local cached=type(options)=='table' and options.cached==true
     local offline=cached or not connected(host)
-    local batch=type(options)=='table' and options.batch==true
+    local repair_images=type(options)=='table' and options.repair_images==true
+    local batch=repair_images or type(options)=='table' and options.batch==true
     local resume_plan=type(options)=='table' and options.resume_plan or nil
-    if batch and offline then host:showOffline(_('Download E-Ink chapters'));return false end
+    local batch_title=_(repair_images and 'Recover missing images in downloaded chapters' or 'Download E-Ink chapters')
+    if batch and offline then host:showOffline(batch_title);return false end
     local target=type(options)=='table' and options.target or nil
     if target~=nil and (offline or type(target)~='table' or type(target.uid)~='string'
         or Protocol.id(target.uid)~=target.uid or type(target.from_uid)~='string' or Protocol.id(target.from_uid)~=target.from_uid
@@ -201,7 +203,7 @@ function M.start(host,book,view,options)
     local ctx={epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
         book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch}
-    if batch and host.library_db then
+    if batch and not repair_images and host.library_db then
         ctx.batch_store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
     end
     if resume_plan and (not ctx.batch_store or not ctx.batch_store:verified(resume_plan,id)) then return false end
@@ -471,8 +473,9 @@ function M.start(host,book,view,options)
         ctx.batch_progress=nil
         ctx.phase='batch';host._native_direct_worker.timeout=3600
         local ok,widget=pcall(function() return require('weread.ui.download_dialog'):new{
-            title=_('Download E-Ink chapters'),
-            description=_('Readable chapters are saved individually. Cancel to keep completed chapters.'),
+            title=batch_title,
+            description=_(repair_images and 'Improved chapters are saved as separate copies. Cancel to keep completed copies.'
+                or 'Readable chapters are saved individually. Cancel to keep completed chapters.'),
             buttons={{{text=_('Cancel'),callback=function() M.cancel(host) end}}},
         } end)
         if not ok or not widget then fail();return end
@@ -493,6 +496,16 @@ function M.start(host,book,view,options)
         end
         UIManager:show(dialog)
     end
+    local function confirm_image_repair()
+        local dialog
+        dialog=require('ui/widget/confirmbox'):new{
+            text=_('Retry missing images in downloaded chapters of this book? Improved chapters will be saved as new copies.'),
+            ok_text=_('Recover images'),cancel_text=_('Cancel'),
+            ok_callback=function() if take_confirmation(dialog) then start_batch() end end,
+            cancel_callback=function() if take_confirmation(dialog) then M.cancel(host) end end,
+        }
+        show_confirmation(dialog)
+    end
     local function show_batch_retry(reason)
         ctx.generation=ctx.generation+1
         close_busy()
@@ -503,7 +516,7 @@ function M.start(host,book,view,options)
             local first,last=range and range.first or 1,range and range.last or #ctx.catalog.chapters
             message=_(reason=='rate_limited' and 'WeRead is limiting requests. Completed chapters were kept; try again later.'
                 or 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.')
-            prompt=T(_('Retry chapters %1–%2?'),first,last)
+            prompt=repair_images and _('Retry recovering missing chapter images?') or T(_('Retry chapters %1–%2?'),first,last)
         else
             message=_(reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
                 or 'Could not load the E-Ink chapter list. Check the connection and try again.')
@@ -585,9 +598,13 @@ function M.start(host,book,view,options)
         local generation=ctx.generation
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
             if phase=='batch' then
+                local worker=require('weread.lib.native_direct_batch')
+                if repair_images then
+                    return worker.repair(host.client,host.settings,ctx.book,ctx.catalog,ctx.selected.native,current,progress)
+                end
                 local store=ctx.batch_store
                 local record=store and store:begin(ctx.catalog,ctx.batch_range,ctx.batch_record,current)
-                local result=require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
+                local result=worker.run(host.client,host.settings,ctx.book,ctx.catalog,
                     ctx.selected.native,current,progress,ctx.batch_range)
                 if record then
                     if result.ok==true then store:remove(id,record,current) end
@@ -672,6 +689,21 @@ function M.start(host,book,view,options)
             end
             if phase=='batch' then
                 if reason=='catalog_changed' then fail('The chapter list changed. Please open it again.');return end
+                if repair_images then
+                    if reason=='changed' then
+                        fail('The saved chapter changed or could not be verified. Existing files were kept.');return
+                    end
+                    local count=#ctx.catalog.chapters
+                    local ok=type(result)=='table' and result.ok==true
+                        and Protocol.integer(result.improved,0,count) and Protocol.integer(result.remaining,0,count)
+                        and Protocol.integer(result.unverified,0,count)
+                    M.cancel(host)
+                    if ok then
+                        host:showInfo(T(_('Images recovered in %1 chapters. %2 chapters still have missing images. %3 could not be verified.'),
+                            result.improved,result.remaining,result.unverified))
+                    else host:showInfo(_('Image recovery stopped. Existing and completed copies were kept.')) end
+                    return
+                end
                 local range=ctx.batch_range
                 local count=range and range.last-range.first+1 or #ctx.catalog.chapters
                 local good=type(result)=='table' and result.ok==true
@@ -714,6 +746,7 @@ function M.start(host,book,view,options)
                             fail('The chapter list changed. Please open it again.');return
                         end
                         start_batch(ctx.batch_range)
+                    elseif repair_images then confirm_image_repair()
                     else
                         if ctx.batch_store and ctx.batch_store:verified(result.batch_record,id) then
                             ctx.batch_record=result.batch_record

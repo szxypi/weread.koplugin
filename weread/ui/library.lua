@@ -1808,6 +1808,12 @@ function M:showBookMenu(book, options)
         if options and options.read_saved_native then download_native_action=read_saved_native end
         local native_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
         if native_scope and require('weread.lib.native_direct_cache').book_directory(self.settings,native_scope.vid,detail_id) then
+            local repair_label=_('Recover missing images in downloaded chapters')
+            actions[#actions+1]={text=repair_label,callback=self:safeCallback(repair_label,function()
+                if self._book_detail_view==view and self.settings:auth_scope_matches(native_scope) then
+                    require('weread.ui.native_direct_reading').start(self,book,view,{repair_images=true})
+                end
+            end)}
             actions[#actions+1]={text=_('Clear unused E-Ink chapters'),callback=self:safeCallback(_('Clear unused E-Ink chapters'),function()
                 if self._book_detail_view==view then require('weread.ui.native_direct_cleanup').start(self,book,view) end
             end)}

@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 from urllib.parse import parse_qs, urlsplit
+from zipfile import ZipFile
 
 import test_native_full_book_runtime as fixture
 from run_persistent_ui_probe import extract_candidate
@@ -21,6 +22,10 @@ fixture.body = lambda uid: '<html><body>' + ''.join(
 class Handler(fixture.Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if self.server.images_unavailable and self.command == 'GET' and target.hostname == 'img.qq.com':
+            self.server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
+            self.send_error(404)
+            return
         if (self.server.catalog_faults and self.command == 'GET' and target.hostname == 'i.weread.qq.com'
                 and target.path == '/book/info'):
             failure = self.server.catalog_faults.pop(0)
@@ -64,6 +69,7 @@ class Handler(fixture.Handler):
 def run(runtime):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     server.catalog_faults = []
+    server.images_unavailable = False
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -285,7 +291,42 @@ def run(runtime):
                     frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
                     assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == dict(
                         ok=True, mode='offline_partial', network_blocked=True)
-        print('PASS: packaged E-Ink batch range, cancel, rate limit, resume and offline reopen at both sizes')
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-repair-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                    server.resume = server.expired = server.locked = server.hold = False
+                    server.resume_marker = root/'resume'
+                    server.chapters = []
+                    for mode in ('repair_seed', 'repair_cancel', 'repair_retry', 'repair_repeat', 'offline_repaired'):
+                        server.images_unavailable = mode == 'repair_seed'
+                        server.resume = mode == 'repair_retry'
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        marker = 'WEREAD_DIRECT_BATCH='
+                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                        expected = dict(ok=True, mode=mode)
+                        if mode == 'offline_repaired': expected['network_blocked'] = True
+                        assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
+                        assert server.valid and not server.leaked
+                        expected_chapters = ['37', '38'] if mode in ('repair_seed', 'repair_cancel') else ['37', '38', '37', '38', '38']
+                        assert server.chapters == expected_chapters, server.chapters
+                        copies = set(root.rglob('wr-chapter-*.epub'))
+                        if mode == 'repair_seed':
+                            assert len(copies) == 2
+                            originals = {path: hashlib.sha256(path.read_bytes()).digest() for path in copies}
+                        if mode == 'offline_repaired':
+                            assert all(hashlib.sha256(path.read_bytes()).digest() == digest for path, digest in originals.items())
+                            recovered = copies - originals.keys()
+                            assert len(recovered) == 2
+                            for path in recovered:
+                                with ZipFile(path) as book:
+                                    assert fixture.PNG in [book.read(name) for name in book.namelist() if '/images/' in name]
+        print('PASS: packaged E-Ink batch download, image recovery, cancellation, retry and offline reopen at both sizes')
     finally:
         server.shutdown()
         server.server_close()

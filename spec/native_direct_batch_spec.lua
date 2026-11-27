@@ -2,6 +2,7 @@ package.path='./?.lua;'..package.path
 local rows,usable,room,failed,downloads,live,progress,cache_selection
 local capacity_mode,reserved,acquires,scans,releases
 local opened_copies
+local repair_attempts,repair_results,published
 package.preload['weread.lib.native_direct_cache']=function() return {
     list=function(_,_,_,_,selection) cache_selection=selection;return rows end,
     open=function(_,_,_,entry)
@@ -18,6 +19,19 @@ package.preload['weread.lib.native_direct_cache']=function() return {
     remaining=function(_,_,_,_,capacity)
         if capacity then assert(capacity==reserved);return capacity.room end
         scans=scans+1;return room
+    end,
+    publish=function(_,account,_,chapter,prepared,current,capacity)
+        assert(account=='123' and current() and capacity==reserved)
+        published[#published+1]=chapter.chapterUid
+        return {missing_images=prepared.missing_images}
+    end,
+} end
+package.preload['weread.lib.native_direct_image_refresh']=function() return {
+    prepare=function(_,_,_,entry,current)
+        assert(current());repair_attempts[#repair_attempts+1]=entry.chapter_uid
+        local value=repair_results[entry.chapter_uid]
+        if type(value)=='number' then return {missing_images=value} end
+        return nil,value
     end,
 } end
 package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,path) return path=='/valid' end} end
@@ -46,6 +60,7 @@ local function setup()
         catalog_next='2',missing_images=0}}
     usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={};cache_selection=nil
     opened_copies={}
+    repair_attempts,repair_results,published={},{},{}
     capacity_mode,reserved,acquires,scans,releases='absent',nil,0,0,0
 end
 local function run(range,on_progress)
@@ -117,4 +132,33 @@ expect(result.ok and result.downloaded==2 and acquires==1 and scans==2 and relea
 for _,range in ipairs({{},false,{first=3,last=2},{first=0,last=3},{first=1,last=4},{first=1.5,last=3}}) do
     setup();result=run(range);expect(result.error=='invalid' and #downloads==0 and #progress==0,'invalid range started a batch')
 end
+local function repair_fixture()
+    setup();capacity_mode='ready';rows[1].missing_images=2
+    rows[2]={chapter_uid='3',book_version=1,catalog_sha256='digest',catalog_order=3,catalog_count=3,
+        catalog_prev='2',missing_images=2}
+    usable['3']=true;repair_results['1']=0;repair_results['3']=1
+end
+local function repair(on_progress)
+    return Batch.repair({}, {},book,catalog,selected,function() return live end,function(value)
+        progress[#progress+1]=value
+        if on_progress then on_progress() end
+    end)
+end
+repair_fixture();result=repair()
+expect(result.ok and result.improved==2 and result.remaining==1 and result.unverified==0
+    and table.concat(published,',')=='1,3' and progress[2]==99 and acquires==1 and releases==1,
+    'image repair lost chapter order, partial improvement or the shared reservation')
+repair_fixture();complete.catalog_next='2';rows[3]=complete;repair_results['3']='unchanged'
+result=repair()
+expect(result.ok and result.improved==0 and result.remaining==1 and #published==0 and acquires==0
+    and table.concat(repair_attempts,',')=='3','repair refetched a complete chapter or saved an unimproved copy')
+repair_fixture();rows[1].damaged=true;rows[2].catalog_sha256='obsolete';result=repair()
+expect(result.ok and result.unverified==1 and #repair_attempts==0 and #published==0,
+    'repair attempted a damaged or obsolete chapter')
+repair_fixture();repair_results['3']='rate_limited';result=repair()
+expect(result.error=='rate_limited' and table.concat(published,',')=='1' and releases==1,
+    'rate limit lost completed image recovery or held the reservation')
+repair_fixture();result=repair(function() live=false end)
+expect(result.error=='session_changed' and table.concat(repair_attempts,',')=='1' and releases==1,
+    'cancelled repair attempted a second chapter or held the reservation')
 print('PASS: native chapter batch preserves completed chapters and skips inaccessible ones ('..checks..' checks)')

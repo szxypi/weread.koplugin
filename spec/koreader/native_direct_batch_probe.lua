@@ -580,6 +580,35 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     for _,path in ipairs(added) do assert(lfs.rmdir(path)) end
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
+local function check_repair_copies(final)
+    local cache=require('weread.lib.native_direct_cache')
+    local DocSettings=require('docsettings')
+    local function current() return true end
+    local counts,hashes={},{}
+    for _,entry in ipairs(assert(cache.list(settings,scope.vid,'42',current))) do
+        local uid=entry.chapter_uid
+        assert(uid=='37' or uid=='38','repair downloaded an unsaved chapter')
+        local copy=assert(cache.open(settings,scope.vid,'42',entry,current))
+        hashes[uid]=hashes[uid] or copy.source_sha256
+        assert(hashes[uid]==copy.source_sha256,'repair changed chapter source')
+        local id=uid..':'..entry.missing_images
+        counts[id]=(counts[id] or 0)+1
+        if entry.missing_images==1 then
+            local local_settings=DocSettings:open(copy.path)
+            local position='/body/p[3]/text().'..uid
+            if final then assert(local_settings:readSetting('last_xpointer')==position,'old reading position was lost')
+            else local_settings:saveSetting('last_xpointer',position);assert(local_settings:flush()) end
+        end
+    end
+    for _,uid in ipairs({'37','38'}) do
+        assert(counts[uid..':1']==1 and counts[uid..':0']==(final and 1 or nil),'image copies were missing or duplicated')
+    end
+end
+if input.mode=='offline_repaired' then
+    assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+    check_repair_copies(true)
+    print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});return
+end
 local client=require('weread.lib.client'):new(settings)
 local connected=true
 local host={settings=settings,client=client,discovery_epoch=1,_reader_session_gen=1,
@@ -599,8 +628,10 @@ local range_retry=input.mode=='range_retry'
 local range_interrupted=input.mode=='range_interrupted'
 local range_reopen=input.mode=='range_reopen'
 local range_copies=input.mode=='range_copies' or input.mode=='range_damaged_copy'
+local repair_mode=input.mode=='repair_cancel' or input.mode=='repair_retry' or input.mode=='repair_repeat'
+local repair_seed=input.mode=='repair_seed'
 if input.mode=='catalog_capture' or input.mode=='locked' or input.mode=='range' or input.mode=='range_repeat'
-    or range_retry or range_interrupted or range_reopen then
+    or range_retry or range_interrupted or range_reopen or repair_seed or repair_mode then
     settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
     host.library_db=require('weread.lib.library_db'):new(settings)
 end
@@ -609,14 +640,36 @@ local function pending_plan()
 end
 host:showBookMenu({book_id='42',title='Synthetic',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
+local util=require('weread.lib.plugin_util')
+local label=util.tr(repair_mode and 'Recover missing images in downloaded chapters' or 'Download E-Ink chapters')
 for _,button in ipairs(view._action_buttons) do
-    if button.text==require('weread.lib.plugin_util').tr('Download E-Ink chapters') then action=button end
+    if button.text==label then action=button end
 end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
+if repair_mode then
+    local ctx=host._native_direct_reading
+    assert(confirm.ok_text==util.tr('Recover images') and not pending_plan() and not host._native_direct_worker.job)
+    if input.mode=='repair_cancel' then
+        confirm.cancel_callback();UI:close(confirm)
+    else
+        confirm.ok_callback();UI:close(confirm)
+        if input.mode=='repair_retry' then
+            pump(function() return ctx.confirm or host.message end)
+            local retry=assert(ctx.confirm)
+            assert(retry.text:find(util.tr('Retry recovering missing chapter images?'),1,true) and not pending_plan())
+            assert(assert(io.open(home..'/resume','wb')):close());retry.ok_callback();UI:close(retry)
+        end
+        pump(function() return host.message end)
+        local expected=util.T(util.tr('Images recovered in %1 chapters. %2 chapters still have missing images. %3 could not be verified.'),
+            input.mode=='repair_retry' and 1 or 0,0,0)
+        assert(host.message==expected,host.message)
+    end
+    assert(not host._native_direct_reading and not host.busy_message and not pending_plan())
+    print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode});return
+end
 if range_reopen then
-    local util=require('weread.lib.plugin_util')
     local retry_prompt=util.tr('Retry loading the chapter list?')
     local function retry_catalog(message)
         assert(confirm.text==util.tr(message)..'\n\n'..retry_prompt
@@ -635,7 +688,7 @@ if range_reopen then
     retry_catalog(transport)
     retry_catalog('WeRead is limiting requests. Please try again later.')
 end
-local first_range=range_retry or range_interrupted
+local first_range=range_retry or range_interrupted or repair_seed
 local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or first_range or range_copies
 if range_copies then
     local ctx=host._native_direct_reading
@@ -728,7 +781,6 @@ elseif input.mode=='stale' then
     assert(not host._native_direct_reading and not host.busy_message,'old confirmation started after account change')
 else
     if range_reopen then
-        local util=require('weread.lib.plugin_util')
         local text=util.T(util.tr('Continue downloading chapters %1–%2? Completed chapters will be reused.'),1,2)
         assert(confirm.text==text and confirm.choice1_text==util.tr('Continue download')
             and not host._native_direct_worker.job,'reopening did not offer the saved range before downloading')
@@ -760,7 +812,6 @@ else
         local ctx=host._native_direct_reading
         pump(function() return ctx.confirm or host.message end)
         local retry=assert(ctx.confirm,host.message)
-        local util=require('weread.lib.plugin_util')
         local headline=util.tr(range_retry and 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.'
             or 'WeRead is limiting requests. Completed chapters were kept; try again later.')
         assert(retry.text:find(headline,1,true) and not host.busy_message and UI:getTopmostVisibleWidget()==retry)
@@ -784,7 +835,10 @@ else
             or (input.mode=='locked' or input.mode=='range') and '0' or input.mode=='cleanup_redownload' and '2' or '3'
         local unavailable=(input.mode=='locked' or range_mode and not range_retry) and '1' or '0'
         local missing=input.mode=='range_damaged_copy' and '1' or '0'
-        assert(text==T(template,downloaded,saved,unavailable,missing),text)
+        if repair_seed then
+            assert(text==T(template,2,0,0,2),text)
+            check_repair_copies(false)
+        else assert(text==T(template,downloaded,saved,unavailable,missing),text) end
         if range_retry or range_reopen then assert(not pending_plan(),'completed batch left a resume offer') end
     end
     assert(not host._native_direct_reading and not host.busy_message)
