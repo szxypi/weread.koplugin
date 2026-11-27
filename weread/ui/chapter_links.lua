@@ -59,11 +59,12 @@ local function standalone_reader(host)
     if identity.chapter_count~=1 then return end
     return ui,id,identity
 end
-local function describe(host)
+local function describe(host,expected)
     local ui,id,identity=standalone_reader(host)
     if not ui then return end
     local owner=account(host)
-    local auth=owner and host.settings:get_auth_scope()
+    if not owner or expected and (owner~=expected.owner or id~=expected.book_id) then return end
+    local auth=expected and expected.auth or host.settings:get_auth_scope()
     if not auth or not host.settings:auth_scope_matches(auth) then return end
     local book,chapters,digest=catalog(host,id)
     if not book then return end
@@ -72,19 +73,19 @@ local function describe(host)
     local uid=tostring(chapter.chapterUid or chapter.uid or '')
     if uid=='' or ReadAccess.cached_chapter(book.cached_chapters,uid)~=ui.document.file then return end
     return {book_id=id,uid=uid,path=ui.document.file,file_id=identity.file_id,chapters=chapters,
-        catalog=digest,owner=owner,auth=auth}
+        catalog=digest,owner=owner,auth=auth},book
 end
-local function same(host,job,closed)
+local function live(job)
     local elapsed=os.time()-job.started
-    if elapsed<0 or elapsed>180 or account(host)~=job.owner
-        or not host.settings:auth_scope_matches(job.auth) then return false end
-    if closed then return (host._reader_session_gen or 0)==job.session+1 end
-    if host._chapter_link_job~=job or host.ui.document~=job.document
-        or (host._reader_session_gen or 0)~=job.session or marker(host)~=job.marker
-        or not Context.same_location(job.location,location(host)) then return false end
-    local current=describe(host)
-    return current and current.uid==job.uid and current.path==job.path
-        and current.file_id==job.file_id and current.catalog==job.catalog
+    return not job.cancelled and elapsed>=0 and elapsed<=180
+end
+local function same_view(host,job)
+    local ui=host.ui
+    return host._chapter_link_job==job and ui and ui.document==job.document
+        and ui.document.file==job.path and ui.link==job.link
+        and tostring(host._current_weread_book_id or '')==job.book_id
+        and (host._reader_session_gen or 0)==job.session and marker(host)==job.marker
+        and Context.same_location(job.location,location(host))
 end
 local function dismiss(host,job)
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
@@ -98,9 +99,22 @@ function M.cancel(host)
     if job.download_callback then host.downloader:cancelRequest(job.download_callback,'chapter_link_cancelled') end
     dismiss(host,job)
 end
+local function cancel_if_current(host,job)
+    if host._chapter_link_job==job then M.cancel(host) end
+end
+local function current_book(host,job)
+    if live(job) and same_view(host,job) then
+        local current,book=describe(host,job)
+        if current and current.uid==job.uid and current.path==job.path
+            and current.file_id==job.file_id and current.catalog==job.catalog then return book end
+    end
+    cancel_if_current(host,job)
+end
 function M.view_changed(host)
     local job=host._chapter_link_job
-    if job and not job.dispatched and not same(host,job,false) then M.cancel(host) end
+    -- Repeated viewport notifications only check the active reader. Results
+    -- still reload the catalog and recheck authorization before they are used.
+    if job and not job.dispatched and not (live(job) and same_view(host,job)) then M.cancel(host) end
 end
 local function fail(host,job)
     if host._chapter_link_job~=job then return end
@@ -117,10 +131,8 @@ local function frame(host,job,direction,index)
         owner=job.owner,auth=job.auth,catalog=job.catalog,
         location=NativePosition.capture(host.ui,job.from_xpointer),back=back,forward=forward}
 end
-local function open(host,job,result)
-    if not same(host,job,false) then M.cancel(host);return end
-    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
-    if not book or type(result.target_path)~='string' or result.target_path==''
+local function open(host,job,result,book)
+    if type(result.target_path)~='string' or result.target_path==''
         or ReadAccess.cached_chapter(book.cached_chapters,result.target_uid)~=result.target_path then fail(host,job);return end
     job.source_sha256=result.source_sha256
     local departing=frame(host,job,job.direction,job.index)
@@ -134,13 +146,13 @@ local function open(host,job,result)
     host:openFile(result.target_path,function(reader)
         if used then return false end
         used=true
-        local valid=not job.cancelled and same(host,job,true)
+        local valid=live(job) and (host._reader_session_gen or 0)==job.session+1
+            and account(host)==job.owner and host.settings:auth_scope_matches(job.auth)
         if host._chapter_link_job==job then host._chapter_link_job=nil end
         local next_host=reader and reader.weread
-        local current=next_host and describe(next_host)
-        if not valid or not current or next_host==host or current.book_id~=job.book_id
-            or current.owner~=job.owner or not next_host.settings:auth_scope_matches(job.auth)
-            or current.catalog~=job.catalog or current.uid~=result.target_uid or current.path~=result.target_path
+        if not valid or not next_host or next_host==host then return false end
+        local current=describe(next_host,job)
+        if not current or current.catalog~=job.catalog or current.uid~=result.target_uid or current.path~=result.target_path
             or current.file_id~=result.target_file_id then return false end
         local next_sync=next_host.progress_sync
         if not next_sync or next_sync.navigation_generation~=0 or next_sync.pending_jump or next_sync.verified
@@ -167,26 +179,24 @@ local function open(host,job,result)
     end)
 end
 local function work(host,job,task,callback)
-    if not same(host,job,false) then if host._chapter_link_job==job then M.cancel(host) end;return false end
+    if not (live(job) and same_view(host,job)) then cancel_if_current(host,job);return false end
     if not job.worker then
         local ok,value=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=128*1024} end)
         if not ok then fail(host,job);return false end
         job.worker=value
     end
     local ok,started=pcall(job.worker.start,job.worker,task,function(result)
-        if not same(host,job,false) then if host._chapter_link_job==job then M.cancel(host) end;return end
+        local book=current_book(host,job)
+        if not book then return end
         if type(result)~='table' or result.kind~='ready' and result.kind~='needs_download' then fail(host,job);return end
-        callback(result)
+        callback(result,book)
     end)
     if not ok or not started then fail(host,job);return false end
     return true
 end
 local prepare
-local function download(host,job,result)
+local function download(host,job,result,book)
     if job.downloaded then fail(host,job);return end
-    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
-    if not book then fail(host,job);return end
-    if host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book,true) end
     local chapter
     for _i,item in ipairs(book.chapters or {}) do
         if tostring(item.chapterUid or item.uid or '')==result.target_uid then chapter=item;break end
@@ -198,9 +208,10 @@ local function download(host,job,result)
         if job.download_callback~=callback then return end
         job.download_callback=nil
         UI:scheduleIn(0.1,function()
-            if not same(host,job,false) then if host._chapter_link_job==job then M.cancel(host) end;return end
+            local refreshed=current_book(host,job)
+            if not refreshed then return end
             if not ok then fail(host,job);return end
-            busy(host,job);prepare(host,job)
+            busy(host,job);prepare(host,job,refreshed)
         end)
     end
     job.download_callback=callback
@@ -208,9 +219,7 @@ local function download(host,job,result)
         single_chapter=true,silent_completion=true,offer_read=false,on_complete=callback})
     if not ok or not started then fail(host,job) end
 end
-prepare=function(host,job)
-    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
-    if not book then fail(host,job);return end
+prepare=function(host,job,book)
     local cached={}
     for uid in pairs(book.cached_chapters or {}) do
         local key=tostring(uid)
@@ -218,14 +227,14 @@ prepare=function(host,job)
     end
     local input={book_id=job.book_id,chapter_uid=job.uid,file=job.path,file_id=job.file_id,
         native_uri=job.native_uri,chapters=job.chapters,cached_chapters=cached}
-    return work(host,job,function() return Task.prepare(input) end,function(result)
-        if result.kind=='ready' then open(host,job,result) else download(host,job,result) end
+    return work(host,job,function() return Task.prepare(input) end,function(result,checked)
+        if result.kind=='ready' then open(host,job,result,checked) else download(host,job,result,checked) end
     end)
 end
 local function start(host,current)
-    M.cancel(host)
-    current.document=host.ui.document;current.session=host._reader_session_gen or 0
+    current.document=host.ui.document;current.link=host.ui.link;current.session=host._reader_session_gen or 0
     current.marker=marker(host);current.location=location(host);current.started=os.time()
+    M.cancel(host)
     host._chapter_link_job=current;busy(host,current)
     return current
 end
@@ -242,7 +251,7 @@ local function go_history(host,direction)
         if not source or not destination or destination.sha256~=target.sha256 then return {kind='unavailable'} end
         return {kind='ready',source_sha256=source.sha256,target_uid=target.uid,target_path=target.path,
             target_file_id=target.file_id,target_sha256=destination.sha256}
-    end,function(result) open(host,job,result) end)
+    end,function(result,book) open(host,job,result,book) end)
     return true
 end
 function M.detach(host)
@@ -279,10 +288,10 @@ function M.attach(host)
         local pointer=BookLinks.native_xpointer(state.document,target.xpointer)
         if state.document:isXPointerInDocument(pointer) then return false end
         if not BookLinks.native_uri_key(Task.RENDER_PATH,target.xpointer) then return false end
-        local current=describe(host)
+        local current,book=describe(host)
         if not current then return false end
         local job=start(host,current);job.native_uri=target.xpointer;job.from_xpointer=target.from_xpointer;job.direction='new'
-        prepare(host,job);return true
+        prepare(host,job,book);return true
     end)
     install('onGoBackLink',function() return go_history(host,'back') end)
     install('onGoForwardLink',function() return go_history(host,'forward') end)

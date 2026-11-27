@@ -78,6 +78,7 @@ local function setup()
         function host:openFile(target,callback)
             state.opens=state.opens+1;M.detach(self);self._reader_session_gen=self._reader_session_gen+1
             local child=make(target);state.child=child;M.attach(child)
+            if state.before_handoff then state.before_handoff(child) end
             callback({weread=child,document=child.ui.document,rolling=child.ui.rolling,link=child.ui.link})
         end
         return host
@@ -94,8 +95,13 @@ local function setup()
 end
 local host,state,book,click,ready=setup()
 expect(click()==true and state.opens==0,'link did not await worker')
+for _=1,5 do M.view_changed(host) end
+expect(state.book_reads==1 and state.catalog_reads==1 and state.hashes==1 and state.auth_reads==1,
+    'launch or an unchanged viewport reloaded the selected book')
 workers[1].callback(ready())
 expect(state.opens==1 and state.child.ui.rolling.xpointer=='#_doc_fragment_0_ literal%2A','literal target not applied')
+expect(state.book_reads==3 and state.catalog_reads==3 and state.hashes==3,
+    'background completion or reader handoff repeated a catalog check')
 expect(state.applied and state.child.progress_sync.verified~=true,'local link must not grant cloud verification')
 local target,index=History.candidate(state.child.ui.link,'back')
 expect(target and index==1 and target.location.xpointer=='/body/start','source return frame lost')
@@ -113,7 +119,7 @@ expect(state.opens==3 and state.child.ui.rolling.xpointer=='#_doc_fragment_0_ li
 host,state,book,click,ready=setup();click();local stale=workers[1];click();stale.callback(ready())
 expect(host._chapter_link_job and not workers[2].cancelled and state.opens==0,'stale callback cancelled newer navigation')
 workers[2].callback(ready());expect(state.opens==1,'newer valid navigation lost')
-for _i,change in ipairs({'page','marker','account','auth','catalog','cache','identity','session','document'}) do
+for _i,change in ipairs({'page','marker','account','auth','catalog','cache','identity','session','document','link'}) do
     host,state,book,click,ready=setup();click()
     if change=='page' then host.ui.document.page=2
     elseif change=='marker' then host.ui.rolling.xpointer='/body/moved'
@@ -123,7 +129,8 @@ for _i,change in ipairs({'page','marker','account','auth','catalog','cache','ide
     elseif change=='cache' then book.cached_chapters['1']='/changed.epub'
     elseif change=='identity' then host.ui.document.identity.file_id=string.rep('e',64)
     elseif change=='session' then host._reader_session_gen=2
-    elseif change=='document' then host.ui.document={} end
+    elseif change=='document' then host.ui.document={}
+    elseif change=='link' then host.ui.link={} end
     workers[1].callback(ready())
     expect(state.opens==0 and not host._chapter_link_job,'stale ' .. change .. ' opened target')
 end
@@ -135,10 +142,29 @@ host,state,book,click,ready=setup();click();workers[1].callback({kind='unavailab
 expect(state.opens==0 and state.messages==1,'unverified target opened')
 host,state,book,click,ready=setup();book.cached_chapters['2']=nil;click()
 workers[1].callback({kind='needs_download',target_uid='2'})
-expect(state.downloads==1 and state.opens==0,'missing target did not await existing downloader')
+expect(state.downloads==1 and state.opens==0 and state.book_reads==2 and state.catalog_reads==2,
+    'missing target failed to reuse the worker completion catalog')
 book.cached_chapters['2']='/b.epub';state.download_callback(true);pump()
-expect(#workers==1 and workers[1].task and state.opens==0,'download completion skipped revalidation')
-workers[1].callback(ready());expect(state.opens==1,'reverified downloaded chapter not opened')
+expect(#workers==1 and workers[1].task and state.opens==0 and state.catalog_reads==3,
+    'download completion did not reload exactly one catalog')
+workers[1].callback(ready())
+expect(state.opens==1 and state.book_reads==5 and state.catalog_reads==5,
+    'reverified downloaded chapter did not open with one check per stage')
+host,state,book,click,ready=setup();click();workers[1].callback({kind='needs_download',target_uid='2'})
+book.chapters[2].files={'replacement.xhtml'};state.download_callback(true);pump()
+expect(not host._chapter_link_job and workers[1].cancelled and state.opens==0,
+    'a changed catalog was used after download completion')
+for _,change in ipairs({'catalog','account','target'}) do
+    host,state,book,click,ready=setup();click()
+    state.before_handoff=function(next_reader)
+        if change=='catalog' then book.chapters[2].files={'replacement.xhtml'}
+        elseif change=='account' then state.epoch=state.epoch+1
+        else next_reader.ui.document.identity.file_id=string.rep('e',64) end
+    end
+    workers[1].callback(ready())
+    expect(state.opens==1 and not state.applied and state.child.ui.rolling.xpointer=='/body/start',
+        'reader handoff applied the old anchor after changing '..change)
+end
 host,state,book,click,ready=setup();click();workers[1].callback({kind='needs_download',target_uid='2'});M.cancel(host)
 state.download_callback(true);pump();expect(state.opens==0 and state.cancels==1,'owned downloader cancellation failed')
 host,state,book,click,ready=setup();click();workers[1].callback({kind='needs_download',target_uid='2'});state.download_callback(false);pump()
