@@ -23,9 +23,13 @@ package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_men
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
 local output_path='/new-full.epub'
 local catalog_rows,catalog_writes,catalog_save_ok=nil,0,true
+local encoded_catalog='synthetic encoded catalog'
 package.preload['weread.lib.content']=function() return {book_epub_path=function() return output_path end,
     ensure_reader_state=function() end,fetch_catalog=function() return catalog_rows end,
-    save_catalog_cache=function() catalog_writes=catalog_writes+1;return catalog_save_ok end} end
+    encode_catalog_cache=function() return encoded_catalog end,
+    save_catalog_cache=function(_client,_settings,_book,_chapters,encoded)
+        assert(encoded==encoded_catalog);catalog_writes=catalog_writes+1;return catalog_save_ok
+    end} end
 package.preload['weread.lib.worker_settings']=function() return {fingerprint=function() return 'fingerprint' end,
     capture=function() return function() return nil end end,merge=function() return true end} end
 package.preload['libs/libkoreader-lfs']=function()
@@ -74,7 +78,7 @@ local host={ui={document={file='/one.epub'}},_reader_session_gen=1,client={},
     settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_self,value) return value==scope end,
         get=function(_self,key,default) if key=='auth_epoch' then return epoch end;return default end,
         get_book=function() return book end},library_db={accountKey=function() return account end,
-            putChapters=function() return true end}}
+            putChapters=function(_self,_id,_chapters,encoded) assert(encoded==encoded_catalog);return true end}}
 function host:cancelBookSearch() Cached.cancel(self) end
 function host:requireLogin() return true end
 function host:showBusy(_message,cancel) self.busy_message={cancel=cancel} end
@@ -117,6 +121,18 @@ expect(owner.menu.items[1].text=='Downloaded search: 2 of 3 chapters checked; 1 
 hit_item(owner,2).callback()
 expect(navigations==1 and owner.navigation.row.chapterUid==2,'cached result did not start guarded navigation')
 Cached.cancel(host)
+
+host.getFullBookCachePath=function() return '/full.epub' end
+expect(Cached.open(host,'CB_Synthetic',{chapters[1]}),'single-chapter search did not open')
+expect(table.concat(host._cached_book_search_owner.queue[1].paths,',')=='/one.epub,/full.epub',
+    'mapped chapter and full book were reordered or duplicated')
+Cached.cancel(host)
+host.ui.document.file='/full.epub'
+expect(Cached.open(host,'CB_Synthetic',{chapters[1]}),'full book search did not open')
+expect(table.concat(host._cached_book_search_owner.queue[1].paths,',')=='/full.epub,/one.epub',
+    'the open full book was not preferred')
+Cached.cancel(host)
+host.getFullBookCachePath=nil;host.ui.document.file='/one.epub'
 
 -- The queue must retain the exact string rather than rounding a large UID.
 book.cached_chapters['9007199254740993']='/large.epub'

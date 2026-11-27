@@ -1,6 +1,7 @@
 -- Reader-owned search over downloaded source snapshots. All archive work is
 -- cancellable and outside the UI process; results never authorize sync.
 local Access=require('weread.lib.read_access')
+local Catalog=require('weread.lib.chapter_catalog')
 local Search=require('weread.lib.cached_book_search')
 local Target=require('weread.lib.cached_search_target')
 local Navigation=require('weread.ui.my_mark_navigation')
@@ -47,8 +48,11 @@ function M.cancel(host)
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
 end
 
+local function nonempty_path(value)
+    return type(value)=='string' and value~='' and value or nil
+end
+
 local function queue(book,chapters,file,full)
-    chapters=Reading.catalog(chapters)
     local catalog_missing=not chapters
     if not chapters then
         local keys,seen={},{}
@@ -56,25 +60,31 @@ local function queue(book,chapters,file,full)
             uid=Access.book_id(uid)
             if uid and not seen[uid] then
                 keys[#keys+1]=uid;seen[uid]=true
-                if #keys>10000 then return nil end
+                if #keys>Catalog.MAX_CHAPTERS then return nil end
             end
         end
         table.sort(keys,function(a,b) return #a==#b and a<b or #a<#b end)
         chapters={};for _i,uid in ipairs(keys) do chapters[#chapters+1]={chapterUid=uid,title=_('Chapter')..' '..uid} end
     end
-    if #chapters>10000 then return nil end
+    local full_first=file==full
+    full=nonempty_path(full)
+    local current_only=#chapters==1 and nonempty_path(file) or nil
     local result,missing={},0
+    local cached=book.cached_chapters
     for _i,chapter in ipairs(chapters) do
-        local uid=tostring(chapter.chapterUid);local paths,seen={},{}
-        local mapped=Access.cached_chapter(book.cached_chapters,uid)
-        local function add(value)
-            if type(value)=='string' and value~='' and not seen[value] then paths[#paths+1]=value;seen[value]=true end
-        end
-        if file==full then add(full);add(mapped) else add(mapped);add(full) end
-        if #chapters==1 then add(file) end
-        if #paths>0 and Access.book_id(uid) then
+        local uid=chapter.chapterUid
+        local mapped=nonempty_path(Access.cached_chapter(cached,uid))
+        local first,second=mapped,full
+        if full_first then first,second=full,mapped end
+        if not first then first,second=second,nil end
+        if first or current_only then
+            local paths={first or current_only}
+            if second and second~=first then paths[#paths+1]=second end
+            if first and current_only and current_only~=first and current_only~=second then paths[#paths+1]=current_only end
             result[#result+1]={uid=uid,title=chapter.title,paths=paths}
-        else missing=missing+1 end
+        else
+            missing=missing+1
+        end
     end
     return result,missing,#chapters,catalog_missing
 end
@@ -267,7 +277,7 @@ start=function(host,owner)
                         merged[#merged].title=title;owner.titles[row.uid]=title;mapped[row.uid]=nil
                     end
                     for _i,row in ipairs(owner.queue) do if mapped[row.uid] then merged[#merged+1]=row end end
-                    if #merged<=10000 then
+                    if #merged<=Catalog.MAX_CHAPTERS then
                         owner.queue=merged;owner.total=#merged;owner.discovered=#result.entries>0
                         owner.discovery_incomplete=result.incomplete
                     else owner.discovery_incomplete=true end
@@ -351,7 +361,7 @@ fetch_catalog=function(host,owner)
         if owner.job~=job then return end
         if not current(host,owner) or WorkerSettings.fingerprint(host.settings)~=fingerprint then M.cancel(host);return end
         local chapters=type(result)=='table' and result.book_id==owner.id and Reading.catalog(result.chapters)
-        if not chapters or #chapters>10000 or result.auth and not WorkerSettings.merge(host.settings,fingerprint,result.auth) then
+        if not chapters or result.auth and not WorkerSettings.merge(host.settings,fingerprint,result.auth) then
             stop(host,owner);render(host,owner);host:showInfo(_("Could not load this book's chapter list."));return
         end
         if not current(host,owner) then M.cancel(host);return end
@@ -360,8 +370,9 @@ fetch_catalog=function(host,owner)
         if type(book)=='table' then entries,missing,total=queue(book,chapters,owner.file,owner.full) end
         local saved=entries and pcall(function()
             local Content=require('weread.lib.content')
-            assert(host.library_db:putChapters(owner.id,chapters))
-            assert(Content.save_catalog_cache(host.client,host.settings,book,chapters))
+            local encoded=assert(Content.encode_catalog_cache(host.client,chapters))
+            assert(host.library_db:putChapters(owner.id,chapters,encoded))
+            assert(Content.save_catalog_cache(host.client,host.settings,book,chapters,encoded))
         end)
         if not current(host,owner) then M.cancel(host);return end
         if not saved then
@@ -472,12 +483,13 @@ function M.open(host,id,chapters,initial_keyword)
     if type(host.getFullBookCachePath)=='function' then
         local ok,value=pcall(host.getFullBookCachePath,host,book);if ok then full=value end
     end
+    chapters=Reading.catalog(chapters)
     local entries,missing,total,catalog_missing=queue(book,chapters,document.file,full)
     if not entries then host:showInfo(_('Could not search downloaded chapters.'));return false end
     if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end
     local owner={id=id,scope=scope,auth_epoch=host.settings:get('auth_epoch',0),account=host.library_db:accountKey(),
         document=document,file=document.file,session=host._reader_session_gen or 0,local_search=true,search_results=true,
-        queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,catalog=Reading.catalog(chapters),
+        queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,catalog=chapters,
         full=full,discovery_pending=catalog_missing and type(full)=='string' and full~='',
         checked=0,index=1,from=1,unresolved=0,value={},titles={},page=1}
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end

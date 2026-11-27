@@ -28,6 +28,16 @@ expect(page.finished and #page.hits==1 and page.hits[1].chapter_uid=='33' and no
     'overlap was duplicated or the last page was not closed')
 expect(not Search.accept(state,{scrollDownHasMore=0,results={}}),'a completed search accepted another page')
 
+do
+    local catalog={}
+    for i=1,20000 do catalog[i]={chapterUid=tostring(i)} end
+    local search=assert(Search.new('12345','测试',catalog))
+    local result=assert(Search.accept(search,{scrollDownHasMore=0,results={row(20000,1,10,2,4)}}))
+    expect(#result.hits==1 and result.hits[1].chapter_uid=='20000','long catalog lost the final chapter')
+    catalog[20001]={chapterUid='20001'}
+    expect(not Search.new('12345','测试',catalog),'oversize catalog was accepted')
+end
+
 local function reject(data,reason)
     local current=fresh();local before=Search.url(current)
     local result,err=Search.accept(current,data)

@@ -5,7 +5,9 @@ local missing=os.getenv('WEREAD_TEST_SEARCH_MISSING')=='1'
 local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
-local second_uid=os.getenv('WEREAD_TEST_SEARCH_LARGE_UID')=='1' and '9007199254740993' or '2'
+local long_catalog=tonumber(os.getenv('WEREAD_TEST_SEARCH_LONG_CATALOG'))
+local second_uid=long_catalog and tostring(long_catalog)
+    or os.getenv('WEREAD_TEST_SEARCH_LARGE_UID')=='1' and '9007199254740993' or '2'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local fallback_merge=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_MERGE')=='1'
 local fallback_early=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_EARLY')=='1'
@@ -43,7 +45,7 @@ if not no_login_fallback then
         cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
 end
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
-    {chapterUid=second_uid,chapterIdx=2,title='合成第二章',wordCount=1000}}
+    {chapterUid=second_uid,chapterIdx=long_catalog or 2,title='合成第二章',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
 if local_interrupt then
     local account=require('weread.lib.crypto').sha256_hex('weread-library:900000'):sub(1,20)
@@ -70,6 +72,13 @@ for _i,chapter in ipairs(chapters) do
     if not missing or uid=='1' then
         book.cached_chapters[uid]=Content.save_book_epub(settings,book,{chapter},bodies,'search-'..uid,{},nil,nil,Identity.capture(book),sources)
     end
+end
+if long_catalog then
+    local last=chapters[2]
+    for i=2,long_catalog-1 do
+        chapters[i]={chapterUid=tostring(i),chapterIdx=i,title='未下载章节 '..i,wordCount=1000}
+    end
+    chapters[long_catalog]=last
 end
 book.cached_file=book.cached_chapters[current_fallback and second_uid or '1']
 if catalog_missing then book.chapters=nil end
@@ -515,6 +524,7 @@ assert(owner.menu.item_table[1].text==require('weread.lib.i18n').tr('Load more r
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.state.pages==2 and not owner.job end)
 assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid==second_uid)
+if long_catalog then assert(#owner.chapters==long_catalog and owner.state.order[second_uid]==long_catalog) end
 UI:forceRePaint();Device.screen:shot(evidence..'/book-search-results.png')
 local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[2]))
 local before_navigation=tonumber(network[0])

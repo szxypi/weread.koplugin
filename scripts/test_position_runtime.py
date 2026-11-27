@@ -9,8 +9,10 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 from mock_weread import MockServer, prepare, chapter_html
+import mock_weread
 
 REPO = Path(__file__).resolve().parent.parent
+LONG_CATALOG_SIZE = 20000
 
 
 def synthetic_search_source(uid):
@@ -132,6 +134,7 @@ def main():
     parser.add_argument('--search-scope', choices=('full','chapter'), default='full')
     parser.add_argument('--search-missing', action='store_true')
     parser.add_argument('--search-catalog-missing', action='store_true')
+    parser.add_argument('--search-long-catalog', action='store_true', help='Find and open results in chapter 20,000')
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--cloud-download-renewal', action='store_true', help='Expire the confirmed cloud target chapter download')
     parser.add_argument('--cloud-renewal-cancel', action='store_true', help='Cancel while cloud target download renewal is pending')
@@ -208,6 +211,10 @@ def main():
         parser.error('catalog restore fixture requires signed-in ordinary cached search without a catalog')
     if args.cached_limit and (args.cached_no_catalog or args.cached_signed_out or args.cached_ignore_case):
         parser.error('limited search fixture requires a signed-in cached book and catalog')
+    if args.search_long_catalog and (args.probe not in ('book-search','cached-search')
+            or args.search_large_uid or args.cached_large_uid or args.cached_full or args.cached_limit
+            or args.search_current_fallback or args.search_select_chapter or args.search_local_download):
+        parser.error('--search-long-catalog uses the ordinary book-search or cached-search fixture')
     if args.cached_full and not args.cached_no_catalog:
         parser.error('--cached-full requires --cached-no-catalog')
     if args.cached_incomplete and not args.cached_full:
@@ -249,6 +256,13 @@ def main():
         parser.error('empty-result local search requires the ordinary complete cached fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = SearchMockServer(0,args.search_cb,args.search_current_fallback or args.search_select_chapter,args.search_empty_local,args.search_large_uid,args.search_fallback_merge or args.search_select_chapter,args.search_fallback_early or args.search_select_chapter,args.search_select_resume,args.search_many) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
+    if args.search_long_catalog:
+        mock_weread.CHAPTERS = mock_weread.CHAPTERS + [
+            dict(chapterUid=i, chapterIdx=i, title=f"合成章节 {i}", level=1, wordCount=1000)
+            for i in range(len(mock_weread.CHAPTERS)+1, LONG_CATALOG_SIZE+1)
+        ]
+        if isinstance(server, SearchMockServer):
+            server.second_uid=LONG_CATALOG_SIZE
     if args.probe in ('cb-cloud-view','cb-sync'):
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
@@ -275,6 +289,7 @@ def main():
                                         WEREAD_TEST_SEARCH_SCOPE=args.search_scope,
                                         WEREAD_TEST_SEARCH_MISSING='1' if args.search_missing else '0',
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
+                                        WEREAD_TEST_SEARCH_LONG_CATALOG=str(LONG_CATALOG_SIZE) if args.search_long_catalog else '',
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_LARGE_UID='1' if args.search_large_uid else '0',
@@ -459,7 +474,8 @@ def main():
                 assert raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in raw
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',catalog_restored=True,rescan=True,cancel_safe=True,
-                                   missing=4,pending_preserved=True), 'cached catalog restoration mismatch'
+                                   missing=LONG_CATALOG_SIZE-2 if args.search_long_catalog else 4,
+                                   pending_preserved=True), 'cached catalog restoration mismatch'
                 assert server.request_totals[('/web/book/chapterInfos','')]==1, 'unexpected catalog request count'
                 assert all(event['method']!='POST' or event['path']=='/web/book/chapterInfos' for event in server.events), 'unexpected modifying request'
                 print('PASS: '+str(log));return
@@ -476,7 +492,8 @@ def main():
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
-                assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=0 if args.cached_no_catalog else 1,
+                unavailable = 0 if args.cached_no_catalog else LONG_CATALOG_SIZE-2 if args.search_long_catalog else 1
+                assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=unavailable,
                                    navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
                                    imported=args.search_cb,no_catalog=args.cached_no_catalog,full=args.cached_full,
                                    incomplete=args.cached_incomplete,dual=args.cached_dual,

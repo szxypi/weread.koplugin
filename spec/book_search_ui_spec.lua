@@ -30,13 +30,17 @@ package.preload['weread.ui.my_mark_navigation']=function() return {
 package.preload['weread.ui.book_reading']=function() return {catalog=function(rows) return rows end} end
 local fetched_catalog={{chapterUid='1',title='First'},{chapterUid='2',title='Second'}}
 local saved_catalogs,catalog_saves,allow_catalog_save,allow_db_save=0,0,true,true
+local encoded_catalog='synthetic encoded catalog'
 package.preload['weread.lib.worker_settings']=function() return {
     fingerprint=function() return 'synthetic' end,capture=function() return function() return nil end end,
     merge=function() return true end,
 } end
 package.preload['weread.lib.content']=function() return {
     ensure_reader_state=function() end,fetch_catalog=function() return fetched_catalog end,
-    save_catalog_cache=function() catalog_saves=catalog_saves+1;return allow_catalog_save end,
+    encode_catalog_cache=function() return encoded_catalog end,
+    save_catalog_cache=function(_client,_settings,_book,_chapters,encoded)
+        assert(encoded==encoded_catalog);catalog_saves=catalog_saves+1;return allow_catalog_save
+    end,
 } end
 package.preload['weread.lib.book_search_target']=function() return {row=function(book,hit)
     if hit.source_verified~=false then return nil end
@@ -138,7 +142,11 @@ package.preload['weread.lib.memory_worker']=function() return {new=function()
     local worker={}
     function worker:start(task,callback) self.task,self.callback=task,callback;active_worker=self;return true end
     function worker:cancel() self.cancelled=true end
-    function worker:complete() local value=self.task();self.callback(value) end
+    function worker:complete()
+        local value=self.task()
+        self.transmitted_order=value.state and value.state.order
+        self.callback(value)
+    end
     return worker
 end} end
 
@@ -153,8 +161,8 @@ local account='123';local online=true;local scope_valid=true;local has_scope=tru
 local host={ui={document={file='/synthetic.epub'}},_reader_session_gen=1,
     settings={get_auth_scope=function() return has_scope and {vid='123',epoch=1} or nil end,
         auth_scope_matches=function() return scope_valid end,get_book=function() return {book_id='CB_Synthetic'} end},
-    library_db={accountKey=function() return account end,putChapters=function(_self,_id,_chapters)
-        saved_catalogs=saved_catalogs+1;return allow_db_save
+    library_db={accountKey=function() return account end,putChapters=function(_self,_id,_chapters,encoded)
+        assert(encoded==encoded_catalog);saved_catalogs=saved_catalogs+1;return allow_db_save
     end},client={}}
 function host:isNetworkOnline() return online end
 function host:showOffline() self.info='offline' end
@@ -212,9 +220,12 @@ expect(cancelled_owner.state.pages==0 and #cancelled_owner.value==0,'cancelled f
 cached_calls=0;Search.cancel(host)
 local owner=open_and_submit()
 expect(owner.state.pages==0 and owner.job~=nil,'first page did not start asynchronously')
+local search_order=owner.state.order
 active_worker:complete()
 expect(owner.state.pages==1 and #owner.value==1 and #owner.menu.items==3,
     'first page did not populate native results and next-page action')
+expect(not active_worker.transmitted_order and owner.state.order==search_order,
+    'the worker sent a copy of the existing chapter order')
 expect(owner.menu.items[3].text:find('term',1,true)~=nil,'a long excerpt hid the search term')
 local successful_local=owner.menu.items[2]
 expect(successful_local.text=='Search downloaded chapters','ordinary results did not offer downloaded search')

@@ -19,11 +19,10 @@ local function open_downloaded(host,book,chapters,keyword,native_entry)
     return ok and opened==true
 end
 
-local function copy(value)
-    if type(value)~='table' then return value end
-    local out={}
-    for key,item in pairs(value) do out[key]=copy(item) end
-    return out
+local function shallow_copy(fields)
+    local result={}
+    for key,value in pairs(fields) do result[key]=value end
+    return result
 end
 
 local function preview(context,keyword)
@@ -280,9 +279,12 @@ fetch_page=function(host,owner,recovered)
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
     local previous=owner.state
-    local work_state=copy(previous)
+    local work_state=shallow_copy(previous)
     local started=begin_work(host,owner,function()
+        -- Accepting a page updates seen in place and replaces the cursor.
+        work_state.seen=shallow_copy(work_state.seen)
         local page,reason=Search.fetch(host.client,work_state,access)
+        work_state.order=nil
         return {page=page,state=work_state,reason=reason}
     end,function(value)
         if not Access.matches(host.settings,access) then
@@ -360,8 +362,7 @@ end
 
 local function begin_search(host,owner,chapters)
     if not current(host,owner) then return end
-    chapters=Reading.catalog(chapters)
-    local state=chapters and Search.new(owner.id,owner.keyword,chapters)
+    local state=Search.new(owner.id,owner.keyword,chapters)
     if not state then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
     if owner.cb_book and owner.current_uid then
         local fallback=Search.new(owner.id,owner.keyword,chapters,owner.current_uid)
@@ -374,7 +375,8 @@ end
 
 local function prepare_catalog(host,owner,chapters)
     owner.retry=function() prepare_catalog(host,owner,chapters) end
-    if Reading.catalog(chapters) then begin_search(host,owner,chapters);return end
+    local prepared=Reading.catalog(chapters)
+    if prepared then begin_search(host,owner,prepared);return end
     local WorkerSettings=require('weread.lib.worker_settings')
     local fingerprint=WorkerSettings.fingerprint(host.settings)
     local started=begin_work(host,owner,function()
@@ -393,8 +395,9 @@ local function prepare_catalog(host,owner,chapters)
         local saved=prepared_chapters and pcall(function()
             local Content=require('weread.lib.content')
             local book=host.settings:get_book(owner.id) or {book_id=owner.id}
-            assert(host.library_db:putChapters(owner.id,prepared_chapters))
-            assert(Content.save_catalog_cache(host.client,host.settings,book,prepared_chapters))
+            local encoded=assert(Content.encode_catalog_cache(host.client,prepared_chapters))
+            assert(host.library_db:putChapters(owner.id,prepared_chapters,encoded))
+            assert(Content.save_catalog_cache(host.client,host.settings,book,prepared_chapters,encoded))
         end)
         if not saved then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
         begin_search(host,owner,prepared_chapters)

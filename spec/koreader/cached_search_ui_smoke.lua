@@ -17,7 +17,8 @@ assert(not unicode_case or ignore_case)
 local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
 local limit_test=os.getenv('WEREAD_TEST_CACHED_LIMIT')=='1'
 local large_uid=os.getenv('WEREAD_TEST_CACHED_LARGE_UID')=='1'
-local second_uid=large_uid and '9007199254740993' or '2'
+local long_catalog=tonumber(os.getenv('WEREAD_TEST_SEARCH_LONG_CATALOG'))
+local second_uid=long_catalog and tostring(long_catalog) or large_uid and '9007199254740993' or '2'
 local target_uid=incomplete and '1' or second_uid
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
@@ -173,7 +174,7 @@ if not signed_out then
         cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
 end
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
-    {chapterUid=second_uid,chapterIdx=2,title='合成第二章',wordCount=1000},
+    {chapterUid=second_uid,chapterIdx=long_catalog or 2,title='合成第二章',wordCount=1000},
     {chapterUid='3',chapterIdx=3,title='未下载章节',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成本地搜索',chapters=chapters,cached_chapters={}}
 local bodies,sources={},{}
@@ -187,6 +188,13 @@ for i=1,2 do
     bodies[uid]=txt_source and Content.txt_to_xhtml(raw) or raw
     sources[uid]=assert(Source.capture(book,chapter,raw,txt_source and 'web_txt' or 'web_xhtml'))
     book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'cached-search-'..uid,{},nil,nil,Identity.capture(book),sources))
+end
+if long_catalog then
+    local last=chapters[2]
+    for i=2,long_catalog-1 do
+        chapters[i]={chapterUid=tostring(i),chapterIdx=i,title='未下载章节 '..i,wordCount=1000}
+    end
+    chapters[long_catalog]=last
 end
 if unicode_case then
     local Search=require('weread.lib.cached_book_search')
@@ -291,7 +299,8 @@ assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=o
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
 local count=incomplete and 1 or 2
-assert(#owner.value==count and owner.checked==(limit_test and 1 or count) and owner.missing==(no_catalog and 0 or 1))
+local unavailable=no_catalog and 0 or #chapters-2
+assert(#owner.value==count and owner.checked==(limit_test and 1 or count) and owner.missing==unavailable)
 if limit_test then
     local _=require('weread.lib.i18n').tr
     assert(owner.limit and not owner.finished and owner.menu.item_table[1].text==
@@ -345,13 +354,15 @@ if restore_catalog then
     assert(not owner.job and owner.catalog_missing and requests[0]==0,'cancelled catalog request sent network traffic')
     Content.ensure_reader_state=original_reader
     owner.menu:onMenuSelect(action('Fetch chapter list for this search'))
-    wait(function() return owner.finished and not owner.job and not owner.catalog_missing and owner.total==6 end)
-    assert(owner.missing==4 and #owner.value==2 and requests[0]==2 and action('Download full book and search again'))
+    local total=long_catalog or 6
+    wait(function() return owner.finished and not owner.job and not owner.catalog_missing and owner.total==total end)
+    assert(owner.missing==total-2 and #owner.value==2 and owner.value[2].chapter_uid==second_uid
+        and requests[0]==2 and action('Download full book and search again'))
     local saved=assert(plugin.settings:get_book(book_id))
     assert(saved.pending_upload_position.chapter_offset==19 and saved.pending_upload_reason=='synthetic_pending')
     assert(plugin.library_db:getChapters(book_id) and Content.load_catalog_cache(plugin.client,plugin.settings,saved))
     print('\nWEREAD_CACHED_CATALOG_RESTORE='..require('json').encode({result='PASS',catalog_restored=true,
-        rescan=true,cancel_safe=true,missing=4,pending_preserved=true}))
+        rescan=true,cancel_safe=true,missing=total-2,pending_preserved=true}))
     os.exit(0)
 end
 if full then
@@ -398,7 +409,7 @@ if no_catalog then
         and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
 end
 assert(requests[0]==0,'offline cached search attempted a network request')
-print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=no_catalog and 0 or 1,
+print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=unavailable,
     navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog,
     full=full,incomplete=incomplete,dual=dual,ignore_ascii_case=ignore_case}))
 os.exit(0)

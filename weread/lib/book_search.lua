@@ -3,6 +3,7 @@
 -- navigating. This module neither fetches nor stores book content.
 local Protocol = require('weread.lib.protocol')
 local Access = require('weread.lib.read_access')
+local Catalog = require('weread.lib.chapter_catalog')
 local Cookie = require('weread.lib.cookie')
 
 local M = {}
@@ -42,7 +43,7 @@ function M.new(book_id, keyword, chapters, first_uid)
     if not book_id or type(keyword)~='string' or #keyword<1 or #keyword>160
         or keyword:find('[%z%c]') or keyword:match('^%s*$')
         or Protocol.utf8_substr(keyword,#keyword+1)~=keyword
-        or not dense(chapters,10000) or #chapters<1 then return nil,'invalid_search' end
+        or not dense(chapters,Catalog.MAX_CHAPTERS) or #chapters<1 then return nil,'invalid_search' end
     local order={}
     for index,row in ipairs(chapters) do
         local uid=type(row)=='table' and identity(row.chapterUid or row.chapterId or row.chapter_uid)
