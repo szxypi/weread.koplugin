@@ -187,6 +187,8 @@ plugin.startBookReading=original_read
 press(plugin.shelf_view,'Next batch');flush_tasks()
 assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6,
     'initial public chart did not paginate')
+press(plugin.shelf_view,'Browse books');flush_tasks()
+assert(plugin._discovery_menu):onCloseAllMenus()
 plugin:closeWeReadUI();plugin.discovery_state=nil
 plugin.isNetworkConnected=function() return false end
 plugin:openBookstore();flush_tasks()
@@ -197,7 +199,42 @@ store_cell=assert(plugin.shelf_view._item_rows[1])
 assert(store_cell._store_details[1].text:find('8.6',1,true)
     and store_cell._store_details[2].text=='合成推荐理由','offline store lost its cover details')
 plugin:closeWeReadUI();plugin.discovery_state=nil
+local category_cache=require('weread.lib.public_discovery_cache'):new(plugin.settings,plugin.client)
+local guest_position=assert(category_cache:read())
+local rank_query={kind='category',category_id='rising',category_title='合成飙升榜',rank=true}
+local guest_first,guest_next=assert(category_cache:read(rank_query,0)),assert(category_cache:read(rank_query,20))
 plugin.settings:set('account',initial_account);plugin.settings:flush()
+local personal_cache=require('weread.lib.discovery_cache'):new(plugin.library_db,plugin.client)
+assert(not personal_cache:read(rank_query,0),'fixture already has a signed-in rank snapshot')
+local normal_request=plugin.client.request
+plugin.client.request=function() error('signed-in offline rank sent HTTP',0) end
+plugin:showBookstore()
+assert(not plugin.discovery_state or not plugin.discovery_state._shared_public_category,
+    'opening the bookstore restored a guest category without choosing it')
+press(plugin.shelf_view,'Browse books');flush_tasks()
+local ranks=assert(plugin._discovery_menu)
+ranks:onMenuSelect(ranks.item_table[1]);ranks:onMenuSelect(ranks.item_table[1]);flush_tasks()
+local function verify_public_batch(expected)
+    local current=assert(plugin.discovery_state)
+    assert(current._shared_public_category and current.account==plugin.library_db:accountKey()
+        and current.cached and current.category_id==rank_query.category_id and current.rank
+        and current.cursor==expected.cursor and #current.books==#expected.books,
+        'signed-in user could not browse the selected guest rank offline')
+    for index,book in ipairs(current.books) do assert(book.bookId==expected.books[index].bookId) end
+end
+verify_public_batch(guest_first)
+press(plugin.shelf_view,'Next batch');flush_tasks()
+verify_public_batch(guest_next)
+paint('store-signed-in-public-chart')
+press(plugin.shelf_view,'Previous batch');flush_tasks()
+verify_public_batch(guest_first)
+plugin:closeWeReadUI();plugin.discovery_state=nil
+plugin.client.request=normal_request
+local after_guest=assert(category_cache:read())
+local prior,after=guest_position._browse_position or {},after_guest._browse_position or {}
+assert(after_guest.cursor==guest_position.cursor and prior.anchor==after.anchor and prior.focus==after.focus
+    and not personal_cache:read(rank_query,0),'signed-in offline browse wrote another user position or an owned snapshot')
+print('PASS: guest public rank reselected after login, offline next/back, independent saved positions')
 plugin.isNetworkOnline=function() return true end
 plugin.isNetworkConnected=function() return true end
 plugin.requireLogin=require_login
