@@ -65,6 +65,7 @@ end
 
 local saved_books = {}
 local minimal_index_checked = false
+local minimal_index, legacy_catalog = false, false
 package.preload["weread.lib.book_store"] = function()
     return {
         load = function(_settings, book_id, index)
@@ -84,7 +85,11 @@ package.preload["weread.lib.book_store"] = function()
         end,
         is_minimal_index = function(books)
             minimal_index_checked = books == values.books
-            return false
+            return minimal_index
+        end,
+        has_legacy_catalog = function(_settings, id, index)
+            expect(id == "7" and index == values.books["7"], "legacy catalog check did not use the stored book directory")
+            return legacy_catalog
         end,
     }
 end
@@ -156,6 +161,15 @@ expect(values.large_runtime_data == nil,
 expect(settings:has_legacy_book_records(),
     "legacy book record check was not delegated")
 expect(minimal_index_checked, "book index was not passed to BookStore")
+minimal_index = true
+expect(not settings:has_legacy_book_records(), "a modern catalog forced a full book migration")
+legacy_catalog = true
+expect(settings:has_legacy_book_records(), "a legacy metadata catalog was missed in a modern index")
+legacy_catalog = false
+local stored_books = values.books
+values.books = false
+expect(not settings:has_legacy_book_records(), "an empty legacy book index forced migration")
+values.books = stored_books
 
 settings:update_auth({
     cookies = { wr_gid = "12345" },

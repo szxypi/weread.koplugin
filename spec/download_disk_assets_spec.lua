@@ -376,5 +376,28 @@ expect(Content.cleanup_stale_downloads(indexed_recovery) == 1,
 local restored = assert(io.open(root .. "/missing.epub", "rb"))
 expect(restored:read("*a") == "last complete copy", "indexed recovery changed the restored backup")
 restored:close()
+
+local catalog_path = root .. "/catalog.json"
+local catalog_file = assert(io.open(catalog_path, "wb"))
+assert(catalog_file:write("last complete catalog"))
+assert(catalog_file:close())
+local open_file = io.open
+rawset(io, "open", function(path, mode)
+    local file, reason = open_file(path, mode)
+    if path ~= catalog_path .. ".tmp" or not file then return file, reason end
+    return {write=function(_,data) return file:write(data) end,
+        close=function() assert(file:close());return nil,"injected catalog close error" end}
+end)
+local catalog_client = {json_encode=function() return "new complete catalog" end}
+local book_to_migrate = {book_id="book",cache_dir=root}
+local catalog_saved, catalog_error = Content.save_catalog_cache(catalog_client, recovery_settings, book_to_migrate, {{chapterUid=7}})
+rawset(io, "open", open_file)
+catalog_file = assert(io.open(catalog_path, "rb"))
+expect(not catalog_saved and catalog_error == "injected catalog close error"
+    and catalog_file:read("*a") == "last complete catalog" and lfs.attributes(catalog_path .. ".tmp") == nil,
+    "a delayed catalog write failure replaced the previous cache")
+catalog_file:close()
+expect(Content.save_catalog_cache(catalog_client, recovery_settings, book_to_migrate, {{chapterUid=7}}),
+    "an interrupted catalog write could not be retried")
 assert(os.execute("rm -rf " .. string.format("%q", root)))
 print(("download_disk_assets_spec: %d checks"):format(checks))

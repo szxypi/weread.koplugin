@@ -99,6 +99,21 @@ expect(not BookStore.match_file(settings, "routing", { cache_dir = routing_index
     cached_file = root .. "/stale-inline.epub" }, root .. "/stale-inline.epub"),
     "current metadata did not supersede an obsolete inline cached path")
 
+expect(not BookStore.has_legacy_catalog(settings, "routing", routing_index), "modern metadata was marked legacy")
+local legacy_metadata_path = routing_index.cache_dir .. "/metadata.json"
+local legacy_metadata = assert(io.open(legacy_metadata_path, "wb"))
+assert(legacy_metadata:write(require("json").encode({book_id="routing",chapters={{chapterUid=7}}})))
+assert(legacy_metadata:close())
+local catalog_reads = 0
+rawset(io, "open", function(path, mode)
+    assert(path == legacy_metadata_path, "migration detection read a non-metadata file")
+    catalog_reads = catalog_reads + 1
+    return original_open(path, mode)
+end)
+local needs_migration = BookStore.has_legacy_catalog(settings, "routing", routing_index)
+rawset(io, "open", original_open)
+expect(needs_migration and catalog_reads == 1, "legacy catalog behind a minimal index was missed")
+
 local loaded = BookStore.load(settings, "book/42", index)
 local metadata_only = BookStore.without_reading_state(loaded)
 expect(metadata_only.title == loaded.title and metadata_only.cache_dir == loaded.cache_dir,

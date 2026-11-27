@@ -392,7 +392,11 @@ end
 
 function Settings:has_legacy_book_records()
     local books = self.store:readSetting("books", {})
-    return not BookStore.is_minimal_index(books)
+    if not BookStore.is_minimal_index(books) then return true end
+    for id, index in pairs(books or {}) do
+        if BookStore.has_legacy_catalog(self, id, index) then return true end
+    end
+    return false
 end
 
 function Settings:flush()

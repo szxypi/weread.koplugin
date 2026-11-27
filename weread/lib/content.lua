@@ -107,10 +107,10 @@ function Content.save_catalog_cache(client, settings, book, chapters)
         return false, err
     end
     local write_ok, write_err = file:write(encoded)
-    file:close()
-    if not write_ok then
+    local close_ok, close_err = file:close()
+    if not write_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err
+        return false, write_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then

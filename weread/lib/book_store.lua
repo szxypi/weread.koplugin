@@ -386,4 +386,11 @@ function BookStore.is_minimal_index(books)
     return true
 end
 
+-- Some older profiles already use a directory-only index but still have an
+-- inline chapter list in metadata.json. Reading state and articles never own it.
+function BookStore.has_legacy_catalog(settings, book_id, index)
+    local metadata = read_json(resolved_dir(settings, book_id, index) .. "/metadata.json")
+    return metadata ~= nil and metadata.chapters ~= nil
+end
+
 return BookStore
