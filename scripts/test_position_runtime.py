@@ -492,7 +492,8 @@ def main():
                     stale=(root/'evidence/stale.log').read_bytes();marker=b'\nWEREAD_CACHED_SEARCH_STALE='
                     assert stale.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in stale
                     value=json.loads(stale.split(marker,1)[1].splitlines()[0])
-                    assert value==dict(result='PASS',cancel_preserved=True,explicit_fallback=True), 'changed chapter result mismatch'
+                    assert value==dict(result='PASS',cancel_preserved=True,explicit_fallback=True,
+                                       saved_picker=True), 'changed chapter result mismatch'
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
                 for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):

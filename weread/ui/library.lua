@@ -2420,11 +2420,19 @@ local function saved_chapter_rows(host, book, catalog)
     return rows
 end
 
-function M:showSavedChapters(book_id, detail)
-    if self._book_detail_view ~= detail then return end
+function M:showSavedChapters(book_id, detail, reader)
+    if not reader and self._book_detail_view ~= detail then return end
+    local page_current = reader and reader.is_current
+        or require('weread.ui.page_scope').capture(self, detail, '_book_detail_view')
+    local load_book = reader and reader.load_book or function()
+        local book = ReadAccess.load_cached_book(self.settings, book_id)
+        if not book then self:showInfo(_('No downloaded chapters found.')) end
+        return book
+    end
+    if not page_current() then return end
     if self._saved_chapter_menu then UIManager:close(self._saved_chapter_menu) end
-    local latest = ReadAccess.load_cached_book(self.settings, book_id)
-    if not latest then self:showInfo(_('No downloaded chapters found.')); return end
+    local latest = load_book()
+    if not latest then return end
     local catalog = self.library_db and self.library_db:getChapters(book_id)
     if type(catalog)~='table' or #catalog==0 then
         catalog = Content.load_catalog_cache(self.client, self.settings, latest)
@@ -2433,9 +2441,8 @@ function M:showSavedChapters(book_id, detail)
     local ChapterSearch = require('weread.ui.chapter_search')
     local Popup = require('weread.ui.shelf_popup')
     local Cleanup = require('weread.ui.book_cache_cleanup')
-    local page_current = require('weread.ui.page_scope').capture(self, detail, '_book_detail_view')
     local query, menu, visible = '', nil, nil
-    local hold_hint = _('Hold a separately downloaded chapter to remove its copy')
+    local hold_hint = not reader and _('Hold a separately downloaded chapter to remove its copy') or nil
     local function current()
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
@@ -2457,9 +2464,9 @@ function M:showSavedChapters(book_id, detail)
         left_icon='appbar.search', subtitle=hold_hint, on_choice=function(entry)
             local chapter = visible[entry]
             if not current() or not chapter then return end
-            local fresh = ReadAccess.load_cached_book(self.settings, book_id)
-            if not fresh then self:showInfo(_('No downloaded chapters found.')); return end
-            if self:openChapter(fresh, chapter, nil, { cached_only = true }) and self._saved_chapter_menu == menu then
+            local fresh = load_book()
+            if fresh and current() and self:openChapter(fresh, chapter, nil, { cached_only = true })
+                and self._saved_chapter_menu == menu then
                 UIManager:close(menu)
             end
         end,
@@ -2467,6 +2474,7 @@ function M:showSavedChapters(book_id, detail)
     if not menu then return end
     self._saved_chapter_menu = menu
     menu.onMenuHold = function(_menu, entry)
+        if reader then return true end
         local chapter = visible[entry]
         if not current() or not chapter then return true end
         local path = ReadAccess.cached_chapter(latest.cached_chapters, chapter.chapterUid)

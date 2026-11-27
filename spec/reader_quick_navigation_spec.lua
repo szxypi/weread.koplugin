@@ -40,6 +40,11 @@ function host:getChapterInfoFromFile(book,file)
 end
 function host:openChapter(book,chapter) opened={book=book,chapter=chapter} end
 function host:showChapterList(book) listing=book end
+local saved_picker
+function host:showSavedChapters(id, detail, reader)
+    assert(id=='123' and detail==nil and reader.is_current())
+    saved_picker=reader
+end
 function host:showCurrentBookDetails() details=true end
 function host:onWeReadSyncProgress() sync=true end
 function host:showTransientInfo(value) notice=value end
@@ -82,6 +87,23 @@ epoch=1;c=menu();host._reader_session_gen=8;c.on_next();assert(not opened,'new s
 host._reader_session_gen=7;c=menu();doc.file='/synthetic/other.epub';c.on_next();c.on_book_details();c.on_sync_progress()
 assert(not opened and not details and not sync,'changed file accepted an old action')
 doc.file='/synthetic/2.epub'
+do
+    original.chapters=nil
+    local actions=menu()
+    assert(options.enable_chapter_list and not options.enable_next_chapter,'saved chapters needed the full catalog')
+    actions.on_chapter_list()
+    assert(saved_picker and saved_picker.load_book()==fresh and not listing,'quick menu did not use the saved picker')
+    fresh.bookVersion=2
+    assert(not saved_picker.load_book(),'saved picker accepted a changed book version')
+    fresh.bookVersion=1
+    epoch=2
+    assert(not saved_picker.is_current() and not saved_picker.load_book(),'saved picker accepted a changed session')
+    epoch=1
+    original.cached_chapters={}
+    menu();assert(not options.enable_chapter_list,'no catalog or saved chapters enabled the picker')
+    original.cached_chapters={['2']=doc.file}
+    original.chapters=catalog
+end
 local home_opens,browser_opens,reader_closes,after_scope=0,0,0,'one'
 local fm={showFiles=function(self)
     self.instance={weread={settings={auth_scope_matches=function(_,scope) return scope.account==after_scope end},

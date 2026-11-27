@@ -70,6 +70,9 @@ function M:showEndOfBookDialog(book_id)
     local book = book_id and ReadAccess.load_cached_book(self.settings, book_id) or nil
     local is_regular_weread_book = book ~= nil and not WeRead.is_mp_book(book_id)
     local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book, true) or nil
+    local has_saved_chapters = is_regular_weread_book and (
+        type(book.cached_chapters) == 'table' and next(book.cached_chapters) ~= nil
+        or type(book.cached_full_book) == 'string' or type(book.cached_file) == 'string')
 
     local current_idx, current_chapter, is_full_book
     if chapters then
@@ -107,6 +110,13 @@ function M:showEndOfBookDialog(book_id)
         end
         return true
     end
+    local function load_current_book()
+        if not valid_reader() then return end
+        local ok, fresh = pcall(ReadAccess.load_cached_book, self.settings, book_id)
+        if not valid_reader() then return end
+        if ok and matching_book(fresh) then return fresh end
+        self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'), 3)
+    end
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
 
@@ -125,7 +135,7 @@ function M:showEndOfBookDialog(book_id)
     EndOfBookDialog.show({
         show_chapter_nav = true,
         show_next_chapter = true,
-        enable_chapter_list = chapters ~= nil,
+        enable_chapter_list = chapters ~= nil or has_saved_chapters,
         enable_next_chapter = next_chapter ~= nil,
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
@@ -189,9 +199,10 @@ function M:showEndOfBookDialog(book_id)
         on_chapter_list = function()
             if not valid_reader() then return end
             if chapters then
-                local ok,fresh=pcall(ReadAccess.load_cached_book,self.settings,book_id)
-                if ok and matching_book(fresh) and valid_reader() then self:showChapterList(fresh)
-                else self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
+                local fresh = load_current_book()
+                if fresh then self:showChapterList(fresh) end
+            elseif has_saved_chapters then
+                self:showSavedChapters(book_id, nil, { is_current = valid_reader, load_book = load_current_book })
             else
                 show_context_required()
             end

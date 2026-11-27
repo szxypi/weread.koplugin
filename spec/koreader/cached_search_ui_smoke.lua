@@ -105,8 +105,46 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
             and not Reader.instance.weread.library_db:accountKey(), 'fallback reader was not signed out') end
         local saved=assert(Reader.instance.weread.settings:get_book(book_id))
         assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
+        local active_reader=Reader.instance
+        local plugin=active_reader.weread
+        assert(not plugin.library_db:getChapters(book_id))
+        local catalog_path=assert(Content.catalog_cache_path(plugin.settings,saved))
+        if full then
+            local broken=assert(io.open(catalog_path,'wb'))
+            assert(broken:write('{broken catalog'));assert(broken:close())
+        end
+        assert(not Content.load_catalog_cache(plugin.client,plugin.settings,saved))
+        assert(plugin:onShowWeReadQuickMenu())
+        local quick=assert(UI:getTopmostVisibleWidget())
+        local chapter_button=assert(quick:getButtonById('chapter_list'))
+        assert(chapter_button.enabled~=false)
+        chapter_button.callback()
+        deadline=socket.gettime()+45
+        while not plugin._saved_chapter_menu do
+            UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'saved chapter list timed out')
+        end
+        local picker=plugin._saved_chapter_menu
+        local tr=require('weread.lib.i18n').tr
+        local label_for_chapter=require('ffi/util').template(tr('Chapter ID %1'),second_uid)
+        local selected
+        for _,item in ipairs(picker.item_table) do if item.text==label_for_chapter then selected=item end end
+        assert(#picker.item_table==2 and selected,'saved chapter picker lost the other downloaded chapter')
+        local target_path=assert(full and saved.cached_full_book or saved.cached_chapters[second_uid])
+        local target
+        if full then
+            local proof=assert(require('weread.lib.chapter_cache_claim').combined(saved,target_path))
+            target=assert(require('weread.lib.source_dom').chapter_start(active_reader.document,book_id,second_uid,proof))
+        end
+        picker:onMenuSelect(selected)
+        deadline=socket.gettime()+45
+        while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==target_path
+            and (not target or Reader.instance.document:isXPointerInCurrentPage(target))) do
+            UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'saved chapter picker timed out')
+        end
+        saved=assert(Reader.instance.weread.settings:get_book(book_id))
+        assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
         assert(requests[0]==0,'offline fallback attempted a network request')
-        print('\nWEREAD_CACHED_SEARCH_STALE='..require('json').encode({result='PASS',cancel_preserved=true,explicit_fallback=true}))
+        print('\nWEREAD_CACHED_SEARCH_STALE='..require('json').encode({result='PASS',cancel_preserved=true,explicit_fallback=true,saved_picker=true}))
         os.exit(0)
     end
     while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==path
