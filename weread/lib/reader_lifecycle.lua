@@ -928,24 +928,24 @@ end
 -- cached_file historically pointed at either a full-book EPUB or the most
 -- recently downloaded single chapter. Shared mappings need archive evidence
 -- before the file can be treated as a combined book.
-function M:getFullBookCachePath(book, exists)
+function M:getFullBookCachePath(book, exists, claim_cache)
     if type(book) ~= "table" then return nil end
     local Claims=require('weread.lib.chapter_cache_claim')
     if type(book.cached_full_book) == "string"
         and book.cached_full_book ~= "" and (exists or file_exists)(book.cached_full_book) then
-        if not Claims.shared(book,book.cached_full_book)
-            or Claims.inspect(book,book.cached_full_book).kind=='combined' then return book.cached_full_book end
+        if not Claims.shared(book,book.cached_full_book,claim_cache)
+            or Claims.inspect(book,book.cached_full_book,claim_cache).kind=='combined' then return book.cached_full_book end
     end
     local legacy = book.cached_file
     if type(legacy) ~= "string" or legacy == "" then return nil end
-    local mapped_count = 0
+    local mapped = false
     for _uid, path in pairs(book.cached_chapters or {}) do
-        if path == legacy then mapped_count = mapped_count + 1 end
+        if path == legacy then mapped = true;break end
     end
-    if Claims.shared(book,legacy) then
-        return Claims.inspect(book,legacy).kind=='combined' and legacy or nil
+    if Claims.shared(book,legacy,claim_cache) then
+        return Claims.inspect(book,legacy,claim_cache).kind=='combined' and legacy or nil
     end
-    if mapped_count > 0 then return nil end
+    if mapped then return nil end
     return legacy
 end
 

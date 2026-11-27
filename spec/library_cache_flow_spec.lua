@@ -345,6 +345,47 @@ host:openBookForReading(partial)
 expect(opened_path == "/cache/4.epub",
     "exact cached progress chapter was not selected")
 
+do
+    local many={book_id='74',chapter_uid=37,chapters={},cached_chapters={}}
+    for index=1,80 do
+        local uid=tostring(index)
+        local path='/cache/large-'..uid..'.epub'
+        many.chapters[index]={chapterUid=uid}
+        many.cached_chapters[uid]=path
+        existing_paths[path]=true
+    end
+    local target=many.cached_chapters['37']
+    books['74']=many
+    local check_network=host.isNetworkConnected
+    host.isNetworkConnected=function() error('a locally available book checked the network') end
+    expect(host:startBookReading(many) and opened_path==target,'bookshelf Read did not open the cached chapter')
+    host.isNetworkConnected=check_network
+    expect((path_probes[target] or 0)>0 and not path_probes[many.cached_chapters['1']]
+        and not path_probes[many.cached_chapters['38']],
+        'opening an exact cached chapter probed unrelated files')
+
+    existing_paths[target]=nil
+    opened_path=nil
+    expect(host:openBookForReading(many,true,{check_only=true}) and not opened_path,
+        'checking the nearest cache opened the reader')
+    expect(host:openBookForReading(many) and opened_path==many.cached_chapters['36']
+        and not path_probes[many.cached_chapters['38']],
+        'a missing target did not try the preceding cached chapter first')
+    books['74']=nil
+end
+
+do
+    local old_catalog={
+        book_id='75',progress=100,
+        chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3},{chapterUid=4},{chapterUid=5}},
+        cached_chapters={['2']='/cache/2.epub',['5']='/cache/after-gap.epub'},
+    }
+    old_catalog.chapters[3]=nil
+    existing_paths['/cache/after-gap.epub']=true
+    expect(host:openBookForReading(old_catalog) and opened_path=='/cache/2.epub'
+        and not path_probes['/cache/after-gap.epub'],'a gapped catalog changed the preferred cached chapter')
+end
+
 partial.pending_upload_account='account-a'
 partial.pending_upload_position={book_id='42',chapter_uid=2,percent=25}
 host:openBookForReading(partial)

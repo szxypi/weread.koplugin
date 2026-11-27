@@ -2788,11 +2788,11 @@ end
 -- choose the cached chapter nearest to the last known chapter/progress, with a
 -- slight preference for the preceding chapter when distances are equal.
 function M:openBookForReading(book, quiet, options)
-    local full_path = self:getFullBookCachePath(book)
+    local claim_cache={}
+    local full_path = self:getFullBookCachePath(book,nil,claim_cache)
     local book_id = book.book_id or book.bookId
     local claims=require('weread.lib.chapter_cache_claim')
     local Reading=require('weread.ui.book_reading')
-    local claim_cache={}
     local unusable_shared=false
     local function usable(uid,path)
         if not file_exists(path) then return false end
@@ -2853,8 +2853,6 @@ function M:openBookForReading(book, quiet, options)
         chapters = Content.load_catalog_cache(self.client, self.settings, book)
     end
 
-    local candidates = {}
-    local target_index
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
         local target=uid and ReadAccess.cached_chapter(book.cached_chapters,uid)
@@ -2866,33 +2864,35 @@ function M:openBookForReading(book, quiet, options)
         end
     end
     if type(chapters) == "table" then
-        target_index=Reading.resume_index(chapters,book,nil,account)
-        for index, chapter in ipairs(chapters) do
-            local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
-            local path = ReadAccess.cached_chapter(book.cached_chapters,uid)
-            if usable(uid,path) then
-                candidates[#candidates + 1] = { index = index, path = path }
-            end
-        end
+        local target_index=Reading.resume_index(chapters,book,nil,account)
         if not target_index and tonumber(book.progress) then
             local progress = math.max(0, math.min(100, tonumber(book.progress)))
             target_index = math.floor(progress / 100 * math.max(0, #chapters - 1)) + 1
         end
-    end
-
-    if #candidates > 0 then
-        target_index = target_index or candidates[1].index
-        table.sort(candidates, function(left, right)
-            local left_distance = math.abs(left.index - target_index)
-            local right_distance = math.abs(right.index - target_index)
-            if left_distance ~= right_distance then return left_distance < right_distance end
-            local left_precedes = left.index <= target_index
-            local right_precedes = right.index <= target_index
-            if left_precedes ~= right_precedes then return left_precedes end
-            return left.index < right.index
-        end)
-        if not (options and options.check_only) then self:openFile(candidates[1].path,nil,book) end
-        return true
+        -- Match ipairs ordering even for old catalogs with gaps. Open files
+        -- in distance order, with the preceding chapter first on a tie.
+        local length=0
+        for index in ipairs(chapters) do length=index end
+        local function cached_at(index)
+            local chapter = chapters[index]
+            local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
+            local path = ReadAccess.cached_chapter(book.cached_chapters,uid)
+            if usable(uid,path) then return path end
+        end
+        if length>0 then
+            target_index=math.min(target_index or 1,length)
+            local path=cached_at(target_index)
+            for distance=1,math.max(target_index-1,length-target_index) do
+                if path then break end
+                local before,after=target_index-distance,target_index+distance
+                if before>=1 then path=cached_at(before) end
+                if not path and after<=length then path=cached_at(after) end
+            end
+            if path then
+                if not (options and options.check_only) then self:openFile(path,nil,book) end
+                return true
+            end
+        end
     end
 
     local fallback_paths = {}
@@ -2956,10 +2956,10 @@ function M:startBookReading(book, view, origin, mode)
     local id = book.book_id or book.bookId
     local stored = self.settings:get_book(id)
     local latest = stored or book
-    local online=book_link_connected(self)
-    local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
     local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
     if opened then return true end
+    local online=book_link_connected(self)
+    local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
     local shelf_view=origin and origin.owner
     local owner=view or shelf_view
     local selected_id=ShelfSnapshot.persisted_id(book)

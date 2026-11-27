@@ -56,8 +56,11 @@ function M.resume_index(chapters, local_book, remote, account)
     local positions=M.local_positions(local_book,account)
     local pending,recent=positions[1],positions[2]
     for _i, hint in ipairs({pending,recent,local_book,type(remote)=='table' and remote or {}}) do
-        for index, chapter in ipairs(chapters) do
-            if hint.chapter_uid ~= nil and tostring(hint.chapter_uid) == tostring(chapter.chapterUid or chapter.chapterId) then return index end
+        if hint.chapter_uid ~= nil then
+            local wanted = tostring(hint.chapter_uid)
+            for index, chapter in ipairs(chapters) do
+                if wanted == tostring(chapter.chapterUid or chapter.chapterId) then return index end
+            end
         end
         if hint.chapter_idx ~= nil then
             local wanted=integer(hint.chapter_idx,1000000)
