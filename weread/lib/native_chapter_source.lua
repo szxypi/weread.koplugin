@@ -10,6 +10,14 @@ local M={MAX_BYTES=32*1024*1024}
 local BASE='https://i.weread.qq.com'
 local HEADERS={baseapi='30',appver='2.1.2.10245900',basever='2.1.2.10245900',osver='11',channelId='900',
     Accept='application/json', ['User-Agent']='WeRead/2.1.2 WRBrand/Onyx wr_eink Dalvik/2.1.0 (Linux; U; Android 11; BOOX Build/onyx)'}
+local TRANSPORT_ERRORS={
+    ['native_auth/chapter_info/transport']=true,
+    ['native_auth/chapter_info/timeout']=true,
+    ['native_auth/chapter_catalog/transport']=true,
+    ['native_auth/chapter_catalog/timeout']=true,
+    ['native_chapter/transport']=true,
+    ['sensitive_request_failed']=true,
+}
 local function valid_access(selected)
     return selected and not selected.renewal_pending and selected.scope and Protocol.credentials(selected.credentials)
         and selected.scope.vid==selected.credentials.vid
@@ -59,6 +67,10 @@ function M.fetch(client,settings,selected,book_id,uid,options)
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
     local ok,value=pcall(function()
         local model=Catalog.read(auth,selected.credentials,book_id,'chapter')
+        local expected=options.expected_catalog
+        if expected and (model.version~=expected.book_version or model.reading_digest~=expected.reading_catalog_sha256) then
+            error('native_chapter/catalog_changed',0)
+        end
         assert(chapter(model,uid),'native_chapter/not_entitled')
         assert(owns(),'native_chapter/session_changed')
         local headers={}
@@ -81,6 +93,9 @@ function M.fetch(client,settings,selected,book_id,uid,options)
         code=tonumber(code)
         if code==429 then error('native_chapter/rate_limited',0) end
         if code==401 then error('native_chapter/auth_expired',0) end
+        if not code and size<=M.MAX_BYTES and (type(raw_body)~='string' or #raw_body<=M.MAX_BYTES) then
+            error('native_chapter/transport',0)
+        end
         assert(code==200 and size<=M.MAX_BYTES,'native_chapter/http')
         local data=type(raw_body)=='string' and raw_body or table.concat(chunks)
         assert(#data>0 and #data<=M.MAX_BYTES,'native_chapter/size')
@@ -105,6 +120,8 @@ function M.fetch(client,settings,selected,book_id,uid,options)
     auth:cancel()
     if not ok then
         if not owns() then return nil,'session_changed' end
+        if TRANSPORT_ERRORS[value] then return nil,'transport' end
+        if value=='native_chapter/catalog_changed' then return nil,'catalog_changed' end
         if value=='native_chapter/rate_limited' or value=='native_auth/chapter_info/http_429'
             or value=='native_auth/chapter_catalog/http_429' then return nil,'rate_limited' end
         if value=='native_chapter/auth_expired' or value=='native_auth/chapter_info/http_401'

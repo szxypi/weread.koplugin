@@ -51,9 +51,11 @@ def run(runtime):
                     assert result==dict(ok=True,damaged_after_receipt=True,requests=4) and len(server.paths)==4
                 else:
                     assert set(result)=={'ok','requests','reused','corrupt_preserved','receipt_preserved','path','missing_images'}
-                    assert result['ok'] and result['requests']==19 and result['reused'] and result['corrupt_preserved'] and result['receipt_preserved']
+                    catalog_calls=['/book/info','/book/chapterInfos']
+                    expected_paths=(catalog_calls+['/book/chapterdownload','/image.png'])*4+catalog_calls
+                    assert result['ok'] and result['requests']==len(expected_paths) and result['reused'] and result['corrupt_preserved'] and result['receipt_preserved']
                     assert result['missing_images']==int(missing)
-                    assert len(server.paths)==19 and set(server.paths)=={'/book/info','/book/chapterInfos','/book/chapterdownload','/image.png'}
+                    assert server.paths==expected_paths
                     path=Path(result['path']);assert path.is_file() and root in str(path)
                     offline=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_offline_probe.lua'),
                         str(REPO),str(path),'1' if missing else '0'],text=True,env=env,cwd=runtime,capture_output=True,timeout=90)

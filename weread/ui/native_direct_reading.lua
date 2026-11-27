@@ -443,6 +443,9 @@ function M.start(host,book,view,options)
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not is_current() then M.cancel(host);return end
+            if phase=='chapter' and ctx.menu and type(result)=='table' and result.error=='transport' then
+                begin_open('saved_matches');return
+            end
             if type(result)=='table' and result.error=='auth_expired' then renew();return end
             if type(result)=='table' and result.error=='rate_limited' then
                 if phase=='batch' then

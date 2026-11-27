@@ -315,6 +315,24 @@ s.select(1);s.finish(2)
 expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
     'the online catalog could not open its matching saved chapter after disconnecting')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+s.select(1)
+local remote_job=s.jobs[2]
+build_error='transport'
+s.finish(2)
+expect(#s.jobs==3 and s.opened==0 and host.busy_message,
+    'a broken transport did not fall back to the saved chapter')
+remote_job.callback({error='transport'})
+expect(#s.jobs==3,'a repeated transport result started a second lookup')
+s.finish(3)
+expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
+    'local fallback still depended on a new network request')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+build_error='transport';s.select(1);s.finish(2)
+local pending_fallback=s.jobs[3].task()
+account_valid=false;s.jobs[3].callback(pending_fallback)
+expect(#s.jobs==3 and s.opened==0 and not host._native_direct_reading,
+    'a saved fallback opened after the account changed')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 local online_menu=host._native_direct_reading.menu
 host.isNetworkConnected=function() return false end
 cache.list=function() return {wrong_catalog} end

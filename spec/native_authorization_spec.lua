@@ -22,7 +22,7 @@ local function fixture(options)
         request = function(_self, request)
             requests[#requests + 1] = request
             next_response = assert(table.remove(queue, 1), "fixture missing response")
-            if next_response.callback then next_response.callback() end
+            if next_response.callback then next_response.callback(request) end
             if next_response.raise then error("private-transport-url-token") end
             local status = next_response.code
             if status == nil then status = 200 elseif status == false then status = nil end
@@ -185,4 +185,11 @@ eq(#f.bodies, 1, "shelf retry does not post renewal again")
 f = fixture({ expected_vid = "456" })
 eq(pcall(f.auth.renew, f.auth, previous), false, "wrong owner blocks renewal before HTTP")
 eq(#f.requests, 0, "wrong owner dispatches nothing")
+f = fixture()
+f.queue[1] = { code = false, callback = function(request)
+    expect(not request.sink(string.rep("x", 4 * 1024 * 1024 + 1)), "oversized response aborts the sink")
+end }
+ok, err = pcall(f.auth._request, f.auth, "chapter_catalog", "https://i.weread.qq.com/book/chapterInfos")
+eq(ok, false, "oversized response is rejected")
+eq(err, "native_auth/chapter_catalog/response_limit", "response limit is distinct from a disconnect")
 print("native_authorization_spec: " .. checks .. " checks")

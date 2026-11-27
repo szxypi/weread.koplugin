@@ -8,10 +8,23 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from urllib.parse import parse_qs, urlsplit
 import test_native_full_book_runtime as fixture
 from run_persistent_ui_probe import extract_candidate
 
-Handler=fixture.Handler
+class Handler(fixture.Handler):
+    def dispatch(self):
+        marker = self.server.interrupt_download
+        if marker is not None and marker.is_file() and self.command == 'GET':
+            target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+            if target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterdownload':
+                assert parse_qs(target.query).get('chapters') == ['0,37']
+                self.server.chapters.append('37')
+                self.server.interruptions += 1
+                self.close_connection = True
+                return
+        super().dispatch()
+
 fixture.body=lambda uid: '<html><body>' + ''.join(
     f'<p>Chapter {uid} native marker, paragraph {index}. Synthetic reader text for pagination.</p>'
     for index in range(1,101)) + '</body></html>'
@@ -51,6 +64,8 @@ def run_cases(runtime,server,candidate,full_only=False):
                     endpoint='http://127.0.0.1:'+str(server.server_port)
                     server.resume=server.expired=False;server.resume_marker=Path(root)/'resume';server.chapters=[]
                     server.valid=True;server.leaked=False;server.image_requests=server.tar_requests=0
+                    server.interrupt_download=Path(root)/'interrupt-download' if mode=='online' else None
+                    server.interruptions=0
                     payload=dict(credentials=credentials,mock_endpoint=endpoint,mode=mode,plugin_profile=mode=='full')
                     if mode=='full':
                         (Path(root)/'settings').mkdir();(Path(root)/'plugins').mkdir()
@@ -86,8 +101,9 @@ def run_cases(runtime,server,candidate,full_only=False):
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
                             assert damaged.read_bytes()==original+b'corrupt'
-                    expected={'copies':['37','38','38'],'online':['37','37','38'],'gap':['37','39']}.get(mode,['37','38'])
+                    expected={'copies':['37','38','38'],'online':['37','37','38','37'],'gap':['37','39']}.get(mode,['37','38'])
                     assert server.chapters==expected and server.valid and not server.leaked
+                    assert server.interruptions==int(mode=='online')
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)

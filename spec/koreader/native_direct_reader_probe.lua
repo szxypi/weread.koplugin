@@ -142,7 +142,8 @@ local fourth=assert(build());assert(not fourth.reused and fourth.path~=third.pat
 assert(assert(lfs.attributes(third.path)).size==damaged,'damaged prior file was replaced')
 local stale={};for key,value in pairs(expected) do stale[key]=value end
 stale.reading_catalog_sha256=string.rep('d',64)
+local before_stale=requests
 local result,reason=build(stale);assert(not result and reason=='catalog_changed')
-assert(requests==19)
+assert(requests-before_stale==2,'a stale catalog started the chapter body download')
 print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,requests=requests,reused=true,corrupt_preserved=true,
     receipt_preserved=true,missing_images=fourth.missing_images,path=fourth.path})

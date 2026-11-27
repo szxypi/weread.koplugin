@@ -89,11 +89,12 @@ function Auth:_request(stage, url, body, credentials, timeout, on_dispatch)
         end,
     })
     self:_current(stage)
+    if size > MAX_BYTES then fail(stage, "response_limit") end
     if not ok then fail(stage, "transport") end
+    if type(raw) == "string" and #raw > MAX_BYTES then fail(stage, "response_limit") end
     code = tonumber(code)
     if not code then fail(stage, "timeout") end
     raw = type(raw) == "string" and raw or table.concat(chunks)
-    if #raw > MAX_BYTES or size > MAX_BYTES then fail(stage, "response_limit") end
     if code < 200 or code >= 300 then fail(stage, "http_" .. tostring(code)) end
     local parsed, data = pcall(self.client.json_decode, self.client, raw)
     if not parsed or type(data) ~= "table" then fail(stage, "invalid_json") end

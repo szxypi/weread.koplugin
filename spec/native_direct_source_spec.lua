@@ -9,8 +9,10 @@ Access.matches=function() return current end
 local source={book_id='42',chapter_uid='37',book_version=1,catalog_sha256=string.rep('b',64),
     reading_catalog_sha256=string.rep('c',64),source_channel='eink',coordinate_source_authoritative=false,body='<p>Native</p>'}
 local source_error,remote_error,change_source,change_remote,remote_missing
+local received_catalog
 package.loaded['weread.lib.native_chapter_source']={fetch=function(_,_,_,book,uid,options)
     source_calls=source_calls+1;assert(book=='42' and uid=='37' and options.is_current())
+    received_catalog=options.expected_catalog
     if change_source then current=false end
     if source_error then return nil,source_error end
     return source
@@ -59,8 +61,9 @@ value,reason=Direct.fetch({}, {},'42','37',changed,options)
 assert(not value and reason=='session_changed' and source_calls==before)
 selected.renewal_pending=true;value,reason=fetch()
 assert(not value and reason=='session_changed' and source_calls==before);selected.renewal_pending=false
-for _,failure in ipairs({'not_entitled','auth_expired','rate_limited','service_rejected'}) do
+for _,failure in ipairs({'not_entitled','auth_expired','rate_limited','service_rejected','transport'}) do
     source_error=failure;value,reason=fetch();assert(not value and reason==failure)
+    assert(received_catalog==expected,'source request did not receive the expected catalog')
 end
 source_error=nil;remote_error='remote_unsupported';value,reason=fetch()
 assert(not value and reason=='remote_unsupported');remote_error=nil

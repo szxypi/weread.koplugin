@@ -184,9 +184,13 @@ else
         assert(host._native_direct_reading.menu==menu and not host._native_direct_reading.copy_menu
             and menu.page==1 and UI:getTopmostVisibleWidget()==menu and host.ui.document.file==second,
             'closing the copy chooser lost the chapter catalog')
+        connected=true
+        assert(assert(io.open(home..'/interrupt-download','wb')):close())
         menu:onMenuSelect(menu.item_table[1])
         wait(function() return host.message or host.opened or host._native_direct_reading and host._native_direct_reading.copy_menu end)
-        copies=assert(host._native_direct_reading.copy_menu)
+        assert(not host.message and not host.opened and host._native_direct_reading
+            and host._native_direct_reading.copy_menu,'disconnected transport did not fall back to local copies')
+        copies=host._native_direct_reading.copy_menu
         local missing
         for _,candidate in ipairs(copies.item_table) do
             if candidate.text:find(tr('%1 images unavailable'):gsub('%%1','1'),1,true) then missing=candidate end

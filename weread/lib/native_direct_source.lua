@@ -23,7 +23,8 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
         return nil,'session_changed'
     end
     if not current() then return nil,'session_changed' end
-    local source,why=Source.fetch(client,settings,selected,book_id,chapter_uid,{is_current=current})
+    local source,why=Source.fetch(client,settings,selected,book_id,chapter_uid,
+        {is_current=current,expected_catalog=expected})
     if not source then return nil,why or 'unavailable' end
     if not current() then return nil,'session_changed' end
     if source.book_id~=book_id or source.chapter_uid~=chapter_uid or source.book_version~=expected.book_version
