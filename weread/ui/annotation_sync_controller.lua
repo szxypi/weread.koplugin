@@ -78,20 +78,26 @@ function M:_annotationBinding()
     local book = ReadAccess.load_cached_book(self.settings, book_id)
     if not book then return nil end
     return { book_id = tostring(book_id), title = book.title, author = book.author,
-        format = book.format, automatic = true }
+        format = book.format, automatic = true }, book
 end
 
-function M:_usesUnifiedAnnotations()
+function M:_usesUnifiedAnnotations(context)
     if self._unified_annotations_active ~= nil then return self._unified_annotations_active end
-    local binding = self:_annotationBinding()
-    if not binding then return false end
-    if binding.automatic then
-        local book = ReadAccess.load_cached_book(self.settings, binding.book_id)
-        local descriptor = Chapters.descriptor(book, file(self))
-        if descriptor and descriptor.clean then return true end
+    local binding, descriptor, store, key
+    if context then
+        binding, descriptor, store, key = context.binding, context.descriptor, context.store, context.document_key
+    else
+        local book
+        binding, book = self:_annotationBinding()
+        if not binding then return false end
+        if binding.automatic then
+            book = book or ReadAccess.load_cached_book(self.settings, binding.book_id)
+            descriptor = Chapters.descriptor(book, file(self))
+        end
     end
-    local store = self:_annotationStore()
-    local key = store.documentKey(file(self))
+    if descriptor and descriptor.clean then return true end
+    store = store or self:_annotationStore()
+    key = key or store.documentKey(file(self))
     return store:get(binding.book_id, "display", key) == true
         or store:get(binding.book_id, "manual_only", key) == true
 end
@@ -101,7 +107,7 @@ function M:_prepareAnnotationContext(online, refresh_catalog)
     if not path or not self:_xpointerOverlayPrototypeAvailable() then return nil end
     local perf = PluginUtil.reader_open_perf
     local started = perf("context_begin", nil, "session=", self._reader_session_gen)
-    local binding = self:_annotationBinding()
+    local binding, book = self:_annotationBinding()
     started = perf("annotation_binding", started, "book_id=", binding and binding.book_id or "none")
     if not binding then return nil end
     local context = self._annotation_context
@@ -112,7 +118,7 @@ function M:_prepareAnnotationContext(online, refresh_catalog)
     end
     local store = self:_annotationStore()
     local book_id = tostring(binding.book_id)
-    local book = ReadAccess.load_cached_book(self.settings, book_id)
+    book = book or ReadAccess.load_cached_book(self.settings, book_id)
     local descriptor = binding.automatic and Chapters.descriptor(book, path)
     local catalog = store:get(book_id, "meta", "catalog") or book and book.chapters
     if online and (not catalog or refresh_catalog) then
@@ -748,7 +754,7 @@ function M:onUnifiedAnnotationsReady()
     if self:_annotationSummary(context).located > 0 then
         context.store:put(context.book_id, "display", context.document_key, true)
     end
-    self._unified_annotations_active = self:_usesUnifiedAnnotations()
+    self._unified_annotations_active = self:_usesUnifiedAnnotations(context)
     started = perf("annotation_display_state", started)
     self:_refreshAnnotationOverlay()
     started = perf("saved_annotation_overlay", started)

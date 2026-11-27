@@ -6,6 +6,7 @@ local NativePosition=require('weread.lib.chapter_link_position')
 local Identity=require('weread.lib.book_file_identity')
 local Context=require('weread.lib.source_context')
 local BookLinks=require('weread.lib.book_link_paths')
+local ReadAccess=require('weread.lib.read_access')
 local Crypto=require('weread.lib.crypto')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
@@ -26,8 +27,8 @@ local function location(host)
     return Context.location(host.ui.document,host.ui.view and host.ui.view.view_mode or 'page')
 end
 local function catalog(host,id)
-    local book=host.settings:get_book(id)
-    if type(book)=='table' and host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book) end
+    local book=ReadAccess.load_cached_book(host.settings,id)
+    if book and host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book,true) end
     if type(book)~='table' or not dense(book.chapters,Task.MAX_CATALOG) or #book.chapters==0 then return end
     local chapters,stamp={},{}
     for index,chapter in ipairs(book.chapters) do
@@ -49,23 +50,29 @@ local function catalog(host,id)
     end
     return book,chapters,Crypto.sha256_hex(host.client:json_encode(stamp))
 end
-local function describe(host)
+local function standalone_reader(host)
     local ui=host.ui
     local id=host._current_weread_book_id
     if not id or not ui or not ui.document or not ui.rolling or not ui.link then return end
     id=tostring(id)
     local identity=Identity.read_document(ui.document,id)
     if identity.chapter_count~=1 then return end
+    return ui,id,identity
+end
+local function describe(host)
+    local ui,id,identity=standalone_reader(host)
+    if not ui then return end
+    local owner=account(host)
+    local auth=owner and host.settings:get_auth_scope()
+    if not auth or not host.settings:auth_scope_matches(auth) then return end
     local book,chapters,digest=catalog(host,id)
     if not book then return end
     local chapter,full=select(2,host:getChapterInfoFromFile(book,ui.document.file))
     if not chapter or full then return end
     local uid=tostring(chapter.chapterUid or chapter.uid or '')
-    if uid=='' or not book.cached_chapters or book.cached_chapters[uid]~=ui.document.file then return end
-    local auth=host.settings:get_auth_scope()
-    if not account(host) or not host.settings:auth_scope_matches(auth) then return end
+    if uid=='' or ReadAccess.cached_chapter(book.cached_chapters,uid)~=ui.document.file then return end
     return {book_id=id,uid=uid,path=ui.document.file,file_id=identity.file_id,chapters=chapters,
-        catalog=digest,owner=account(host),auth=auth}
+        catalog=digest,owner=owner,auth=auth}
 end
 local function same(host,job,closed)
     local elapsed=os.time()-job.started
@@ -112,8 +119,9 @@ local function frame(host,job,direction,index)
 end
 local function open(host,job,result)
     if not same(host,job,false) then M.cancel(host);return end
-    local book=host.settings:get_book(job.book_id)
-    if not book or not book.cached_chapters or book.cached_chapters[result.target_uid]~=result.target_path then fail(host,job);return end
+    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
+    if not book or type(result.target_path)~='string' or result.target_path==''
+        or ReadAccess.cached_chapter(book.cached_chapters,result.target_uid)~=result.target_path then fail(host,job);return end
     job.source_sha256=result.source_sha256
     local departing=frame(host,job,job.direction,job.index)
     local sync=host.progress_sync
@@ -176,8 +184,9 @@ end
 local prepare
 local function download(host,job,result)
     if job.downloaded then fail(host,job);return end
-    local book=host.settings:get_book(job.book_id)
-    if book and host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book) end
+    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
+    if not book then fail(host,job);return end
+    if host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book,true) end
     local chapter
     for _i,item in ipairs(book.chapters or {}) do
         if tostring(item.chapterUid or item.uid or '')==result.target_uid then chapter=item;break end
@@ -200,8 +209,13 @@ local function download(host,job,result)
     if not ok or not started then fail(host,job) end
 end
 prepare=function(host,job)
-    local book=host.settings:get_book(job.book_id)
-    local cached={};for uid,path in pairs(book.cached_chapters or {}) do cached[tostring(uid)]=path end
+    local book=ReadAccess.load_cached_book(host.settings,job.book_id)
+    if not book then fail(host,job);return end
+    local cached={}
+    for uid in pairs(book.cached_chapters or {}) do
+        local key=tostring(uid)
+        cached[key]=ReadAccess.cached_chapter(book.cached_chapters,key)
+    end
     local input={book_id=job.book_id,chapter_uid=job.uid,file=job.path,file_id=job.file_id,
         native_uri=job.native_uri,chapters=job.chapters,cached_chapters=cached}
     return work(host,job,function() return Task.prepare(input) end,function(result)
@@ -242,13 +256,18 @@ function M.detach(host)
 end
 function M.attach(host)
     M.detach(host)
-    if not describe(host) then return false end
-    local link=host.ui.link
-    local state={link=link,document=host.ui.document,wrappers={},originals={}}
+    -- Document identity is already pinned when the reader opens. Defer the
+    -- catalog and account checks until a candidate crosses a file boundary.
+    local ui=standalone_reader(host)
+    if not ui then return false end
+    local link=ui.link
+    local state={link=link,document=ui.document,wrappers={},originals={}}
     host._chapter_links=state
-    local function active() return host._chapter_links==state and host.ui.document==state.document and host.ui.link==link end
+    local function active() return host._chapter_links==state and host.ui==ui and ui.document==state.document and ui.link==link end
     local function install(name,handler)
-        local original=link[name];state.originals[name]=original
+        local original=link[name]
+        if type(original)~='function' then return end
+        state.originals[name]=original
         local wrapper=function(link_self,...)
             if active() and handler(...) then return true end
             return original(link_self,...)

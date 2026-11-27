@@ -13,23 +13,30 @@ package.preload['weread.lib.memory_worker']=function() return {new=function()
 end} end
 local M=require('weread.ui.chapter_links')
 local History=require('weread.lib.chapter_link_history')
+local Access=require('weread.lib.read_access')
 local count=0
 local function expect(value,message) count=count+1;assert(value,message) end
 local function pump() local tasks=queue;queue={};for _i,fn in ipairs(tasks) do fn() end end
 local function setup()
     queue,workers={},{}
-    local state={owner='owner',epoch=1,opens=0,messages=0,cancels=0,downloads=0,native=0}
+    local state={owner='owner',epoch=1,opens=0,messages=0,cancels=0,downloads=0,native=0,
+        book_reads=0,catalog_reads=0,auth_reads=0,hashes=0}
     local files={['/a.epub']={uid='1',id=string.rep('a',64)},['/b.epub']={uid='2',id=string.rep('b',64)}}
     local book={bookId='900001',chapters={{chapterUid=1,files={'body.xhtml'}},{chapterUid=2,files={'notes.xhtml'}}},
         cached_chapters={['1']='/a.epub',['2']='/b.epub'}}
     local client={json_encode=function(_self,value)
+        state.hashes=state.hashes+1
         local function encode(item)
             if type(item)~='table' then return tostring(item) end
             local out={};for _i,child in ipairs(item) do out[#out+1]=encode(child) end;return table.concat(out,'|')
         end
         return encode(value)
     end}
-    local settings={get_book=function() return book end,get_auth_scope=function() return {epoch=state.epoch} end,
+    local settings={get_book=function(_, id, legacy)
+            assert(id=='900001' and legacy)
+            state.book_reads=state.book_reads+1
+            return book
+        end,get_auth_scope=function() state.auth_reads=state.auth_reads+1;return {epoch=state.epoch} end,
         auth_scope_matches=function(_self,auth) return auth and auth.epoch==state.epoch end}
     local make
     make=function(path)
@@ -50,7 +57,14 @@ local function setup()
             begin_file_resume_departure=function() end,begin_file_resume=function(self) self.navigation_generation=1;return {} end,
             finish_file_resume=function(_self,_frame,applied) state.applied=applied end}
         function host:getChapterInfoFromFile(_book,file)
-            for index,chapter in ipairs(book.chapters) do if book.cached_chapters[tostring(chapter.chapterUid)]==file then return index,chapter,false end end
+            for index,chapter in ipairs(book.chapters) do
+                if Access.cached_chapter(book.cached_chapters,tostring(chapter.chapterUid))==file then return index,chapter,false end
+            end
+        end
+        function host:ensureChaptersLoaded(target,read_only)
+            assert(read_only,'cross-chapter link rewrote the catalog')
+            state.catalog_reads=state.catalog_reads+1
+            return target.chapters
         end
         function host:showBusy(_text,cancel) self.busy_message={};state.cancel=cancel end
         function host:closeBusy() self.busy_message=nil end
@@ -69,6 +83,8 @@ local function setup()
         return host
     end
     local host=make('/a.epub');expect(M.attach(host),'standalone hooks missing')
+    expect(state.book_reads==0 and state.catalog_reads==0 and state.auth_reads==0 and state.hashes==0,
+        'installing chapter hooks prepared an unused catalog')
     local function click() return host.ui.link:onGotoLink({xpointer='OEBPS/text/notes.xhtml#note',from_xpointer='/body/link'}) end
     local function ready()
         return {kind='ready',source_sha256=string.rep('c',64),target_uid='2',target_path='/b.epub',
@@ -135,6 +151,9 @@ expect(state.downloads==1 and state.messages==1,'unverified download was blindly
 host,state,book,click,ready=setup()
 expect(host.ui.link:onGotoLink({xpointer='https://example.org/book'})=='native','external URL claimed')
 expect(host.ui.link:onGotoLink({xpointer='#_doc_fragment_0_ local'})=='native','local native link claimed')
+expect(host.ui.link:onGoBackLink()=='native' and host.ui.link:onGoForwardLink()=='native'
+    and state.book_reads==0 and state.catalog_reads==0 and state.auth_reads==0 and state.hashes==0,
+    'native links or empty history prepared a catalog')
 local wrapper=host.ui.link.onGotoLink;local later=function() end;host.ui.link.onGotoLink=later;M.detach(host)
 expect(host.ui.link.onGotoLink==later,'detach removed later third party handler')
 expect(wrapper(host.ui.link,{xpointer='OEBPS/text/notes.xhtml#note'})=='native','detached stale handler retained ownership')
@@ -142,6 +161,15 @@ host,state,book,click,ready=setup();book.chapters[4]={chapterUid=4,files={'notes
 expect(click()=='native' and not host._chapter_link_job,'sparse source catalog was silently projected')
 host,state,book,click,ready=setup();book.chapters[2].files={[2]='notes.xhtml'}
 expect(click()=='native' and not host._chapter_link_job,'sparse source paths were silently projected')
+host,state,book,click,ready=setup();state.owner=nil
+expect(click()=='native' and not host._chapter_link_job and state.book_reads==0,
+    'signed-out chapter link prepared a catalog or claimed native fallback')
+state.owner='owner';book.cached_chapters={[1]='/a.epub',[2]='/b.epub'}
+expect(click()==true and host._chapter_link_job,'current auth or legacy cache keys were rejected after open')
+workers[1].callback(ready());expect(state.opens==1,'verified numeric chapter mapping did not open the target')
+host,state,book,click=setup();book.bookId='990900'
+expect(click()=='native' and not host._chapter_link_job and state.catalog_reads==0,
+    'conflicting cached book was used for chapter navigation')
 host,state,book,click,ready=setup();click();local detached=workers[1];M.detach(host);detached.callback(ready())
 expect(state.opens==0 and detached.cancelled,'closed source accepted a late worker result')
 host,state,book,click,ready=setup();click();workers[1].callback(ready());local target_host=state.child

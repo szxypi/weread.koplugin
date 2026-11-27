@@ -56,9 +56,9 @@ host.settings={get_book=function(_,id,legacy_numeric)
     return Access.cached_key(books,id)
 end,get=function() error('annotation setup loaded unrelated books') end}
 detected=42;books={[42]={book_id=42,title='Legacy book',annotation_documents={[path]={clean=true,chapters={}}}}}
-assert(host:_usesUnifiedAnnotations() and targeted_reads==2,'indexed lookup lost a legacy book descriptor')
+assert(host:_usesUnifiedAnnotations() and targeted_reads==1,'indexed lookup lost or reloaded a legacy book descriptor')
 context=assert(host:_prepareAnnotationContext(false))
-assert(context.book==books[42] and context.descriptor==books[42].annotation_documents[path] and targeted_reads==4)
+assert(context.book==books[42] and context.descriptor==books[42].annotation_documents[path] and targeted_reads==2)
 books[42].bookId='43'
 assert(not host:_annotationBinding(),'indexed lookup bypassed the stored book identity check')
 print('annotation_book_identity_spec: safe book binding and descriptors passed')

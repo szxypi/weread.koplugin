@@ -690,5 +690,36 @@ do
     captured = {}
     assert(host:canPrefetchAnnotations(), "native-only authorization blocked annotation prefetch")
 end
+do
+    local path = "/cache/ready-chapter.epub"
+    local id = "900733"
+    local chapters = {{chapterUid="2",title="Recorded chapter"}}
+    local selected_book = {book_id=id,title="Cached book",cached_chapters={["2"]=path},
+        annotation_documents={[path]={clean=true,chapters=chapters}}}
+    local reads, refreshed = 0, 0
+    local opening = setmetatable({
+        ui={document={file=path,getToc=function() return {{title=chapters[1].title,xpointer="/body/chapter"}} end}},
+        settings={
+            get_book=function(_, requested, legacy)
+                assert(requested==id and legacy)
+                reads=reads+1
+                return selected_book
+            end,
+            get=function(_, key, default)
+                assert(key~="books")
+                return key=="cache" and {} or default
+            end,
+        },
+        annotation_store=store,external_annotations_db=store.legacy,
+        detectWeReadBook=function() return id end,
+        _xpointerOverlayPrototypeAvailable=function() return true end,
+        _refreshAnnotationOverlay=function() refreshed=refreshed+1 end,
+    }, {__index=Controller})
+    opening:onUnifiedAnnotationsReady()
+    local prepared=assert(opening._annotation_context)
+    assert(reads==1 and prepared.book==selected_book and opening._unified_annotations_active
+        and prepared.chapters[1]==chapters[1] and refreshed==1,
+        "automatic annotation setup reloaded the book or lost its saved chapter descriptor")
+end
 helper.cleanup()
 print("annotation_sync_controller_spec: consent, completion, cancellation, sessions and prefetch passed")

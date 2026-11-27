@@ -215,17 +215,6 @@ function M:onReaderReady()
         -- we must intercept taps on thought links to suppress the native footnote
         -- popup. Visibility is decided inside _onThoughtTap / applyAnnotationVisibility.
         self:_setupThoughtInterception()
-        if self.settings:get("cache").show_annotations ~= false
-            and not (self._usesUnifiedAnnotations and self:_usesUnifiedAnnotations()) then
-            local db_session_gen = self._reader_session_gen
-            UIManager:scheduleIn(0.1, function()
-                if db_session_gen ~= self._reader_session_gen
-                    or self._current_weread_book_id ~= weread_book_id then
-                    return
-                end
-                self:_ensureThoughtDB(weread_book_id)
-            end)
-        end
     end
     if weread_book_id or require('weread.lib.native_direct_path').contains(self.settings,local_file) then
         if not self._orig_onEndOfBook and self.ui.status and type(self.ui.status.onEndOfBook) == "function" then
@@ -249,6 +238,17 @@ function M:onReaderReady()
     self:_setupXPointerOverlayPrototype()
     perf("overlay_setup", prepared)
     if self.onUnifiedAnnotationsReady then self:onUnifiedAnnotationsReady() end
+    if weread_book_id and self.settings:get("cache").show_annotations ~= false
+        and not (self._usesUnifiedAnnotations and self:_usesUnifiedAnnotations()) then
+        local db_session_gen = self._reader_session_gen
+        UIManager:scheduleIn(0.1, function()
+            if db_session_gen ~= self._reader_session_gen
+                or self._current_weread_book_id ~= weread_book_id then
+                return
+            end
+            self:_ensureThoughtDB(weread_book_id)
+        end)
+    end
     personal_action(self,'attach')
 
     local annotations_ready = perf("annotations_ready", opened)
