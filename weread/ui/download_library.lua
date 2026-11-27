@@ -19,7 +19,7 @@ end
 local function collect(host, current)
     local account = host.library_db and host.library_db:accountKey()
     if not account then return {}, {} end
-    local saved = host.settings:get('books', {})
+    local saved = host.settings:download_books()
     local shelf = host.library_db:getShelf() or {}
     local scope=host.settings.get_auth_scope and host.settings:get_auth_scope()
     local records={}

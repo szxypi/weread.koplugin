@@ -179,6 +179,13 @@ local function merge(target, source)
     end
 end
 
+local function merge_fields(target, source, fields)
+    if type(source) ~= 'table' then return end
+    for _, key in ipairs(fields) do
+        if source[key] ~= nil then target[key] = source[key] end
+    end
+end
+
 local function has_values(value)
     return next(value) ~= nil
 end
@@ -262,12 +269,6 @@ end
 -- article or synchronization data. Resume still loads the chosen book.
 local home_fields={'book_id','bookId','title','author','cover','category','_library_account_key',
     'recent_read_at','recent_read_account','home_recent_at','home_recent_account'}
-local function merge_home(target,source)
-    if type(source)~='table' then return end
-    for _,key in ipairs(home_fields) do
-        if source[key]~=nil then target[key]=source[key] end
-    end
-end
 
 function BookStore.home_books(settings,indexes,account)
     local result={}
@@ -286,16 +287,49 @@ function BookStore.home_books(settings,indexes,account)
             local metadata=read_json(dir..'/metadata.json')
             if not state and not exists(path) then state=legacy_state(dir,metadata,account) end
             local book={}
-            merge_home(book,index)
-            merge_home(book,metadata)
+            merge_fields(book,index,home_fields)
+            merge_fields(book,metadata,home_fields)
             book.home_recent_account,book.home_recent_at=nil,nil
-            merge_home(book,state)
+            merge_fields(book,state,home_fields)
             book.book_id=book.book_id or book.bookId or tostring(key)
             if book.home_recent_account==account and valid_time(book.home_recent_at)
                 or book.home_recent_account==nil and book.recent_read_account==account and valid_time(book.recent_read_at) then
                 result[key]=book
             end
         end
+    end
+    return result
+end
+
+local download_fields = {
+    'book_id', 'bookId', 'bookInfo', 'book', 'title', 'author', 'authors', 'cover', 'category',
+    'reason', 'searchIdx', 'idx', 'cached_full_book', 'cached_file', 'cached_chapters',
+    '_library_account_key', 'recent_read_account', 'home_recent_account',
+}
+
+-- The download list only needs cache paths, display data and ownership.
+-- When metadata has no owner, keep the reader's legacy ownership fallback.
+function BookStore.download_books(settings, indexes)
+    local scope = settings.account_state_scope and settings:account_state_scope()
+    local result = {}
+    for key, index in pairs(indexes) do
+        local dir = resolved_dir(settings, key, index)
+        local metadata = read_json(dir .. '/metadata.json')
+        local book = {}
+        merge_fields(book, index, download_fields)
+        merge_fields(book, metadata, download_fields)
+        book.book_id = book.book_id or book.bookId or tostring(key)
+        if book._library_account_key == nil then
+            local path, account = scoped_path(settings, dir, scope)
+            if path ~= nil then
+                local state = path and scoped_state(dir, metadata, path, account)
+                book.home_recent_account = state and state.home_recent_account or nil
+            else
+                local state = read_json(dir .. '/reading_state.json')
+                if state and state.home_recent_account ~= nil then book.home_recent_account = state.home_recent_account end
+            end
+        end
+        result[key] = book
     end
     return result
 end

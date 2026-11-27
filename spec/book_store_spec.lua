@@ -443,6 +443,38 @@ expect(#actual==#expected and actual[1].bookId=='52' and actual[2].bookId=='51'
 active=owner_b
 expect(not next(BookStore.home_books(scoped,indexes,owner_a)) and not next(BookStore.home_books(scoped,indexes,nil)),
     'home projection exposed another account or signed-out events')
+
+active=owner_a
+local chapter_path=current_home.cache_dir..'/saved.epub'
+local download_check=BookStore.load(scoped,'52',current_home)
+download_check.cached_chapters={['7']=chapter_path}
+expect(BookStore.save(scoped,'52',download_check),'could not prepare cached chapter projection')
+indexes['book/42']=index
+indexes['54']={book_id='55',title='Conflicting inline record',cached_file='legacy.epub',_library_account_key=owner_a}
+account_reads=0
+rawset(io,'open',function(path,...)
+    expect(not path:match('/articles%.json$') and path~=scoped_path
+        and path~=index.cache_dir..'/.weread-accounts/'..owner_a..'/reading_state.json',
+        'download listing loaded articles or a checkpoint for a book with a known owner')
+    return original_open(path,...)
+end)
+local downloaded=BookStore.download_books(scoped,indexes)
+rawset(io,'open',original_open)
+expect(account_reads==1 and downloaded['51'].home_recent_account==owner_a and downloaded['52'].home_recent_account==owner_a
+    and downloaded['52'].author=='Reader' and downloaded['52'].cached_chapters['7']==chapter_path
+    and not downloaded['52'].pending_upload_position and not downloaded['52'].mp_articles,
+    'download listing lost a legacy owner, cached chapter or display field')
+local read_access=require('weread.lib.read_access')
+expect(read_access.cached_book(downloaded,'53').title=='Preferred'
+    and downloaded[53].title=='Legacy alias' and read_access.cached_book(downloaded,'54')==nil
+    and downloaded['54'].cached_file=='legacy.epub',
+    'download listing changed selection of legacy numeric keys or ignored a conflicting identity')
+active=owner_b
+downloaded=BookStore.download_books(scoped,indexes)
+expect(downloaded['book/42']._library_account_key==owner_b and not downloaded['52'].home_recent_account
+    and downloaded['52'].cached_chapters['7']==chapter_path,
+    'download listing borrowed the first account checkpoint or lost the shared cache path')
+indexes['book/42'],indexes['54']=nil,nil
 for _,record in pairs(indexes) do
     local directory=record.cache_dir
     os.remove(directory..'/.weread-accounts/'..owner_a..'/reading_state.json')

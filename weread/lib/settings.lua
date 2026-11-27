@@ -283,6 +283,10 @@ function Settings:home_recent_books(account)
     return BookStore.home_books(self,self:get_book_indexes() or {},account)
 end
 
+function Settings:download_books()
+    return BookStore.download_books(self,self:get_book_indexes() or {})
+end
+
 -- Load only the records needed by one view update. Retain the stored key
 -- when loading a legacy numeric index.
 function Settings:book_lookup()
