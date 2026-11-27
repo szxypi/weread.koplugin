@@ -1321,7 +1321,12 @@ function M:showShelfView(mode, keyword, old_view, options)
                 on_redraw = function()
                     if not current() then return end
                     if not progress_filtered and self.repaintShelfProgress then
-                        local updated = self:repaintShelfProgress(view, progress_books)
+                        local updated = self:repaintShelfProgress(view, function(current_books)
+                            if cover_mode then return self:prepareShelfProgress(current_books) end
+                            local lookup = ReadAccess.book_lookup(self.settings)
+                            local dates = book_status(current_books, lookup, {})
+                            return self:prepareShelfProgress(current_books, lookup), dates
+                        end)
                         if updated then progress_snapshots = updated;return end
                     end
                     -- A later cover redraw or page change can replace this deferred redraw.

@@ -319,6 +319,115 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     assert(grid_report:write(client:json_encode({shelf=shelf_region,home=home_region,pixels_equal=true,
         stable_order=true,sorted_on_reopen=true,filtered_again=true,reading_writes=0})))
     assert(grid_report:close())
+
+    local function check_list_repaint(view, requests_before, clipped)
+        UIManager:forceRePaint()
+        local BB=require('ffi/blitbuffer')
+        assert(Screen.bb:getBpp()==8,'expected the grayscale emulator framebuffer')
+        local initial_pixels=BB.tostring(Screen.bb)
+        local row,other=view._item_rows[1],view._item_rows[2]
+        assert(row.status:find('91%%') and other.status:find('55%%'))
+        local old_frame,other_frame=row.frame,other.frame
+        local offset,focus=view:getScrollOffset(),view:getFocusItem()
+        local expected=old_frame.dimen:copy()
+        if clipped then
+            local viewport=view.scroll.dimen
+            assert(view.scroll._is_scrollable and expected.y<viewport.y and offset.y>0,'expected a clipped top row')
+            expected=expected:intersect(require('ui/geometry'):new{
+                x=viewport.x,y=viewport.y,w=view.scroll._crop_w,h=view.scroll._crop_h,
+            })
+        end
+        local repaint,set_dirty=UIManager.widgetRepaint,UIManager.setDirty
+        local paints,regions=0,{}
+        UIManager.widgetRepaint=function(ui,widget,...)
+            if widget==(clipped and view.scroll or row.frame) then paints=paints+1 end
+            return repaint(ui,widget,...)
+        end
+        UIManager.setDirty=function(ui,widget,mode,region,...)
+            if not widget and mode=='ui' and region then regions[#regions+1]=region end
+            return set_dirty(ui,widget,mode,region,...)
+        end
+        local ok,failure=pcall(wait_progress)
+        UIManager.widgetRepaint,UIManager.setDirty=repaint,set_dirty
+        assert(ok,failure)
+        assert(plugin.shelf_view==view and row==view._item_rows[1] and row.frame~=old_frame
+            and row.status:find('0%%') and other.frame==other_frame and paints==1 and #regions==1,
+            'list progress replaced the page or repainted the wrong content')
+        assert(view:getScrollOffset().y==offset.y and view:getFocusItem()==focus and row.frame.invert,
+            'list progress lost the scroll offset or focus')
+        local dirty=regions[1]
+        assert(dirty.x==expected.x and dirty.y==expected.y and dirty.w==expected.w and dirty.h==expected.h
+            and count('/web/book/getProgress')==requests_before+1,'list progress escaped the visible row or repeated a request')
+        UIManager:forceRePaint()
+        local partial=BB.tostring(Screen.bb)
+        local stride=tonumber(Screen.bb.stride)
+        local first,last=dirty.y*stride,(dirty.y+dirty.h)*stride+1
+        assert(initial_pixels:sub(1,first)==partial:sub(1,first) and initial_pixels:sub(last)==partial:sub(last),
+            'list progress changed pixels above or below the requested region')
+        for y=dirty.y,dirty.y+dirty.h-1 do
+            local start=y*stride
+            local left,right=start+dirty.x,start+dirty.x+dirty.w+1
+            assert(initial_pixels:sub(start+1,left)==partial:sub(start+1,left)
+                and initial_pixels:sub(right,start+stride)==partial:sub(right,start+stride),
+                'list progress changed pixels beside the requested region')
+        end
+        UIManager:setDirty(view,'ui',view.dimen);UIManager:forceRePaint()
+        assert(partial==BB.tostring(Screen.bb),'list progress pixels differed from a full repaint')
+        return {w=dirty.w,h=dirty.h,scroll_y=offset.y}
+    end
+
+    local Device=require('device')
+    local Focus=require('ui/widget/focusmanager')
+    local has_dpad=Device.hasDPad
+    Device.hasDPad=function() return true end
+    local function focus_first(view)
+        view:moveFocusTo(1, view._first_item_focus_row, Focus.FORCED_FOCUS)
+        assert(view:getFocusItem()==view._item_rows[1],'list did not focus the first row')
+    end
+    plugin:closeWeReadUI()
+    plugin.shelf_filters={}
+    shelf.view_mode='list';shelf.paginated=true;settings:set('shelf',shelf)
+    reset_grid_progress()
+    gets=count('/web/book/getProgress')
+    plugin:showShelfView('books')
+    focus_first(plugin.shelf_view)
+    local list_page=check_list_repaint(plugin.shelf_view,gets,false)
+    plugin:closeWeReadUI()
+    reset_grid_progress()
+    home.view_mode='list'
+    gets=count('/web/book/getProgress')
+    plugin:showDiscoveryPage('home',grid_books,{title='合成文字进度',home=home})
+    plugin:stopHomeStatusTimer()
+    focus_first(plugin.shelf_view)
+    local home_list=check_list_repaint(plugin.shelf_view,gets,false)
+    plugin:closeWeReadUI()
+
+    local scroll_books={a,b}
+    local recent={{book_id=a.bookId,percent=91,exact_percent=91,fetched_at=os.time()},
+        {book_id=b.bookId,percent=55,exact_percent=55,fetched_at=os.time()}}
+    for i=3,64 do
+        local id=tostring(991000+i)
+        scroll_books[i]={bookId=id,title='连续书架合成测试'..i}
+        recent[i]={book_id=id,percent=42,exact_percent=42,fetched_at=os.time()}
+    end
+    assert(plugin.library_db:putShelfProgress(recent))
+    plugin:applyShelfSnapshot(scroll_books,{})
+    shelf.paginated=false;settings:set('shelf',shelf)
+    plugin:showShelfView('books')
+    local scrolling=plugin.shelf_view
+    focus_first(scrolling);UIManager:forceRePaint()
+    recent[1].fetched_at=0
+    assert(plugin.library_db:putShelfProgress({recent[1]}))
+    scrolling:prepareVisibleStatus()[a.bookId].fetched_at=0
+    gets=count('/web/book/getProgress')
+    scrolling.scroll:_scrollBy(0,math.floor(scrolling._item_rows[1]:getSize().h/2))
+    local scroll_list=check_list_repaint(scrolling,gets,true)
+    Device.hasDPad=has_dpad
+    assert(count('/web/book/read')==writes,'list progress sent a reading write')
+    local list_report=assert(io.open(evidence..'/shelf-list-progress-repaint.json','wb'))
+    assert(list_report:write(client:json_encode({shelf=list_page,home=home_list,scroll=scroll_list,
+        pixels_equal=true,focus_preserved=true,reading_writes=0})))
+    assert(list_report:close())
     plugin:closeWeReadUI()
     plugin.shelf_filters=old_filters
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})

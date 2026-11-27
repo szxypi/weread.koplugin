@@ -233,7 +233,9 @@ function M:showDiscoveryPage(tab, books, options)
         self:refreshVisibleShelfProgress(view, visible, snapshots, {
             force = force, on_redraw = function()
                 if self.repaintShelfProgress then
-                    local updated = self:repaintShelfProgress(view, visible)
+                    local updated = self:repaintShelfProgress(view, function(current_books)
+                        return self:prepareShelfProgress(current_books)
+                    end)
                     if updated then snapshots = updated;return end
                 end
                 Popup.redrawForMetadata(self,view,function() redraw(view.page or page) end)

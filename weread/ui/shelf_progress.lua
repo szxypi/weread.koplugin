@@ -5,11 +5,11 @@ local Identity = require("weread.lib.shelf_snapshot")
 local NetworkLink = require("weread.lib.network_link")
 local M = {}
 
-function M:repaintShelfProgress(view, books)
+function M:repaintShelfProgress(view, prepare)
     local popup = require("weread.ui.shelf_popup")
     if not view.refreshVisibleProgress or not popup.canRedrawNow(self, view)
         or not view._finish_current or not view._finish_current() or view._finish_dirty then return end
-    return view:refreshVisibleProgress(function() return self:prepareShelfProgress(books) end)
+    return view:refreshVisibleProgress(prepare)
 end
 
 function M:prepareShelfProgress(books,saved_books)

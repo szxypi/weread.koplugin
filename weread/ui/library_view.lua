@@ -1118,21 +1118,22 @@ function LibraryView:getVisibleBooks()
     return result
 end
 
-function LibraryView:prepareVisibleStatus(books)
+function LibraryView:prepareVisibleStatus(books, refresh)
     if not self.on_prepare_visible_status then return {} end
     books = books or self:getVisibleBooks()
     local first, last = books[1], books[#books]
-    if self._visible_status_snapshots and first == self._visible_status_first and last == self._visible_status_last then
+    if not refresh and self._visible_status_snapshots
+        and first == self._visible_status_first and last == self._visible_status_last then
         return self._visible_status_snapshots
     end
     local added, current_books = {}, {}
-    local known = self._visible_status_books or {}
+    local known = not refresh and self._visible_status_books or {}
     for _, book in ipairs(books) do
         current_books[book] = true
         if not known[book] then added[#added + 1] = book end
     end
     local fresh, dates = self.on_prepare_visible_status(added)
-    if not fresh then return {} end
+    if not fresh then return not refresh and {} or nil end
     local snapshots, read_times = {}, {}
     for _, book in ipairs(books) do
         local id = ShelfSnapshot.persisted_id(book)
@@ -1837,8 +1838,8 @@ local function rotation_changed(view)
     return view.screen_w~=Screen:getWidth() or view.screen_h~=Screen:getHeight() or view.screen_rotation~=rotation
 end
 
-local function cover_grid_visible(self)
-    return self.cover_mode and self.scroll and self.scroll._is_scrollable == false
+local function layout_visible(self)
+    return self.scroll and self.scroll._is_scrollable ~= nil
         and not self._shelf_closed and not self._rotation_pending and not self._rotation_task and not rotation_changed(self)
         and not BD.mirroredUILayout() and UIManager.widgetRepaint and UIManager.getTopmostVisibleWidget
         and UIManager:getTopmostVisibleWidget() == self
@@ -1861,7 +1862,7 @@ local function repaint_cover_cells(updates)
 end
 
 function LibraryView:refreshVisibleCovers(cache)
-    if not cover_grid_visible(self) then return false end
+    if not self.cover_mode or not layout_visible(self) or self.scroll._is_scrollable then return false end
     local updates = {}
     for _, cell in ipairs(self._item_rows) do
         local path = cache:pathFor(cell.book)
@@ -1881,9 +1882,9 @@ function LibraryView:refreshVisibleCovers(cache)
     return true
 end
 
-function LibraryView:refreshVisibleProgress(prepare)
-    if not cover_grid_visible(self) then return end
-    local snapshots = prepare()
+local function refresh_grid_progress(self, prepare)
+    if self.scroll._is_scrollable then return end
+    local snapshots = prepare(self:getVisibleBooks())
     local updates = {}
     for _, cell in ipairs(self._item_rows) do
         local text = progress_label(cell.book)
@@ -1896,6 +1897,81 @@ function LibraryView:refreshVisibleProgress(prepare)
     for _, update in ipairs(updates) do update.cell:setProgressBadge(update.text) end
     repaint_cover_cells(updates)
     return snapshots
+end
+
+local function refresh_list_progress(self, prepare)
+    local scroll = self.scroll
+    local viewport = painted_region(scroll)
+    if not viewport or viewport.w <= 0 or viewport.h <= 0 then return end
+    local screen = Geom:new{ w = self.screen_w, h = self.screen_h }
+    if not screen:contains(viewport) then return end
+    local clipped = scroll._is_scrollable
+    local offset = self:getScrollOffset()
+    if self.paged and clipped and (offset.x ~= 0 or offset.y ~= 0) then return end
+    if not self.paged and not self._list_bottoms then return end
+    local crop = viewport
+    if clipped then
+        local width, height = scroll._crop_w, scroll._crop_h_limited or scroll._crop_h
+        if not width or width <= 0 or not height or height <= 0 then return end
+        crop = Geom:new{ x = viewport.x + (scroll._crop_dx or 0), y = viewport.y, w = width, h = height }
+        if not viewport:contains(crop) then return end
+    end
+
+    local books = self:getVisibleBooks()
+    local first = self.paged and 1 or ShelfVisible.first(self._list_bottoms, offset.y)
+    local rows = {}
+    for index, book in ipairs(books) do
+        local row_index = first + index - 1
+        local row = self._item_rows[row_index]
+        local region = row and painted_region(row.frame)
+        if not region or row.book ~= book or not clipped and not crop:contains(region) then return end
+        if not self.paged and (region.x ~= viewport.x - offset.x
+            or region.y ~= viewport.y + ShelfVisible.top(self._list_bottoms, row_index) - offset.y) then return end
+        rows[index] = { row = row, status = row.status, region = region }
+    end
+
+    local snapshots
+    if self.on_prepare_visible_status then
+        snapshots = self:prepareVisibleStatus(books, true)
+    else
+        local times
+        snapshots, times = prepare(books)
+        if times then self.last_read_times = times end
+        for _, entry in ipairs(rows) do entry.row:setStatus(self:itemStatus(entry.row.book)) end
+    end
+
+    local changed, dirty = {}, nil
+    for _, entry in ipairs(rows) do
+        local row, region = entry.row, entry.region
+        if row.status ~= entry.status then
+            row:_ensureFrame()
+            local size = row.frame:getSize()
+            if size.w ~= region.w or size.h ~= region.h then return end
+            local visible = region:intersect(crop)
+            if visible.w > 0 and visible.h > 0 then
+                changed[#changed + 1] = entry
+                dirty = dirty and dirty:combine(visible) or visible
+            end
+        end
+    end
+    if dirty then
+        if clipped then
+            -- Preserve native clipping for partly visible rows and scrollbars.
+            UIManager:widgetRepaint(scroll, viewport.x, viewport.y)
+        else
+            for _, entry in ipairs(changed) do
+                UIManager:widgetRepaint(entry.row.frame, entry.region.x, entry.region.y)
+            end
+        end
+        UIManager:setDirty(nil, 'ui', dirty)
+    end
+    return snapshots
+end
+
+function LibraryView:refreshVisibleProgress(prepare)
+    if not layout_visible(self) then return end
+    if self.cover_mode then return refresh_grid_progress(self, prepare) end
+    return refresh_list_progress(self, prepare)
 end
 
 -- KOReader delivers rotation before the file manager has resized the screen.
