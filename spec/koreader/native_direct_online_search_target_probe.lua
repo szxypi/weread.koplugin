@@ -42,7 +42,8 @@ else
     UI:forceRePaint();local reader=Reader.instance;local doc=reader.document
     local identity=require('weread.lib.book_file_identity').read_document(doc,'42')
     local index=assert(require('weread.lib.source_dom').open_direct_prepared(doc,'42',input.hit.chapter_uid,identity,
-        {is_current=function() return Reader.instance==reader end}))
+        {is_current=function() return Reader.instance==reader end,
+            source_format=resolved.anchor.basis=='raw_txt_utf16' and 'web_txt' or nil}))
     local point=assert(index:locate_anchor(resolved.anchor))
     local matches=assert(doc:findAllText(input.hit.text,false,0,5,false,0));assert(#matches==1 and matches[1].start)
     assert(doc:compareXPointers(point.xpointer,matches[1].start)==0,'native anchor differs from independently found text')

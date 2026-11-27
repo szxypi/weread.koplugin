@@ -48,15 +48,16 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
         end
         local function prepare(pinned,path)
             if not pinned or not matches(pinned) or not Path.contains(settings,path) or not live() then return nil,'source_changed' end
-            local raw,why=Position.verified_source(client,settings,pinned,path,native,web,live)
+            local raw,why,_,_,format=Position.verified_source(client,settings,pinned,path,native,web,live,{allow_txt=true})
             if not raw then return nil,why or 'unavailable' end
             if Crypto.sha256_hex(raw)~=pinned.source_sha256 then return nil,'source_changed' end
-            local projected=Target.project(raw,source.book_id,hit)
+            if format~='web_xhtml' and format~='web_txt' then return nil,'source_changed' end
+            local projected=Target.project(raw,source.book_id,hit,format)
             if not projected or projected.book_id~=source.book_id or projected.chapter_uid~=uid
                 or projected.raw_sha256~=pinned.source_sha256 or projected.upload_verified~=false then
                 return nil,'target_unavailable'
             end
-            local map=Coordinates.build(raw,{format='web_xhtml',allow_multiple_bodies=true})
+            local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true,omit_initial_bom=true})
             local anchor=map and same_anchor(map,projected.chapter_offset)
             if not anchor then return nil,'target_unavailable' end
             local later=Cache.identify(settings,scope.vid,path,live)

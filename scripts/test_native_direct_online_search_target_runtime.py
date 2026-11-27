@@ -25,8 +25,10 @@ def frame(child,marker):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--case',choices=CASES,action='append');args=parser.parse_args();runtime=args.koreader.resolve()
+    parser.add_argument('--case',choices=CASES,action='append');parser.add_argument('--txt',action='store_true')
+    args=parser.parse_args();runtime=args.koreader.resolve()
     server=ThreadingHTTPServer(('127.0.0.1',0),fixture.Handler)
+    server.plain_text=args.txt
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-online-native-package-',dir='/dev/shm') as package:
@@ -48,10 +50,15 @@ def main():
                         prepare=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
                         ready=frame(prepare,'WEREAD_POSITION_PREPARED=');payload.update(path=ready['path'],second=ready.get('second'))
-                        raw=fixture.BODY if case in ('same','mismatch') else fixture.BODY2
-                        phrase='Unique paragraph 0100' if case in ('same','mismatch') else 'Target paragraph 0100'
-                        begin=raw.index(phrase)
-                        payload['hit']=dict(chapter_uid='37' if case in ('same','mismatch') else '38',start=begin,
+                        same_chapter=case in ('same','mismatch')
+                        phrase='Unique paragraph 0100' if same_chapter else 'Target paragraph 0100'
+                        if args.txt:
+                            raw=fixture.TXT if same_chapter else fixture.TXT2
+                            begin=fixture.txt_offset(raw.removeprefix('\ufeff'),phrase)
+                        else:
+                            raw=fixture.BODY if same_chapter else fixture.BODY2
+                            begin=raw.index(phrase)
+                        payload['hit']=dict(chapter_uid='37' if same_chapter else '38',start=begin,
                             finish=begin+len(phrase),text=phrase,source_verified=False)
                         server.mode='cross_denied' if case=='denied' else 'mismatch' if case=='mismatch' else 'match'
                         server.calls=[]

@@ -23,8 +23,14 @@ class Handler(fixture.Handler):
         if target.hostname=='weread.qq.com' and target.path=='/web/book/search_v2':
             query=parse_qs(target.query);self.server.calls.append((self.command,target.hostname,target.path))
             self.server.valid &= self.command=='GET' and query.get('bookId')==['42'] and query.get('keyword')==[self.server.keyword]
-            uid=self.server.uid;raw=fixture.BODY if uid=='37' else fixture.BODY2
-            first=raw.index(self.server.keyword);last=first+len(self.server.keyword)
+            uid=self.server.uid
+            if self.server.plain_text:
+                raw=fixture.TXT if uid=='37' else fixture.TXT2
+                first=fixture.txt_offset(raw.removeprefix('\ufeff'),self.server.keyword)
+            else:
+                raw=fixture.BODY if uid=='37' else fixture.BODY2
+                first=raw.index(self.server.keyword)
+            last=first+len(self.server.keyword)
             data=json.dumps(dict(scrollDownHasMore=0,results=[dict(chapterUid=int(uid),posBegin=first,posEnd=last,
                 text=self.server.keyword,matchWords=[dict(word=self.server.keyword,posBegin=first,posEnd=last)])])).encode()
             self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
@@ -46,8 +52,10 @@ def frame(child,marker):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--case',choices=CASES,action='append');args=parser.parse_args();runtime=args.koreader.resolve()
-    server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    parser.add_argument('--case',choices=CASES,action='append');parser.add_argument('--txt',action='store_true')
+    args=parser.parse_args();runtime=args.koreader.resolve()
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server.plain_text=args.txt
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-online-native-ui-package-',dir='/dev/shm') as package:
             candidate=Path(package)/'candidate.zip'

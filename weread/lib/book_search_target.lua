@@ -18,10 +18,10 @@ function M.row(book,hit)
     return row
 end
 
-function M.project(raw,book,hit)
+function M.project(raw,book,hit,format)
     local row=M.row(book,hit)
     if not row then return nil,'book_search_target/invalid' end
-    return Target.project_search(raw,book,hit.chapter_uid,row)
+    return Target.project_search(raw,book,hit.chapter_uid,row,format)
 end
 
 M.can_locate=Target.can_locate_search

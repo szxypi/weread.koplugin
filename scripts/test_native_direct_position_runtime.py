@@ -192,7 +192,9 @@ class Handler(BaseHTTPRequestHandler):
             server.valid &= request==dict(bookIds=['42'])
             data=json.dumps(dict(data=[dict(bookId='42',updated=[dict(chapterUid=37,chapterIdx=1),dict(chapterUid=38,chapterIdx=2)])])).encode()
         elif target.hostname=='weread.qq.com' and target.path.startswith('/web/reader/') and self.command=='GET':
-            uid=next((uid for uid in ('37','38') if target.path.endswith(weread_e(uid))),None)
+            reader_path='/web/reader/'+weread_e('42')
+            uid='37' if target.path==reader_path else next((uid for uid in ('37','38')
+                if target.path==reader_path+'k'+weread_e(uid)),None)
             server.valid &= uid is not None
             state={'reader':{'bookInfo':{'bookId':'42','title':'Synthetic','author':'Fixture'},'psvts':'mock-session',
                              'pclts':'mock-clock','progress':{},'currentChapter':{'chapterUid':int(uid)}}}

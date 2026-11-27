@@ -120,7 +120,8 @@ function M.open(host,entry,hit,native,web,scope,owner,expected)
         ctx.thread=coroutine.create(function()
             local first,last=true,os.clock()
             local index=require('weread.lib.source_dom').open_direct_prepared(doc,entry.book_id,entry.chapter_uid,identity,{
-                is_current=current,yield=function() if first or os.clock()-last>=.02 then first=false;coroutine.yield();last=os.clock() end end})
+                is_current=current,source_format=anchor.basis=='raw_txt_utf16' and 'web_txt' or nil,
+                yield=function() if first or os.clock()-last>=.02 then first=false;coroutine.yield();last=os.clock() end end})
             return index and index:locate_anchor(anchor) or nil
         end)
         local step

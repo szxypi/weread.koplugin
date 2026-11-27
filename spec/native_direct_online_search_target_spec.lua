@@ -30,14 +30,15 @@ end
 package.loaded['weread.lib.native_direct_cache']=cache
 package.loaded['weread.lib.native_direct_path']={contains=function(_,path) return path=='/native/target' or path=='/native/source' end}
 package.loaded['weread.lib.native_direct_position']={same=function(a,b) return a==b end,
-    verified_source=function(_,_,entry,path,_,_,current)
-        assert((path=='/native/target' and entry==state.target or path=='/native/source' and entry==state.source) and current())
+    verified_source=function(_,_,entry,path,_,_,current,options)
+        assert((path=='/native/target' and entry==state.target or path=='/native/source' and entry==state.source) and current()
+            and options.allow_txt==true)
         state.reads=state.reads+1
         if state.error then return nil,state.error end
         if state.change_source then state.source={} end
         if state.change_target then state.target={} end
         if state.revoke then state.valid=false end
-        return state.raw
+        return state.raw,nil,nil,nil,state.format
     end}
 package.loaded['weread.lib.native_read_access']={matches=function(_,access) return state.valid and access==state.native end}
 package.loaded['weread.lib.source_currentness']={matches=function(_,access) return state.valid and access==state.web end}
@@ -51,7 +52,8 @@ end}
 local Search=require('weread.lib.native_direct_online_search_target')
 local settings={}
 local function fixture()
-    state={source=source,target=destination,published=destination,rows={destination},valid=true,raw=raw,reads=0,built=0,target_identifications=0,
+    state={source=source,target=destination,published=destination,rows={destination},valid=true,raw=raw,format='web_xhtml',
+        reads=0,built=0,target_identifications=0,
         native={scope=scope,credentials={vid='7'},fingerprint='fingerprint'},web={web={cookies={wr_vid='7'}}},
         catalog={version=3,reading_digest='catalog',chapters={{chapterUid='2'}, {chapterUid='3',downloadable=true}}}}
 end
@@ -97,4 +99,13 @@ fixture();state.rows={};state.http_error='native_auth/native_catalog_info/http_4
 expect(not result and why=='rate_limited' and state.cancelled,'rate limit was hidden')
 fixture();local same={chapter_uid='2',start=begin,finish=begin+6+#'</b>',text='needle',source_verified=false}
 result,why=resolve(false,same);expect(result and not why and result.path=='/native/source' and state.built==0,'current chapter did not resolve')
+fixture();state.format='web_txt';state.raw='\239\187\191Opening needle.\r\n😀 Other text with a unique ending.'
+state.target={};for key,value in pairs(destination) do state.target[key]=value end
+state.target.source_sha256=Crypto.sha256_hex(state.raw);state.rows={state.target}
+local txt={chapter_uid='3',start=0,finish=7,text='Opening',source_verified=false}
+result,why=resolve(false,txt)
+expect(result and not why and result.anchor.basis=='raw_txt_utf16' and result.anchor.co==1
+    and result.anchor.text:sub(1,7)=='Opening' and result.local_only,'hidden BOM altered the first native TXT search result')
+state.format=nil;result,why=resolve(false,txt)
+expect(not result and why=='source_changed','unknown source format was accepted')
 print(('native_direct_online_search_target_spec: %d checks'):format(checks))
