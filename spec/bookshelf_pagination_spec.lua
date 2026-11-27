@@ -107,6 +107,7 @@ package.preload["weread.ui.library_view"] = function()
                 on_refresh = callbacks.on_refresh,
                 setRefreshing = function(self, busy) self.refreshing = busy end,
                 getScrollOffset = function() return { x = 0, y = 125 } end,
+                getFocusedBookId = function() return nil end,
             }
         end,
     }

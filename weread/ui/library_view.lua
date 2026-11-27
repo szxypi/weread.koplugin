@@ -31,6 +31,7 @@ local I18n = require("weread.lib.i18n")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfProgress = require("weread.lib.shelf_progress")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
 local CoverMask = require("weread.lib.cover_mask")
@@ -1045,6 +1046,11 @@ function LibraryView:getScrollOffset()
     return self.scroll and self.scroll:getScrolledOffset()
 end
 
+function LibraryView:getFocusedBookId()
+    local item = self:getFocusItem()
+    return item and ShelfSnapshot.persisted_id(item.book)
+end
+
 function LibraryView:getVisibleBooks()
     local source = self.mode == "public_account" and (self.accounts or {}) or (self.books or {})
     local result = {}
@@ -1411,6 +1417,7 @@ function LibraryView:content()
         for index = first, last do
             local book = source[index]
             local shelf_row = ShelfRow:new{
+                book = book,
                 text = book.title or book.bookId or book.book_id or _("Untitled"),
                 status = self:itemStatus(book),
                 width = self.list_width,
@@ -1533,7 +1540,11 @@ function LibraryView:init()
         VerticalGroup:new{ align = "left", content },
     }
     self.scroll = scroll
-    if self.scroll_offset and not self.paged then scroll:setScrolledOffset(self.scroll_offset) end
+    if self.scroll_offset and not self.paged then
+        scroll:initState()
+        scroll:setScrolledOffset(self.scroll_offset)
+        scroll:_scrollBy(0, 0) -- Clamp to the current list if it shrank while details were open.
+    end
     if not self.paged and self.on_visible_changed then
         local scroll_by = scroll._scrollBy
         scroll._scrollBy = function(container, ...)
@@ -1547,10 +1558,18 @@ function LibraryView:init()
         end
     end
     local rows = { self._header_buttons }
-    local first_item_row
+    local first_item_row, focus_x, focus_y
+    local focused_book = self.focus_book_index and self._item_rows[self.focus_book_index - (self.page - 1) * self.page_size]
     local function book_rows()
         first_item_row = #self._focus_item_rows > 0 and #rows + 1 or nil
-        for _i, item_row in ipairs(self._focus_item_rows) do rows[#rows + 1] = item_row end
+        for _, item_row in ipairs(self._focus_item_rows) do
+            rows[#rows + 1] = item_row
+            if focused_book and not focus_y then
+                for x, item in ipairs(item_row) do
+                    if item == focused_book then focus_x, focus_y = x, #rows; break end
+                end
+            end
+        end
         if self._page_buttons then rows[#rows + 1] = self._page_buttons end
     end
     if self.home_layout then
@@ -1573,7 +1592,7 @@ function LibraryView:init()
     for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
     for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
-    FocusNav.initialFocus(self, 1, first_item_row or 1)
+    FocusNav.initialFocus(self, focus_x or 1, focus_y or first_item_row or 1)
     local body = { align = "left", header }
     if self.home_layout then
         local recent = VerticalGroup:new{ align = "left", recent_heading, scroll,
@@ -1665,6 +1684,12 @@ end
 
 local M = {}
 
+function M.bookIndex(books, id)
+    for index, book in ipairs(books) do
+        if ShelfSnapshot.persisted_id(book) == id then return index end
+    end
+end
+
 function M.navigation(entries, parent)
     return LibraryView.actionBar(parent, entries, true)
 end
@@ -1735,6 +1760,7 @@ function M.show(data, callbacks)
         paged = data.paged == true,
         page = data.page,
         page_size = data.page_size,
+        focus_book_index = data.focus_book_index,
         cover_mode = data.cover_mode == true,
         cover_columns = data.cover_columns,
         cover_rows = data.cover_rows,

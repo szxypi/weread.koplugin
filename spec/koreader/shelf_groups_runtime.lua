@@ -27,6 +27,60 @@ plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plu
 if mode=='live' then assert(plugin.library_db:cacheShelf(shelf.books,shelf.archive)) end
 local books=assert(plugin.library_db:getShelf());local archives=assert(plugin.library_db:getShelfArchives())
 assert(#books==#shelf.books and #archives==#shelf.archive)
+if mode=='live' then
+    local prefs=plugin.settings:get('shelf')
+    local saved_mode,saved_paginated,saved_sort=prefs.view_mode,prefs.paginated,prefs.sort_order
+    prefs.view_mode,prefs.paginated='list',false
+    plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    plugin:showShelfView('books')
+    local shelf_view=plugin.shelf_view
+    assert(not shelf_view.paged)
+    UI:forceRePaint()
+    shelf_view.scroll:_scrollBy(0,600)
+    UI:forceRePaint()
+    local offset=shelf_view:getScrollOffset().y
+    local visible=assert(shelf_view:getVisibleBooks()[1])
+    assert(offset>0 and visible~=shelf_view.books[1])
+    plugin:showBookMenu(visible)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view~=shelf_view and plugin.shelf_view:getScrollOffset().y==offset
+        and plugin.shelf_view:getVisibleBooks()[1]==visible,'book detail return reset continuous bookshelf scroll')
+    plugin:showBookMenu(visible)
+    plugin:applyShelfSnapshot({books[1],books[2],books[3]},archives)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view:getScrollOffset().y==0 and #plugin.shelf_view:getVisibleBooks()==3,
+        'previous scroll offset hid a shorter shelf')
+
+    prefs.paginated,prefs.sort_order=true,'name_asc'
+    plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    plugin:showShelfView('books',nil,plugin.shelf_view,{page=2})
+    local paged=plugin.shelf_view
+    local chosen=assert(paged._item_rows[2])
+    for y,row in ipairs(paged.layout) do
+        if row[1]==chosen then paged:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break end
+    end
+    local id=chosen.book.bookId
+    assert(paged.page==2 and paged:getFocusItem()==chosen)
+    plugin:showBookMenu(chosen.book)
+    local resorted={}
+    for index,book in ipairs(books) do
+        resorted[index]=book
+        if book.bookId==id then
+            local updated={};for key,value in pairs(book) do updated[key]=value end
+            updated.title='000 合成新书名';resorted[index]=updated
+        end
+    end
+    plugin:applyShelfSnapshot(resorted,archives)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view.page==1 and plugin.shelf_view:getFocusItem().book.bookId==id
+        and plugin.shelf_view:getFocusItem().book.title=='000 合成新书名',
+        'bookshelf return restored the old grid slot after a same-account reorder')
+    plugin:closeWeReadUI()
+    prefs.view_mode,prefs.paginated,prefs.sort_order=saved_mode,saved_paginated,saved_sort
+    plugin.settings:set('shelf',prefs)
+end
 -- Legacy numeric table keys must not alias adjacent large string book IDs.
 local account_key=plugin.library_db.accountKey
 local shelf_read,archives_read=plugin.library_db.getShelf,plugin.library_db.getShelfArchives

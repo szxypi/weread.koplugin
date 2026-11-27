@@ -46,8 +46,10 @@ function M:showDiscoveryPage(tab, books, options)
     local cover_mode = not home or home.view_mode ~= "list"
     if downloads then cover_mode = self.settings:get('shelf').view_mode == 'cover' end
     local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home, store = tab=='store' })
-    local target_page=options.rotation_anchor and math.floor((options.rotation_anchor-1)/layout.page_size)+1 or options.page or 1
-    options.rotation_anchor=nil
+    local focus_book_index=options.focus_book_id and LibraryView.bookIndex(books,options.focus_book_id)
+    local page_anchor=focus_book_index or options.rotation_anchor
+    local target_page=page_anchor and math.floor((page_anchor-1)/layout.page_size)+1 or options.page or 1
+    options.rotation_anchor,options.focus_book_id=nil,nil
     local page = math.max(1, math.min(target_page, math.max(1, math.ceil(#books / layout.page_size))))
     options.page=page
     local cover_paths, visible = {}, {}
@@ -85,7 +87,7 @@ function M:showDiscoveryPage(tab, books, options)
         navigation = self:discoveryNavigation(tab, current), books = books,
         finish_pending = require('weread.ui.finish_offline').snapshot(self),
         cover_mode = cover_mode, paged = true, page = page,
-        page_size = layout.page_size, cover_columns = layout.columns,
+        page_size = layout.page_size, focus_book_index = focus_book_index, cover_columns = layout.columns,
         cover_rows = layout.rows, cover_paths = cover_paths,
     }, {
         on_search = Scope.guard(current, function()
@@ -132,6 +134,18 @@ function M:showDiscoveryPage(tab, books, options)
     end
     view._discovery_current = current
     view._finish_current = current
+    local function return_to_page(current_books)
+        options.page=view.page
+        options.focus_book_id=not options.on_return and view:getFocusedBookId() or nil
+        local function render()
+            if options.on_return then options.on_return(view.page)
+            else self:showDiscoveryPage(tab,current_books,options) end
+        end
+        if options.focus_book_id then render()
+        else
+            require('weread.ui.finish_offline').redraw_preserving_focus(self,view,render)
+        end
+    end
     view._shelf_snapshot_redraw = function()
         local updated=books
         if home then
@@ -139,10 +153,7 @@ function M:showDiscoveryPage(tab, books, options)
             updated=Data.recent(self.shelf_regular,self.settings:get('books',{}),
                 self.library_db and self.library_db:accountKey(),prefs.recent_limit)
         end
-        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
-            if options.on_return then options.on_return(view.page)
-            else options.page=view.page;self:showDiscoveryPage(tab,updated,options) end
-        end)
+        return_to_page(updated)
     end
     view._finish_redraw = function()
         if not current() then return end
@@ -160,8 +171,7 @@ function M:showDiscoveryPage(tab, books, options)
         require('weread.ui.finish_offline').reconcile_view(self,view)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
-                options.page = view.page
-                if options.on_return then options.on_return(view.page) else self:showDiscoveryPage(tab, books, options) end
+                return_to_page(books)
             end
         end
     end

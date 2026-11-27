@@ -895,12 +895,14 @@ function M:showShelfView(mode, keyword, old_view, options)
     local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
-    if paged and options.rotation_anchor then
-        page=math.max(1,math.min(math.floor((options.rotation_anchor-1)/page_size)+1,
+    local focus_book_index=paged and options.focus_book_id and LibraryView.bookIndex(source,options.focus_book_id)
+    local anchor=focus_book_index or options.rotation_anchor
+    if paged and anchor then
+        page=math.max(1,math.min(math.floor((anchor-1)/page_size)+1,
             math.max(1,math.ceil(#source/page_size))))
         options.page=page
     end
-    options.rotation_anchor=nil
+    options.rotation_anchor,options.focus_book_id=nil,nil
     local progress_books, progress_snapshots
     if mode == "books" and self.prepareShelfProgress then
         progress_books = paged and shelf_page_items(source, page, page_size) or source
@@ -986,6 +988,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         group_label = multi_label or group and (group.incomplete and T(_('%1 (incomplete)'),group.label) or group.label),
         total_books = #(self.shelf_regular or {}),
         scroll_offset = options.scroll_offset,
+        focus_book_index = focus_book_index,
         keyword = keyword,
         empty_text = mode=='books' and #books==0 and (reading_filter=='progress_zero' or reading_filter=='progress_active')
             and _('No known progress matches. Update all bookshelf progress from the filter menu.') or nil,
@@ -1160,9 +1163,13 @@ function M:showShelfView(mode, keyword, old_view, options)
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
         next_options.prepared_shelf=nil;next_options.page=view.page
         next_options.scroll_offset=view:getScrollOffset()
-        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
-            self:showShelfView(mode,keyword,view,next_options)
-        end)
+        next_options.focus_book_id=paged and view:getFocusedBookId()
+        if next_options.focus_book_id then self:showShelfView(mode,keyword,view,next_options)
+        else
+            require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
+                self:showShelfView(mode,keyword,view,next_options)
+            end)
+        end
     end
     view._finish_redraw = function()
         if not current() then return end
@@ -1174,19 +1181,11 @@ function M:showShelfView(mode, keyword, old_view, options)
         end)
     end
     view._prepare_detail_return = function(snapshot_current)
-        if not current() then
-            if snapshot_current then return function()
-                if self.shelf_view==view and not view._shelf_closed then view._shelf_snapshot_redraw() end
-            end end
-            return
-        end
-        require('weread.ui.finish_offline').reconcile_view(self,view)
+        local owned=current()
+        if not owned and not snapshot_current then return end
+        if owned then require('weread.ui.finish_offline').reconcile_view(self,view) end
         return function()
-            if self.shelf_view == view and not view._shelf_closed then
-                options.page = view.page
-                options.prepared_shelf = nil
-                self:showShelfView(mode, keyword, view, options)
-            end
+            if self.shelf_view==view and not view._shelf_closed then view._shelf_snapshot_redraw() end
         end
     end
     if progress_books then

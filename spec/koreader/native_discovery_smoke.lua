@@ -64,6 +64,22 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(state.kind=="search" and state.source_kind=="native" and #state.books==20 and state.has_more)
     assert(count("/api/agent/gateway","/store/search")==gateway,"keyless native search used gateway")
     assert(state.keyword=='测试作者','selected suggestion was not searched')
+    plugin.shelf_view.on_page_changed(2)
+    local list=plugin.shelf_view
+    local chosen=assert(list._item_rows[2])
+    for y,row in ipairs(list.layout) do for x,item in ipairs(row) do
+        if item==chosen then list:moveFocusTo(x,y,require('ui/widget/focusmanager').FORCED_FOCUS) end
+    end end
+    assert(list.page==2 and list:getFocusItem()==chosen)
+    chosen.callback()
+    pump_until(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    assert(plugin._book_detail_view._excerpt_book.book_id==chosen.book.bookId)
+    plugin._book_detail_view:onClose()
+    local returned=plugin.shelf_view
+    assert(returned~=list and returned.page==2 and plugin.discovery_state==state
+        and returned:getFocusItem().book==chosen.book,'bookstore return lost the selected cover or result page')
+    list.on_select(chosen.book)
+    assert(not plugin._book_detail_view and not plugin.book_metadata_context,'closed result page could still open details')
     plugin.shelf_view.on_search();input=assert(plugin.shelf_view._shelf_popup)
     assert(input:getInputText()=='测试作者','search result did not restore its query')
     input.buttons[2][1].callback()
