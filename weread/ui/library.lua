@@ -749,11 +749,18 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
 
     local generation = self.shelf_cover_generation
     local index, changed = 1, false
-    local function finish_batch()
-        self.shelf_cover_job = nil
-        if changed and generation == self.shelf_cover_generation and self.shelf_view == view then
-            local pruned = pcall(cache.prune, cache)
-            if not pruned then logger.warn("bookshelf cover cache pruning failed") end
+    local function redraw_covers()
+        local pruned = pcall(cache.prune, cache)
+        if not pruned then logger.warn("bookshelf cover cache pruning failed") end
+        local popup = require('weread.ui.shelf_popup')
+        if view.refreshVisibleCovers and popup.canRedrawNow(self,view) and view._finish_current and view._finish_current()
+            and not view._finish_dirty and not view._shelf_progress_filter_dirty and view:refreshVisibleCovers(cache) then return end
+        popup.redrawForMetadata(self,view,function()
+            if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
+            -- Closing book details rebuilds the parent from its cached
+            -- data. Replacing it now would cancel that detail's actions.
+            if self._book_detail_view then return end
+            if options.on_redraw then options.on_redraw(view.page);return end
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end
             next_options.prepared_shelf = {
@@ -762,14 +769,13 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
             }
             next_options.page = view.page
             next_options.skip_cover_fetch_once = true
-            require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()
-                if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
-                -- Closing book details rebuilds the parent from its cached
-                -- data. Replacing it now would cancel that detail's actions.
-                if self._book_detail_view then return end
-                if options.on_redraw then options.on_redraw(view.page)
-                else self:showShelfView(options.mode or "books", options.keyword, view, next_options) end
-            end)
+            self:showShelfView(options.mode or "books", options.keyword, view, next_options)
+        end)
+    end
+    local function finish_batch()
+        self.shelf_cover_job = nil
+        if changed and generation == self.shelf_cover_generation and self.shelf_view == view then
+            redraw_covers()
         end
         local pending = self.shelf_cover_pending
         self.shelf_cover_pending = nil

@@ -14,6 +14,11 @@ local function redraw_context(host,owner)
     if direct and direct.shelf_owner==owner then return direct end
     return host.book_metadata_context
 end
+
+function M.canRedrawNow(host,owner)
+    return host.shelf_view==owner and not owner._shelf_closed and not owner._shelf_popup
+        and not owner._shelf_redraw and not host._book_detail_view and not redraw_context(host,owner)
+end
 -- Let an in-flight detail request or read finish before replacing its shelf.
 function M.redrawForMetadata(host,owner,callback)
     if host.shelf_view~=owner or owner._shelf_closed then return end

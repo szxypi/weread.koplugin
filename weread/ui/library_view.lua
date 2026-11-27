@@ -551,27 +551,16 @@ local CoverCell = InputContainer:extend{
     show_parent = nil,
 }
 
-function CoverCell:init()
-    local metrics = CoverLayout.card{
-        width = self.width,
-        height = self.height,
-        size_scale = Screen:scaleBySize(1000) / 1000,
-        detail_lines = self.store_details and (self.store_reason and 2 or 1) or 0,
-    }
-    local border = Size.border.thin
-    local image_width = math.max(1, metrics.card_width - 2 * border)
-    local image_height = math.max(1, metrics.card_height - 2 * border)
-    self._cover_fit = self.contain_cover and "contain" or "crop"
-    local cover_content
-    if self.cover_path then
+local function load_cover(cell, path, image_width, image_height)
+    if path then
         local image
         local ok = pcall(function()
             local rendered = CoverBitmapCache.shared():render(
-                self.cover_path, image_width, image_height, self._cover_fit, function()
-                    if self.contain_cover then
-                        return build_center_contained_cover(self.cover_path, image_width, image_height, 0)
+                path, image_width, image_height, cell._cover_fit, function()
+                    if cell.contain_cover then
+                        return build_center_contained_cover(path, image_width, image_height, 0)
                     end
-                    return build_center_cropped_cover(self.cover_path, image_width, image_height)
+                    return build_center_cropped_cover(path, image_width, image_height)
                 end)
             if rendered then
                 image = ImageWidget:new{
@@ -583,7 +572,7 @@ function CoverCell:init()
                 -- Preserve the pre-existing safe fallback when a malformed
                 -- legacy cover cannot be decoded for cropping.
                 image = ImageWidget:new{
-                    file = self.cover_path,
+                    file = path,
                     width = image_width,
                     height = image_height,
                     scale_factor = nil,
@@ -593,12 +582,26 @@ function CoverCell:init()
             image:getSize()
         end)
         if ok and image then
-            cover_content = image
-            self._has_cover = true
+            return image
         elseif image and type(image.free) == "function" then
             pcall(image.free, image)
         end
     end
+end
+
+function CoverCell:init()
+    local metrics = CoverLayout.card{
+        width = self.width,
+        height = self.height,
+        size_scale = Screen:scaleBySize(1000) / 1000,
+        detail_lines = self.store_details and (self.store_reason and 2 or 1) or 0,
+    }
+    local border = Size.border.thin
+    local image_width = math.max(1, metrics.card_width - 2 * border)
+    local image_height = math.max(1, metrics.card_height - 2 * border)
+    self._cover_fit = self.contain_cover and "contain" or "crop"
+    local cover_content = load_cover(self, self.cover_path, image_width, image_height)
+    self._has_cover = cover_content ~= nil
     if not cover_content then
         -- Center the placeholder text inside the card, like the pre-grid
         -- layout did before the rounded card painted its content top-left.
@@ -610,7 +613,6 @@ function CoverCell:init()
                 max_width = image_width,
             },
         }
-        self._has_cover = false
         self._placeholder_centered = true
     end
     local cover_card = RoundedCoverCard:new{
@@ -624,6 +626,7 @@ function CoverCell:init()
         shadow_color = metrics.shadow > 0
             and (Blitbuffer.gray and Blitbuffer.gray(0.5) or Blitbuffer.COLOR_GRAY) or nil,
     }
+    self._cover_card = cover_card
     local cover_layers = {
         dimen = Geom:new{ w = metrics.cover_width, h = metrics.cover_height },
     }
@@ -810,6 +813,18 @@ function CoverCell:init()
     end
 end
 
+function CoverCell:setCover(path)
+    local card = self._cover_card
+    local border = card.border_size * 2
+    local image = load_cover(self, path, math.max(1, card.width - border), math.max(1, card.height - border))
+    if not image then return false end
+    card:free()
+    card.inner, card.white_background = image, false
+    self.cover_path, self.cover_loading = path, false
+    self._has_cover, self._placeholder_centered = true, nil
+    return true
+end
+
 function CoverCell:onTapCoverCell()
     if self._hold_handled then self._hold_handled = false; return true end
     if self.callback then self.callback() end
@@ -963,7 +978,7 @@ function LibraryView:homeTextRow(text, height, font_size, bold)
     return frame, label
 end
 
-local function home_row_region(widget)
+local function painted_region(widget)
     local d = widget and widget.dimen
     if not d or type(d.x) ~= 'number' or type(d.y) ~= 'number'
         or type(d.w) ~= 'number' or type(d.h) ~= 'number' then return nil end
@@ -971,7 +986,7 @@ local function home_row_region(widget)
 end
 
 local function redraw_home_row(self, widget, before)
-    local after = home_row_region(widget)
+    local after = painted_region(widget)
     local same = before and after and before.x == after.x and before.y == after.y
         and before.w == after.w and before.h == after.h
     local stable = same and before.w > 0 and before.h > 0 and before.x >= 0 and before.y >= 0
@@ -996,14 +1011,14 @@ end
 
 function LibraryView:updateHomeStatus(text)
     if not self._home_status_label or self._home_status_label.text == text then return end
-    local before = home_row_region(self._home_status_frame)
+    local before = painted_region(self._home_status_frame)
     self._home_status_label:setText(text)
     redraw_home_row(self, self._home_status_frame, before)
 end
 
 function LibraryView:updateHomeSummary(text)
     if not self._summary_button or self._summary_button.text == text then return end
-    local before = home_row_region(self._summary_button)
+    local before = painted_region(self._summary_button)
     self._summary_button:setText(text, self._summary_button.width)
     redraw_home_row(self, self._summary_button, before)
 end
@@ -1806,6 +1821,37 @@ end
 local function rotation_changed(view)
     local rotation=Screen.getRotationMode and Screen:getRotationMode()
     return view.screen_w~=Screen:getWidth() or view.screen_h~=Screen:getHeight() or view.screen_rotation~=rotation
+end
+
+function LibraryView:refreshVisibleCovers(cache)
+    if not self.cover_mode or not self.scroll or self.scroll._is_scrollable ~= false
+        or self._shelf_closed or self._rotation_pending or self._rotation_task or rotation_changed(self)
+        or BD.mirroredUILayout() or not UIManager.widgetRepaint or not UIManager.getTopmostVisibleWidget
+        or UIManager:getTopmostVisibleWidget() ~= self then return false end
+
+    local updates, dirty = {}, nil
+    for _, cell in ipairs(self._item_rows) do
+        local path = cache:pathFor(cell.book)
+        if path ~= cell.cover_path then
+            local region = painted_region(cell.frame)
+            if not path or not region or region.w ~= cell.width or region.h ~= cell.height
+                or region.x < 0 or region.y < 0 or region.x + region.w > self.screen_w
+                or region.y + region.h > self.screen_h then return false end
+            updates[#updates + 1] = { cell = cell, path = path, region = region }
+            dirty = dirty and dirty:combine(region) or region
+        end
+    end
+    for _, update in ipairs(updates) do
+        local cell, path = update.cell, update.path
+        if not cell:setCover(path) then return false end
+        if self.cover_paths then self.cover_paths[cell.book] = path end
+        if self.cover_loading then self.cover_loading[cell.book] = nil end
+    end
+    for _, update in ipairs(updates) do
+        UIManager:widgetRepaint(update.cell.frame, update.region.x, update.region.y)
+    end
+    if dirty then UIManager:setDirty(nil, 'ui', dirty) end
+    return true
 end
 
 -- KOReader delivers rotation before the file manager has resized the screen.

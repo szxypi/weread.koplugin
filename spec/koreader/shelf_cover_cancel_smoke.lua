@@ -7,7 +7,7 @@ return function(plugin,flush,evidence)
     plugin:closeWeReadUI()
     -- Actual KOReader has its file manager/reader underneath the plugin. Keep
     -- that underlying window here so closing the test view does not quit SDL.
-    local anchor=require('ui/widget/infomessage'):new{text='合成封面取消验证',dismissable=false}
+    local anchor=require('ui/widget/infomessage'):new{text='合成封面取消验证',dismissable=false,modal=false}
     UIManager:show(anchor)
     local root=plugin.settings.data_dir..'/cover-cancellation';assert(require('util').makePath(root..'/cache'))
     local data=plugin.client:json_decode(plugin.client:json_encode(plugin.settings.store.data))
@@ -35,6 +35,37 @@ return function(plugin,flush,evidence)
         local deadline=socket.gettime()+(seconds or 15)
         while not predicate() do assert(socket.gettime()<deadline,'cover cancellation deadline');flush();socket.sleep(.01) end
     end
+    local function check_cover_paint(view)
+        UIManager:forceRePaint()
+        local screen=require('device').screen
+        local BB=require('ffi/blitbuffer')
+        local frame=view._item_rows[1].frame
+        local repaint,dirty=UIManager.widgetRepaint,UIManager.setDirty
+        local cells,regions=0,{}
+        UIManager.widgetRepaint=function(ui,widget,...)
+            if widget==frame then cells=cells+1 end
+            return repaint(ui,widget,...)
+        end
+        UIManager.setDirty=function(ui,widget,mode,region,...)
+            if widget==nil and mode=='ui' and region then regions[#regions+1]=region end
+            return dirty(ui,widget,mode,region,...)
+        end
+        local ok,reason=pcall(pump,function() return not host.shelf_cover_job end)
+        UIManager.widgetRepaint,UIManager.setDirty=repaint,dirty
+        assert(ok,reason)
+        assert(host.shelf_view==view and view._item_rows[1].frame==frame and view._item_rows[1]._has_cover,
+            'cover completion replaced the page or did not fill this cell')
+        assert(cells==1 and #regions==1 and regions[1].x==frame.dimen.x and regions[1].y==frame.dimen.y
+            and regions[1].w==frame.dimen.w and regions[1].h==frame.dimen.h
+            and regions[1].w*regions[1].h<screen:getWidth()*screen:getHeight(),
+            'cover completion did not request one cell-sized refresh')
+        UIManager:forceRePaint()
+        local partial=BB.tostring(screen.bb)
+        UIManager:setDirty(view,'ui',view.dimen)
+        UIManager:forceRePaint()
+        assert(partial==BB.tostring(screen.bb),'cover-only repaint pixels differed from a full repaint')
+        return {w=regions[1].w,h=regions[1].h}
+    end
     local terminated,reaped,closed,owners,started={}, {}, {}, {}, {}
     host.shelf_cover_subprocess={
         run=function(task)
@@ -51,7 +82,8 @@ return function(plugin,flush,evidence)
             closed[pid]=(closed[pid] or 0)+1;return util.readAllFromFD(fd)
         end,
     }
-    local report={result='UNVERIFIED',phase='init',synthetic_only=true,cases={},account_data_writes=0,authentication_posts=0}
+    local report={result='UNVERIFIED',phase='init',synthetic_only=true,cases={},cover_regions={},
+        account_data_writes=0,authentication_posts=0}
     local sequence=0
     local function book(label,item)
         sequence=sequence+1
@@ -80,7 +112,7 @@ return function(plugin,flush,evidence)
         local next_book=book('reopen',1);host:applyShelfSnapshot({next_book},{})
         host:showShelfView('books')
         assert(host.shelf_cover_job==job and host.shelf_cover_pending,'reopening bypassed the unreaped child')
-        pump(function() return not host.shelf_cover_job end)
+        report.cover_regions.shelf=check_cover_paint(host.shelf_view)
         assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
         assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
         assert(host:getShelfCoverCache():pathFor(next_book) and host.shelf_view._item_rows[1]._has_cover)
@@ -130,6 +162,42 @@ return function(plugin,flush,evidence)
         assert(not host.shelf_cover_resume and not host.shelf_cover_pending and not host.shelf_view)
         assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
         report.cases.closed_during_suspend=true
+
+        for _,tab in ipairs({'home','store'}) do
+            report.phase='cover_paint_'..tab
+            local home=tab=='home' and host:homePreferences() or nil
+            if home then home.view_mode='cover' end
+            local size=require('weread.ui.library_view').getLayout(true,60,'books',108,{home=home,store=not home}).page_size
+            local books={}
+            for i=1,60 do
+                books[i]=book(tab..'-loaded',i)
+                books[i].cover=nil
+            end
+            books[size+1]=book(tab..'-second-page',1)
+            host:showDiscoveryPage(tab,books,{title='合成封面 '..tab,home=home})
+            assert(host.shelf_view.page_size==size and not host.shelf_cover_job)
+            host.shelf_view:turnShelfPage(1)
+            local view=host.shelf_view
+            assert(view.page==2 and host.shelf_cover_job)
+            if home then host:stopHomeStatusTimer() end
+            report.cover_regions[tab]=check_cover_paint(view)
+            report.cases['cover_paint_'..tab]=true
+            host:closeWeReadUI()
+        end
+        report.phase='cover_paint_popup'
+        host:applyShelfSnapshot({book('covered-page',1)},{})
+        host:showShelfView('books')
+        local covered=host.shelf_view
+        local dialog=require('ui/widget/infomessage'):new{text='合成封面弹窗',dismissable=false}
+        assert(require('weread.ui.shelf_popup').show(covered,dialog))
+        pump(function() return not host.shelf_cover_job end)
+        assert(host.shelf_view==covered and UIManager:getTopmostVisibleWidget()==dialog
+            and not covered._item_rows[1]._has_cover,'cover arrived over an open popup')
+        UIManager:close(dialog)
+        pump(function() return host.shelf_view~=covered end)
+        assert(host.shelf_view._item_rows[1]._has_cover)
+        report.cases.cover_paint_popup=true
+        host:closeWeReadUI()
         report.started_children,report.terminated_children,report.reaped_children,report.drained_pipes=0,0,0,0
         for pid in pairs(started) do
             assert(reaped[pid] and closed[pid]==1,'cover child or pipe ownership was not released once')
@@ -138,7 +206,7 @@ return function(plugin,flush,evidence)
             report.drained_pipes=report.drained_pipes+1
             if terminated[pid] then report.terminated_children=report.terminated_children+1 end
         end
-        assert(report.started_children==9 and report.terminated_children==6)
+        assert(report.started_children==12 and report.terminated_children==6)
         report.result='PASS';report.phase='complete'
     end)
     control(0);host:closeWeReadUI()
