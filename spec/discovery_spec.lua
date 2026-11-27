@@ -86,6 +86,24 @@ expect(#edge==2 and edge[1].title=='Cloud title' and edge[2].title=='900004',
 expect(#Data.recent({},off_shelf,'')==0 and #Data.recent({},edge_saved,nil)==0,
     'unscoped recent readings appeared on home')
 expect(#Data.recent({},off_shelf,'a',1)==2,'invalid home limit changed the configured default')
+local cutoff_shelf,cutoff_saved={},{}
+for i=30,1,-1 do
+    local id=tostring(100+i)
+    if i%2==0 then
+        cutoff_shelf[#cutoff_shelf+1]={bookId=id,title='Cloud title',readUpdateTime=10,extra='kept'}
+    else
+        cutoff_saved[id]={book_id=id,home_recent_account='a',home_recent_at=10,title=' ',pending_upload_position={}}
+    end
+end
+for _,limit in ipairs({6,12,24}) do
+    local rows=Data.recent(cutoff_shelf,cutoff_saved,'a',limit)
+    expect(#rows==limit,'recent reading did not enforce the configured limit')
+    for i,row in ipairs(rows) do
+        expect(row.bookId==tostring(100+i) and row._recent_time==10,'recent readings tied at the cutoff lost ID order')
+    end
+    expect(rows[1].title=='101' and not rows[1].pending_upload_position
+        and rows[2].title=='Cloud title' and rows[2].extra=='kept','recent rows lost their display projection')
+end
 local safe_legacy={{bookId='42',title='Legacy',readUpdateTime=1},{bookId='43',title='Other',readUpdateTime=2}}
 local safe_records={[42]={recent_read_at=20,recent_read_account='a'}}
 expect(Data.recent(safe_legacy,safe_records,'a')[1].bookId=='42',

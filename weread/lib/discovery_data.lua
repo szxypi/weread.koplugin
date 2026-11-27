@@ -138,9 +138,8 @@ function M.categories(data)
     return { ranks = ranks, categories = categories }
 end
 
--- Sort a copy: the cloud shelf's ordering and group membership must not change.
 function M.recent(books, saved, account, limit)
-    local result, seen = {}, {}
+    local candidates, seen = {}, {}
     saved=type(saved)=='table' and saved or {}
     for _, book in ipairs(books or {}) do
         local id=type(book)=='table' and text(book.bookId or book.book_id) or ''
@@ -148,8 +147,7 @@ function M.recent(books, saved, account, limit)
             seen[id]=true
             local recent_time=M.recent_time(book,saved,account)
             if recent_time then
-                local copy={};for key,value in pairs(book) do copy[key]=value end
-                copy._recent_time=recent_time;result[#result+1]=copy
+                candidates[#candidates+1]={id=id,time=recent_time,book=book,on_shelf=true}
             end
         end
     end
@@ -157,10 +155,6 @@ function M.recent(books, saved, account, limit)
     -- shelf. Only the owning account's explicit local reading event can add
     -- them here; never move them into the shelf or copy internal state.
     if type(account)=='string' and account~='' then
-        local function field(value,maximum)
-            local result_text=text(value)
-            return #result_text<=maximum and not result_text:find('[%z%c]') and result_text or ''
-        end
         for key,book in pairs(saved) do
             local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId or key)
             local event_account,time
@@ -168,22 +162,40 @@ function M.recent(books, saved, account, limit)
             if id and tostring(key)==id and not seen[id] and time and time>0 and event_account==account
                 and (book._library_account_key==nil or book._library_account_key==account)
                 and (book.book_id==nil or text(book.book_id)==id) and (book.bookId==nil or text(book.bookId)==id) then
-                local title=field(book.title,2048)
-                if title:match('^%s*$') then title=id end
-                result[#result+1]={bookId=id,title=title,author=field(book.author,2048),cover=field(book.cover,4096),
-                    category=field(book.category,2048),_recent_time=time}
+                candidates[#candidates+1]={id=id,time=time,book=book}
                 seen[id]=true
             end
         end
     end
-    table.sort(result, function(a, b)
-        local at, bt = a._recent_time, b._recent_time
-        if at == bt then return tostring(a.bookId or a.book_id) < tostring(b.bookId or b.book_id) end
-        return at > bt
+    table.sort(candidates, function(a, b)
+        if a.time==b.time then return a.id<b.id end
+        return a.time>b.time
     end)
     limit = tonumber(limit) or 12
     if limit ~= 6 and limit ~= 12 and limit ~= 24 then limit = 12 end
-    while #result > limit do table.remove(result) end
+
+    -- Only prepare the books the home page will show. Keep cloud shelf rows
+    -- intact and expose only display fields from locally opened off-shelf books.
+    local result={}
+    local function field(value,maximum)
+        local result_text=text(value)
+        return #result_text<=maximum and not result_text:find('[%z%c]') and result_text or ''
+    end
+    for i=1,math.min(limit,#candidates) do
+        local candidate=candidates[i]
+        local book=candidate.book
+        local row
+        if candidate.on_shelf then
+            row={}
+            for key,value in pairs(book) do row[key]=value end
+        else
+            local title=field(book.title,2048)
+            row={bookId=candidate.id,title=title:match('^%s*$') and candidate.id or title,
+                author=field(book.author,2048),cover=field(book.cover,4096),category=field(book.category,2048)}
+        end
+        row._recent_time=candidate.time
+        result[i]=row
+    end
     return result
 end
 
