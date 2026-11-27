@@ -201,6 +201,21 @@ local emoji_byte=assert(long_map.flat:find('😀',1,true))
 local emoji_co=long_map:_point(emoji_byte)
 eq(select(2,long_map:anchor(emoji_co+1)),'source_coordinates/inside_entity_or_scalar')
 eq(assert(long_map:anchor(emoji_co)).co,emoji_co)
+
+-- A decoded entity counts as a single checkpoint token, even when its
+-- visible replacement has several scalars. The next raw run starts after it.
+local raw_run=('甲'):rep(255)
+local ascii_run=('A'):rep(300)
+local checkpoint_map=build('<body><p>'..raw_run..'&pair;'..ascii_run..'\t\127</p></body>',{
+    decode_entity=function() return 'XY' end,
+})
+eq(checkpoint_map.flat,raw_run..'XY'..ascii_run..'\127')
+eq(checkpoint_map:_point(#raw_run+1),9+255)
+eq(pcall(checkpoint_map._point,checkpoint_map,#raw_run+2),false)
+eq(checkpoint_map:_point(#raw_run+3),9+255+#'&pair;')
+eq(checkpoint_map:_point(#checkpoint_map.flat),9+255+#'&pair;'+#ascii_run+1)
+eq(select(2,Source.build('<body><p>ASCII\11control</p></body>')),'source_coordinates/invalid_xml_control')
+
 local overlap=build('<body><p>'..('>'):rep(16)..'第一段唯一正文足够长以判断坐标。</p>'
     ..'<p>相邻第二段唯一正文足够长以判断坐标。</p></body>')
 eq(select(2,overlap:anchor(48,{segment_only=true})),'source_coordinates/offset_ambiguous')

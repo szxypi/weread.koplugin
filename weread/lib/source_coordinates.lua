@@ -13,13 +13,16 @@ for name in ("abbr address area article aside audio b bdi bdo big blockquote bod
 
 local function fail(reason) error("source_coordinates/" .. reason, 0) end
 
+local function continuation(value)
+    return value and value >= 128 and value <= 191
+end
+
 -- Validate scalars while counting JavaScript UTF-16 units. No per-rune table
 -- for the complete chapter: a long chapter must remain bounded on Kindle.
 local function scalar(text, at)
     local a, b, c, d = text:byte(at, at + 3)
     if not a then fail("invalid_utf8") end
     if a < 128 then return a, 1, 1 end
-    local function continuation(value) return value and value >= 128 and value <= 191 end
     if a >= 194 and a <= 223 and continuation(b) then return (a - 192) * 64 + b - 128, 2, 1 end
     if a >= 224 and a <= 239 and continuation(b) and continuation(c)
         and (a ~= 224 or b >= 160) and (a ~= 237 or b < 160) then
@@ -32,11 +35,14 @@ local function scalar(text, at)
     fail("invalid_utf8")
 end
 
-local function units(text, xml)
+local function units(text)
+    -- ASCII XML characters each take one UTF-16 unit. Keep multibyte text
+    -- and other controls on the validating scalar path.
+    if not text:find("[^\t\n\r -\127]") then return #text end
     local at, count = 1, 0
     while at <= #text do
         local cp, width, n = scalar(text, at)
-        if xml and cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail("invalid_xml_control") end
+        if cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail("invalid_xml_control") end
         at, count = at + width, count + n
     end
     return count
@@ -122,7 +128,7 @@ local function parse(raw, options)
         end
     end
     local function consume(last)
-        co, at = co + units(raw:sub(at, last), true), last + 1
+        co, at = co + units(raw:sub(at, last)), last + 1
     end
     local lower -- allocated only for raw-text elements
     while at <= #raw do
@@ -182,21 +188,28 @@ local function parse(raw, options)
     return map
 end
 
-function Map:_token(text, at)
-    if not self.literal and text:sub(at, at) == "&" and text:sub(at + 1, at + 1):match("[%a#]") then
+-- A nil replacement keeps the token's original UTF-8 bytes. An empty
+-- replacement removes a token but still advances the source coordinate.
+local function scan_token(map, text, at)
+    if not map.literal and text:byte(at) == 38 and text:sub(at + 1, at + 1):match("[%a#]") then
         local ending = text:find(";", at + 1, true)
         if not ending or ending - at > 64 then fail("invalid_entity") end
         local entity = text:sub(at, ending)
         if not entity:match("^&[%w#]+;$") then fail("invalid_entity") end
-        local ok, decoded = pcall(self.decode, entity)
+        local ok, decoded = pcall(map.decode, entity)
         if not ok or type(decoded) ~= "string" then fail("entity_decode_failed") end
         local clean = normalized(decoded)
         return clean, ending + 1, ending - at + 1
     end
     local cp, width, n = scalar(text, at)
-    if self.omit_initial_bom and at==1 and cp==65279 then return '',at+width,n end
-    if self.literal and cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail('invalid_xml_control') end
-    return whitespace(cp) and "" or text:sub(at, at + width - 1), at + width, n
+    if map.omit_initial_bom and at==1 and cp==65279 then return '',at+width,n end
+    if map.literal and cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail('invalid_xml_control') end
+    return whitespace(cp) and "" or nil, at + width, n
+end
+
+function Map:_token(text, at)
+    local replacement, next_at, coordinate_units = scan_token(self, text, at)
+    return replacement or text:sub(at, next_at - 1), next_at, coordinate_units
 end
 
 function Map:_index()
@@ -206,6 +219,13 @@ function Map:_index()
         local co, text, at, pieces, count = segment[1], segment[2], 1, {}, 0
         local first_flat = total + 1
         local block_at, block_co, block_flat, block_count = at, co, first_flat, 0
+        local run_start
+        local function append_run()
+            if run_start then
+                pieces[#pieces + 1] = text:sub(run_start, at - 1)
+                run_start = nil
+            end
+        end
         local function close_block()
             if block_count == 0 then return end
             -- Store six consecutive numbers per block to bound table overhead:
@@ -216,13 +236,20 @@ function Map:_index()
             block_at, block_co, block_flat, block_count = at, co, total + 1, 0
         end
         local function checkpoint()
+            append_run()
             if #pieces > 0 then chunks[#chunks + 1] = table.concat(pieces) pieces, count = {}, 0 end
             points[#points + 1] = { flat = total + 1, segment = index, at = at, co = co }
         end
         checkpoint()
         while at <= #text do
-            local clean, next_at, n = self:_token(text, at)
-            if clean ~= "" then pieces[#pieces + 1], count, total = clean, count + 1, total + #clean end
+            local clean, next_at, n = scan_token(self, text, at)
+            if clean == nil then
+                run_start = run_start or at
+                count, total = count + 1, total + next_at - at
+            else
+                append_run()
+                if clean ~= "" then pieces[#pieces + 1], count, total = clean, count + 1, total + #clean end
+            end
             at, co = next_at, co + n
             block_count = block_count + 1
             if block_count >= 256 then close_block() end
@@ -230,6 +257,7 @@ function Map:_index()
         end
         close_block()
         ranges[index*2-1], ranges[index*2] = first_flat, total + 1
+        append_run()
         if #pieces > 0 then chunks[#chunks + 1] = table.concat(pieces) end
     end
     self.flat, self.points, self.anchor_blocks, self.segment_ranges = table.concat(chunks), points, blocks, ranges
