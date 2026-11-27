@@ -818,30 +818,23 @@ function M:detectWeReadBook()
         if type(index) == "table" and index.cache_dir == route.book_dir then return route.book_id end
     end
     self._weread_book_route = nil
+    local book_id, directory, evidence
     if type(settings.find_book_by_file) == "function" then
-        local book_id, directory = settings:find_book_by_file(file)
-        if book_id ~= nil then
-            remember_book_route(self, file, book_id, indexes, auth_epoch, directory)
-            return book_id
-        end
+        book_id, directory, evidence = settings:find_book_by_file(file)
     else
-        local books = settings:get("books", {})
-        for book_id, book in pairs(books) do
-            if type(book) == "table" then
-                local dir = Content.book_resolved_dir(settings, book_id, book):gsub("/+$", "") .. "/"
-                if file == book.cached_file or file:sub(1, #dir) == dir then
-                    remember_book_route(self, file, book_id, indexes, auth_epoch, dir)
-                    return book_id
-                end
-            end
-        end
+        book_id, directory, evidence = require('weread.lib.book_store').find_file(settings, settings:get("books", {}), file)
+    end
+    if evidence == 'ambiguous' then return nil end
+    if book_id ~= nil then
+        if evidence == 'directory' then remember_book_route(self, file, book_id, indexes, auth_epoch, directory) end
+        return book_id
     end
 
     -- Require a path boundary after the cache directory.
     local prefix = settings.cache_dir:gsub("/+$", "") .. "/"
     if file:sub(1, #prefix) == prefix then
         local rest = file:sub(#prefix + 1)
-        return rest:match("^([^/]+)")
+        return rest:match("^([^/]+)/")
     end
     return nil
 end

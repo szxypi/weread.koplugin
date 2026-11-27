@@ -279,11 +279,7 @@ end
 
 function Settings:find_book_by_file(path)
     if type(path) ~= "string" or path == "" then return nil end
-    local indexes = self:get_book_indexes()
-    for book_id, index in pairs(indexes or {}) do
-        local directory = BookStore.match_file(self, book_id, index, path)
-        if directory then return book_id, directory end
-    end
+    return BookStore.find_file(self, self:get_book_indexes(), path)
 end
 
 -- Match the library database's stable account key without exposing a VID in

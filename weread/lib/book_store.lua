@@ -254,16 +254,54 @@ function BookStore.load(settings, book_id, index)
     return book
 end
 
--- Reader setup runs before the native document is ready. Use the stored
--- directory or the legacy exact file, without loading account state or articles.
-function BookStore.match_file(settings, book_id, index, file)
-    local dir = resolved_dir(settings, book_id, index)
-    local directory = dir:gsub("/+$", "") .. "/"
-    if file:sub(1, #directory) == directory then return directory end
-    local metadata = read_json(dir .. "/metadata.json")
-    local cached_file = metadata and metadata.cached_file
-    if cached_file == nil and type(index) == "table" then cached_file = index.cached_file end
-    if cached_file == file then return directory end
+local function directory_prefix(path)
+    return path:gsub("/+$", "") .. "/"
+end
+
+local function recorded_file(index, directory, file)
+    local metadata = read_json(directory .. "metadata.json") or {}
+    index = type(index) == "table" and index or {}
+    local full = metadata.cached_full_book
+    local last = metadata.cached_file
+    if full == nil then full = index.cached_full_book end
+    if last == nil then last = index.cached_file end
+    if full == file or last == file then return true end
+    local chapters = metadata.cached_chapters
+    if chapters == nil then chapters = index.cached_chapters end
+    for _, path in pairs(type(chapters) == "table" and chapters or {}) do
+        if path == file then return true end
+    end
+    return false
+end
+
+-- Route initial reader setup using the most specific indexed directory. A
+-- legacy record may point to a parent of the entire managed cache.
+function BookStore.find_file(settings, indexes, file)
+    local root = directory_prefix(settings.cache_dir)
+    local best_id, best_directory, tied
+    for id, index in pairs(indexes or {}) do
+        local directory = directory_prefix(resolved_dir(settings, id, index))
+        if root:sub(1, #directory) ~= directory and file:sub(1, #directory) == directory then
+            if not best_directory or #directory > #best_directory then
+                best_id, best_directory, tied = id, directory, false
+            elseif directory == best_directory then
+                tied = true
+            end
+        end
+    end
+    if tied then return nil, nil, 'ambiguous' end
+    if best_directory then return best_id, best_directory, 'directory' end
+
+    -- Legacy files outside the indexed book directory must match a stored
+    -- path. Read only metadata and keep these matches live on later lookups.
+    for id, index in pairs(indexes or {}) do
+        local directory = directory_prefix(resolved_dir(settings, id, index))
+        if recorded_file(index, directory, file) then
+            if best_id ~= nil then return nil, nil, 'ambiguous' end
+            best_id, best_directory = id, directory
+        end
+    end
+    if best_directory then return best_id, best_directory, 'recorded' end
 end
 
 -- Late reader jobs update one bounded state file, never an older in-memory

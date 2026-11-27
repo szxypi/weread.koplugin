@@ -84,20 +84,45 @@ rawset(io, "open", function(path, mode)
     lookup_reads[#lookup_reads + 1] = path
     return original_open(path, mode)
 end)
-local managed = BookStore.match_file(settings, "routing", routing_index, routing_index.cache_dir .. "/chapter.epub")
-local external = BookStore.match_file(settings, "routing", routing_index, root .. "/external/chapter.epub")
-local neighbor = BookStore.match_file(settings, "routing", routing_index, routing_index.cache_dir .. "-other/chapter.epub")
-local legacy = BookStore.match_file(settings, "legacy", { cache_dir = root .. "/legacy",
-    cached_file = root .. "/legacy-copy.epub" }, root .. "/legacy-copy.epub")
+local route = { routing = routing_index }
+local managed, managed_dir, managed_evidence = BookStore.find_file(settings, route, routing_index.cache_dir .. "/chapter.epub")
+local external, external_dir, external_evidence = BookStore.find_file(settings, route, root .. "/external/chapter.epub")
+local neighbor = BookStore.find_file(settings, route, routing_index.cache_dir .. "-other/chapter.epub")
+local legacy, legacy_dir = BookStore.find_file(settings, { legacy = { cache_dir = root .. "/legacy",
+    cached_file = root .. "/legacy-copy.epub" } }, root .. "/legacy-copy.epub")
 rawset(io, "open", original_open)
-expect(managed == routing_index.cache_dir .. "/" and external == managed and not neighbor and legacy == root .. "/legacy/",
+expect(managed == "routing" and managed_dir == routing_index.cache_dir .. "/" and managed_evidence == "directory"
+    and external == managed and external_dir == managed_dir and external_evidence == "recorded"
+    and not neighbor and legacy == "legacy" and legacy_dir == root .. "/legacy/",
     "book path lookup lost a managed or legacy exact path, or matched a neighboring directory")
 expect(#lookup_reads == 3 and lookup_reads[1] == routing_index.cache_dir .. "/metadata.json"
     and lookup_reads[2] == lookup_reads[1] and lookup_reads[3] == root .. "/legacy/metadata.json",
     "path lookup read unrelated records or checked metadata for a known directory")
-expect(not BookStore.match_file(settings, "routing", { cache_dir = routing_index.cache_dir,
-    cached_file = root .. "/stale-inline.epub" }, root .. "/stale-inline.epub"),
+expect(not BookStore.find_file(settings, { routing = { cache_dir = routing_index.cache_dir,
+    cached_file = root .. "/stale-inline.epub" } }, root .. "/stale-inline.epub"),
     "current metadata did not supersede an obsolete inline cached path")
+
+local overlap = {
+    { cache_dir = root },
+    { cache_dir = root .. '/external' },
+    { cache_dir = root .. '/external/book' },
+}
+rawset(io, 'open', function() error('indexed directory detection should not read metadata') end)
+expect(BookStore.find_file(settings, overlap, root .. '/external/book/file.epub') == 3,
+    'broader legacy record claimed a more specific directory')
+expect(BookStore.find_file({ cache_dir = root .. '/managed' }, overlap, root .. '/external/book/file.epub') == 3,
+    'earlier nested index claimed the file')
+rawset(io, 'open', original_open)
+expect(not BookStore.find_file(settings, overlap, root .. '/ordinary.epub'), 'cache root claimed an unrelated file')
+local duplicate = { { cache_dir = root .. '/shared' }, { cache_dir = root .. '/shared/' } }
+local shared_id, _, shared_evidence = BookStore.find_file(settings, duplicate, root .. '/shared/book.epub')
+expect(not shared_id and shared_evidence == 'ambiguous', 'duplicate directory took ownership of an ambiguous file')
+local exact_path = root .. '/legacy-chapter.epub'
+local legacy_chapter = { { cache_dir = root, cached_chapters = { ['7'] = exact_path } } }
+expect(BookStore.find_file(settings, legacy_chapter, exact_path) == 1, 'recorded legacy chapter became unrecognizable')
+legacy_chapter[2] = { cache_dir = root .. '/unrelated', cached_full_book = exact_path }
+local exact_id, _, exact_evidence = BookStore.find_file(settings, legacy_chapter, exact_path)
+expect(not exact_id and exact_evidence == 'ambiguous', 'a file explicitly claimed by two books was assigned arbitrarily')
 
 expect(not BookStore.has_legacy_catalog(settings, "routing", routing_index), "modern metadata was marked legacy")
 local legacy_metadata_path = routing_index.cache_dir .. "/metadata.json"

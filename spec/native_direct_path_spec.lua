@@ -72,7 +72,7 @@ local locations=0
 indexed.find_book_by_file=function(_,path)
     locations=locations+1
     assert(path=='/library/moved/book.epub')
-    return '43','/library/moved/'
+    return '43','/library/moved/','directory'
 end
 reader.ui.document={file='/library/moved/book.epub',getDocumentFileContent=function()
     error('reader path lookup accessed the document engine')
@@ -81,4 +81,10 @@ assert(detect()=='43' and locations==1 and reads==10,'cold lookup ignored the pa
 assert(detect()=='43' and locations==1,'the same document had to resolve the stored directory twice')
 reader.ui.document={file=reader.ui.document.file}
 assert(detect()=='43' and locations==2,'a new reader reused a previous document route')
+indexed.find_book_by_file=function() return nil,nil,'ambiguous' end
+reader.ui.document={file='/new-cache/765/book.epub'}
+assert(detect()==nil,'directory fallback bypassed an ambiguous index')
+indexed.find_book_by_file=function() end
+reader.ui.document={file='/new-cache/ordinary.epub'}
+assert(detect()==nil,'a file at the cache root acquired an invented book ID')
 print('PASS: cached book routing, live legacy metadata and local-only file isolation')

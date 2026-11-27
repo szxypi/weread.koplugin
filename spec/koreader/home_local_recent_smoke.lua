@@ -333,6 +333,7 @@ if not reopen then
     book.cached_full_book=path;book.cached_file=path;book.cached_chapters['1']=path
     assert(Content.save_catalog_cache(plugin.client,settings,book,chapters))
     local books=plugin.settings:get('books',{});books[id]=book
+    books[1]={book_id='1',cache_dir=home,cached_file=home..'/legacy-sibling.epub',_library_account_key='other-owner'}
     books['900098']={book_id='900098',title='其他账号',recent_read_at=os.time()+10,recent_read_account='other-owner'}
     books['900097']={book_id='900097',title='其他账号资料',recent_read_at=os.time()+20,recent_read_account=account,_library_account_key='other-owner'}
     local foreign_dir=plugin.settings.cache_dir..'/900097'
@@ -345,6 +346,7 @@ if not reopen then
         Identity.capture(shelf_book),{['1']=assert(Source.capture(shelf_book,chapters[1],body,'web_xhtml'))}))
     books['900001']=shelf_book
     plugin.settings:set('books',books);plugin.settings:flush()
+    assert(plugin.settings:find_book_by_file(path)==id,'legacy parent directory claimed the downloaded book')
     assert(plugin.library_db:cacheShelf({{bookId='900001',title='合成书架',readUpdateTime=1}},{}))
     plugin:showHome();assert(#plugin.shelf_view.books==1,'unread off-shelf book appeared')
     plugin:closeWeReadUI();plugin:showBookRecord(book,{verified_metadata=true})
@@ -421,6 +423,9 @@ plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
 plugin:onWeReadAccountChanged()
 assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()[1].bookId=='900001',
     'downloaded list altered cloud shelf membership')
+local legacy=assert(plugin.settings:get_book('1',true))
+assert(not legacy.home_recent_at and not legacy.last_local_position and not legacy.pending_upload_position,
+    'reading wrote a position to the legacy sibling book')
 print('PASS: downloaded books, offline search and open, account isolation')
 assert(requests[0]==0,'local home attempted network')
 print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,
