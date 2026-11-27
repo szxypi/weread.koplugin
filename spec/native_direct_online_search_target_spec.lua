@@ -46,12 +46,12 @@ package.loaded['weread.lib.native_book_catalog']={read=function() if state.http_
 package.loaded['weread.ui.native_direct_reading']={project=function() return state.catalog end}
 package.loaded['weread.lib.native_direct_reader']={build=function(_,_,_,chapter,expected,options)
     assert(chapter.chapterUid=='3' and expected.chapter_uid=='3' and options.is_current())
-    state.built=state.built+1;return {path='/native/target'}
+    state.built=state.built+1;return {path='/native/target',saved_entry=state.published}
 end}
 local Search=require('weread.lib.native_direct_online_search_target')
 local settings={}
 local function fixture()
-    state={source=source,target=destination,rows={destination},valid=true,raw=raw,reads=0,built=0,target_identifications=0,
+    state={source=source,target=destination,published=destination,rows={destination},valid=true,raw=raw,reads=0,built=0,target_identifications=0,
         native={scope=scope,credentials={vid='7'},fingerprint='fingerprint'},web={web={cookies={wr_vid='7'}}},
         catalog={version=3,reading_digest='catalog',chapters={{chapterUid='2'}, {chapterUid='3',downloadable=true}}}}
 end
@@ -68,7 +68,14 @@ expect(result and not why and result.entry==destination and result.path=='/nativ
 expect(result.anchor.point_unit=='unicode_scalars' and result.anchor.basis=='filtered_xhtml_utf16',
     'local anchor lacked source identity')
 fixture();state.rows={};result,why=resolve(false);expect(not result and why=='not_saved' and state.built==0,'missing chapter downloaded without consent')
-fixture();state.rows={};result,why=resolve(true);expect(result and not why and result.reused==false and state.built==1 and state.cancelled,'consented download failed')
+fixture();state.rows={};result,why=resolve(true)
+expect(result and not why and result.reused==false and state.built==1 and state.cancelled and state.target_identifications==1,
+    'downloaded chapter did not reuse its publication proof and recheck after source processing')
+fixture();state.rows={};state.published=nil;result,why=resolve(true)
+expect(not result and why=='source_changed' and state.reads==0 and state.target_identifications==0,'missing publication proof was accepted')
+fixture();state.rows={};state.change_target=true;result,why=resolve(true)
+expect(not result and why=='source_changed' and state.built==1 and state.target_identifications==1,
+    'downloaded chapter change during lookup was accepted')
 fixture();state.rows={};state.catalog.reading_digest='different';result,why=resolve(true)
 expect(not result and why=='catalog_changed' and state.built==0 and state.cancelled,'changed catalog accepted')
 fixture();state.rows={};state.catalog.chapters[2].downloadable=false;result,why=resolve(true)

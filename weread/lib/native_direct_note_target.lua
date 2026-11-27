@@ -86,8 +86,7 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
         local built,why=require('weread.lib.native_direct_reader').build(client,settings,book,chapter,expected,
             {is_current=online_active,allow_missing_images=true})
         if not built or not Path.contains(settings,built.path) or not online_active() then return {error=why or 'unavailable'} end
-        local target=Cache.identify(settings,scope.vid,built.path,online_active)
-        local prepared=prepare(target,built.path)
+        local prepared=prepare(built.saved_entry,built.path)
         return prepared or {error='target_unavailable'}
     end)
     auth:cancel()

@@ -9,6 +9,7 @@ local native={scope={vid='123'},credentials={vid='123'},fingerprint='synthetic'}
 local row={chapterUid='38',chapterIdx=3,downloadable=true}
 local catalog={book_id='42',version=7,reading_digest=catalog_sha,chapters={row}}
 local cached={book_id='42',chapter_uid='38',chapter_idx=3,book_version=7,catalog_sha256=catalog_sha,source_sha256=digest}
+local published=cached
 local live=true;local cloud_count=0;local source_count=0;local build_count=0;local cache_hit=true
 local target_identifications=0
 local changed=false;local duplicate=false;local source_mismatch=false;local bad_target=false
@@ -57,7 +58,7 @@ package.preload['weread.lib.native_direct_cache']=function() return {
 package.preload['weread.lib.native_direct_reader']=function() return {build=function(_,_,book,chapter,expected,options)
     build_count=build_count+1
     assert(book.book_id=='42' and chapter==row and expected.chapter_uid=='38' and options.is_current())
-    return {path='/target',source_sha256=digest,book_version=7}
+    return {path='/target',source_sha256=digest,book_version=7,saved_entry=published}
 end} end
 local Target=require('weread.lib.native_direct_cloud_target')
 local function resolve()
@@ -68,8 +69,11 @@ local result=resolve();local reason
 expect(result and result.reused and result.path=='/target' and cloud_count==2 and source_count==1 and build_count==0
     and target_identifications==0,
     'verified cached chapter was not selected')
-cache_hit=false;result=resolve();expect(result and result.reused==false and build_count==1 and target_identifications==1,
-    'uncached chapter was not prepared and identified')
+cache_hit=false;result=resolve();expect(result and result.reused==false and build_count==1 and target_identifications==0,
+    'downloaded chapter did not reuse its publication proof')
+published=nil;result,reason=resolve()
+expect(not result and reason=='source_changed' and target_identifications==0,'missing publication proof was accepted')
+published=cached
 cache_hit=true;row.downloadable=false;result,reason=resolve()
 expect(not result and reason=='not_entitled' and source_count==0 and build_count==0,'unavailable chapter was downloaded')
 row.downloadable=true;duplicate=true;result,reason=resolve()

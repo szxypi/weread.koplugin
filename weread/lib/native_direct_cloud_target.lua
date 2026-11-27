@@ -58,7 +58,7 @@ function M.resolve(client,settings,entry,file,context,native,web,current,wanted,
             local built,build_error=Reader.build(client,settings,book,chapter,expected,{is_current=active,allow_missing_images=true})
             if not built then return {error=build_error or 'unavailable'} end
             if built.source_sha256~=digest or built.book_version~=catalog.version then return {error='source_changed'} end
-            path=built.path;target_entry=Cache.identify(settings,native.scope.vid,path,active);reused=false
+            path=built.path;target_entry=built.saved_entry;reused=false
         end
         if not target_entry or not Cache.valid_entry(target_entry,entry.book_id,native.scope.vid)
             or target_entry.chapter_uid~=wanted.chapter_uid or target_entry.chapter_idx~=wanted.chapter_idx

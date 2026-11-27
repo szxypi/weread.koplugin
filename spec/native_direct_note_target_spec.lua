@@ -37,12 +37,12 @@ package.loaded['weread.lib.native_book_catalog']={read=function() if state.http_
 package.loaded['weread.ui.native_direct_reading']={project=function() return state.catalog end}
 package.loaded['weread.lib.native_direct_reader']={build=function(_,_,_,chapter,expected,options)
     assert(chapter.chapterUid=='3' and expected.chapter_uid=='3' and options.is_current())
-    state.built=state.built+1;return {path='/native/target'}
+    state.built=state.built+1;return {path='/native/target',saved_entry=state.published}
 end}
 local Target=require('weread.lib.native_direct_note_target')
 local settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,v) return state.valid and v==scope end}
 local function fixture(online)
-    state={source=source,target=target,rows={target},valid=true,online=online,prepared=0,built=0,target_identifications=0,
+    state={source=source,target=target,published=target,rows={target},valid=true,online=online,prepared=0,built=0,target_identifications=0,
         access={scope={vid='7'},credentials={},fingerprint='fingerprint'},
         catalog={version=3,reading_digest='catalog',chapters={{chapterUid='2'}, {chapterUid='3',downloadable=true}}}}
 end
@@ -65,7 +65,9 @@ result,why=resolve();expect(result and not why and state.built==1 and state.prep
 fixture(true);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,catalog_sha256='catalog',catalog_count=2,source_sha256='different'}}
 state.bad_quote=true;result,why=resolve();expect(not result and why=='target_unavailable' and state.built==1 and state.cancelled)
 fixture(true);state.rows={};result=resolve();expect(result and state.built==1 and state.cancelled
-    and state.prepared==1 and state.target_identifications==1)
+    and state.prepared==1 and state.target_identifications==0)
+fixture(true);state.rows={};state.published={book_id='41',chapter_uid='8'};result,why=resolve()
+expect(not result and why=='target_unavailable' and state.prepared==0 and state.target_identifications==0)
 fixture(true);state.rows={};state.catalog.reading_digest='different';result,why=resolve();expect(not result and why=='catalog_changed' and state.built==0 and state.cancelled)
 fixture(true);state.rows={};state.catalog.chapters[2].downloadable=false;result,why=resolve();expect(not result and why=='not_entitled' and state.built==0)
 fixture(true);state.rows={};state.access.renewal_pending=true;result,why=resolve();expect(not result and why=='auth_expired' and state.built==0)

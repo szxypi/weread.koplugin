@@ -101,9 +101,7 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
             local built,why=require('weread.lib.native_direct_reader').build(client,settings,book,chapter,expected,
                 {is_current=live,allow_missing_images=true})
             if not built or not Path.contains(settings,built.path) or not live() then return {error=why or 'unavailable'} end
-            local target=Cache.identify(settings,scope.vid,built.path,live)
-            if not target then return {error='source_changed'} end
-            local resolved,reason=prepare(target,built.path)
+            local resolved,reason=prepare(built.saved_entry,built.path)
             if not resolved then return {error=reason or 'target_unavailable'} end
             resolved.reused=false;return resolved
         end)
