@@ -25,7 +25,11 @@ end
 if input.missing_resume_source then assert(live_cloud and input.exact_resume) end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',input.prefer_eink_chapters and {wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'} or {})
+local web_fixture=input.prefer_eink_chapters and {
+    wr_vid = input.credentials.vid,
+    wr_skey = 'synthetic-web-access',
+} or {}
+settings:set('cookies',web_fixture)
 local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
 local cache=settings:get('cache');cache.show_annotations=false;cache.auto_prefetch_next_chapter=false
 cache.download_book_images=false;cache.download_underlines_and_thoughts=false;settings:set('cache',cache)
