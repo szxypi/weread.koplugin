@@ -495,6 +495,29 @@ function M:showPrefetchNotice(text, timeout)
     self:showTransientInfo(text, timeout or 1)
 end
 
+local function mapped_chapter(book, file)
+    local current
+    for uid, path in pairs(type(book.cached_chapters) == "table" and book.cached_chapters or {}) do
+        if path == file then
+            local key = tostring(uid)
+            if current and current ~= key then return nil, true end
+            current = key
+        end
+    end
+    return current, false
+end
+
+local function chapter_in_catalog(chapters, uid)
+    if uid then
+        uid = tostring(uid)
+        for index, chapter in ipairs(chapters) do
+            if type(chapter) == "table" and tostring(chapter.chapterUid or chapter.chapterId or "") == uid then
+                return index, chapter
+            end
+        end
+    end
+end
+
 function M:maybePrefetchNextChapter(book_id, recovered)
     local cache = self.settings:get("cache")
     if cache.auto_prefetch_next_chapter ~= true or not book_id then
@@ -511,30 +534,42 @@ function M:maybePrefetchNextChapter(book_id, recovered)
         if selected then self:showInfo(book_identity_message()) else self:showPrefetchNotice(book_identity_message()) end
         return false
     end
-    local chapters = self:ensureChaptersLoaded(book)
-    local file = self.ui.document and self.ui.document.file
-    if not book or not chapters or not file then
+    local file = self.ui and self.ui.document and self.ui.document.file
+    if not book or not file then
         self.downloader:cancelPrefetch("prefetch_context_missing")
         return false
     end
-    local chapter_info = { self:getChapterInfoFromFile(book, file) }
-    local current_index, is_full_book = chapter_info[1], chapter_info[3]
-    local next_chapter = not is_full_book and current_index
-        and chapters[current_index + 1] or nil
-    if not next_chapter then
+    local current_uid, shared = mapped_chapter(book, file)
+    if shared or current_uid and book.cached_full_book == file then
+        local info = require("weread.lib.chapter_cache_claim").inspect(book, file, nil, true)
+        current_uid = info.kind == "single" and info.uid or nil
+    end
+    if not current_uid or current_uid == "" then
         self.downloader:cancelPrefetch("no_next_chapter")
         return false
     end
 
-    local next_uid = tostring(next_chapter.chapterUid or next_chapter.chapterId or "")
+    local chapters = self:ensureChaptersLoaded(book, true)
+    if not chapters then
+        self.downloader:cancelPrefetch("prefetch_context_missing")
+        return false
+    end
+    local current_index = chapter_in_catalog(chapters, current_uid)
+    local next_chapter = current_index and chapters[current_index + 1]
+    local next_uid = type(next_chapter) == "table" and tostring(next_chapter.chapterUid or next_chapter.chapterId or "")
+    if not next_uid or next_uid == "" or next_uid == current_uid then
+        self.downloader:cancelPrefetch("no_next_chapter")
+        return false
+    end
+
     if recovered then
         if recovered.chapter_uid~=next_uid or FileIdentity.version(book.bookVersion)~=recovered.previous_version
             or not require('weread.ui.prefetch_auth_recovery').matches(recovered.chapter,next_chapter) then return false end
         local copied={};for key,value in pairs(book) do copied[key]=value end
         copied.bookVersion=recovered.version;book=copied
     end
-    local cached = book.cached_chapters and book.cached_chapters[next_uid]
-    if file_exists(cached) then
+    local cached = ReadAccess.cached_chapter(book.cached_chapters, next_uid)
+    if cached ~= file and file_exists(cached) then
         if self.prefetchChapterAnnotations then self:prefetchChapterAnnotations(book, next_chapter) end
         if not self.downloader:isPrefetching(book, next_chapter) then
             self.downloader:cancelPrefetch("next_chapter_cached")
@@ -598,8 +633,9 @@ function M:maybePrefetchNextChapter(book_id, recovered)
                 self:showInfo(_('WeRead is limiting requests. Download stopped. Please try again later.'))
                 return
             end
-            if value=='book_identity_conflict' then
-                local message=book_identity_message()
+            if value=='book_identity_conflict' or value=='download_cache_unavailable' then
+                local message=value=='book_identity_conflict' and book_identity_message()
+                    or _("Could not save book information. Check storage and try again.")
                 if retry_requested then self:showInfo(message) else self:showPrefetchNotice(message) end
                 return
             end
@@ -925,20 +961,11 @@ end
 --   is_full_book (boolean): True if the file maps to multiple chapters (e.g. a combined EPUB), false otherwise.
 --   partial_combined (boolean): The combined file does not match the full catalog, or could not be verified.
 function M:getChapterInfoFromFile(book, file_path)
-    if not book or not file_path or not book.chapters then
+    if not book or not file_path or type(book.chapters) ~= "table" then
         return nil, nil, false
     end
 
-    local mapped_count = 0
-    local current_uid = nil
-    local seen_uid = {}
-    for uid, path in pairs(book.cached_chapters or {}) do
-        if path == file_path then
-            local key=tostring(uid)
-            if not seen_uid[key] then mapped_count = mapped_count + 1;seen_uid[key]=true end
-            current_uid = key
-        end
-    end
+    local current_uid = mapped_chapter(book, file_path)
 
     local Claims=require('weread.lib.chapter_cache_claim')
     local function complete(info)
@@ -956,18 +983,11 @@ function M:getChapterInfoFromFile(book, file_path)
         local info=Claims.inspect(book,file_path)
         if info.kind=='combined' then return nil,nil,true,not complete(info) end
         if info.kind~='single' then return nil,nil,false end
-        mapped_count,current_uid=1,info.uid
+        current_uid=info.uid
     end
 
-    if mapped_count == 1 and current_uid then
-        for i, ch in ipairs(book.chapters) do
-            if tostring(ch.chapterUid or ch.chapterId or '') == tostring(current_uid) then
-                return i, ch, is_full_book
-            end
-        end
-    end
-
-    return nil, nil, is_full_book
+    local index, chapter = chapter_in_catalog(book.chapters, current_uid)
+    return index, chapter, is_full_book
 end
 
 function M:onFlushSettings()

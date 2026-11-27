@@ -8,7 +8,7 @@ local scheduled = {}
 package.preload["weread.lib.content"] = function()
     return {
         catalog_cache_path = function() return "/cache/catalog.json" end,
-        save_catalog_cache = function() return true end,
+        save_catalog_cache = function() error("prefetch rewrote the catalog file") end,
     }
 end
 package.preload["weread.lib.logger"] = function()
@@ -93,9 +93,11 @@ local host = {
             if key == "books" then return { book = book } end
         end,
     },
+    library_db = {
+        putChapters = function() error("prefetch rewrote the SQLite catalog") end,
+    },
     downloader = downloader,
     ui = { document = { file = "/cache/one.epub" } },
-    ensureChaptersLoaded = function() return chapters end,
     showTransientInfo = function(_self, text, timeout)
         notices[#notices + 1] = { text, timeout }
     end,
@@ -123,13 +125,54 @@ expect(#logs == 2 and logs[1][1] == "info" and logs[2][1] == "info",
 
 starts = {}
 notices = {}
-book.cached_chapters["2"] = "/cache/two.epub"
+book.cached_chapters[2] = "/cache/two.epub"
 existing["/cache/two.epub"] = true
 expect(host:maybePrefetchNextChapter("book"), "cached next chapter is satisfied")
-expect(#starts == 0, "cached next chapter does not scan forward to chapter three")
+expect(#starts == 0, "a legacy numeric key avoids downloading the cached chapter again")
 
-book.cached_chapters["2"] = nil
+book.cached_chapters[2] = nil
 existing["/cache/two.epub"] = nil
+do
+    local Content = require("weread.lib.content")
+    local claims = require("weread.lib.chapter_cache_claim")
+    local original_inspect = claims.inspect
+    local reads, database_reads = 0, 0
+    Content.load_catalog_cache = function(_, _, target)
+        reads = reads + 1
+        expect(target == book, "prefetch read another book's catalog")
+        target.chapters = chapters
+        return chapters
+    end
+    book.chapters = nil
+    book.cached_full_book = "/cache/full.epub"
+    host.ui.document.file = book.cached_full_book
+    existing[book.cached_full_book] = true
+    expect(not host:maybePrefetchNextChapter("book") and reads == 0, "unmapped full book read a catalog")
+    book.cached_chapters["1"], book.cached_chapters["2"] = book.cached_full_book, book.cached_full_book
+    claims.inspect = function(_, file, _, sealed)
+        assert(file == book.cached_full_book and sealed)
+        return {kind="combined"}
+    end
+    expect(not host:maybePrefetchNextChapter("book") and reads == 0, "shared combined file read a catalog")
+    claims.inspect = function() return {kind="single", uid="1"} end
+    expect(host:maybePrefetchNextChapter("book") and reads == 1 and starts[1].chapters[1] == chapters[2],
+        "a verified single chapter behind a shared legacy mapping could not prefetch")
+    starts = {}
+    claims.inspect = original_inspect
+    existing[book.cached_full_book] = nil
+    book.cached_chapters = { ["1"] = "/cache/one.epub" }
+    host.ui.document.file = "/cache/one.epub"
+    book.chapters, book.cached_full_book = nil, nil
+    Content.load_catalog_cache = function() return nil end
+    host.library_db.getChapters = function(_, id)
+        assert(id == "book")
+        database_reads = database_reads + 1
+        return chapters
+    end
+    expect(host:maybePrefetchNextChapter("book") and database_reads == 1 and starts[1].chapters[1] == chapters[2],
+        "SQLite-only chapter data could not prefetch")
+    starts = {}
+end
 host:maybePrefetchNextChapter("book")
 starts[1].options.on_complete(false, "offline")
 expect(#notices == 1
@@ -173,6 +216,10 @@ starts={};scheduled={};information=nil;host:maybePrefetchNextChapter('book')
 starts[1].options.on_complete(false,'book_identity_conflict')
 expect(#scheduled==0 and information and information:find('does not match',1,true),
     'promoted prefetch retried or hid a conflicting saved book identity')
+starts={};information=nil;host:maybePrefetchNextChapter('book')
+starts[1].options.on_complete(false,'download_cache_unavailable')
+expect(#scheduled==0 and information and information:find('Check storage',1,true),
+    'promoted prefetch retried the network or hid a disk save failure')
 local original_get=host.settings.get
 host.settings.get=function(self,key)
     if key=='books' then return {book={book_id='another',chapters=chapters}} end

@@ -211,6 +211,26 @@ if offline then
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
     local current=reader.weread
+    if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
+        local candidate=book(current)
+        assert(candidate.cached_full_book==reader.document.file)
+        local preferences=current.settings:get('cache')
+        local ensure, get_book=current.ensureChaptersLoaded,current.settings.get_book
+        local old_prefetch=preferences.auto_prefetch_next_chapter
+        preferences.auto_prefetch_next_chapter=true
+        current.settings:set('cache',preferences)
+        current.ensureChaptersLoaded=function() error('combined EPUB read a catalog for prefetch') end
+        assert(not current:maybePrefetchNextChapter(id))
+        current.settings.get_book=function(self,book_id,...)
+            local result=get_book(self,book_id,...)
+            if book_id==id then result.cached_chapters={['2']=expected.file,['4']=expected.file} end
+            return result
+        end
+        assert(not current:maybePrefetchNextChapter(id),'shared combined copy queued a prefetch')
+        current.ensureChaptersLoaded,current.settings.get_book=ensure,get_book
+        preferences.auto_prefetch_next_chapter=old_prefetch
+        current.settings:set('cache',preferences)
+    end
     current:showChapterList(book(current))
     local view=assert(current._chapter_list_view)
     local title=assert(view._chapter_rows[1]).text
