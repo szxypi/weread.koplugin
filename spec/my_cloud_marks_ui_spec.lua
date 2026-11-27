@@ -24,7 +24,10 @@ local function fixture(saved)
     host.settings.get_auth_scope=function() return value.scope end
     host.settings.auth_scope_matches=function(_self,scope) return value.valid and scope==value.scope end
     host.library_db={accountKey=function() return value.account end}
-    host.isNetworkOnline=function() return value.online end
+    host.isNetworkOnline=function() error('notes list probed Internet on the UI thread') end
+    host.isNetworkLinkAvailable=function()
+        value.link_checks=(value.link_checks or 0)+1;return value.online
+    end
     host.showInfo=function(_self,text) value.notices[#value.notices+1]=text end
     host.showOffline=host.showInfo
     host.showInputDialog=function(_self,dialog) UI:show(dialog) end
@@ -51,14 +54,14 @@ end
 local host,value=fixture(snapshot())
 expect(Marks.show(host,'900001'),'saved marks did not open offline')
 local menu=host._my_marks_menu
-expect(not value.started and row(menu,'合成引用') and row(menu,'合成章节'),'offline cached quote/bookmark missing')
+expect(not value.link_checks and not value.started and row(menu,'合成引用') and row(menu,'合成章节'),'offline cached quote/bookmark missing')
 row(menu,'Highlights only').callback();expect(not pcall(row,menu,'合成章节'),'bookmark escaped highlights filter')
 row(menu,'Bookmarks only').callback();expect(not pcall(row,menu,'合成引用'),'highlight escaped bookmark filter')
 row(menu,'All cloud marks').callback();row(menu,'合成引用').callback()
 expect(menu._shelf_popup.text=='合成章节\n\n合成引用','native popup lost full quote')
 expect(menu._shelf_popup.buttons_table[1][1].id=='open_highlight','valid saved range lost original-text action')
 value.online=true;row(menu,'Refresh my cloud marks').callback()
-expect(value.started==1 and host.busy_message,'refresh did not start owned worker')
+expect(value.link_checks==1 and value.started==1 and host.busy_message,'refresh did not start owned worker after one link check')
 local before=menu.item_table;local changed=snapshot();changed.updated[1].markText='新引用'
 value.complete(changed)
 expect(value.writes==1 and not host.busy_message and menu.item_table==before and menu._shelf_popup,'refresh replaced a live popup')
@@ -294,14 +297,15 @@ expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and 
     'cached reference did not start the requested draft')
 Marks.cancel(host)
 host,value=fixture();resumes={};expect(Marks.show(host,'900001',nil,{resume_draft=request}), 'offline target did not open')
-expect(#resumes==0 and not value.started and #value.notices==1,'missing offline reference was guessed')
+expect(#resumes==0 and value.link_checks==1 and not value.started and #value.notices==1,'missing offline reference was guessed')
 Marks.cancel(host)
 host,value=fixture();resumes={};request.selection=true
 expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and not value.started,
     'selection draft did not use local source without network')
 Marks.cancel(host);request.selection=false
 host,value=fixture();value.online=true;resumes={}
-expect(Marks.show(host,'900001',nil,{resume_draft=request}) and value.started==1 and #resumes==0,'missing reference did not refresh')
+expect(Marks.show(host,'900001',nil,{resume_draft=request}) and value.link_checks==1 and value.started==1 and #resumes==0,
+    'missing reference did not refresh after one link check')
 value.complete(snapshot());expect(value.writes==1 and #resumes==1 and resumes[1].token==request.token,'fresh reference did not resume draft')
 Marks.cancel(host)
 host,value=fixture();value.online=true;resumes={};Marks.show(host,'900001',nil,{resume_draft=request});menu=host._my_marks_menu

@@ -151,6 +151,8 @@ local ok,reason=pcall(function()
         report.export_ui_checked=false
     end
     plugin.isNetworkOnline=function() return mode=='live' end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    local online=plugin.isNetworkOnline
+    local function unexpected_probe() error('cloud notes probed Internet on the UI thread') end
     plugin.fetchVisibleShelfCovers=function() end
     local UI,socket=require('ui/uimanager'),require('socket')
     local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
@@ -170,7 +172,8 @@ local ok,reason=pcall(function()
     local detail=assert(plugin._book_detail_view);local tr=require('weread.lib.plugin_util').tr
     local open
     for _i,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then open=button.callback end end
-    assert(open);open();local owner=assert(plugin._my_marks_owner);local menu=assert(plugin._my_marks_menu)
+    assert(open);plugin.isNetworkOnline=unexpected_probe;open();plugin.isNetworkOnline=online
+    local owner=assert(plugin._my_marks_owner);local menu=assert(plugin._my_marks_menu)
     if mode=='live' then
         assert(owner.context and owner.worker.job)
         local heartbeat=false;UI:scheduleIn(.1,function() heartbeat=true end);wait(function() return heartbeat end)
@@ -534,7 +537,9 @@ local ok,reason=pcall(function()
     if synthetic and mode=='live' then
         local baseline=owner.value
         local function refresh()
-            menu:onMenuSelect(menu.item_table[1]);assert(owner.context and owner.worker.job)
+            plugin.isNetworkOnline=unexpected_probe
+            menu:onMenuSelect(menu.item_table[1]);plugin.isNetworkOnline=online
+            assert(owner.context and owner.worker.job)
         end
         local function finished() wait(function() return not owner.context end) end
         local function clear_notice()

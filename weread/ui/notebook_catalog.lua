@@ -7,6 +7,7 @@ local Marks=require('weread.lib.my_cloud_marks')
 local Search=require('weread.lib.shelf_search')
 local Query=require('weread.lib.search_query')
 local Protocol=require('weread.lib.protocol')
+local NetworkLink=require('weread.lib.network_link')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -168,11 +169,16 @@ render=function(host,owner)
         owner.menu:switchItemTable(nil,items)
     end)
 end
-refresh=function(host,owner)
+refresh=function(host,owner,automatic)
     if not current(host,owner) or owner.context then return false end
-    require('weread.ui.notebook_bulk').cancel(host,owner)
-    require('weread.ui.notebook_search').cancel(host,owner)
-    if not host:isNetworkOnline() then host:showOffline(_('My notebooks'));return false end
+    if not automatic then
+        require('weread.ui.notebook_bulk').cancel(host,owner)
+        require('weread.ui.notebook_search').cancel(host,owner)
+    end
+    if not NetworkLink.available(host) then
+        if not automatic then host:showOffline(_('My notebooks')) end
+        return false
+    end
     local access=Data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end
     local context={};owner.context=context
@@ -245,7 +251,7 @@ function M.show(host,options)
     render(host,owner)
     if options and options.search then
         require('weread.ui.notebook_search').prompt(host,owner,current)
-    elseif not owner.value and host:isNetworkOnline() then refresh(host,owner) end
+    elseif not owner.value then refresh(host,owner,true) end
     return true
 end
 return M

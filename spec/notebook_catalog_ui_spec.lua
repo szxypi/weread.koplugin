@@ -27,6 +27,9 @@ local function fixture(saved)
         host[entry]=function(self,id) value.opened={entry,id};self._my_marks_owner={} end
     end
     host.isNetworkOnline=function() return value.online end
+    host.isNetworkLinkAvailable=function()
+        value.link_checks=(value.link_checks or 0)+1;return value.online
+    end
     host.showInfo=function(_self,text) value.notices[#value.notices+1]=text end;host.showOffline=host.showInfo
     host.showInputDialog=function(_self,dialog) UI:show(dialog) end
     host.showList=function(_self,title,items) return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end} end
@@ -49,7 +52,7 @@ local function listed(menu)
 end
 local host,value=fixture(snapshot());expect(Catalog.show(host),'cached catalog did not open')
 local menu=host._notebook_menu
-expect(not value.started and row(menu,'Synthetic book').mandatory=='Author','cached catalog not shown offline')
+expect(not value.link_checks and not value.started and row(menu,'Synthetic book').mandatory=='Author','cached catalog not shown offline')
 expect(row(menu,'Save all notebook notes for offline use'),'offline notebook-save entry missing')
 row(menu,'Save all notebook notes for offline use').callback()
 expect(not value.started and #value.notices==1 and not menu._shelf_popup,'offline save attempted a request')
@@ -126,7 +129,15 @@ end
 host,value=fixture(snapshot());value.online=true;value.save_fail=true;Catalog.show(host);menu=host._notebook_menu
 row(menu,'Refresh my notebooks').callback();changed=snapshot();changed.books[1].title='Unsaved';value.complete(changed)
 expect(value.writes==0 and row(menu,'Synthetic book') and #value.notices==1,'save failure replaced cache')
-host,value=fixture();value.online=true;Catalog.show(host);expect(value.started==1,'initial online fetch not started')
+host,value=fixture()
+host.isNetworkOnline=function() error('catalog list probed Internet on the UI thread') end
+Catalog.show(host);menu=host._notebook_menu
+expect(value.link_checks==1 and not value.started and #value.notices==0,'offline cold open did not stay quiet')
+row(menu,'Refresh my notebooks').callback()
+expect(value.link_checks==2 and not value.started and #value.notices==1,'offline refresh did not explain the missing link')
+Catalog.cancel(host)
+value.online=true;value.link_checks=0;value.notices={};Catalog.show(host)
+expect(value.link_checks==1 and value.started==1,'initial online fetch did not start after one link check')
 value.complete({error='failed'});expect(value.writes==0 and #value.notices==1,'failed response saved')
 host,value=fixture(snapshot());value.online=true;Catalog.show(host);menu=host._notebook_menu
 local renewals=0

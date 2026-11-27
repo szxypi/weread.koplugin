@@ -7,6 +7,7 @@ local Protocol=require('weread.lib.protocol')
 local Search=require('weread.lib.shelf_search')
 local SearchQuery=require('weread.lib.search_query')
 local Order=require('weread.lib.personal_notes_order')
+local NetworkLink=require('weread.lib.network_link')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -264,9 +265,16 @@ render=function(host,owner)
         owner.menu:switchItemTable(nil,items)
     end)
 end
-refresh=function(host,owner,resume_draft)
+refresh=function(host,owner,resume_draft,automatic)
     if not current(host,owner) or owner.context or owner.editor then return false end
-    if not host:isNetworkOnline() then host:showOffline(_(owner.labels.title));return false end
+    if not NetworkLink.available(host) then
+        if resume_draft then
+            host:showInfo(_('The original thought or highlight is unavailable. Refresh its notes and try again.'))
+        elseif not automatic then
+            host:showOffline(_(owner.labels.title))
+        end
+        return false
+    end
     local access=owner.data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end
     local context={resume_draft=resume_draft,generation=owner.generation};owner.context=context
@@ -378,8 +386,9 @@ function M.show(host,id,variant,options)
     -- loaded; a later user action or popup prevents an unsolicited editor.
     if request and (owner.value or request.selection) then
         require('weread.ui.thought_editor').resume(host,owner,request.key,request.token,current,render)
-    elseif not owner.value and host:isNetworkOnline() then refresh(host,owner,request)
-    elseif request then host:showInfo(_('The original thought or highlight is unavailable. Refresh its notes and try again.')) end
+    elseif not owner.value then
+        refresh(host,owner,request,true)
+    end
     return true
 end
 return M

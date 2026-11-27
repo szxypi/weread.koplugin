@@ -156,7 +156,9 @@ local ok,reason=pcall(function()
     assert(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);plugin=assert(FM.instance.weread)
     assert(plugin.ui==FM.instance and not plugin.ui.document);report.native_filemanager=true
-    plugin.isNetworkOnline=function() return mode=='live' end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    local online=function() return mode=='live' end
+    local function unexpected_probe() error('notebook open probed Internet on the UI thread') end
+    plugin.isNetworkOnline=unexpected_probe;plugin.isNetworkConnected=online
     local UI,socket=require('ui/uimanager'),require('socket')
     local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
     local function wait(predicate)
@@ -174,6 +176,7 @@ local ok,reason=pcall(function()
     local tr=require('weread.lib.plugin_util').tr;local entry
     for _,item in ipairs(plugin:getMainMenuItems()) do if item.text==tr('My notebooks') then entry=item end end
     assert(entry and entry.callback);entry.callback()
+    plugin.isNetworkOnline=online
     local owner=assert(plugin._notebook_owner);local menu=assert(plugin._notebook_menu)
     if mode=='live' then
         assert(owner.context and owner.worker.job)
@@ -203,7 +206,8 @@ local ok,reason=pcall(function()
     local chosen,position
     local Marks=require('weread.lib.my_cloud_marks')
     for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=positions[index];break end end
-    assert(chosen);plugin.isNetworkOnline=function() return false end
+    assert(chosen);plugin.isNetworkConnected=function() return false end
+    plugin.isNetworkOnline=unexpected_probe
     for index,variant in ipairs({'highlights','thoughts','bookmarks'}) do
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(menu.item_table[position])
         local popup=assert(menu._shelf_popup);assert(#popup.buttons==3)
@@ -211,6 +215,7 @@ local ok,reason=pcall(function()
         assert(child.id==chosen.bookId and not child.context and (variant~='thoughts' or child.thoughts)
             and (variant~='bookmarks' or child.bookmarks));plugin:cancelMyCloudMarks()
     end
+    plugin.isNetworkOnline=plugin.isNetworkConnected
     report.menu_navigation=true
     local function item(label)
         for _,row in ipairs(menu.item_table) do if row.text==tr(label) then return row end end
