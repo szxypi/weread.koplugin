@@ -822,13 +822,30 @@ function Downloader:start(book, chapters, suffix, options)
             return
         end
         local ok_init, err_init = pcall(function()
-            self:_setStage(dl, _("Connecting to WeRead..."))
-            local updated = self:_runInterruptible(dl, function(client)
-                Content.ensure_reader_state(client, book)
-                return reader_book(book)
-            end)
-            if dl.cancelled then return end
-            apply_reader_book(book, updated)
+            local prepared = options.prepared_reader
+            local reader_checked = false
+            if dl.reading_auth_recovery and total == 1 and type(prepared) == "table"
+                and type(prepared.url) == "string" and prepared.fingerprint == dl.auth_fingerprint
+                and prepared.fingerprint == WorkerSettings.fingerprint(self.settings) then
+                local verified, url = pcall(require("weread.lib.reader_context").url, book)
+                reader_checked = verified and url == prepared.url
+            end
+            if reader_checked then
+                -- Chapter source loading still requests a fresh, chapter-specific session.
+                book.title = book.title or prepared.title
+                book.author = book.author or prepared.author
+                book.reader_url = prepared.url
+                book.psvts, book.pclts, book.token = nil, nil, nil
+                require("weread.lib.reader_state").apply_to_book(book, prepared)
+            else
+                self:_setStage(dl, _("Connecting to WeRead..."))
+                local updated = self:_runInterruptible(dl, function(client)
+                    Content.ensure_reader_state(client, book)
+                    return reader_book(book)
+                end)
+                if dl.cancelled then return end
+                apply_reader_book(book, updated)
+            end
             dl.source_identity = FileIdentity.capture(book)
             self:_setStage(dl, _("Preparing download..."))
             if dl.resumable and Content.open_full_download_workspace then

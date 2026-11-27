@@ -100,6 +100,26 @@ function M.choose(chapters, local_book, remote, account)
     return chapters[M.resume_index(chapters,local_book,remote,account) or 1]
 end
 
+-- Pass only book metadata and progress from the verified page to the downloader.
+local function prepared_reader(url, state)
+    local chapter, progress = state.current_chapter or {}, state.progress or {}
+    local uid = chapter.chapterUid or progress.chapterUid
+    return {
+        url = url,
+        title = state.title,
+        author = state.author,
+        current_chapter = {
+            chapterUid = (type(uid) == "string" or type(uid) == "number") and uid or nil,
+            chapterIdx = tonumber(chapter.chapterIdx or progress.chapterIdx),
+            chapterOffset = tonumber(chapter.chapterOffset or progress.chapterOffset),
+        },
+        progress = {
+            progress = tonumber(progress.progress),
+            summary = type(progress.summary) == "string" and progress.summary or nil,
+        },
+    }
+end
+
 local function close_busy(host, context)
     if context.busy and host.busy_message == context.busy then host:closeBusy() end
     context.busy = nil
@@ -234,6 +254,7 @@ function M.start(host, book, view, origin)
                 local progress,chapter=state.progress or {},state.current_chapter or {}
                 local chapters,version=Content.fetch_catalog(client,copy)
                 return {book_id=id,chapters=M.catalog(chapters),source_version=version or 0,auth=auth_result(),
+                    reader=prepared_reader(copy.reader_url,state),
                     remote={chapter_uid=progress.chapterUid or chapter.chapterUid,chapter_idx=progress.chapterIdx or chapter.chapterIdx}}
             end)
             if good then return value end
@@ -279,8 +300,11 @@ function M.start(host, book, view, origin)
             end
             download_book={};for key,value in pairs(latest) do download_book[key]=value end
             download_book.bookVersion=result.source_version
+            local reader=type(result.reader)=="table" and result.reader or nil
+            if reader then reader.fingerprint=context.fingerprint end
             local launched,accepted=pcall(host.downloader.start,host.downloader,download_book,{target},'chapter',{
                 single_chapter=true,offer_read=false,silent_completion=true,on_complete=context.complete,reading_auth_recovery=true,
+                prepared_reader=reader,
                 on_reading_auth_updated=function(before,after)
                     if current() and context.fingerprint==before and Source.web_access(host.settings) then
                         context.fingerprint=after

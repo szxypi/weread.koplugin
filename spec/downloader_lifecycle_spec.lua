@@ -291,6 +291,46 @@ pending_init()
 expect(reader_calls == 1 and not dialog.visible and downloader._active_job == nil,
     "cancel before initialization still fetched or reopened the dialog")
 
+local prepared_reader = {
+    url = "https://reader/900001",
+    fingerprint = require("weread.lib.worker_settings").fingerprint(downloader.settings),
+    title = "Remote title",
+    author = "Remote author",
+    current_chapter = { chapterUid = 2, chapterOffset = 19 },
+    progress = { progress = 42 },
+}
+for _, case in ipairs({
+    { id = "900001", recovery = true, reuse = true },
+    { id = "900002", recovery = true },
+    { id = "900001", recovery = true, rotate = true },
+    { id = "900001", recovery = false },
+}) do
+    painted = false
+    local saved_get = downloader.settings.get
+    local book = { book_id = case.id, title = "Local title", chapter_idx = 7, bookVersion = 3 }
+    local before = reader_calls
+    expect(downloader:start(book, { chapters[2] }, "chapter", {
+        single_chapter = true, reading_auth_recovery = case.recovery, prepared_reader = prepared_reader,
+    }), "prepared chapter did not start")
+    if case.rotate then
+        downloader.settings.get = function(self, key, fallback)
+            if key == "wr_ticket" then return "changed" end
+            return saved_get(self, key, fallback)
+        end
+    end
+    pending_init()
+    downloader.settings.get = saved_get
+    expect(reader_calls - before == (case.reuse and 0 or 1), "reader preparation crossed its book or authorization")
+    if case.reuse then
+        expect(book.title == "Local title" and book.author == "Remote author" and book.chapter_offset == 19
+            and book.chapter_uid == 2 and book.chapter_idx == 7 and book.progress == 42
+            and downloader._active_job.source_identity.book_version == 3,
+            "prepared reader lost local fields or source identity")
+    end
+    dialog.options.buttons[1][1].callback()
+    downloader:_step(downloader._active_job)
+end
+
 Content.ensure_reader_state = function() error("injected reader failure") end
 expect(start_selected(), "reader failure setup failed")
 pending_init()

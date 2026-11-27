@@ -14,7 +14,10 @@ local catalog = { { chapterUid = 1, chapterIdx = 1, title = "One", wordCount = 1
 package.preload["weread.lib.content"] = function() return {
     ensure_reader_state = function(_client, book)
         book.token = "private-synthetic-token"
-        return { progress = { chapterUid = 2 }, current_chapter = { chapterUid = 1 } }
+        book.reader_url = "https://reader/900001"
+        return { token = book.token, title = "Reader title", author = "Reader author",
+            progress = { chapterUid = 2, chapterOffset = 19 },
+            current_chapter = { chapterUid = 1 } }
     end,
     fetch_catalog = function() return catalog,source_version end,
     save_catalog_cache = function() saved_catalogs = saved_catalogs + 1; return true end,
@@ -160,12 +163,15 @@ expect(Reading.start(host, book), "reading preparation did not start")
 expect(state.downloads == 0 and host.busy_message, "network preparation blocked or skipped busy UI")
 local result = state.job.task()
 expect(result.remote.chapter_uid == 2 and result.token == nil, "worker leaked context or chose page chapter over cloud progress")
+expect(result.reader.url == "https://reader/900001" and result.reader.current_chapter.chapterOffset == 19
+    and result.reader.token == nil, "reader handoff lost metadata or included a session field")
 state.job.complete(result)
 expect(state.downloads == 1 and state.download.chapter.chapterUid == "1" and state.download.book.title == "Latest title",
     "preparation overwrote current saved data")
 expect(saved_catalogs == 1 and state.catalog_writes == 1 and not host.busy_message, "catalog was not persisted in parent")
 expect(state.download.options.single_chapter and state.download.options.silent_completion and not state.download.options.offer_read,
     "read required another completion dialog")
+expect(state.download.options.prepared_reader == result.reader, "verified reader preparation was lost at download start")
 state.download.options.on_complete(true, "/cache/chapter.epub")
 expect(state.opened == 0, "opened before downloader released its job")
 tasks[1]()
