@@ -226,6 +226,40 @@ press(plugin._book_detail_view, "Similar books")
 plugin._book_detail_view:onClose()
 flush_tasks()
 assert(plugin.discovery_state.book_id == response.books[1].bookId and not plugin.discovery_loading)
+-- Related results opened from a search should return to its previous page.
+plugin:loadDiscoveryBatch('search','合成读物',0)
+flush_tasks()
+local previous_results=assert(plugin.discovery_state)
+assert(previous_results.kind=='search' and plugin.shelf_view.page_count>1)
+plugin.shelf_view.on_page_changed(2);flush_tasks()
+local results_view=assert(plugin.shelf_view)
+local related_seed=assert(results_view:getVisibleBooks()[1])
+for y,row in ipairs(results_view.layout) do
+    if row[1].book==related_seed then
+        results_view:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS)
+        break
+    end
+end
+for _,offline in ipairs({false,true}) do
+    plugin.isNetworkConnected=function() return not offline end
+    plugin:showBookMenu(related_seed)
+    press(plugin._book_detail_view,'Similar books');flush_tasks()
+    assert(plugin.discovery_state.kind=='similar' and not plugin._book_detail_view)
+    if not offline then press(plugin.shelf_view,'Next batch');flush_tasks() end
+    if offline and Device:hasKeys() then page_key(assert(Device.input.group.Back[1]))
+    else plugin.shelf_view._header_buttons[1].callback() end
+    flush_tasks()
+    assert(plugin.discovery_state==previous_results and plugin.shelf_view and plugin.shelf_view.page==2
+        and plugin.shelf_view:getFocusedBookId()==related_seed.bookId,
+        'back from related books did not restore the search, page and focus')
+end
+plugin:closeWeReadUI()
+local restored_results=assert(require('weread.ui.discovery_cache').read(plugin))
+assert(restored_results.kind=='search' and restored_results.cursor==previous_results.cursor
+    and restored_results._browse_position.focus==related_seed.bookId,
+    'closing after returning left the related list as the last saved position')
+plugin.isNetworkConnected=function() return true end
+plugin:showBookstore()
 -- Public category browsing must also work without a configured login.
 plugin.requireLogin = function() error("public bookstore requested login") end
 press(plugin.shelf_view, "Browse books")

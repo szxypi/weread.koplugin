@@ -2,6 +2,7 @@
 local Source=require("weread.lib.discovery_source")
 local Recovery=require("weread.lib.native_read_recovery")
 local Cache=require("weread.ui.discovery_cache")
+local Navigation=require("weread.ui.bookstore_navigation")
 local NetworkLink=require("weread.lib.network_link")
 local UIManager=require("ui/uimanager")
 local _=require("weread.lib.plugin_util").tr
@@ -32,6 +33,8 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     if context.account and context~=host.discovery_state then return end
     cursor=refresh and 0 or cursor or 0
     local source_state=host.discovery_state
+    local origin, detail=context.return_view, host._book_detail_view
+    local continuation=context==source_state and (refresh or cursor>0 or previous) and source_state or nil
     local refreshing_visible=refresh and context==source_state
     local binding=not refresh and (cursor>0 or previous) and (context.source_kind and context or source_state) or nil
     local public_search=kind=='search' and (context.public_search==true or context.source_kind=='public')
@@ -42,7 +45,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         if refreshing_visible then
             host:showInfo(_("Connect to Wi-Fi to refresh. The current list is still available."));return false
         end
-        if Cache.open(host,query,cursor) then return true end
+        if Cache.open(host,query,cursor,origin,continuation) then return true end
         host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
     end
     if context.cached and not refresh or not NetworkLink.available(host) then return offline() end
@@ -84,6 +87,8 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     local function current_view()
         if host.discovery_request_context~=operation or account~=host.library_db:accountKey()
             or epoch~=(host.discovery_epoch or 0) then return false end
+        if origin and (host.shelf_view~=origin or host._book_detail_view~=detail
+            or host.discovery_state~=source_state or origin._shelf_closed) then return false end
         if public_search and host.settings.get_auth_scope then
             local now=host.settings:get_auth_scope()
             if auth_scope then return now and now.vid==auth_scope.vid and now.epoch==auth_scope.epoch
@@ -130,7 +135,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
                 or _("Bookstore request failed. Cached books are still available.")
             local use_cached=not refreshing_visible
                 and (not source_state or not limited and not is_visible_batch(source_state,query,cursor))
-            if use_cached and Cache.open(host,query,cursor) and host.showTransientInfo then
+            if use_cached and Cache.open(host,query,cursor,origin,continuation) and host.showTransientInfo then
                 host:showTransientInfo(message,3)
             else
                 host:showInfo(message)
@@ -159,11 +164,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         if kind=="category" then result.category_id,result.category_title,result.rank=context.category_id,context.category_title,context.rank end
         result.history,result.account,result.loaded_at=history,account,os.time()
         Cache.save(host,result,source_state,not refresh and (cursor>0 or previous))
-        host.discovery_state=result
-        if host._book_detail_view then
-            local detail=host._book_detail_view;host._book_detail_view=nil;UIManager:close(detail)
-        end
-        host:showBookstore()
+        Navigation.show(host,result,origin,continuation)
     end
     if host.showBusy then
         host:showBusy(_("Loading books..."),function() M.cancel(host) end)

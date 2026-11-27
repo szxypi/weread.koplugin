@@ -136,4 +136,33 @@ shown.on_refresh()
 expect(query[3] == 20 and query[5] and query[6].session_id == "session-a", "refresh UI callback lost session")
 shown.actions[1].callback()
 expect(query[1] == "recommend" and query[6] == nil, "For you retained similar context")
+
+local Navigation=require('weread.ui.bookstore_navigation')
+local cancels=0
+plugin.cancelDiscoveryRequest=function() cancels=cancels+1 end
+local states={plugin.discovery_state}
+for index=2,6 do
+    local prior=states[index-1]
+    local view={_bookstore_state=prior,page=2,page_size=6,getFocusedBookId=function() return '900001' end}
+    plugin.shelf_view=view
+    states[index]={kind='similar',account='a',cursor=0}
+    Navigation.show(plugin,states[index],view)
+end
+local continued={kind='similar',account='a',cursor=20}
+Navigation.show(plugin,continued,nil,states[6])
+expect(not Navigation.back(plugin,states[6]),'a previous widget could pop the new batch history')
+account='b'
+expect(not Navigation.back(plugin,continued),'a different account could return to the earlier book list')
+account='a'
+for index=5,2,-1 do
+    expect(Navigation.back(plugin,plugin.discovery_state) and plugin.discovery_state==states[index]
+        and states[index]._browse_position.anchor==7 and states[index]._browse_position.focus=='900001',
+        'return did not restore the correct parent after nested browsing')
+end
+expect(not Navigation.back(plugin,states[2]) and cancels==4,'return history exceeded its bound or cancelled an unrelated request')
+plugin.shelf_view={_bookstore_state=states[2],page=1,page_size=6,getFocusedBookId=function() return nil end}
+Navigation.show(plugin,continued,plugin.shelf_view)
+local separate={kind='recommend',account='a',cursor=0}
+Navigation.show(plugin,separate)
+expect(not Navigation.back(plugin,separate),'a different search retained the related-book history')
 print("discovery_similar_spec: " .. checks .. " checks")

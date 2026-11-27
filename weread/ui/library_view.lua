@@ -1823,6 +1823,7 @@ function LibraryView:onCloseWidget()
 end
 
 function LibraryView:onClose()
+    if self.on_back and self.on_back() then return true end
     if self.on_close then self.on_close() end
     UIManager:close(self)
     return true
@@ -1915,6 +1916,7 @@ function M.show(data, callbacks)
         cover_paths = data.cover_paths,
         cover_loading = data.cover_loading,
         finish_pending = data.finish_pending,
+        on_back = callbacks.on_back,
         on_close = callbacks.on_close,
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,

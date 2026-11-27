@@ -16,14 +16,11 @@ function M.read(host,query,cursor)
     if ok and value and account==host.library_db:accountKey()
         and (not query or not query.public_only or value.source_kind=='public') then value.account=account;return value end
 end
-function M.open(host,query,cursor)
+function M.open(host,query,cursor,origin,continuation)
     local value=M.read(host,query,cursor)
     if not value then return false end
-    host.discovery_state=value
-    if host._book_detail_view then
-        local detail=host._book_detail_view;host._book_detail_view=nil;require('ui/uimanager'):close(detail)
-    end
-    host:showBookstore();return true
+    require('weread.ui.bookstore_navigation').show(host,value,origin,continuation)
+    return true
 end
 function M.save(host,state,previous,continuation)
     -- Guest search terms are not written to the shared public category cache.

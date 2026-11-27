@@ -329,6 +329,7 @@ function M:onWeReadAccountChanged()
     if self.progress_sync and self.progress_sync.on_account_changed then self.progress_sync:on_account_changed() end
     self:closeWeReadUI()
     self.discovery_state = nil
+    self._bookstore_history = nil
     self._home_browse_position = nil
     self._shelf_browse_position = nil
     self.discovery_categories = nil
@@ -1686,7 +1687,9 @@ function M:showBookMenu(book, options)
     if self.showSimilarBooks then
         actions[#actions + 1] = {
             text = _("Similar books"),
-            callback = self:safeCallback(_("Similar books"), function() self:showSimilarBooks(book) end),
+            callback = self:safeCallback(_("Similar books"), function()
+                if self._book_detail_view == view and cache_scope and cache_scope() then self:showSimilarBooks(book) end
+            end),
         }
     end
     if shelf_state_action then actions[#actions+1]=shelf_state_action end

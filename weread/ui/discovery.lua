@@ -7,12 +7,10 @@ local Popup = require("weread.ui.shelf_popup")
 local ReadAccess = require("weread.lib.read_access")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local VolatileShelf = require("weread.lib.volatile_shelf")
+local BookstoreNavigation = require("weread.ui.bookstore_navigation")
 local _ = PluginUtil.tr
 local M = {}
-
-local function view_position(view)
-    return {anchor=(view.page-1)*view.page_size+1,focus=view:getFocusedBookId()}
-end
+local view_position = BookstoreNavigation.position
 
 local function home_recent(host,account,limit)
     local settings=host.settings
@@ -133,6 +131,7 @@ function M:showDiscoveryPage(tab, books, options)
         end),
         on_hold = hold and Scope.guard(current, function(book) hold(book, view, current) end),
         on_page_changed = redraw,
+        on_back = Scope.guard(current, options.on_back),
         on_close = function()
             if self.shelf_view == view then
                 self.shelf_view = nil
@@ -351,8 +350,12 @@ end
 function M:showSimilarBooks(book)
     local id = book and (book.bookId or book.book_id)
     if not id or tostring(id) == "" then return end
+    local view = self.shelf_view
+    local origin = self._book_detail_view and view and not view._shelf_closed
+        and self.discovery_state and view._bookstore_state == self.discovery_state and view or nil
     self:loadDiscoveryBatch("similar", nil, 0, false, false, {
         book_id = tostring(id), book_title = book.title or tostring(id),
+        return_view = origin,
     })
 end
 
@@ -515,6 +518,7 @@ function M:showBookstore()
         state = nil
     end
     if not state then
+        self._bookstore_history = nil
         state=require('weread.ui.discovery_cache').read(self)
         self.discovery_state=state
     end
@@ -549,6 +553,7 @@ function M:showBookstore()
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
         bookstore_state=state,rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,
+        on_back = state and function() return BookstoreNavigation.back(self, state) end or nil,
         empty_text = state and (state.kind == "similar" and _("No similar books found.")
             or state.kind == "search" and _("No search results.") or _("No books found."))
             or _("Choose For you or search to discover books."),
