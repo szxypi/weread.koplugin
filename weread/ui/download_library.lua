@@ -49,16 +49,12 @@ local function collect(host)
     return rows
 end
 
-local function checked_download(host, book)
+local function show_detail(host, book)
     local record, conflict = ReadAccess.load_cached_book(host.settings, book.bookId)
-    if not conflict then
-        if host:bookRecordHasDownload(record) then return record, 'ordinary' end
-        if host:nativeChapterCachePresent(book.bookId) then return record, 'native' end
+    if conflict or not (host:bookRecordHasDownload(record) or host:nativeChapterCachePresent(book.bookId)) then
+        host:showInfo(_('No cached file.'))
+        return
     end
-    host:showInfo(_('No cached file.'))
-end
-
-local function show_detail(host, book, record)
     if not owned(record, host.library_db:accountKey()) then return host:showBookMenu(book) end
     local detail = {}
     for key,value in pairs(record) do detail[key] = value end
@@ -74,27 +70,16 @@ local function show_actions(host, book, view, current)
             UI:nextTick(function()
                 if not current() or not Popup.current(view, dialog) then return end
                 Popup.close(view)
-                if not current() or not callback then return end
-                local record, kind = checked_download(host, book)
-                if kind then callback(record, kind) end
+                if current() and callback then callback() end
             end)
         end
     end
     dialog = require('ui/widget/buttondialog'):new{
         title = book.title, buttons = {
-            {{text = _('Read downloaded copy'), callback = action(function(record, kind)
-                local id = book.bookId
-                local resume = record and record.native_home_resume and require('weread.ui.native_home_resume')
-                if resume and resume.can_resume(host, record, id) then
-                    resume.open(host, record, id, view, current)
-                elseif kind == 'ordinary' then
-                    host:readCachedCopy(record)
-                else
-                    local detail = show_detail(host, book, record)
-                    if detail then require('weread.ui.native_direct_reading').start(host, book, detail, {cached=true}) end
-                end
+            {{text = _('Read downloaded copy'), callback = action(function()
+                host:readFromBookList(book, view, current, true)
             end)}},
-            {{text = _('Book details'), callback = action(function(record) show_detail(host, book, record) end)}},
+            {{text = _('Book details'), callback = action(function() show_detail(host, book) end)}},
             {{text = _('Cancel'), callback = action()}},
         },
     }
@@ -137,10 +122,7 @@ local function render(host, rows, query, page)
             }
             Popup.show(view, dialog, function(widget) host:showInputDialog(widget) end)
         end,
-        on_select = function(book)
-            local record, kind = checked_download(host, book)
-            if kind then show_detail(host, book, record) end
-        end,
+        on_select = function(book) show_detail(host, book) end,
         on_hold = function(book, view, current)
             show_actions(host, book, view, current)
         end,

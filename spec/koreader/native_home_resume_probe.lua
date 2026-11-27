@@ -71,6 +71,8 @@ else
     local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage'
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
     local downloads=input.mode=='downloads' or input.mode=='downloads_choose'
+    local quick=input.mode=='quick_home' or input.mode=='quick_shelf' or input.mode=='quick_store' or input.mode=='quick_choose'
+    local choose=input.mode=='downloads_choose' or input.mode=='quick_choose'
     if damage then host.showInfo=function(_,text) message=text end end
     if shelf then
         -- Book details use the device link state, without a live DNS probe.
@@ -86,20 +88,30 @@ else
     elseif input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
         host:showBookMenu(assert(host.settings:get_book(id)))
     end
-    if downloads then
-        if input.mode=='downloads_choose' then
-            assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
+    if downloads or quick then
+        if choose then assert(host.settings:patch_reading_state(id,{native_home_resume=false})) end
+        if downloads then
+            require('weread.ui.download_library').show(host)
+            pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        elseif input.mode=='quick_shelf' then
+            host:applyShelfSnapshot({{bookId=id,title='Synthetic book'}},{})
+            host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
+        elseif input.mode=='quick_store' then
+            host:showDiscoveryPage('store',{{bookId=id,title='Synthetic book'}},{title='Synthetic search'})
         end
-        require('weread.ui.download_library').show(host)
-        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
         view=assert(host.shelf_view);local cached
         for _,book in ipairs(view.books) do if book.bookId==id then cached=book end end
-        assert(cached,'native chapter missing from the downloads page')
+        assert(cached,'native chapter missing from the browse page')
+        require('ui/network/manager').isConnected=function() return false end
+        local rejected=false
+        host.showOffline=function() rejected=true end
         view.on_hold(cached)
         local button=assert(view._shelf_popup).buttons[1][1]
-        assert(button.text==require('weread.lib.plugin_util').tr('Read downloaded copy'))
+        assert(button.text==require('weread.lib.plugin_util').tr(downloads and 'Read downloaded copy' or 'Read now'))
         button.callback()
-        if input.mode=='downloads_choose' then
+        pump(function() return rejected or Reader.instance or host._native_home_resume or host._native_direct_reading end)
+        assert(not rejected,'browse shortcut reported offline despite the saved E-Ink chapter')
+        if choose then
             pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
             local menu=host._native_direct_reading.menu
             assert(#menu.item_table>=1,'no saved E-Ink chapter offered')

@@ -2713,6 +2713,28 @@ function M:readCachedCopy(book,view)
     return false
 end
 
+function M:readFromBookList(book, view, current, cached_only)
+    if self.shelf_view ~= view or not current() then return false end
+    local id = ShelfSnapshot.persisted_id(book)
+    if not id then return false end
+    local record, conflict = ReadAccess.load_cached_book(self.settings, id)
+    if conflict then
+        self:showInfo(_('Saved book information does not match. Check the local cache before opening.'))
+        return false
+    end
+    local resume = record and record.native_home_resume and require('weread.ui.native_home_resume')
+    if resume and resume.can_resume(self, record, id) then return resume.open(self, record, id, view, current) end
+    local cached = self:bookRecordHasDownload(record)
+    if not cached and self:nativeChapterCachePresent(id) then
+        local detail = self:showBookMenu(book)
+        return detail and require('weread.ui.native_direct_reading').start(self, book, detail, {cached=true}) or false
+    end
+    if not cached_only then return self:startBookReading(book, nil, {current=current}) end
+    if cached then return self:readCachedCopy(record) end
+    self:showInfo(_('No cached file.'))
+    return false
+end
+
 function M:startBookReading(book, view, origin)
     if view and self._book_detail_view ~= view then return false end
     if origin and not origin.current() then return false end

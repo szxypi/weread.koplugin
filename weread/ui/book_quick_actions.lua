@@ -48,7 +48,7 @@ function M.open(host,owner,book,current,local_groups,local_pin)
     end
     local buttons={
         {{text=_('Read now'),callback=action(function()
-            host:startBookReading(book,nil,{current=current})
+            host:readFromBookList(book,owner,current)
         end)}},
         {{text=_('Book details'),callback=action(function() host:showBookRecord(book) end)}},
     }

@@ -23,7 +23,10 @@ local function fixture()
     local current=true
     local owner={}
     local host={}
-    function host:startBookReading(book) self.read=book end
+    function host:readFromBookList(book, view, valid)
+        assert(view==owner and valid())
+        self.read=book
+    end
     function host:showBookRecord(book) self.detail=book end
     function host:showShelfState(id) self.status=id end
     return host,owner,function() return current end,function() current=false end
