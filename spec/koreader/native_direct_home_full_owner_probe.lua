@@ -154,10 +154,13 @@ else
 end
 if not shelf_owner then
     local view=assert(host._book_detail_view);local button
-    local actions=input.read_entry=='details' and view._footer_actions or view._action_buttons
-    local text=require('weread.lib.plugin_util').tr(input.read_entry=='details' and '▤ Read' or 'Read E-Ink chapter')
+    local actions=input.read_entry and view._footer_actions or view._action_buttons
+    local text=require('weread.lib.plugin_util').tr(input.read_entry=='catalog' and '☷ Chapter list'
+        or input.read_entry=='details' and '▤ Read' or 'Read E-Ink chapter')
     for _,item in ipairs(actions) do if item.text==text then button=item end end
-    assert(button and button.enabled~=false);button.callback()
+    assert(button and button.enabled~=false)
+    if input.read_entry then UI:forceRePaint();button:onTapFooterAction()
+    else button.callback() end
 end
 stage='catalog';pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
 local ctx=assert(host._native_direct_reading);local index

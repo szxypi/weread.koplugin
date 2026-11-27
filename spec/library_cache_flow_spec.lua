@@ -502,6 +502,42 @@ for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy
 expect(cached_action~=nil,'cached chapter missing from an old catalog has no manual reading action')
 opened_path=nil;cached_action.callback()
 expect(opened_path=='/cache/unknown.epub','manual reading could not open a chapter outside the old catalog')
+do
+    local source=require('weread.lib.shelf_source')
+    local access=require('weread.lib.native_read_access')
+    local native=require('weread.ui.native_direct_reading')
+    local old_web_access,old_capture,old_start=source.web_access,access.capture,native.start
+    local old_catalog,old_download=host.showChapterList,host.confirmDownloadAllChapters
+    local web,route=false,nil
+    source.web_access=function() return web and {} or nil end
+    access.capture=function() return {} end
+    native.start=function(_self,book,owner,options)
+        expect(book==detail_book and owner==host._book_detail_view,'native action changed the selected book or view')
+        route=options
+    end
+    host.showChapterList=function() route='web catalog' end
+    host.confirmDownloadAllChapters=function() route='web download' end
+    Library.showBookMenu(host,detail_book)
+    local download,catalog=unpack(detail_data.bottom_actions)
+    expect(download.text=='⇩ E-Ink download','native-only download advertised a merged EPUB')
+    for _,action in ipairs(detail_data.actions) do
+        expect(action.text~='Download E-Ink chapters','native download appeared twice')
+    end
+    catalog.callback();expect(type(route)=='table' and not route.cached and not route.batch,'primary catalog did not use native entries')
+    download.callback();expect(type(route)=='table' and route.batch,'primary download did not offer a native chapter batch')
+    current_owner='account-b';route=nil
+    catalog.callback();download.callback();expect(not route,'stale primary action crossed accounts')
+    current_owner='account-a';web=true;Library.showBookMenu(host,detail_book)
+    download,catalog=unpack(detail_data.bottom_actions)
+    expect(download.text=='⇩ Download full book','ordinary full-book download label changed')
+    catalog.callback();expect(route=='web catalog','dual login changed the ordinary catalog')
+    download.callback();expect(route=='web download','dual login changed merged download')
+    Library.showBookMenu(host,detail_book,{read_saved_native=true})
+    detail_data.bottom_actions[2].callback()
+    expect(type(route)=='table' and route.cached,'details opened from downloaded native books did not show saved chapters')
+    source.web_access,access.capture,native.start=old_web_access,old_capture,old_start
+    host.showChapterList,host.confirmDownloadAllChapters=old_catalog,old_download
+end
 local recovery_calls=0
 local previous_recovery=package.loaded['weread.ui.download_recovery']
 package.loaded['weread.ui.download_recovery']={start=function() recovery_calls=recovery_calls+1 end}

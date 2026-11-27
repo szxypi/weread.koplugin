@@ -641,11 +641,13 @@ end
 host:showBookMenu({book_id='42',title='Synthetic',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
 local util=require('weread.lib.plugin_util')
-local label=util.tr(repair_mode and 'Recover missing images in downloaded chapters' or 'Download E-Ink chapters')
-for _,button in ipairs(view._action_buttons) do
+local label=util.tr(repair_mode and 'Recover missing images in downloaded chapters' or '⇩ E-Ink download')
+for _,button in ipairs(repair_mode and view._action_buttons or view._footer_actions) do
     if button.text==label then action=button end
 end
-assert(action);action.callback()
+assert(action)
+if repair_mode then action.callback()
+else UI:forceRePaint();action:onTapFooterAction() end
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
 if repair_mode then

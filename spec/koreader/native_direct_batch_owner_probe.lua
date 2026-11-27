@@ -92,10 +92,11 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     end}}
 host:showBookMenu({book_id=book_id,title='Verification',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
-for _,button in ipairs(view._action_buttons) do
-    if button.text==require('weread.lib.plugin_util').tr('Download E-Ink chapters') then action=button end
+for _,button in ipairs(view._footer_actions) do
+    if button.text==require('weread.lib.plugin_util').tr('⇩ E-Ink download') then action=button end
 end
-assert(action);action.callback()
+UI:forceRePaint()
+assert(action):onTapFooterAction()
 wait(function() return host.completed or host._native_direct_reading and host._native_direct_reading.confirm end)
 if host.completed then print('WEREAD_BATCH_OWNER='..json.encode{ok=false,phase='catalog'});return end
 local ctx=assert(host._native_direct_reading);local catalog=assert(ctx.catalog)

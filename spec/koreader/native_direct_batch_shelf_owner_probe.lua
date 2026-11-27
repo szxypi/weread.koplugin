@@ -115,11 +115,13 @@ if input.mode=='offline_resume' then
         full_plugin=true,shelf_count=#input.shelf_books,detail_page_restored=true})
     return
 end
-local label=input.mode=='offline' and 'Read saved E-Ink chapter' or 'Download E-Ink chapters'
-for _,button in ipairs(detail._action_buttons) do
+local label=offline and 'Read saved E-Ink chapter' or '⇩ E-Ink download'
+for _,button in ipairs(offline and detail._action_buttons or detail._footer_actions) do
     if button.text==tr(label) then action=button end
 end
-assert(action);action.callback()
+assert(action)
+if offline then action.callback()
+else UI:forceRePaint();action:onTapFooterAction() end
 local Cache=require('weread.lib.native_direct_cache')
 if input.mode=='offline' then
     pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)

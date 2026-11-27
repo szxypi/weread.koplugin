@@ -1474,6 +1474,16 @@ function M:refreshShelfCacheIndicators()
     end
 end
 
+local function has_native_read_access(settings)
+    local native=require('weread.lib.native_read_access').capture(settings)
+    return native~=nil and not native.renewal_pending
+end
+
+local function book_link_connected(host)
+    if host.isNetworkConnected then return host:isNetworkConnected() end
+    return host.isNetworkOnline and host:isNetworkOnline() or false
+end
+
 local function store_book_record(self, book, book_id)
     local books = self.settings:get("books", {})
     local account_key = self.library_db and self.library_db:accountKey() or nil
@@ -1621,6 +1631,9 @@ function M:showBookMenu(book, options)
     end
     local direct_cached=options and options.read_saved_native
         or self.nativeChapterCachePresent and self:nativeChapterCachePresent(book_id)
+    local native_book=require('weread.lib.native_position_protocol').id(book_id)~=nil
+    local native_only=native_book and not require('weread.lib.shelf_source').web_access(self.settings)
+        and has_native_read_access(self.settings)
     if not direct_cached or any_cached_chapter or is_full_cached then statuses[#statuses + 1] = chapter_status end
     if direct_cached then
         statuses[#statuses+1]=_('E-Ink chapters saved')
@@ -1657,9 +1670,17 @@ function M:showBookMenu(book, options)
     if words then metadata[#metadata + 1] = { text = words } end
     add_row("ISBN", book.isbn, _("Rating"), rating)
 
-    local view,cache_scope
+    local view,cache_scope,footer_current
     local open_chapter_list = self:safeCallback(_("Chapter list"), function()
+        if not footer_current() then return end
+        local saved_native=options and options.read_saved_native==true
+        local no_ordinary_catalog=type(book.chapters)~='table' or #book.chapters==0
+        if native_book and (native_only or saved_native
+            or direct_cached and no_ordinary_catalog and not book_link_connected(self)) then
+            return require('weread.ui.native_direct_reading').start(self,book,view,{cached=saved_native or not native_only})
+        end
         self:showChapterList(book, function()
+            if not footer_current() then return end
             local latest = ReadAccess.load_cached_book(self.settings,book_id) or book
             if view then UIManager:close(view) end
             self:showBookMenu(latest)
@@ -1679,8 +1700,8 @@ function M:showBookMenu(book, options)
     local detail_account=self.library_db and self.library_db:accountKey()
     local detail_session,detail_epoch,detail_document=self._reader_session_gen,self.discovery_epoch or 0,self.ui and self.ui.document
     local detail_auth=self.settings.get_auth_scope and self.settings:get_auth_scope()
-    local function detail_current()
-        if self._book_detail_view~=view or not detail_account or self.library_db:accountKey()~=detail_account
+    footer_current=function()
+        if not view or self._book_detail_view~=view or (self.library_db and self.library_db:accountKey())~=detail_account
             or self._reader_session_gen~=detail_session or (self.discovery_epoch or 0)~=detail_epoch
             or (self.ui and self.ui.document)~=detail_document then return false end
         if self.settings.get_auth_scope then
@@ -1691,6 +1712,7 @@ function M:showBookMenu(book, options)
         end
         return true
     end
+    local function detail_current() return detail_account and footer_current() or false end
     if member_shortcut then actions[#actions+1]={text=_('Change cloud membership'),callback=self:safeCallback(_('Shelf status'),function()
         Quick.change(self,detail_id,'weread.ui.shelf_membership_write',detail_current)
     end)} end
@@ -1790,8 +1812,8 @@ function M:showBookMenu(book, options)
             end
         end)}
     end
-    local native_resume_action, download_native_action
-    if require('weread.lib.native_position_protocol').id(book_id) then
+    local native_resume_action, download_native_action, native_batch_action
+    if native_book then
         local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
         if resume and resume.can_resume(self,saved,book_id) then
             local resume_scope=self.settings:get_auth_scope()
@@ -1807,9 +1829,10 @@ function M:showBookMenu(book, options)
         actions[#actions+1]={text=_('Read E-Ink chapter'),callback=self:safeCallback(_('Read E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view) end
         end)}
-        actions[#actions+1]={text=_('Download E-Ink chapters'),callback=self:safeCallback(_('Download E-Ink chapters'),function()
-            if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{batch=true}) end
-        end)}
+        native_batch_action=self:safeCallback(_('Download E-Ink chapters'),function()
+            if footer_current() then require('weread.ui.native_direct_reading').start(self,book,view,{batch=true}) end
+        end)
+        if not native_only then actions[#actions+1]={text=_('Download E-Ink chapters'),callback=native_batch_action} end
         local read_saved_native=self:safeCallback(_('Read saved E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{cached=true}) end
         end)
@@ -1852,9 +1875,9 @@ function M:showBookMenu(book, options)
         and os.date("%Y-%m-%d %H:%M", book.detail_updated_at) or _("Never updated")
     local bottom_actions = {
         {
-            text = _("⇩ Download full book"),
-            callback = self:safeCallback(_("Download full book"), function()
-                self:confirmDownloadAllChapters(book)
+            text = _(native_only and '⇩ E-Ink download' or '⇩ Download full book'),
+            callback = native_only and native_batch_action or self:safeCallback(_("Download full book"), function()
+                if footer_current() then self:confirmDownloadAllChapters(book) end
             end),
         },
         {
@@ -1864,7 +1887,7 @@ function M:showBookMenu(book, options)
         {
             text = native_resume_action and _('▤ Continue reading') or _("▤ Read"),
             callback = native_resume_action or download_native_action or self:safeCallback(_("Read"), function()
-                self:startBookReading(book, view)
+                if footer_current() then self:startBookReading(book, view) end
             end),
         },
     }
@@ -2880,9 +2903,7 @@ function M:startBookReading(book, view, origin)
     local id = book.book_id or book.bookId
     local stored = self.settings:get_book(id)
     local latest = stored or book
-    local online
-    if self.isNetworkConnected then online=self:isNetworkConnected()
-    elseif self.isNetworkOnline then online=self:isNetworkOnline() end
+    local online=book_link_connected(self)
     local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
     local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
     if opened then return true end
@@ -2891,9 +2912,9 @@ function M:startBookReading(book, view, origin)
     local selected_id=ShelfSnapshot.persisted_id(book)
     if owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
         and require('weread.lib.native_position_protocol').id(selected_id) then
-        local native=online and not exact and require('weread.lib.native_read_access').capture(self.settings)
+        local native=online and not exact and has_native_read_access(self.settings)
         local saved_native=not online and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
-        if (native and not native.renewal_pending) or saved_native then
+        if native or saved_native then
             local account=self.library_db and self.library_db:accountKey()
             if not stored or stored._library_account_key and stored._library_account_key~=account then
                 latest=store_book_record(self,book,selected_id)

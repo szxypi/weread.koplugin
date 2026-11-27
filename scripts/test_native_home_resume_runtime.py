@@ -51,11 +51,12 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
         assert result['ok'] and result['source_matches'] and Path(result['path']).is_file()
         assert server.chapters == ['37'] and server.valid and not server.leaked
-        if entry == 'details':
-            offline = dict(mode='detail_read_saved', path=result['path'])
+        if entry in ('details', 'catalog'):
+            mode = 'detail_catalog_saved' if entry == 'catalog' else 'detail_read_saved'
+            offline = dict(mode=mode, path=result['path'])
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
                                    input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
-            assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode='detail_read_saved', network_blocked=True)
+            assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode=mode, network_blocked=True)
             assert server.chapters == ['37']
 
 
@@ -69,7 +70,7 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details', 'shelf'):
+                for entry in ('details', 'catalog', 'shelf'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 if read_entries_only:
                     continue
@@ -135,7 +136,7 @@ def run(runtime, read_entries_only=False):
                                 alternative.parent.name, path.parent.name)
                             assert marker.read_text() == expected
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
-        print('PASS: native-only reading from details and bookshelf, and offline details reopening at both sizes')
+        print('PASS: native-only reading and catalogs from details and bookshelf, and offline details reopening at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:

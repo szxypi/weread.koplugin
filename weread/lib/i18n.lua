@@ -1813,6 +1813,7 @@ local zh = {
     ["More actions"] = "更多操作",
     ["Read"] = "阅读",
     ["⇩ Download full book"] = "⇩ 下载全书",
+    ["⇩ E-Ink download"] = "⇩ 下载墨水屏章节",
     ["☷ Chapter list"] = "☷ 章节目录",
     ["▤ Read"] = "▤ 阅读",
     ["%1: %2"] = "%1：%2",

@@ -80,14 +80,17 @@ if record then
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
-    if input.mode=='detail_read_saved' then
+    if input.mode=='detail_read_saved' or input.mode=='detail_catalog_saved' then
         assert(os.getenv('WEREAD_SYNTHETIC')=='1')
         require('ui/network/manager').isConnected=function() return false end
         assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
         local detail=assert(host:showBookMenu(assert(host.settings:get_book(id))))
-        for _,action in ipairs(detail._footer_actions) do
-            if action.text==require('weread.lib.plugin_util').tr('▤ Read') then action.callback();break end
+        local label=require('weread.lib.plugin_util').tr(input.mode=='detail_catalog_saved' and '☷ Chapter list' or '▤ Read')
+        local action
+        for _,button in ipairs(detail._footer_actions) do
+            if button.text==label then action=button;break end
         end
+        UI:forceRePaint();assert(action):onTapFooterAction()
         pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
         local ctx=assert(host._native_direct_reading)
         assert(ctx.offline and #ctx.menu.item_table==1 and not Reader.instance)
