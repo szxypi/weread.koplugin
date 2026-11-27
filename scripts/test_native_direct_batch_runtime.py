@@ -21,6 +21,12 @@ fixture.body = lambda uid: '<html><body>' + ''.join(
 class Handler(fixture.Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (self.server.interrupt_download and self.command == 'GET' and target.hostname == 'i.weread.qq.com'
+                and target.path == '/book/chapterdownload' and parse_qs(target.query).get('chapters') == ['0,38']):
+            self.server.interrupt_download = False
+            self.server.chapters.append('38')
+            self.close_connection = True
+            return
         if (self.server.hold and self.command == 'GET' and target.path == '/book/chapterdownload'
                 and parse_qs(target.query).get('chapters') == ['0,38']):
             self.server.hold_marker.touch()
@@ -68,6 +74,7 @@ def run(runtime):
                     server.resume, server.expired = True, False
                     server.locked = False
                     server.hold = False
+                    server.interrupt_download = False
                     server.resume_marker = root/'resume'
                     server.chapters = []
                     server.valid, server.leaked = True, False
@@ -209,6 +216,27 @@ def run(runtime):
                         if mode == 'offline_range': expected['network_blocked'] = True
                         assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
                         assert server.chapters == ([] if mode == 'range_cancel' else ['38'])
+                        assert server.valid and not server.leaked
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-retry-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                    server.resume, server.expired, server.locked = False, False, False
+                    server.interrupt_download = True
+                    server.chapters = []
+                    for mode in ('range_retry', 'offline_retry'):
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        marker = 'WEREAD_DIRECT_BATCH='
+                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                        expected = dict(ok=True, mode=mode)
+                        if mode == 'offline_retry': expected['network_blocked'] = True
+                        assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
+                        assert not server.interrupt_download and server.chapters == ['37', '38', '38']
                         assert server.valid and not server.leaked
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-cancel-', dir='/dev/shm') as directory:
                     root = Path(directory)

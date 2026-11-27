@@ -10,6 +10,7 @@ local Crypto=require('weread.lib.crypto')
 local PluginUtil=require('weread.lib.plugin_util')
 local _,T=PluginUtil.tr,PluginUtil.T
 local M={}
+local catalog_errors={http_401='auth_expired',http_429='rate_limited',transport='transport',timeout='transport'}
 
 local function capture(settings,store)
     local native=Access.capture(settings,store)
@@ -194,6 +195,15 @@ function M.start(host,book,view,options)
         host._native_direct_worker=worker
     end
     local launch
+    local function load_chapters(phase)
+        ctx.phase=phase
+        local busy
+        host:showBusy(_(phase=='offline_list' and 'Loading saved E-Ink chapters...' or 'Loading E-Ink chapters...'),function()
+            if host._native_direct_reading==ctx and ctx.busy==busy then M.cancel(host) end
+        end)
+        busy=host.busy_message;ctx.busy=busy
+        launch()
+    end
     local function begin_open(phase)
         ctx.phase=phase
         local busy
@@ -318,6 +328,7 @@ function M.start(host,book,view,options)
     end
     local function start_batch(range)
         ctx.batch_range=range
+        ctx.batch_progress=nil
         ctx.phase='batch';host._native_direct_worker.timeout=3600
         local ok,widget=pcall(function() return require('weread.ui.download_dialog'):new{
             title=_('Download E-Ink chapters'),
@@ -341,6 +352,28 @@ function M.start(host,book,view,options)
             if closed then return closed(widget,...) end
         end
         UIManager:show(dialog)
+    end
+    local function show_batch_retry(reason)
+        ctx.generation=ctx.generation+1
+        close_busy()
+        host._native_direct_worker.timeout=180
+        local range=ctx.batch_range
+        local message=_(reason=='rate_limited' and 'WeRead is limiting requests. Completed chapters were kept; try again later.'
+            or 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.')
+        local first,last=range and range.first or 1,range and range.last or #ctx.catalog.chapters
+        local dialog
+        dialog=require('ui/widget/confirmbox'):new{
+            text=message..'\n\n'..T(_('Retry chapters %1–%2?'),first,last),
+            ok_text=_('Retry'),cancel_text=_('Cancel'),
+            ok_callback=function()
+                if not take_confirmation(dialog) then return end
+                if not connected(host) then show_batch_retry('transport');return end
+                ctx.recovery_attempted=nil
+                load_chapters('catalog')
+            end,
+            cancel_callback=function() if take_confirmation(dialog) then M.cancel(host) end end,
+        }
+        show_confirmation(dialog)
     end
     local function show_batch_options(chapters)
         local function count_readable(first,last)
@@ -385,7 +418,6 @@ function M.start(host,book,view,options)
         }
         show_confirmation(dialog)
     end
-    ctx.phase=offline and 'offline_list' or 'catalog'
     launch=function()
         local phase,saved_entry=ctx.phase,ctx.entry
         local is_current=phase_guard(phase)
@@ -425,8 +457,8 @@ function M.start(host,book,view,options)
                     ctx.selected.native.credentials,id,'native_catalog')
                 auth:cancel()
                 if not good then
-                    return {error=(value=='native_auth/native_catalog_info/http_401' or value=='native_auth/native_catalog_catalog/http_401') and 'auth_expired'
-                        or (value=='native_auth/native_catalog_info/http_429' or value=='native_auth/native_catalog_catalog/http_429') and 'rate_limited' or 'unavailable'}
+                    local reason=type(value)=='string' and value:match('^native_auth/native_catalog_%a+/([%w_]+)$')
+                    return {error=catalog_errors[reason] or 'unavailable'}
                 end
                 local result=project(value,id)
                 if result and host.library_db then
@@ -443,17 +475,20 @@ function M.start(host,book,view,options)
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not is_current() then M.cancel(host);return end
-            if phase=='chapter' and ctx.menu and type(result)=='table' and result.error=='transport' then
+            local reason=type(result)=='table' and result.error
+            if phase=='chapter' and ctx.menu and reason=='transport' then
                 begin_open('saved_matches');return
             end
-            if type(result)=='table' and result.error=='auth_expired' then renew();return end
-            if type(result)=='table' and result.error=='rate_limited' then
-                if phase=='batch' then
-                    M.cancel(host);host:showInfo(_('WeRead is limiting requests. Completed chapters were kept; try again later.'));return
-                end
+            if reason=='auth_expired' then renew();return end
+            if (phase=='batch' or phase=='catalog' and ctx.batch and ctx.catalog)
+                and (reason=='transport' or reason=='rate_limited') then
+                show_batch_retry(reason);return
+            end
+            if reason=='rate_limited' then
                 fail('WeRead is limiting requests. Please try again later.');return
             end
             if phase=='batch' then
+                if reason=='catalog_changed' then fail('The chapter list changed. Please open it again.');return end
                 local range=ctx.batch_range
                 local count=range and range.last-range.first+1 or #ctx.catalog.chapters
                 local good=type(result)=='table' and result.ok==true
@@ -486,10 +521,20 @@ function M.start(host,book,view,options)
                 local checked=type(result)=='table' and project({book_id=result.book_id,version=result.version,
                     reading_digest=result.reading_digest,reading_chapters=result.chapters},id)
                 if not checked then fail();return end
+                local previous=ctx.catalog
                 ctx.catalog=checked
                 if ctx.batch then
                     close_busy()
-                    show_batch_options(checked.chapters);return
+                    if previous then
+                        if checked.version~=previous.version or checked.reading_digest~=previous.reading_digest
+                            or #checked.chapters~=#previous.chapters then
+                            fail('The chapter list changed. Please open it again.');return
+                        end
+                        start_batch(ctx.batch_range)
+                    else
+                        show_batch_options(checked.chapters)
+                    end
+                    return
                 end
                 if ctx.target then
                     local wanted=ctx.target;local chapter=checked.chapters[wanted.order]
@@ -521,7 +566,6 @@ function M.start(host,book,view,options)
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)
                 or not hash(result.source_sha256) or result.book_version~=version
                 or not Protocol.integer(result.missing_images,0,64) then
-                local reason=type(result)=='table' and result.error
                 fail(reason=='damaged' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
                     or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil,
                     reason=='catalog_changed');return
@@ -530,7 +574,7 @@ function M.start(host,book,view,options)
             M.cancel(host)
             host:openFile(path)
         end,phase=='batch' and function(value)
-            if host._native_direct_reading~=ctx then return end
+            if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not current() or ctx.busy~=host.busy_message then M.cancel(host);return end
             if type(value)=='number' and value>=0 and value<=99 and value%1==0
                 and value>(ctx.batch_progress or -1) then
@@ -540,8 +584,7 @@ function M.start(host,book,view,options)
         end or nil)
         if not ok or not started then fail() end
     end
-    host:showBusy(_(offline and 'Loading saved E-Ink chapters...' or 'Loading E-Ink chapters...'),function() M.cancel(host) end);ctx.busy=host.busy_message
-    launch()
+    load_chapters(offline and 'offline_list' or 'catalog')
     return host._native_direct_reading==ctx
 end
 return M

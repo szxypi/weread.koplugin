@@ -214,6 +214,39 @@ expect(#s.jobs==1 and confirm.text:find('chapters 1–2',1,true),'reverse range 
 confirm.ok_callback()
 local range=host._native_direct_reading.batch_range
 expect(#s.jobs==2 and range.first==1 and range.last==2,'range did not bind to the full catalog indices')
+local batch_job=s.jobs[2]
+batch_job.progress(50)
+batch_job.callback({ok=false,error='transport'})
+local retry=host._native_direct_reading and host._native_direct_reading.confirm
+expect(retry and retry.text:find('chapters 1–2',1,true) and not host.busy_message,
+    'connection failure lost the selected batch range')
+batch_job.progress(99)
+batch_job.callback({ok=false,error='transport'})
+expect(host._native_direct_reading.confirm==retry,'a late batch update replaced the retry confirmation')
+host.isNetworkConnected=function() return false end
+retry.ok_callback()
+local offline_retry=assert(host._native_direct_reading.confirm)
+expect(#s.jobs==2 and not host.busy_message,'offline retry tried to load the catalog')
+host.isNetworkConnected=function() return true end
+offline_retry.ok_callback()
+expect(#s.jobs==3 and host._native_direct_reading.phase=='catalog','retry did not refresh the catalog first')
+catalog_error='native_auth/native_catalog_catalog/timeout';s.finish(3)
+local retry_again=assert(host._native_direct_reading.confirm)
+expect(#s.jobs==3 and not host.busy_message,'failed catalog refresh lost the retry or restarted automatically')
+catalog_error=nil;retry_again.ok_callback();s.finish(4)
+expect(#s.jobs==5 and host._native_direct_reading.batch_range==range and not host._native_direct_reading.batch_progress,
+    'retry did not reuse the selected range or reset progress')
+retry_again.ok_callback()
+expect(#s.jobs==5,'an old retry confirmation started another download')
+s.jobs[5].callback({ok=true,downloaded=0,saved=1,unavailable=1,missing=0})
+expect(not host._native_direct_reading and not host.busy_message,'resumed batch did not finish')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+confirm=assert(host._native_direct_reading.confirm);confirm.choice2_callback()
+s.jobs[2].callback({ok=false,error='rate_limited'})
+retry=assert(host._native_direct_reading.confirm);retry.ok_callback()
+sample.version=8;s.finish(3);sample.version=7
+expect(#s.jobs==3 and not host._native_direct_reading and s.message=='The chapter list changed. Please open it again.',
+    'retry used old chapter bounds in a changed catalog')
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
 confirm=assert(host._native_direct_reading.confirm);require('ui/uimanager'):close(confirm);confirm.choice2_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'dismissed download options retained a valid action')

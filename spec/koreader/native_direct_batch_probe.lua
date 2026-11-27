@@ -290,12 +290,13 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     assert(not cache.present(settings,'87654321','42',current),'presence escaped its account')
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
-if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' or input.mode=='offline_range' then
+if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' or input.mode=='offline_range'
+    or input.mode=='offline_retry' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local cache=require('weread.lib.native_direct_cache')
     local rows=assert(cache.list(settings,scope.vid,'42',function() return true end))
     local single=input.mode=='offline_partial' or input.mode=='offline_range'
-    assert(#rows==(single and 1 or input.mode=='offline_locked' and 2 or 3))
+    assert(#rows==(single and 1 or (input.mode=='offline_locked' or input.mode=='offline_retry') and 2 or 3))
     assert(cache.present(settings,scope.vid,'42'),'verified chapters missing shelf presence')
     if input.mode=='offline_partial' then
         local lease=assert(cache.acquire(settings,scope.vid,'42'),'cancelled worker kept the book lease')
@@ -567,16 +568,18 @@ end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
-local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel'
+local range_retry=input.mode=='range_retry'
+local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or range_retry
 if range_mode then
     G_reader_settings:saveSetting('items_per_page',2)
     local ctx=host._native_direct_reading
     confirm.choice1_callback();UI:close(confirm)
     local start=assert(ctx.menu)
     assert(start.page_num==2 and start.item_table[3].select_enabled)
-    start:onGotoPage(2);UI:forceRePaint();start:onMenuSelect(start.item_table[3])
+    local page=range_retry and 1 or 2
+    start:onGotoPage(page);UI:forceRePaint();start:onMenuSelect(start.item_table[range_retry and 1 or 3])
     local ending=assert(ctx.menu)
-    assert(ending~=start and ending.page==2)
+    assert(ending~=start and ending.page==page)
     ending:onGotoPage(1);UI:forceRePaint();ending:onMenuSelect(ending.item_table[2])
     confirm=assert(ctx.confirm)
     assert(not host._native_direct_worker.job and ctx.phase=='catalog')
@@ -630,18 +633,33 @@ else
         assert(not host._native_direct_reading and not host.busy_message)
         print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode});os.exit(0)
     end
-    pump(function() return host.message~=nil end)
-    local text=host.message
-    if input.mode=='fail' then
-        assert(text==require('weread.lib.plugin_util').tr('WeRead is limiting requests. Completed chapters were kept; try again later.'))
-    else
+    if input.mode=='fail' or range_retry then
+        local ctx=host._native_direct_reading
+        pump(function() return ctx.confirm or host.message end)
+        local retry=assert(ctx.confirm,host.message)
+        local util=require('weread.lib.plugin_util')
+        local headline=util.tr(range_retry and 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.'
+            or 'WeRead is limiting requests. Completed chapters were kept; try again later.')
+        assert(retry.text:find(headline,1,true) and not host.busy_message and UI:getTopmostVisibleWidget()==retry)
+        if range_retry then
+            local rows=assert(require('weread.lib.native_direct_cache').list(settings,scope.vid,'42',function() return true end))
+            assert(#rows==1 and rows[1].chapter_uid=='37' and retry.text:find(util.T(util.tr('Retry chapters %1–%2?'),1,2),1,true))
+            retry.ok_callback()
+        else
+            retry.cancel_callback()
+        end
+        UI:close(retry)
+    end
+    if input.mode~='fail' then
+        pump(function() return host.message~=nil end)
+        local text=host.message
         local T=require('weread.lib.plugin_util').T;local tr=require('weread.lib.plugin_util').tr
         local template=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
         local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2'
-            or (input.mode=='cleanup_redownload' or input.mode=='range') and '1' or '0'
-        local saved=(input.mode=='resume' or input.mode=='range_repeat') and '1'
+            or (input.mode=='cleanup_redownload' or input.mode=='range' or range_retry) and '1' or '0'
+        local saved=(input.mode=='resume' or input.mode=='range_repeat' or range_retry) and '1'
             or (input.mode=='locked' or input.mode=='range') and '0' or input.mode=='cleanup_redownload' and '2' or '3'
-        assert(text==T(template,downloaded,saved,(input.mode=='locked' or range_mode) and '1' or '0','0'),text)
+        assert(text==T(template,downloaded,saved,(input.mode=='locked' or range_mode and not range_retry) and '1' or '0','0'),text)
     end
     assert(not host._native_direct_reading and not host.busy_message)
 end
