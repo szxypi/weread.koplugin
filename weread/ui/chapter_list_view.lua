@@ -84,24 +84,7 @@ function ChapterRow:_ensureFrame()
 end
 
 function ChapterRow:init()
-    if self.lazy_row_height then
-        local status = self.status or ""
-        local status_width = self.status_widths[status]
-        if status_width == nil then
-            local right = TextWidget:new{ text = status, face = Font:getFace("cfont", 20) }
-            status_width = right:getSize().w
-            if right.free then right:free() end
-            self.status_widths[status] = status_width
-        end
-        local padding = Size.padding.large
-        local inner_width = self.width - 2 * padding
-        local left = TextWidget:new{ text = self.text, face = Font:getFace("cfont", 20),
-            max_width = math.max(1, inner_width - status_width - padding) }
-        local left_width = left:getSize().w
-        if left.free then left:free() end
-        local gap = math.max(padding, inner_width - left_width - status_width)
-        self.dimen = Geom:new{ w = left_width + status_width + gap + 2 * padding, h = self.lazy_row_height }
-    else
+    if not self.dimen then
         self:_ensureFrame()
         self.dimen = self.frame:getSize()
     end
@@ -204,14 +187,37 @@ function ChapterListView:content()
     local probe = ChapterRow:new{ text = "", status = "", width = self.list_width }
     local height = probe:getSize().h
     probe:free()
+    local padding = Size.padding.large
+    local face = Font:getFace("cfont", 20)
+    local title_meter = TextWidget:new{ text = "", face = face }
+    local status_meter = TextWidget:new{ text = "", face = face }
     local status_widths = {}
+    -- The divider has no per-row state. The group's offsets position each copy.
+    local divider = HorizontalGroup:new{
+        HorizontalSpan:new{ width = padding },
+        LineWidget:new{
+            dimen = Geom:new{ w = self.list_width - 2 * padding, h = 1 },
+            background = Blitbuffer.COLOR_GRAY,
+        },
+    }
     for _i, chapter in ipairs(self.chapters or {}) do
+        local status = chapter.status or ""
+        local status_width = status_widths[status]
+        if status_width == nil then
+            status_meter:setText(status)
+            status_width = status_meter:getWidth()
+            status_widths[status] = status_width
+        end
+        -- Keep exact row widths, including when a long status leaves little room
+        -- for the title. Only painted rows need to retain their own text widgets.
+        title_meter:setText(chapter.title or "")
+        title_meter:setMaxWidth(math.max(1, self.list_width - 3 * padding - status_width))
+        local width = math.max(self.list_width, title_meter:getWidth() + status_width + 3 * padding)
         local row = ChapterRow:new{
             text = chapter.title,
             status = chapter.status,
             width = self.list_width,
-            lazy_row_height = height,
-            status_widths = status_widths,
+            dimen = Geom:new{ w = width, h = height },
             _shelf_list_row = true,
             show_parent = self,
             callback = function()
@@ -219,15 +225,11 @@ function ChapterListView:content()
             end,
         }
         self._chapter_rows[#self._chapter_rows + 1] = row
-        table.insert(group, row)
-        table.insert(group, HorizontalGroup:new{
-            HorizontalSpan:new{ width = Size.padding.large },
-            LineWidget:new{
-                dimen = Geom:new{ w = self.list_width - 2 * Size.padding.large, h = 1 },
-                background = Blitbuffer.COLOR_GRAY,
-            },
-        })
+        group[#group + 1] = row
+        group[#group + 1] = divider
     end
+    title_meter:free()
+    status_meter:free()
     return group
 end
 

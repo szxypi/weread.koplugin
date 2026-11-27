@@ -19,12 +19,27 @@ local ok,reason=pcall(function()
         chapters[i]={title=i%3==0 and ('合成长章节标题用于验证截断😀 '..i) or ('第 '..i..' 章'),
             status=i%17==0 and string.rep('宽',35)..i or (i%7==0 and '已缓存' or (i*13)..' 字'),source={id=i}}
     end
+    chapters[750].status=string.rep('宽',90)
+    chapters[751].title=chapters[750].title
+    chapters[752].title,chapters[752].status='',''
     local selected
+    local TextWidget=require('ui/widget/textwidget')
+    local new_text_widget=TextWidget.new
+    local text_widgets=0
+    TextWidget.new=function(self, ...)
+        text_widgets=text_widgets+1
+        return new_text_widget(self, ...)
+    end
+    collectgarbage('collect')
+    local starting_heap=collectgarbage('count')
+    local started_cpu=os.clock()
     local start=socket.gettime()
     local view=require('weread.ui.chapter_list_view').show({title='合成长目录',chapters=chapters},
         {on_select=function(chapter) selected=chapter.id end})
     UI:forceRePaint()
     local build_ms=math.floor((socket.gettime()-start)*1000+.5)
+    local build_cpu_ms=math.floor((os.clock()-started_cpu)*1000+.5)
+    TextWidget.new=new_text_widget
     local rows=view._chapter_rows;assert(#rows==#chapters)
     local scroll=view._nav_scroll;assert(scroll and scroll.dimen.h>0)
     local total,checksum,frames=0,0,0
@@ -35,7 +50,7 @@ local ok,reason=pcall(function()
         if row.frame then frames=frames+1 end
     end
     local initial_frames=frames;local max_frames=frames
-    collectgarbage('collect');local heap=math.floor(collectgarbage('count'))
+    collectgarbage('collect');local heap=math.floor(collectgarbage('count')-starting_heap)
     local painted=0
     for _,row in ipairs(rows) do
         local original=row.paintTo
@@ -97,7 +112,8 @@ local ok,reason=pcall(function()
     FocusNav.scrollToFocused(view);UI:forceRePaint()
     assert(focused.frame and focused.frame.invert,'focus lost after leaving viewport')
     UI:close(view)
-    report={result='PASS',chapters=#chapters,initialization_ms=build_ms,repaint_ms=repaint_ms,
+    report={result='PASS',chapters=#chapters,initialization_ms=build_ms,initialization_cpu_ms=build_cpu_ms,
+        initial_text_widgets=text_widgets,repaint_ms=repaint_ms,
         lua_kib=heap,geometry_checksum=checksum,geometry=geometry,row_paints=row_paints,initial_materialized_rows=initial_frames,
         max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true}
 end)

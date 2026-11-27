@@ -16,6 +16,7 @@ FRAME = b'\nWEREAD_CHAPTER_BENCHMARK='
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True)
+    parser.add_argument('--candidate', type=Path, help='Use an existing release package for comparison.')
     parser.add_argument('--width', type=int, default=1264)
     parser.add_argument('--height', type=int, default=1680)
     parser.add_argument('--dpi', type=int, default=300)
@@ -25,6 +26,7 @@ def main():
     parser.add_argument('--max-row-paints', type=int)
     parser.add_argument('--max-materialized-rows', type=int)
     parser.add_argument('--max-event-visits', type=int)
+    parser.add_argument('--max-initial-text-widgets', type=int)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     runtime = args.koreader.resolve()
@@ -33,8 +35,11 @@ def main():
         profile, xdg = root / 'profile', root / 'xdg'
         (profile / 'plugins').mkdir(parents=True)
         xdg.mkdir(mode=0o700)
-        candidate = root / 'candidate.zip'
-        subprocess.run(['bash', str(repo / 'scripts/package_release.sh'), str(candidate)], check=True, capture_output=True)
+        candidate = args.candidate
+        if candidate is None:
+            candidate = root / 'candidate.zip'
+            subprocess.run(['bash', str(repo / 'scripts/package_release.sh'), str(candidate)],
+                           check=True, capture_output=True)
         extract_candidate(candidate, profile / 'plugins')
         env = dict(os.environ, KO_HOME=str(profile), XDG_RUNTIME_DIR=str(xdg), EMULATE_READER='1',
                    EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
@@ -58,7 +63,8 @@ def main():
             raise ValueError('benchmark failed')
         for limit, field in ((args.max_row_paints, 'row_paints'),
                              (args.max_materialized_rows, 'max_materialized_rows'),
-                             (args.max_event_visits, 'event_row_visits')):
+                             (args.max_event_visits, 'event_row_visits'),
+                             (args.max_initial_text_widgets, 'initial_text_widgets')):
             if limit is not None and result[field] > limit:
                 raise ValueError(f'{field} exceeds limit')
 
