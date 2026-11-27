@@ -77,9 +77,12 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     assert(requests==0,'opening the retained chapter required network access')
     report.cache_full_copy_selective=true
     report.cache_selective_offline_chapter=true
-    -- Restore the synthetic download and journal to exercise the original full purge.
-    write(full,full_bytes);write(metadata_path,metadata_before);write(state_path,raw)
+    -- Restore the download before opening details, then restore the earlier
+    -- synthetic journal after the second reader's close work is cancelled.
+    write(full,full_bytes);write(metadata_path,metadata_before)
     host,view=detail()
+    if host.source_close then host.source_close:cancel() end
+    write(state_path,raw);records()
     host:confirmClearBookCache(id,'Synthetic cache');local job=assert(host.book_cache_cleanup_job)
     local dialog=assert(job.dialog);assert(UI:getTopmostVisibleWidget()==dialog)
     UI:forceRePaint();require('device').screen:shot(evidence..'/cache-clear-confirmation.png')
