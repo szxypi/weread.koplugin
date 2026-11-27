@@ -68,12 +68,13 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         server.leaked = False
         server.image_requests = server.tar_requests = 0
         partial = entry in ('shelf_partial', 'shelf_partial_offline')
+        legacy = entry == 'shelf_legacy'
         offline_shelf = entry == 'shelf_partial_offline'
         unread = entry in ('details_new', 'shelf_new')
-        server.cloud_chapter = '38' if entry in ('details', 'details_exact', 'shelf', 'shelf_partial') else None
+        server.cloud_chapter = '38' if entry in ('details', 'details_exact', 'shelf', 'shelf_partial', 'shelf_legacy') else None
         if unread:
             server.cloud_chapter = '0'
-        server.exact_resume = entry in ('details_exact', 'shelf_partial')
+        server.exact_resume = entry in ('details_exact', 'shelf_partial', 'shelf_legacy')
         server.progress_requests = 0
         uid = '37' if unread else server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
@@ -81,16 +82,21 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid, book_version=1,
             source_sha256=hashlib.sha256(fixture.body(uid).encode()).hexdigest(),
             read_entry=entry.split('_', 1)[0])
-        if partial:
+        if partial or legacy:
             seed = dict(credentials=payload['credentials'], mock_endpoint=payload['mock_endpoint'],
-                        mode='single', plugin_profile=True)
+                        mode='two' if legacy else 'single', plugin_profile=True)
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_nav_prepare.lua'),
                                     str(REPO)], input=json.dumps(seed), text=True, env=env, cwd=runtime,
                                    capture_output=True, timeout=90)
-            saved = Path(frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')['37'])
-            assert saved.is_file() and server.chapters == ['37'] and server.valid and not server.leaked
+            saved = Path(frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')[uid if legacy else '37'])
+            expected_seed = ['37', '38'] if legacy else ['37']
+            assert saved.is_file() and server.chapters == expected_seed and server.valid and not server.leaked
             server.chapters.clear()
             payload.update(require_cached=True, offline=offline_shelf)
+            if legacy:
+                epub_sha256 = hashlib.sha256(saved.read_bytes()).hexdigest()
+                original = saved.parent/'native-source.txt'
+                original.unlink()
         if server.cloud_chapter is not None:
             payload['cloud_chapter_uid'] = server.cloud_chapter
         if server.exact_resume:
@@ -104,6 +110,9 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         assert server.chapters == ([] if offline_shelf else [uid]) and server.valid and not server.leaked
         if partial:
             assert (Path(result['path']) == saved) == offline_shelf
+        if legacy:
+            assert Path(result['path']) == saved and hashlib.sha256(saved.read_bytes()).hexdigest() == epub_sha256
+            assert not original.exists()
         expected_reads = 3 if server.exact_resume else 2 if unread else int(server.cloud_chapter is not None)
         assert server.progress_requests == expected_reads
         if payload['read_entry'] in ('details', 'catalog'):
@@ -129,7 +138,7 @@ def run(runtime, read_entries_only=False):
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
                 for entry in ('details', 'details_exact', 'details_new', 'catalog',
-                              'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline'):
+                              'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline', 'shelf_legacy'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 server.cloud_chapter = None
                 if read_entries_only:
@@ -200,6 +209,7 @@ def run(runtime, read_entries_only=False):
         print('PASS: partial downloads keep cloud chapter selection online and are selectable offline at both sizes')
         print('PASS: one-tap read from details and bookshelf to a verified cloud location at both sizes')
         print('PASS: one-tap read opens the first chapter of a confirmed unread book at both sizes')
+        print('PASS: precise cloud continuation reuses the saved EPUB without its original at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:

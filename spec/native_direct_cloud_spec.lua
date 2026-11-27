@@ -63,6 +63,12 @@ fail_at=nil;live=false;value,why=check(same);expect(not value and why=='invalid'
 
 local checked={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='file'}
 local raw,available,reads,identifications=nil,checked,0,0
+local remote_source,source_requests=nil,0
+package.loaded['weread.lib.native_chapter_source']={fetch=function(_,_,grant,book,uid,options)
+    assert(grant==native and book=='42' and uid=='38' and options.is_current()
+        and options.expected_catalog.book_version==7 and options.expected_catalog.reading_catalog_sha256=='catalog')
+    source_requests=source_requests+1;return remote_source
+end}
 package.loaded['weread.lib.native_direct_cache']={identify=function()
     identifications=identifications+1;return available
 end,read_raw_source=function() reads=reads+1;return raw end}
@@ -92,7 +98,7 @@ local function recheck()
     calls=0;snapshots={progress}
     return Resume.recheck_destination({}, {},checked,'/native',native,function() return live end,hint.target)
 end
-expect(recheck() and reads==1 and identifications==2 and calls==1,
+expect(recheck() and reads==1 and identifications==2 and calls==1 and source_requests==0,
     'final cloud check reread the original or omitted a fresh check')
 available={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='changed'}
 expect(not recheck() and calls==0,'the final check accepted a replaced EPUB')
@@ -106,4 +112,16 @@ progress.chapterOffset=point.co;raw='<html><body><p>'..quote..'</p><p>'..quote..
 expect(not resume(hint.target),'a repeated summary was used')
 progress.summary=nil;progress.chapterTitle=quote
 expect(not Resume.hint(progress,'42').target,'an inferred chapter title was used as the cloud summary')
+progress.summary=quote;progress.chapterTitle=nil
+local original='<html><body><p>'..quote..'</p></body></html>'
+checked.source_sha256=require('weread.lib.crypto').sha256_hex(original)
+raw=nil
+remote_source={book_id='42',chapter_uid='38',book_version=7,reading_catalog_sha256='catalog',is_text=false,body=original}
+value=resume(hint.target)
+expect(value and value.anchor.co==point.co and source_requests==1,'a cached EPUB without its original could not recover the cloud point')
+expect(recheck() and source_requests==1,'confirming the recovered position fetched the chapter again')
+remote_source.body=original:gsub('</body>','<p>A later edition.</p></body>')
+expect(not resume(hint.target),'the same quote in a changed chapter was accepted for the old EPUB')
+remote_source.body=original;remote_source.reading_catalog_sha256='new-catalog'
+expect(not resume(hint.target),'a changed catalog was accepted for the old EPUB')
 print('PASS: native direct cloud comparison is stable and read-only ('..n..' checks)')

@@ -17,6 +17,7 @@ if live_cloud then
         assert(input.start_unread==true and input.cloud_chapter_uid=='0' and not input.cloud_excerpt)
     end
 end
+if input.missing_resume_source then assert(live_cloud and input.exact_resume) end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
 settings:set('cookies',{})
@@ -71,6 +72,9 @@ Client.request=function(self,options)
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
             and url:find('chapters=0%2C'..input.uid..'&',1,true)
             and url:find('stopAutoPayWhenBNE=1',1,true) and url:find('preview=0',1,true))
+        if input.missing_resume_source then
+            local chapter=assert(io.open(home..'/chapter-count','ab'));assert(chapter:write('1'));assert(chapter:close())
+        end
     else
         assert(options.method=='GET' and require('weread.lib.native_chapter_remote').allowed(url)==url
             and not headers.vid and not headers.accessToken and not headers.Cookie)
@@ -135,6 +139,11 @@ end
 if input.exact_resume then
     local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
     CloudOpen.receive=function(next_host,...)
+        if input.missing_resume_source then
+            local path=assert(next_host.ui.document.file)
+            assert(path:sub(1,#home+1)==home..'/' and require('weread.lib.native_direct_path').contains(next_host.settings,path))
+            assert(os.remove(assert(path:match('^(.*)/[^/]+$'))..'/native-source.txt'))
+        end
         next_host.settings.mock_endpoint=input.mock_endpoint
         next_host.showInfo=function(_,message) resume_message=message end
         return receive(next_host,...)
@@ -326,11 +335,14 @@ end
 local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));assert(file:close())
 while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
 reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
-local count=io.open(home..'/request-count','rb');local requests=0
-if count then requests=#assert(count:read('*a'));assert(count:close()) end
+local function count_reads(name)
+    local stream=io.open(home..'/'..name,'rb')
+    if not stream then return end
+    local reads=#assert(stream:read('*a'));assert(stream:close());return reads
+end
+local requests=count_reads('request-count') or 0
 assert(input.offline~=true or requests==0)
-local cloud=io.open(home..'/cloud-count','rb');local cloud_reads
-if cloud then cloud_reads=#assert(cloud:read('*a'));assert(cloud:close()) end
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
-    cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,cloud_reads=cloud_reads})
+    cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,
+    cloud_reads=count_reads('cloud-count'),chapter_reads=count_reads('chapter-count')})

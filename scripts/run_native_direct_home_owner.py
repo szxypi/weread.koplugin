@@ -38,6 +38,7 @@ def main(argv=None):
     reading_mode = parser.add_mutually_exclusive_group()
     reading_mode.add_argument('--cloud-resume', action='store_true')
     reading_mode.add_argument('--start-unread', action='store_true')
+    parser.add_argument('--resume-missing-source', action='store_true')
     parser.add_argument('--store-search', action='store_true')
     parser.add_argument('--quick-search', action='store_true')
     parser.add_argument('--progress-estimate', action='store_true')
@@ -47,6 +48,8 @@ def main(argv=None):
     parser.add_argument('--offline-time-preflight', action='store_true')
     parser.add_argument('--no-position-guidance', action='store_true')
     args = parser.parse_args(argv)
+    if args.resume_missing_source and not args.cloud_resume:
+        parser.error('missing source requires cloud resume')
     cloud_entry = args.cloud_resume or args.start_unread
     if cloud_entry and (not args.full_ui or args.store_search or args.progress_estimate
                         or args.offline_reminder or args.offline_time):
@@ -83,7 +86,7 @@ def main(argv=None):
         payload = json.loads(raw)
         if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
             raise ValueError('endpoint')
-        if 'live_cloud_resume' in payload or 'start_unread' in payload:
+        if any(key in payload for key in ('live_cloud_resume', 'start_unread', 'missing_resume_source')):
             raise ValueError('cloud_reading_mode')
         excerpt = payload.get('cloud_excerpt')
         if cloud_entry:
@@ -129,6 +132,8 @@ def main(argv=None):
             if cloud_entry:
                 prepare.update(live_cloud_resume=True, read_entry='shelf', exact_resume=args.cloud_resume,
                                start_unread=args.start_unread, cloud_chapter_uid=payload['uid'] if args.cloud_resume else '0')
+            if args.resume_missing_source:
+                prepare['missing_resume_source'] = True
             probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
             probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
             code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -175,6 +180,7 @@ def main(argv=None):
                     or args.cloud_resume and (prepared.get('cloud_position_verified') is not True
                         or prepared.get('cloud_reads') != 3)
                     or args.start_unread and (prepared.get('first_page_verified') is not True or prepared.get('cloud_reads') != 2)
+                    or args.resume_missing_source and prepared.get('chapter_reads') != 2
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
             for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
@@ -307,6 +313,8 @@ def main(argv=None):
                 report['full_ui'] = True
             if args.cloud_resume:
                 report.update(cloud_position_verified=True, cloud_reads=3)
+            if args.resume_missing_source:
+                report.update(original_recovered=True, chapter_reads=2)
             if args.start_unread:
                 report.update(first_page_verified=True, cloud_reads=2)
             if args.store_search:
