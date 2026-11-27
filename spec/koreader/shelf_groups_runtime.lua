@@ -199,6 +199,43 @@ plugin.showInfo=show_info;plugin.settings.set=set_settings;plugin.showBookRecord
 cached_records[42].book_id='42';shown=nil;assert(os.remove(downloaded_path));home_view.on_select(target,'books')
 assert(not opened and shown==target,'home opened a cache file removed after drawing')
 plugin.startBookReading=read;plugin.showBookRecord=detail;plugin:closeWeReadUI()
+do
+    local options=plugin.settings:get('shelf')
+    local old_mode,old_order=options.view_mode,options.sort_order
+    options.view_mode,options.sort_order='cover','name_asc';plugin.settings:set('shelf',options)
+    local larger={}
+    for index=1,64 do
+        local prefix=(index==63 or index==64) and 'ZZ Needle ' or 'Shelf '
+        larger[index]={bookId=tostring(880000+index),title=prefix..string.format('%03d',index)}
+    end
+    local saved_file=assert(io.open(downloaded_path,'wb'));assert(saved_file:write('fixture'));assert(saved_file:close())
+    cached_records['880064']={book_id='880064',cached_file=downloaded_path}
+    local check=plugin.isBookDownloaded
+    local checked={}
+    plugin.isBookDownloaded=function(self,book,...)
+        checked[book.bookId]=true;return check(self,book,...)
+    end
+    plugin.shelf_filters={};plugin:applyShelfSnapshot(larger,{})
+    plugin:showShelfView('books',nil,nil,{page=1})
+    local view=assert(plugin.shelf_view)
+    local visits=0;for _ in pairs(checked) do visits=visits+1 end
+    assert(#view.books==64 and visits==view.page_size and not checked['880064'],
+        'opening one shelf page checked invisible downloads')
+    checked={};view.on_page_changed(view.page_count)
+    assert(checked['880064'] and not checked['880001'] and plugin.shelf_view.books[64]._cached,
+        'turning to the last page missed or checked unrelated download badges')
+    assert(os.remove(downloaded_path));checked={};plugin.shelf_view.on_page_changed(view.page_count)
+    assert(checked['880064'] and plugin.shelf_view.books[64]._cached==false,'visible download badge kept a removed file')
+    saved_file=assert(io.open(downloaded_path,'wb'));assert(saved_file:write('fixture'));assert(saved_file:close())
+    plugin.shelf_filters={download='downloaded'};checked={}
+    plugin:showShelfView('books','Needle',nil,{page=1})
+    visits=0;for _ in pairs(checked) do visits=visits+1 end
+    assert(visits==2 and checked['880063'] and checked['880064'] and #plugin.shelf_view.books==1
+        and plugin.shelf_view.books[1].bookId=='880064','search evaluated downloads outside the matching books')
+    plugin:closeWeReadUI();assert(os.remove(downloaded_path));cached_records['880064']=nil
+    plugin.isBookDownloaded=check
+    options.view_mode,options.sort_order=old_mode,old_order;plugin.settings:set('shelf',options)
+end
 plugin.settings.get=settings_read;plugin.library_db.accountKey=account_key
 plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read;plugin.shelf_filters=old_filters
 -- The same safe book identity rule protects prefetch and annotation lookup.
