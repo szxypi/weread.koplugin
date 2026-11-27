@@ -1320,6 +1320,10 @@ function M:showShelfView(mode, keyword, old_view, options)
                 force = refresh,
                 on_redraw = function()
                     if not current() then return end
+                    if not progress_filtered and self.repaintShelfProgress then
+                        local updated = self:repaintShelfProgress(view, progress_books)
+                        if updated then progress_snapshots = updated;return end
+                    end
                     -- A later cover redraw or page change can replace this deferred redraw.
                     view._shelf_progress_filter_dirty = progress_filtered or nil
                     require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()

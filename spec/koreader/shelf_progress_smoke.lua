@@ -233,8 +233,96 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     assert(report:close())
     local bulk_smoke=dofile(assert(debug.getinfo(1,'S').source:match('^@(.*/)'))..'shelf_progress_all_smoke.lua')
     bulk_smoke(plugin,books,count,control,wait_progress,evidence,cb)
+    settings:update_auth({api_key="",cookies={wr_vid="900000",wr_skey="synthetic-web-progress"}},{replace_cookies=true})
+
+    local a={bookId='990701',title='合成进度回填',finishReading=0,secret=1}
+    local b={bookId='990702',title='合成稳定进度',finishReading=0}
+    local grid_books={a,b}
+    local function reset_grid_progress()
+        assert(plugin.library_db:putShelfProgress({
+            {book_id=a.bookId,percent=91,exact_percent=91,fetched_at=0},
+            {book_id=b.bookId,percent=55,exact_percent=55,fetched_at=os.time()},
+        }))
+    end
+    local function check_badge_repaint(view, gets)
+        UIManager:forceRePaint()
+        local first,second=view._item_rows[1],view._item_rows[2]
+        assert(first._progress_badge_text=='91%' and first._has_private_badge
+            and second._progress_badge_text=='55%')
+        local old_badge,other_badge=first._progress_badge,second._progress_badge
+        local repaint,set_dirty=UIManager.widgetRepaint,UIManager.setDirty
+        local cells,regions=0,{}
+        UIManager.widgetRepaint=function(ui,widget,...)
+            if widget==first.frame or widget==second.frame then cells=cells+1 end
+            return repaint(ui,widget,...)
+        end
+        UIManager.setDirty=function(ui,widget,mode,region,...)
+            if not widget and mode=='ui' and region then regions[#regions+1]=region end
+            return set_dirty(ui,widget,mode,region,...)
+        end
+        local ok,failure=pcall(wait_progress)
+        UIManager.widgetRepaint,UIManager.setDirty=repaint,set_dirty
+        assert(ok,failure)
+        assert(plugin.shelf_view==view and cells==1 and #regions==1
+            and count('/web/book/getProgress')==gets+1,'progress completion rebuilt the grid or repeated a request')
+        local dimen=first.frame.dimen
+        assert(regions[1].x==dimen.x and regions[1].y==dimen.y and regions[1].w==dimen.w and regions[1].h==dimen.h
+            and first._progress_badge~=old_badge and first._progress_badge_text=='0%' and first._has_private_badge
+            and second._progress_badge==other_badge,'progress completion redrew the wrong cell')
+        local BB=require('ffi/blitbuffer')
+        UIManager:forceRePaint()
+        local partial=BB.tostring(Screen.bb)
+        UIManager:setDirty(view,'ui',view.dimen);UIManager:forceRePaint()
+        assert(partial==BB.tostring(Screen.bb),'progress repaint pixels differed from a full repaint')
+        return {w=dimen.w,h=dimen.h}
+    end
+    shelf=settings:get('shelf');shelf.view_mode='cover';shelf.paginated=true;shelf.sort_order='default'
+    settings:set('shelf',shelf)
+    plugin:applyShelfSnapshot(grid_books,{})
+    local old_filters=plugin.shelf_filters;plugin.shelf_filters={}
+    reset_grid_progress()
+    local gets=count('/web/book/getProgress')
+    plugin:showShelfView('books')
+    local shelf_region=check_badge_repaint(plugin.shelf_view,gets)
     plugin:closeWeReadUI()
+    reset_grid_progress()
+    local home=plugin:homePreferences();home.view_mode='cover'
+    gets=count('/web/book/getProgress')
+    plugin:showDiscoveryPage('home',grid_books,{title='合成进度验证',home=home})
+    plugin:stopHomeStatusTimer()
+    local home_region=check_badge_repaint(plugin.shelf_view,gets)
+    plugin:closeWeReadUI()
+
+    reset_grid_progress()
+    shelf.sort_order='progress_desc';settings:set('shelf',shelf)
+    gets=count('/web/book/getProgress')
+    plugin:showShelfView('books')
+    local sorted=plugin.shelf_view
+    assert(sorted.books[1]==a)
+    check_badge_repaint(sorted,gets)
+    assert(sorted.books[1]==a and sorted.books[2]==b,'background progress reordered the open shelf')
+    plugin:showShelfView('books',nil,sorted)
+    assert(plugin.shelf_view.books[1]==b and plugin.shelf_view.books[2]==a,
+        'reopened shelf did not sort by the saved percentage')
+    local previous=plugin.shelf_view
+    reset_grid_progress()
+    shelf.sort_order='default';settings:set('shelf',shelf)
+    plugin.shelf_filters={reading='progress_active'}
+    plugin:showShelfView('books',nil,previous)
+    local filtered=plugin.shelf_view
+    assert(#filtered.books==2)
+    wait_progress()
+    assert(plugin.shelf_view~=filtered and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1]==b,
+        'shelf progress filter retained a book at zero')
+    assert(count('/web/book/read')==writes,'visible progress sent a reading write')
+    local grid_report=assert(io.open(evidence..'/shelf-progress-repaint.json','wb'))
+    assert(grid_report:write(client:json_encode({shelf=shelf_region,home=home_region,pixels_equal=true,
+        stable_order=true,sorted_on_reopen=true,filtered_again=true,reading_writes=0})))
+    assert(grid_report:close())
+    plugin:closeWeReadUI()
+    plugin.shelf_filters=old_filters
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})
     settings:set("shelf",client:json_decode(old_shelf));settings:flush()
+    plugin:applyShelfSnapshot(plugin.library_db:getShelf(),plugin.library_db:getShelfArchives())
     print("PASS: keyless visible Web progress -> worker/HTTP/SQLite -> cover/list/home; pending-local priority, offline cache, one gateway fallback, rate backoff and Cookie race; no reading writes")
 end

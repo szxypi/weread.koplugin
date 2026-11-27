@@ -589,6 +589,61 @@ local function load_cover(cell, path, image_width, image_height)
     end
 end
 
+local function progress_label(book)
+    return ShelfProgress.label(book._shelf_progress, book._shelf_progress_local, book._shelf_progress_exact)
+end
+
+function CoverCell:setProgressBadge(progress_text)
+    local group, card = self._cover_group, self._cover_card
+    if self._progress_badge then
+        -- The progress badge is the final overlay above the cover.
+        group[#group] = nil
+        self._progress_badge:free()
+        self._progress_badge,self._progress_badge_text,self._progress_badge_labels = nil,nil,nil
+    end
+    if not progress_text then return end
+    local inset = math.max(card.border_size, Screen:scaleBySize(4))
+    local padding = math.max(1, Screen:scaleBySize(2))
+    local max_width=math.max(1,card.width-2*inset-2*padding-2*Size.border.thin)
+    local line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14)}
+    local content,labels=line,{line}
+    if line:getSize().w>max_width and self.book._shelf_progress_local then
+        if line.free then line:free() end
+        local size=12
+        while true do
+            local local_label=TextWidget:new{text=_('Local'),face=Font:getFace('cfont',size)}
+            local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false,self.book._shelf_progress_exact),face=Font:getFace('cfont',size)}
+            if size<=8 or local_label:getSize().w<=max_width and number_label:getSize().w<=max_width then
+                labels={local_label,number_label};content=VerticalGroup:new{align='right',local_label,number_label};break
+            end
+            if local_label.free then local_label:free() end
+            if number_label.free then number_label:free() end
+            size=size-1
+        end
+    elseif line:getSize().w>max_width then
+        if line.free then line:free() end
+        line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14),max_width=max_width}
+        content,labels=line,{line}
+    end
+    local badge = FrameContainer:new{
+        padding = padding, margin = 0,
+        bordersize = Size.border.thin, radius = 0,
+        background = Blitbuffer.COLOR_WHITE,
+        content,
+    }
+    local size = badge:getSize()
+    local y=math.max(0,card.height-size.h-inset)
+    if self._private_badge_size and size.w+self._private_badge_size+2*inset>card.width then
+        y=math.max(0,card.height-self._private_badge_size-size.h-inset)
+    end
+    badge.overlap_offset = {
+        math.max(0, card.width - size.w - inset),
+        y,
+    }
+    group[#group + 1] = badge
+    self._progress_badge,self._progress_badge_text,self._progress_badge_labels = badge,progress_text,labels
+end
+
 function CoverCell:init()
     local metrics = CoverLayout.card{
         width = self.width,
@@ -683,50 +738,9 @@ function CoverCell:init()
         self._private_badge = badge
         self._private_badge_size = badge_size
     end
-    local progress_text = ShelfProgress.label(self.book._shelf_progress, self.book._shelf_progress_local, self.book._shelf_progress_exact)
-    if progress_text then
-        local inset = math.max(border, Screen:scaleBySize(4))
-        local padding = math.max(1, Screen:scaleBySize(2))
-        local max_width=math.max(1,metrics.card_width-2*inset-2*padding-2*Size.border.thin)
-        local line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14)}
-        local content,labels=line,{line}
-        if line:getSize().w>max_width and self.book._shelf_progress_local then
-            if line.free then line:free() end
-            local size=12
-            while true do
-                local local_label=TextWidget:new{text=_('Local'),face=Font:getFace('cfont',size)}
-                local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false,self.book._shelf_progress_exact),face=Font:getFace('cfont',size)}
-                if size<=8 or local_label:getSize().w<=max_width and number_label:getSize().w<=max_width then
-                    labels={local_label,number_label};content=VerticalGroup:new{align='right',local_label,number_label};break
-                end
-                if local_label.free then local_label:free() end
-                if number_label.free then number_label:free() end
-                size=size-1
-            end
-        elseif line:getSize().w>max_width then
-            if line.free then line:free() end
-            line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14),max_width=max_width}
-            content,labels=line,{line}
-        end
-        local badge = FrameContainer:new{
-            padding = padding, margin = 0,
-            bordersize = Size.border.thin, radius = 0,
-            background = Blitbuffer.COLOR_WHITE,
-            content,
-        }
-        local size = badge:getSize()
-        local y=math.max(0,metrics.card_height-size.h-inset)
-        if self._private_badge_size and size.w+self._private_badge_size+2*inset>metrics.card_width then
-            y=math.max(0,metrics.card_height-self._private_badge_size-size.h-inset)
-        end
-        badge.overlap_offset = {
-            math.max(0, metrics.card_width - size.w - inset),
-            y,
-        }
-        cover_layers[#cover_layers + 1] = badge
-        self._progress_badge,self._progress_badge_text,self._progress_badge_labels = badge,progress_text,labels
-    end
     local cover = OverlapGroup:new(cover_layers)
+    self._cover_group = cover
+    self:setProgressBadge(progress_label(self.book))
     local title = self.book.title or self.book.bookId or self.book.book_id or _("Untitled")
     local status_size = math.max(1, math.min(metrics.title_height, Screen:scaleBySize(10)))
     local title_gap = math.max(1, Screen:scaleBySize(2))
@@ -1823,22 +1837,38 @@ local function rotation_changed(view)
     return view.screen_w~=Screen:getWidth() or view.screen_h~=Screen:getHeight() or view.screen_rotation~=rotation
 end
 
-function LibraryView:refreshVisibleCovers(cache)
-    if not self.cover_mode or not self.scroll or self.scroll._is_scrollable ~= false
-        or self._shelf_closed or self._rotation_pending or self._rotation_task or rotation_changed(self)
-        or BD.mirroredUILayout() or not UIManager.widgetRepaint or not UIManager.getTopmostVisibleWidget
-        or UIManager:getTopmostVisibleWidget() ~= self then return false end
+local function cover_grid_visible(self)
+    return self.cover_mode and self.scroll and self.scroll._is_scrollable == false
+        and not self._shelf_closed and not self._rotation_pending and not self._rotation_task and not rotation_changed(self)
+        and not BD.mirroredUILayout() and UIManager.widgetRepaint and UIManager.getTopmostVisibleWidget
+        and UIManager:getTopmostVisibleWidget() == self
+end
 
-    local updates, dirty = {}, nil
+local function cover_cell_region(self, cell)
+    local region = painted_region(cell.frame)
+    if region and region.w == cell.width and region.h == cell.height and region.x >= 0 and region.y >= 0
+        and region.x + region.w <= self.screen_w and region.y + region.h <= self.screen_h then return region end
+end
+
+local function repaint_cover_cells(updates)
+    local dirty
+    for _, update in ipairs(updates) do
+        local region = update.region
+        UIManager:widgetRepaint(update.cell.frame, region.x, region.y)
+        dirty = dirty and dirty:combine(region) or region
+    end
+    if dirty then UIManager:setDirty(nil, 'ui', dirty) end
+end
+
+function LibraryView:refreshVisibleCovers(cache)
+    if not cover_grid_visible(self) then return false end
+    local updates = {}
     for _, cell in ipairs(self._item_rows) do
         local path = cache:pathFor(cell.book)
         if path ~= cell.cover_path then
-            local region = painted_region(cell.frame)
-            if not path or not region or region.w ~= cell.width or region.h ~= cell.height
-                or region.x < 0 or region.y < 0 or region.x + region.w > self.screen_w
-                or region.y + region.h > self.screen_h then return false end
+            local region = cover_cell_region(self, cell)
+            if not path or not region then return false end
             updates[#updates + 1] = { cell = cell, path = path, region = region }
-            dirty = dirty and dirty:combine(region) or region
         end
     end
     for _, update in ipairs(updates) do
@@ -1847,11 +1877,25 @@ function LibraryView:refreshVisibleCovers(cache)
         if self.cover_paths then self.cover_paths[cell.book] = path end
         if self.cover_loading then self.cover_loading[cell.book] = nil end
     end
-    for _, update in ipairs(updates) do
-        UIManager:widgetRepaint(update.cell.frame, update.region.x, update.region.y)
-    end
-    if dirty then UIManager:setDirty(nil, 'ui', dirty) end
+    repaint_cover_cells(updates)
     return true
+end
+
+function LibraryView:refreshVisibleProgress(prepare)
+    if not cover_grid_visible(self) then return end
+    local snapshots = prepare()
+    local updates = {}
+    for _, cell in ipairs(self._item_rows) do
+        local text = progress_label(cell.book)
+        if text ~= cell._progress_badge_text then
+            local region = cover_cell_region(self, cell)
+            if not region then return end
+            updates[#updates + 1] = { cell = cell, text = text, region = region }
+        end
+    end
+    for _, update in ipairs(updates) do update.cell:setProgressBadge(update.text) end
+    repaint_cover_cells(updates)
+    return snapshots
 end
 
 -- KOReader delivers rotation before the file manager has resized the screen.

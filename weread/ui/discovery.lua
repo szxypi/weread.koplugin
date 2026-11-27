@@ -232,6 +232,10 @@ function M:showDiscoveryPage(tab, books, options)
         options.refresh_progress = nil
         self:refreshVisibleShelfProgress(view, visible, snapshots, {
             force = force, on_redraw = function()
+                if self.repaintShelfProgress then
+                    local updated = self:repaintShelfProgress(view, visible)
+                    if updated then snapshots = updated;return end
+                end
                 Popup.redrawForMetadata(self,view,function() redraw(view.page or page) end)
             end,
         })
