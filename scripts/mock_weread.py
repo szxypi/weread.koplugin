@@ -745,6 +745,8 @@ class MockServer(ThreadingHTTPServer):
             start = max(0, int(query.get("maxIndex", ["0"])[0]))
             candidates = BOOKS[:15] if cid == "100001" else BOOKS
             batch = candidates[start:start + 20]
+            if cid == "100001" and start == 0:
+                batch[0] = dict(batch[0], author="测试作者\r\n合成作者")
             return 200, dict(books=[dict(bookInfo=dict(b,publisher="合成出版社",newRating=860,newRatingCount=12),
                 searchIdx=start + i + 1,reason="合成推荐理由" if i == 0 else "") for i, b in enumerate(batch)],
                              hasMore=int(start + len(batch) < len(candidates)))

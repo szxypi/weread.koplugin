@@ -71,6 +71,12 @@ class CategoryBooksTests(unittest.TestCase):
         for cursor in (True,0.5,float('inf'),float('nan'),-1,'20',2**31):
             with self.subTest(cursor=cursor),self.assertRaises(ValueError):probe.page(dict(books=[dict(bookId='1',idx=cursor)]))
 
+    def test_category_author_line_breaks_become_spaces(self):
+        value=probe.page(dict(books=[dict(bookId='1',author='One\r\nTwo',idx=21)]),20)
+        self.assertEqual((value['books'][0]['author'],value['next_cursor']),('One Two',21))
+        with self.assertRaises(ValueError):probe.page(dict(books=[dict(bookId='1\n',author='One\nTwo')]))
+        with self.assertRaises(ValueError):probe.page(dict(books=[dict(bookId='1',author='One\x00Two')]))
+
     def test_missing_nonadvancing_cursor_has_no_continuation(self):
         self.assertFalse(probe.page(dict(books=[dict(bookId='1')]*20),20)['has_more'])
         self.assertFalse(probe.page(dict(books=[],hasMore=True),0)['has_more'])

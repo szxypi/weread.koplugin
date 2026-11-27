@@ -41,6 +41,8 @@ function M.project(client, kind, data, cursor)
     local value=Data.page(kind,data,cursor)
     if not bounded(value.session_id or "",512) then fail("invalid_page") end
     for _,book in ipairs(value.books) do
+        -- Public credits can contain line breaks between contributors.
+        if kind=='category' then book.author=book.author:gsub('[\r\n]+',' ') end
         if not bounded(book.bookId,256) or book.bookId=="" or not bounded(book.title,4096)
             or not bounded(book.author,4096) or not bounded(book.category,4096) or not bounded(book.cover,8192) then fail("invalid_page") end
     end

@@ -171,4 +171,12 @@ end
 expect(#Source.project({},"search",{results={}},0).books==0,"valid empty search")
 expect(#Source.project({},"recommend",{books={}},0).books==0,"valid empty recommendations")
 expect(not Source.project({},"recommend",{books={{bookId="a"}},hasMore=true},20).has_more,"missing cursor cannot loop")
+local credits={books={{bookId='42',author='One\r\nTwo',idx=21},{bookId='43',author='Three',idx=22}},hasMore=1}
+local category=Source.project({},'category',credits,20)
+expect(#category.books==2 and category.books[1].author=='One Two' and category.next_cursor==22 and category.has_more,
+    'line breaks in public authors rejected the whole batch or changed pagination')
+credits.books[1].bookId='42\n'
+expect(not pcall(Source.project,{},'category',credits,20),'identity was normalized as display text')
+credits.books[1].bookId,credits.books[1].author='42','One\0Two'
+expect(not pcall(Source.project,{},'category',credits,20),'an invalid author character was accepted')
 print("discovery_source_spec: "..checks.." checks")

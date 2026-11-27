@@ -28,10 +28,11 @@ def page(data, cursor=0):
             or 'succ' in data and data['succ'] not in (True,1,'1')):
         raise ValueError('category_books_shape')
     books=[];seen=set();last=cursor
-    def text(value,limit):
+    def text(value,limit,multiline=False):
         if value is None:return ''
         if type(value) not in (str,int,float):raise ValueError('category_book_text')
         result=str(value)
+        if multiline:result=re.sub(r'[\r\n]+',' ',result)
         if len(result.encode())>limit or re.search(r'[\x00-\x1f\x7f]',result):raise ValueError('category_book_text')
         return result
     for row in data['books']:
@@ -49,7 +50,7 @@ def page(data, cursor=0):
         last=max(last,idx if idx is not None else cursor)
         if identity not in seen:
             seen.add(identity)
-            value=dict(bookId=identity,title=text(book.get('title'),4096),author=text(book.get('author'),4096),
+            value=dict(bookId=identity,title=text(book.get('title'),4096),author=text(book.get('author'),4096,multiline=True),
                        cover=text(book.get('cover'),8192),category=text(book.get('category'),4096))
             raw_reason=row.get('reason')
             if raw_reason is None or raw_reason is False:raw_reason=book.get('reason')
