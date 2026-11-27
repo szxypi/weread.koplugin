@@ -109,9 +109,7 @@ function M.start(host,book,view,options)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)
             and host.settings:auth_scope_matches(ctx.scope)
     end
-    local function current()
-        return view_current() and (ctx.offline or Access.matches(host.settings,ctx.selected.native))
-    end
+    local current=offline and view_current or Access.guard(host.settings,view_current,selected.native)
     local function close_busy()
         if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
         ctx.busy=nil
@@ -134,6 +132,7 @@ function M.start(host,book,view,options)
             complete=function(ok,fresh)
                 ctx.selected=fresh
                 if not ok then fail('E-Ink authorization expired. Please authorize again.');return end
+                current=Access.guard(host.settings,view_current,fresh.native)
                 launch()
             end})
         if not started then fail('E-Ink authorization expired. Please authorize again.') end

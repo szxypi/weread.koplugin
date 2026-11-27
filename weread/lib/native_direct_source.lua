@@ -18,13 +18,9 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
         or not Protocol.integer(expected.book_version,0,2147483647)
         or not hash(expected.reading_catalog_sha256) or not hash(expected.access_fingerprint)
         or type(options)~='table' or type(options.is_current)~='function' then return nil,'invalid' end
-    local selected=Access.capture(settings)
-    if not selected or selected.renewal_pending or selected.fingerprint~=expected.access_fingerprint then
+    local current,selected=Access.guard(settings,options.is_current)
+    if not current or selected.fingerprint~=expected.access_fingerprint then
         return nil,'session_changed'
-    end
-    local function current()
-        local ok,live=pcall(options.is_current)
-        return ok and live==true and Access.matches(settings,selected)
     end
     if not current() then return nil,'session_changed' end
     local source,why=Source.fetch(client,settings,selected,book_id,chapter_uid,{is_current=current})

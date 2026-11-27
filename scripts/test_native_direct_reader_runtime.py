@@ -18,8 +18,8 @@ def run(runtime):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
-        for width,height,dpi,switch,switch_commit,missing in ((600,800,167,False,False,False),(1264,1680,300,False,False,False),
-                (600,800,167,True,False,False),(1264,1680,300,False,True,False),(1264,1680,300,False,False,True)):
+        for width,height,dpi,scenario in ((600,800,167,'normal'),(1264,1680,300,'normal'),
+                (600,800,167,'switch'),(1264,1680,300,'switch_commit'),(1264,1680,300,'rotate'),(1264,1680,300,'missing')):
             with tempfile.TemporaryDirectory(prefix='weread-native-direct-',dir='/dev/shm') as root:
                 xdg=Path(root)/'xdg';xdg.mkdir(mode=0o700)
                 env=dict(os.environ,KO_HOME=root,XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
@@ -27,7 +27,8 @@ def run(runtime):
                     EMULATE_READER_W=str(width),EMULATE_READER_H=str(height),EMULATE_READER_DPI=str(dpi),WEREAD_SYNTHETIC='1')
                 payload=dict(credentials=dict(vid='12345678',accessToken='synthetic-access',
                     refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19),
-                    mock_endpoint='http://127.0.0.1:'+str(server.server_port),switch=switch,switch_commit=switch_commit,missing=missing)
+                    mock_endpoint='http://127.0.0.1:'+str(server.server_port),**{scenario:True})
+                missing=scenario=='missing'
                 server.mode,server.paths,server.leaked=('remote_invalid' if missing else 'remote'),[],False
                 server.catalog_valid=server.download_valid=True
                 child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_reader_probe.lua'),str(REPO)],
@@ -37,9 +38,11 @@ def run(runtime):
                 lines=[line for line in child.stdout.splitlines() if line.startswith(marker)]
                 assert len(lines)==1
                 result=json.loads(lines[0][len(marker):])
-                if switch:
+                if scenario=='switch':
                     assert result==dict(ok=True,switched=True,requests=1) and server.paths==['/book/info']
-                elif switch_commit:
+                elif scenario=='rotate':
+                    assert result==dict(ok=True,rotated=True,requests=1) and server.paths==['/book/info']
+                elif scenario=='switch_commit':
                     assert result==dict(ok=True,switched_before_commit=True,requests=4) and len(server.paths)==4
                 else:
                     assert set(result)=={'ok','requests','reused','corrupt_preserved','receipt_preserved','path','missing_images'}

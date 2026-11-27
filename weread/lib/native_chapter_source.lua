@@ -10,12 +10,9 @@ local M={MAX_BYTES=32*1024*1024}
 local BASE='https://i.weread.qq.com'
 local HEADERS={baseapi='30',appver='2.1.2.10245900',basever='2.1.2.10245900',osver='11',channelId='900',
     Accept='application/json', ['User-Agent']='WeRead/2.1.2 WRBrand/Onyx wr_eink Dalvik/2.1.0 (Linux; U; Android 11; BOOX Build/onyx)'}
-local function current(settings,selected,options)
-    if not selected or selected.renewal_pending or not selected.scope or not Protocol.credentials(selected.credentials)
-        or selected.scope.vid~=selected.credentials.vid or not Access.matches(settings,selected)
-        or type(options.is_current)~='function' then return false end
-    local ok,value=pcall(options.is_current)
-    return ok and value==true
+local function valid_access(selected)
+    return selected and not selected.renewal_pending and selected.scope and Protocol.credentials(selected.credentials)
+        and selected.scope.vid==selected.credentials.vid
 end
 local function header(headers,name)
     if type(headers)~='table' then return nil end
@@ -55,8 +52,10 @@ function M.fetch(client,settings,selected,book_id,uid,options)
         or type(uid)~='string' or Protocol.id(uid)~=uid or #uid>16 or tonumber(uid)>9007199254740991 then
         return nil,'invalid'
     end
-    if not current(settings,selected,options) then return nil,'session_changed' end
-    local function owns() return current(settings,selected,options) end
+    if not valid_access(selected) then return nil,'session_changed' end
+    local current=Access.guard(settings,options.is_current,selected)
+    if not current or not current() then return nil,'session_changed' end
+    local function owns() return valid_access(selected) and current() end
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
     local ok,value=pcall(function()
         local model=Catalog.read(auth,selected.credentials,book_id,'chapter')

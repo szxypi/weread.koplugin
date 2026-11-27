@@ -2,7 +2,10 @@ package.path='./?.lua;'..package.path
 local current=true
 local source_calls,remote_calls=0,0
 local selected={fingerprint=string.rep('a',64),renewal_pending=false}
-package.loaded['weread.lib.native_read_access']={capture=function() return selected end,matches=function() return current end}
+local Access=require('weread.lib.native_read_access')
+local captures=0
+Access.capture=function() captures=captures+1;return selected end
+Access.matches=function() return current end
 local source={book_id='42',chapter_uid='37',book_version=1,catalog_sha256=string.rep('b',64),
     reading_catalog_sha256=string.rep('c',64),source_channel='eink',coordinate_source_authoritative=false,body='<p>Native</p>'}
 local source_error,remote_error,change_source,change_remote,remote_missing
@@ -30,6 +33,13 @@ local result=assert(fetch())
 assert(result.xhtml=='<p>Native</p>' and result.css=='safe-style' and #result.assets==1
     and result.source_channel=='eink' and result.coordinate_source_authoritative==false and result.missing_images==0
     and result.source_raw==source.body and #result.source_sha256==64 and source_calls==1 and remote_calls==1)
+local settings={}
+local bound=assert(Access.guard(settings,options.is_current,selected))
+local before_bound=captures
+assert(Direct.fetch({},settings,'42','37',expected,{is_current=bound}))
+assert(captures==before_bound,'direct source recaptured the same grant')
+assert(Direct.fetch({}, {},'42','37',expected,{is_current=bound}))
+assert(captures==before_bound+1,'direct source inherited a grant from different settings')
 remote_missing=true
 local missing=assert(Direct.fetch({}, {},'42','37',expected,{is_current=function() return true end,allow_missing_images=true}))
 assert(missing.missing_images==1 and missing.xhtml:find('placeholders',1,true)

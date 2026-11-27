@@ -4,7 +4,8 @@ local function expect(value,message) checks=checks+1;assert(value,message) end
 local fingerprint=string.rep('a',64)
 local digest=string.rep('b',64)
 local scope={vid='123',epoch=1}
-local selected={scope=scope,fingerprint=fingerprint,revision=1,store={},credentials={vid='123'}}
+local initial_access={scope=scope,fingerprint=fingerprint,revision=1,store={},credentials={vid='123'}}
+local selected=initial_access
 local account_valid=true
 package.preload['ui/uimanager']=function() return {show=function() end,
     close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
@@ -17,17 +18,18 @@ package.preload['ui/widget/inputdialog']=function()
 end
 package.preload['weread.ui.download_dialog']=function() return {new=function(_,value)
     value.show=function() end;value.reportProgress=function() end;return value end} end
-package.preload['weread.lib.native_read_access']=function() return {
-    capture=function() if account_valid then return selected end end,
-    matches=function(_,value) return account_valid and value==selected end,
-} end
+local Access=require('weread.lib.native_read_access')
+Access.capture=function() if account_valid then return selected end end
+Access.matches=function(_,value) return account_valid and value==selected end
 local renewal_count=0
 package.preload['weread.lib.native_read_recovery']=function() return {
     cancel=function() end,
     start=function(_,ctx,old,opts)
         if ctx.recovery_attempted then return false end
         ctx.recovery_attempted=true;renewal_count=renewal_count+1
-        opts.complete(true,old);return true
+        selected={scope=scope,fingerprint=string.rep('c',64),revision=old.native.revision+2,
+            store=old.native.store,credentials=old.native.credentials}
+        opts.complete(true,{native=selected,base_revision=old.base_revision});return true
     end,
 } end
 package.preload['weread.lib.native_authorization']=function() return {new=function() return {cancel=function() end} end} end
@@ -59,7 +61,7 @@ for _,mutate in ipairs({function(v) v.book_id='457' end,function(v) v.reading_di
     local bad=clone();mutate(bad);expect(not UI.project(bad,'456'),'invalid catalog accepted')
 end
 local function fixture()
-    account_valid=true;catalog_error=nil;build_error=nil
+    selected=initial_access;account_valid=true;catalog_error=nil;build_error=nil
     local state={jobs={},opened=0,info=0,view={}}
     local host={_book_detail_view=state.view,discovery_epoch=1,_reader_session_gen=1,ui={},client={},
         settings={data_dir='/tmp/settings',get_auth_scope=function() return scope end,
@@ -130,7 +132,9 @@ expect(#s.jobs==2 and renewal_count==1,'catalog 401 not renewed once')
 catalog_error=nil;s.finish(2);expect(s.items~=nil,'renewal did not reload catalog')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='auth_expired';s.finish(2)
 expect(#s.jobs==3 and renewal_count==2,'chapter 401 not renewed once')
-build_error=nil;s.finish(3);expect(s.opened==1,'renewed chapter did not open')
+build_error=nil;s.finish(3)
+expect(s.opened==1 and expected_args.access_fingerprint==selected.fingerprint and selected~=initial_access,
+    'renewed chapter kept the previous authorization guard')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);local old=s.jobs[1];UI.cancel(host);old.callback(old.task())
 expect(s.opened==0 and not s.items,'cancelled response changed UI')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)

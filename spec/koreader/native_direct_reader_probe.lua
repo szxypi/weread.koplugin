@@ -13,7 +13,8 @@ local scope={vid=input.credentials.vid,epoch=1};local alive=true
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,
     get=function(_,_,default) return default end,get_auth_scope=function() return scope end,
     auth_scope_matches=function(_,value) return alive and value==scope end}
-local store={read=function() return input.credentials,1,nil,false end}
+local revision=1
+local store={read=function() return input.credentials,revision,nil,false end}
 local Access=require('weread.lib.native_read_access');local capture=Access.capture
 Access.capture=function(s,existing) return capture(s,existing or store) end
 local selected=assert(Access.capture(settings))
@@ -34,6 +35,7 @@ client.request=function(self,options)
             and not options.headers.vid and not options.headers.accessToken and not options.headers.Cookie))
     local a,b,c=request(self,options)
     if input.switch and requests==1 then alive=false end
+    if input.rotate and requests==1 then revision=revision+1 end
     return a,b,c
 end
 local book={book_id='42',title='Synthetic native book',author='Fixture'}
@@ -62,6 +64,12 @@ if input.switch then
     local result,reason=build()
     assert(not result and reason=='session_changed' and requests==1)
     print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,switched=true,requests=requests})
+    return
+end
+if input.rotate then
+    local result,reason=build()
+    assert(not result and reason=='session_changed' and requests==1)
+    print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,rotated=true,requests=requests})
     return
 end
 local first=assert(build());assert(not first.reused and first.path:find('/native%-reader%-v1/')

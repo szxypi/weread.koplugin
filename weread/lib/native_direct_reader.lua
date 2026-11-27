@@ -8,14 +8,10 @@ local M={}
 function M.build(client,settings,book,chapter,expected,options)
     if type(book)~='table' or type(chapter)~='table' or type(expected)~='table'
         or type(options)~='table' or type(options.is_current)~='function' then return nil,'invalid' end
-    local selected=Access.capture(settings)
-    if not selected or selected.renewal_pending or type(selected.scope)~='table'
+    local current,selected=Access.guard(settings,options.is_current)
+    if not current or type(selected.scope)~='table'
         or type(selected.scope.vid)~='string' or selected.fingerprint~=expected.access_fingerprint then
         return nil,'session_changed'
-    end
-    local function current()
-        local ok,value=pcall(options.is_current)
-        return ok and value==true and Access.matches(settings,selected)
     end
     if not current() then return nil,'session_changed' end
     local prepared,why=Direct.fetch(client,settings,book.book_id,chapter.chapterUid,expected,

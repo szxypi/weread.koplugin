@@ -1,6 +1,8 @@
 package.path='./?.lua;'..package.path
 local valid,mode,calls,closed=true,'ok',{},0
-package.loaded['weread.lib.native_read_access']={matches=function() return valid end}
+local Access=require('weread.lib.native_read_access')
+local checks=0
+Access.matches=function() checks=checks+1;return valid end
 package.loaded['weread.lib.native_position_protocol']={credentials=function(c) return c.valid==true end,
     id=function(s) return type(s)=='string' and s:match('^[1-9]%d*$') and s or nil end}
 package.loaded['weread.lib.native_authorization']={new=function(_self,_client,options)
@@ -63,4 +65,12 @@ assert(not result and reason=='session_changed' and #calls==0)
 valid=true;result,reason=Source.fetch(client,{},selected,'456','9007199254740992',options)
 assert(not result and reason=='invalid' and #calls==0)
 assert(closed==12,'authorization not closed')
+local settings={}
+checks=0;assert(run('ok'));local direct_checks=checks
+local bound=assert(Access.guard(settings,options.is_current,selected))
+checks=0;assert(Source.fetch(client,settings,selected,'456','7',{is_current=bound}))
+assert(checks==direct_checks,'chapter request reread the grant through a shared guard')
+local different={credentials=selected.credentials,scope=selected.scope}
+checks=0;assert(Source.fetch(client,settings,different,'456','7',{is_current=bound}))
+assert(checks==2*direct_checks,'chapter request inherited the guard for a different grant')
 print('PASS: native chapter scope, entitlement, limited transport and source isolation')
