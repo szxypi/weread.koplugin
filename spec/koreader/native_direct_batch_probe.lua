@@ -314,6 +314,43 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         local hits=assert(doc:findAllText('Chapter '..row.chapter_uid..', synthetic paragraph',false,0,8,false,0))
         assert(hits[1],'saved chapter content did not render');doc:close();seen[row.chapter_uid]=true
     end
+    if input.mode=='offline_range' or input.mode=='offline_locked' then
+        settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
+        local common=require('weread.ui.common')
+        local host={settings=settings,client=require('weread.lib.client'):new(settings),
+            library_db=require('weread.lib.library_db'):new(settings),_book_detail_view={},
+            showBusy=common.showBusy,closeBusy=common.closeBusy,showList=common.showList,
+            refreshUI=function() end,
+            showInfo=function(_,message) error(message) end,
+            isNetworkConnected=function() error('offline catalog checked the network') end,
+            openFile=function(self,path) self.opened=path end}
+        local reading=require('weread.ui.native_direct_reading')
+        G_reader_settings:saveSetting('items_per_page',1)
+        assert(reading.start(host,{book_id='42',title='Synthetic'},host._book_detail_view,{cached=true}))
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local menu=assert(host._native_direct_reading.menu)
+        local child=menu.item_table[#rows]
+        assert(#menu.item_table==#rows and menu.title_bar.left_icon=='appbar.menu' and child.indent
+            and child.text:find('Chapter 38',1,true),'saved chapter lost its section')
+        if not single then
+            assert(menu.item_table[1].bold and menu.item_table[1].text:find('Chapter 37',1,true))
+            menu:onGotoPage(2)
+        end
+        menu:onLeftButtonTap()
+        local actions=assert(menu._shelf_popup)
+        actions.buttons[2][1].callback()
+        pump(function() return menu._shelf_popup and menu._shelf_popup~=actions end)
+        local sections=menu._shelf_popup
+        assert(#sections.item_table==1 and sections.item_table[1].text=='1. Chapter 37',
+            'section navigation did not reuse its saved title')
+        sections:onMenuSelect(sections.item_table[1])
+        assert(menu.page==1 and not host._native_direct_worker.job and not host.opened,
+            'selecting a section opened a chapter instead of moving to the first saved item')
+        menu:onGotoPage(#rows);menu:onMenuSelect(child)
+        pump(function() return host.opened end)
+        assert(host.opened==assert(cache.open(settings,scope.vid,'42',rows[#rows],function() return true end)).path,
+            'selecting the indented row did not open the local chapter')
+    end
     if input.mode=='offline_range' then
         assert(seen['38'] and rows[1].catalog_order==2 and rows[1].catalog_count==3
             and rows[1].catalog_prev=='37' and rows[1].catalog_next=='39','range lost its full catalog position')
@@ -560,7 +597,8 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
 local range_retry=input.mode=='range_retry'
 local range_interrupted=input.mode=='range_interrupted'
 local range_reopen=input.mode=='range_reopen'
-if input.mode=='catalog_capture' or range_retry or range_interrupted or range_reopen then
+if input.mode=='catalog_capture' or input.mode=='locked' or input.mode=='range' or input.mode=='range_repeat'
+    or range_retry or range_interrupted or range_reopen then
     settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
     host.library_db=require('weread.lib.library_db'):new(settings)
 end

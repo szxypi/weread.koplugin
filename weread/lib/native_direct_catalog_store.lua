@@ -1,5 +1,5 @@
--- Account-bound native catalog weights for an explicitly approximate local
--- progress display. These values never grant cloud position upload authority.
+-- Account-bound metadata for the saved chapter outline and local progress.
+-- These values never grant cloud position upload authority.
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.native_position_protocol')
 local Cache=require('weread.lib.native_direct_cache')
@@ -10,6 +10,10 @@ local function hash(value)
 end
 local function identifier(value)
     return type(value)=='string' and Protocol.id(value)==value
+end
+local function title(value)
+    return type(value)=='string' and #value<=2048 and not value:find('[%z%c]')
+        and require('weread.lib.protocol').utf8_substr(value,#value)==value
 end
 local function scope_current(library,settings,scope,current)
     if type(library)~='table' or type(library.accountKey)~='function' or type(settings)~='table'
@@ -32,18 +36,36 @@ local function compact(catalog)
     end
     if n~=count then return nil end
     local rows,seen,total={},{},0
+    local all_levels,all_words,hierarchy=true,true,false
     for index,row in ipairs(catalog.chapters) do
         if type(row)~='table' or not identifier(row.chapterUid) or seen[row.chapterUid]
-            or row.wordCountKnown~=true or not Protocol.integer(row.wordCount,0,100000000) then return nil end
-        seen[row.chapterUid]=true;total=total+row.wordCount
-        rows[index]={uid=row.chapterUid,words=row.wordCount}
+            or row.wordCountKnown==true and not Protocol.integer(row.wordCount,0,100000000)
+            or row.level~=nil and not Protocol.integer(row.level,0,100) then return nil end
+        local words=row.wordCountKnown==true and row.wordCount or nil
+        all_words=all_words and words~=nil
+        all_levels=all_levels and row.level~=nil
+        seen[row.chapterUid]=true;total=total+(words or 0)
+        rows[index]={uid=row.chapterUid,words=words}
     end
-    if total<=0 or total>2000000000000 then return nil end
-    return {schema=1,book_id=catalog.book_id,version=catalog.version,digest=catalog.reading_digest,chapters=rows}
+    if all_levels then
+        for index,row in ipairs(catalog.chapters) do
+            local following=catalog.chapters[index+1]
+            if following and following.level>row.level then
+                if not title(row.title) then return nil end
+                hierarchy=true
+                rows[index].title=row.title
+            end
+        end
+    end
+    if hierarchy then
+        for index,row in ipairs(catalog.chapters) do rows[index].level=row.level end
+    elseif not all_words or total<=0 then return nil end
+    return {schema=hierarchy and 2 or 1,book_id=catalog.book_id,version=catalog.version,
+        digest=catalog.reading_digest,chapters=rows}
 end
 M.compact=compact
 local function valid(value)
-    if type(value)~='table' or value.schema~=1 or not identifier(value.book_id) or not hash(value.digest)
+    if type(value)~='table' or value.schema~=1 and value.schema~=2 or not identifier(value.book_id) or not hash(value.digest)
         or not Protocol.integer(value.version,0,2147483647) or type(value.chapters)~='table' then return false end
     for key in pairs(value) do
         if key~='schema' and key~='book_id' and key~='version' and key~='digest' and key~='chapters' then return false end
@@ -52,17 +74,29 @@ local function valid(value)
     if count<1 or count>M.MAX_CHAPTERS then return false end
     local n=0;for key in pairs(value.chapters) do if not Protocol.integer(key,1,count) then return false end;n=n+1 end
     if n~=count then return false end
-    local seen,total={},0
+    local seen,total,hierarchy={},0,false
+    local outline=value.schema==2
     for _,row in ipairs(value.chapters) do
         if type(row)~='table' or not identifier(row.uid) or seen[row.uid]
-            or not Protocol.integer(row.words,0,100000000) then return false end
-        for key in pairs(row) do if key~='uid' and key~='words' then return false end end
-        seen[row.uid]=true;total=total+row.words
+            or (not outline or row.words~=nil) and not Protocol.integer(row.words,0,100000000)
+            or outline and not Protocol.integer(row.level,0,100) then return false end
+        for key in pairs(row) do
+            if key~='uid' and key~='words' and not (outline and (key=='level' or key=='title')) then return false end
+        end
+        seen[row.uid]=true;total=total+(row.words or 0)
     end
-    return total>0 and total<=2000000000000
+    if not outline then return total>0 end
+    for index,row in ipairs(value.chapters) do
+        local following=value.chapters[index+1]
+        if following and following.level>row.level then
+            if not title(row.title) then return false end
+            hierarchy=true
+        elseif row.title~=nil then return false end
+    end
+    return hierarchy
 end
-function M.matches(value,entry)
-    if not valid(value) or type(entry)~='table' or entry.book_id~=value.book_id
+local function matches(value,entry)
+    if type(entry)~='table' or entry.book_id~=value.book_id
         or entry.book_version~=value.version or entry.catalog_sha256~=value.digest
         or entry.catalog_count~=#value.chapters or not Protocol.integer(entry.catalog_order,1,#value.chapters) then return false end
     local index=entry.catalog_order;local row=value.chapters[index]
@@ -71,10 +105,23 @@ function M.matches(value,entry)
         and (index==#value.chapters and entry.catalog_next==nil
             or index<#value.chapters and entry.catalog_next==value.chapters[index+1].uid)
 end
+function M.matches(value,entry)
+    return valid(value) and matches(value,entry)
+end
+-- Retain original ordinals only for references that match the whole catalog.
+function M.saved_orders(value,entries)
+    if not valid(value) or value.schema~=2 then return nil end
+    local orders={}
+    for index,entry in ipairs(entries) do
+        if matches(value,entry) then orders[index]=entry.catalog_order end
+    end
+    return next(orders) and orders or nil
+end
 function M.estimate(value,entry,percent)
     if not M.matches(value,entry) or type(percent)~='number' or percent~=percent or percent<0 or percent>100 then return nil end
     local before,total,current=0,0,nil
     for index,row in ipairs(value.chapters) do
+        if row.words==nil then return nil end
         total=total+row.words
         if index<entry.catalog_order then before=before+row.words end
         if index==entry.catalog_order then current=row.words end

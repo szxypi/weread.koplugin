@@ -28,12 +28,30 @@ assert(not Store.read(library,settings,codec,scope,entry,live),'missing table re
 assert(Store.save(library,settings,codec,scope,catalog,live),'catalog save failed')
 local first=assert(Store.read(library,settings,codec,scope,entry,live))
 assert(first.chapters[2].words==200 and math.abs(Store.estimate(first,entry,50)-20)<1e-9)
+assert(first.schema==1 and not Store.saved_orders(first,{entry}),'an older snapshot implied chapter levels')
 local calls=0;catalog.chapters[2].wordCount=201
 assert(not Store.save(library,settings,codec,scope,catalog,function() calls=calls+1;return calls<3 end),
     'changed session committed a catalog')
 assert(assert(Store.read(library,settings,codec,scope,entry,live)).chapters[2].words==200,
     'failed transaction changed the catalog')
 catalog.chapters[2].wordCount=200
+catalog.chapters[1].level,catalog.chapters[1].title=0,'First section'
+catalog.chapters[2].level,catalog.chapters[2].wordCountKnown=3,false
+catalog.chapters[3].level=0
+assert(Store.save(library,settings,codec,scope,catalog,live))
+local outline=assert(Store.read(library,settings,codec,scope,entry,live))
+assert(outline.schema==2 and outline.chapters[1].title=='First section' and outline.chapters[2].level==3
+    and not outline.chapters[2].words and not Store.estimate(outline,entry,50),
+    'saved outline required every word count or supplied an unsupported estimate')
+local stale={};for key,value in pairs(entry) do stale[key]=value end
+stale.catalog_prev='99'
+local orders=assert(Store.saved_orders(outline,{stale,entry}))
+assert(orders[1]==nil and orders[2]==2,'saved order accepted an inconsistent chapter reference')
+outline.chapters[1].title='invalid\nline'
+assert(not Store.saved_orders(outline,{entry}),'invalid section title was accepted')
+catalog.chapters[2].wordCountKnown=true
+assert(Store.save(library,settings,codec,scope,catalog,live))
+assert(math.abs(Store.estimate(assert(Store.read(library,settings,codec,scope,entry,live)),entry,50)-20)<1e-9)
 current_scope={vid='456',epoch=2}
 assert(not Store.read(library,settings,codec,scope,entry,live) and not Store.save(library,settings,codec,scope,catalog,live),
     'changed account could access old catalog')

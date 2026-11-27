@@ -57,20 +57,44 @@ M.project=project
 
 -- A section starts where the next chapter is deeper. Count actual ancestors
 -- so a catalog that skips level numbers does not over-indent its titles.
-local function chapter_outline(rows)
+local function chapter_outline(rows,visible)
     local sections,depths,headings,parents={},{},{},{}
     for index,row in ipairs(rows) do
         local level=row.level or 1
-        while #parents>0 and parents[#parents]>=level do parents[#parents]=nil end
+        while #parents>0 and parents[#parents].level>=level do parents[#parents]=nil end
         if #parents>0 then depths[index]=math.min(#parents,3) end
+        local target=not visible and index or visible[index]
+        if target then
+            for i=#parents,1,-1 do
+                if parents[i].target then break end
+                parents[i].target=target
+            end
+        end
         local following=rows[index+1]
         if following and (following.level or 1)>level then
-            sections[#sections+1]=index
+            local section={order=index,title=row.title,level=level,depth=depths[index],target=target}
+            sections[#sections+1]=section
             headings[index]=true
-            parents[#parents+1]=level
+            parents[#parents+1]=section
         end
     end
-    if #sections>0 then return sections,depths,headings end
+    local available={}
+    for _,section in ipairs(sections) do
+        if section.target then available[#available+1]=section end
+    end
+    if #available>0 then return available,depths,headings end
+end
+
+local function saved_catalog_entry(rows,anchor)
+    if anchor and anchor.catalog_sha256 then return anchor end
+    local entry
+    for _,row in ipairs(rows) do
+        if row.catalog_sha256 then
+            if entry and (entry.catalog_sha256~=row.catalog_sha256 or entry.book_version~=row.book_version) then return nil end
+            entry=row
+        end
+    end
+    return entry
 end
 
 local function current_row(rows,entry,catalog)
@@ -288,11 +312,32 @@ function M.start(host,book,view,options)
             end})
         if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.') end
     end
-    local function show_chapter_menu(rows,picker)
+    local function show_chapter_menu(rows,picker,saved_catalog)
         if #rows==0 then
             fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.');return
         end
         close_busy()
+        local orders,sections,depths,headings
+        if saved_catalog then
+            orders=require('weread.lib.native_direct_catalog_store').saved_orders(saved_catalog,rows)
+            if orders then
+                local positions={}
+                for index=1,#rows do positions[index]=index end
+                table.sort(positions,function(a,b)
+                    local left,right=orders[a] or math.huge,orders[b] or math.huge
+                    if left~=right then return left<right end
+                    return a<b
+                end)
+                local sorted,sorted_orders,visible={},{},{}
+                for index,old_index in ipairs(positions) do
+                    local order=orders[old_index]
+                    sorted[index],sorted_orders[index]=rows[old_index],order
+                    if order and not visible[order] then visible[order]=index end
+                end
+                rows,orders=sorted,sorted_orders
+                sections,depths,headings=chapter_outline(saved_catalog.chapters,visible)
+            end
+        elseif not offline then sections,depths,headings=chapter_outline(rows) end
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
         local subtitle=picker and picker.subtitle
@@ -301,8 +346,6 @@ function M.start(host,book,view,options)
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
         local current_index=not picker and current_row(rows,anchor,ctx.catalog)
-        local sections,depths,headings
-        if not offline then sections,depths,headings=chapter_outline(rows) end
         local screen=sections and require('device').screen
         local indent=screen and screen:scaleBySize(16)
         -- A single item per page can otherwise make the keyboard shortcut
@@ -323,8 +366,9 @@ function M.start(host,book,view,options)
                 if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
                 if index==current_index then label=_('Current chapter')..' · '..label end
+                local order=not offline and index or orders and orders[index]
                 local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index,
-                    bold=headings and headings[index],indent=depths and depths[index] and depths[index]*indent,
+                    bold=order and headings and headings[order],indent=order and depths and depths[order] and depths[order]*indent,
                     shortcut_icon_width=shortcut_width}
                 result[number],by_index[index]=item,item
             end
@@ -376,15 +420,14 @@ function M.start(host,book,view,options)
         end
         local function select_section()
             local choices,sections_menu={}
-            for number,index in ipairs(sections) do
-                local row=rows[index]
-                choices[number]={text=T('%1. %2',index,row.title~='' and row.title or empty_title),section_index=number,
-                    indent=depths[index] and depths[index]*indent,shortcut_icon_width=shortcut_width}
+            for number,section in ipairs(sections) do
+                choices[number]={text=T('%1. %2',section.order,section.title~='' and section.title or empty_title),
+                    section_index=number,indent=section.depth and section.depth*indent,shortcut_icon_width=shortcut_width}
             end
             sections_menu=host:showList(_('Sections'),choices,nil,{on_choice=function(item)
                 local number=type(item)=='table' and item.section_index
                 if not number or choices[number]~=item or not menu_current() or not Popup.current(menu,sections_menu) then return end
-                local index=sections[number]
+                local index=sections[number].target
                 Popup.close(menu)
                 if search~='' then filter('',index)
                 else menu:onGotoPage(menu:getPageNumber(index)) end
@@ -540,10 +583,17 @@ function M.start(host,book,view,options)
             end
             if phase=='offline_list' then
                 local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
+                local catalog
                 if rows and host.library_db then
                     pcall(require('weread.lib.native_direct_pending').mark,host.library_db,host.settings,scope,id,rows,current)
+                    local entry=saved_catalog_entry(rows,anchor)
+                    if entry then
+                        local ok,snapshot=pcall(require('weread.lib.native_direct_catalog_store').read,
+                            host.library_db,host.settings,host.client,scope,entry,current)
+                        if ok and snapshot and snapshot.schema==2 then catalog=snapshot end
+                    end
                 end
-                return rows and {rows=rows} or {error='storage'}
+                return rows and {rows=rows,catalog=catalog} or {error='storage'}
             elseif phase=='offline_open' then
                 local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,is_current)
                 return result or {error='damaged'}
@@ -634,7 +684,7 @@ function M.start(host,book,view,options)
                         if row.key==failed_copy.key and row.copy==failed_copy.copy then table.remove(rows,index);break end
                     end
                 end
-                show_chapter_menu(rows);return
+                show_chapter_menu(rows,nil,result.catalog);return
             end
             if phase=='catalog' then
                 local checked=type(result)=='table' and project({book_id=result.book_id,version=result.version,
