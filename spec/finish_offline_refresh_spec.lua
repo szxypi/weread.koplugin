@@ -54,6 +54,12 @@ state.fail=false;Finish.refresh_view(host,'41');expect(state.redraws==1 and book
 local other;host,view,state,book,other=fixture();popup={};Popup.show(view,popup,function() end)
 Finish.refresh_view(host,'41');Finish.refresh_view(host,'42');Popup.close(view);drain()
 expect(state.redraws==1 and book.finishReading==1 and other.finishReading==0,'deferred updates were not combined')
+host,view,state,book,other=fixture()
+local conflicting={bookId='42',book_id='43',finishReading=1}
+view.books={book};view._finish_shelf_source={book,other,conflicting}
+Finish.refresh_view(host,'42')
+expect(state.redraws==1 and view._finish_status_changed and other.finishReading==0 and conflicting.finishReading==1,
+    'a confirmed mark did not update the hidden book with a matching identity')
 local fresh={layout={{},{},{nil,{}}},moveFocusTo=function(self,x,y,flags) self.focus={x,y,flags} end}
 Finish.redraw_preserving_focus(host,view,function() host.shelf_view=fresh end)
 expect(fresh.focus[1]==2 and fresh.focus[2]==3 and fresh.focus[3]==2,'focus did not survive redraw')

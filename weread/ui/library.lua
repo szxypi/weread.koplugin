@@ -840,14 +840,12 @@ function M:showShelfView(mode, keyword, old_view, options)
     if options.prepared_shelf and (prior_owner~=self.shelf_pins_owner or not pin_model.same(prior_pins,self.shelf_pins_state)) then
         options.prepared_shelf,options.scroll_offset,options.rotation_anchor=nil,nil,nil;options.page=1
     end
-    local refilter_progress = old_view and old_view._shelf_progress_filter_dirty
-    if refilter_progress then options.prepared_shelf = nil end
     local local_pins=self.shelf_pins_owner==group_owner(self)
         and pin_model.index(self.shelf_pins_state) or nil
     mode = mode or "books"
     options.mode = mode
     options.keyword = keyword
-    local skip_cover_fetch_once = options.skip_cover_fetch_once == true and not refilter_progress
+    local skip_cover_fetch_once = options.skip_cover_fetch_once == true
     options.skip_cover_fetch_once = nil
     local skip_progress_fetch_once = options.skip_progress_fetch_once == true
     options.skip_progress_fetch_once = nil
@@ -863,6 +861,10 @@ function M:showShelfView(mode, keyword, old_view, options)
     local order = shelf_settings.sort_order
     local reading_filter = filters.reading
     local progress_filtered = reading_filter == 'progress_zero' or reading_filter == 'progress_active'
+    local finished_filtered = progress_filtered or reading_filter == 'finished' or reading_filter == 'unfinished'
+    if old_view and (old_view._shelf_progress_filter_dirty or old_view._finish_status_changed and finished_filtered) then
+        options.prepared_shelf, skip_cover_fetch_once = nil, false
+    end
     local needs_progress = order == 'progress_asc' or order == 'progress_desc' or progress_filtered
     local needle = ShelfSearch.prepare(keyword)
     local terms = ShelfSearch.terms(needle)
@@ -1226,6 +1228,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         self:showShelfView(mode,keyword,view,next_options)
     end
     view._finish_dirty=carry_dirty
+    view._finish_shelf_source=owner.books
     view._finish_current=current
     view._shelf_snapshot_redraw=function()
         local next_options={};for key,value in pairs(options) do next_options[key]=value end

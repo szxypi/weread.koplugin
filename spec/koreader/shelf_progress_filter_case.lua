@@ -107,6 +107,36 @@ return function(plugin,mode,pump,evidence)
     assert(#plugin.shelf_view.books==0,'another account inherited cached or local progress')
     vid='progress-filter-account-a';plugin:showShelfView('books')
     assert(#plugin.shelf_view.books==3,'returning account lost filtered progress')
+
+    local first={bookId='903001',title='合成确认书 A',finishReading=0}
+    local second={bookId='903002',title='合成确认书 B',finishReading=1}
+    local finish_group={{archiveId=3,name='合成确认分组',bookIds={first.bookId,second.bookId}}}
+    local function cache_finished(first_mark,second_mark)
+        assert(db:cacheShelf({
+            {bookId=first.bookId,title=first.title,finishReading=first_mark},
+            {bookId=second.bookId,title=second.title,finishReading=second_mark},
+        },finish_group))
+    end
+    cache_finished(0,1)
+    shelf.filter_reading='unfinished';plugin.settings:set('shelf',shelf)
+    plugin:applyShelfSnapshot({first,second},finish_group)
+    plugin.shelf_group_key='archive:3';plugin:showShelfView('books')
+    local Finish=require('weread.ui.finish_offline')
+    view=plugin.shelf_view;assert(#view.books==1 and view.books[1]==first)
+    cache_finished(1,1);Finish.refresh_view(plugin,first.bookId)
+    assert(#plugin.shelf_view.books==0,'a confirmed finished book remained in the unfinished list')
+    view=plugin.shelf_view;view.on_sort()
+    cache_finished(1,0);Finish.refresh_view(plugin,second.bookId)
+    assert(plugin.shelf_view==view and view._shelf_popup and #view.books==0)
+    Popup.close(view);pump(function() return plugin.shelf_view~=view end)
+    view=plugin.shelf_view
+    assert(#view.books==1 and view.books[1]==second and plugin.shelf_group_key=='archive:3',
+        'a formerly hidden book did not join its group after the finished flag changed')
+    assert(db:putShelfProgress({{book_id=second.bookId,percent=30,exact_percent=30,fetched_at=1000}}))
+    plugin.shelf_filters.reading='progress_active';plugin:showShelfView('books')
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1]==second)
+    cache_finished(1,1);Finish.refresh_view(plugin,second.bookId)
+    assert(#plugin.shelf_view.books==0,'a confirmed finished book remained in the in-progress list')
     plugin:closeWeReadUI();plugin.settings.book_lookup=old_lookup;plugin.library_db=old_db;plugin.shelf_filters=old_filters
     plugin.refreshVisibleShelfProgress=old_refresh;plugin.showTransientInfo=old_notice
     shelf=plugin.settings:get('shelf');shelf.sort_order=old_sort;shelf.view_mode=old_view;shelf.paginated=old_paged

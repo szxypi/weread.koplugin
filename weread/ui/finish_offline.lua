@@ -1,6 +1,7 @@
 -- Offline queue UI and lifecycle bridge. No queued action is sent twice.
 local UI=require('ui/uimanager')
 local Flags=require('weread.lib.shelf_flags')
+local ShelfSnapshot=require('weread.lib.shelf_snapshot')
 local Util=require('weread.lib.plugin_util')
 local Paused=require('weread.ui.offline_paused')
 local _,T=Util.tr,Util.T
@@ -27,8 +28,18 @@ function M.snapshot(host)
     for _,entry in ipairs(entries) do result[entry.book_id]={desired=entry.desired,phase=entry.phase} end
     return result
 end
--- Only copy the freshly persisted cloud flag into existing page models. This
--- never changes the database or other book fields, including local progress.
+local function apply_finished(books,id,finished)
+    local changed=false
+    for _,book in ipairs(books or {}) do
+        if ShelfSnapshot.persisted_id(book)==id then
+            if Flags.display(book,'finished')~=finished then changed=true end
+            book.finishReading=finished and 1 or 0
+        end
+    end
+    return changed
+end
+
+-- Project only the confirmed flag; keep local progress and the database intact.
 function M.reconcile_view(host,view)
     local dirty=view and view._finish_dirty
     if not dirty then return true end
@@ -38,9 +49,11 @@ function M.reconcile_view(host,view)
         if state.present==true and type(state.book)=='table' then
             local value=Flags.display(state.book,'finished')
             if type(value)=='boolean' then
-                for _,book in ipairs(view.books or {}) do
-                    if tostring(book.bookId or book.book_id or '')==id then book.finishReading=value and 1 or 0 end
+                local changed=apply_finished(view.books,id,value)
+                if view._finish_shelf_source~=view.books then
+                    changed=apply_finished(view._finish_shelf_source,id,value) or changed
                 end
+                view._finish_status_changed=changed or view._finish_status_changed
             end
         end
         dirty[id]=nil
