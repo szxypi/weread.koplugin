@@ -598,6 +598,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
 local range_retry=input.mode=='range_retry'
 local range_interrupted=input.mode=='range_interrupted'
 local range_reopen=input.mode=='range_reopen'
+local range_copies=input.mode=='range_copies' or input.mode=='range_damaged_copy'
 if input.mode=='catalog_capture' or input.mode=='locked' or input.mode=='range' or input.mode=='range_repeat'
     or range_retry or range_interrupted or range_reopen then
     settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
@@ -635,7 +636,36 @@ if range_reopen then
     retry_catalog('WeRead is limiting requests. Please try again later.')
 end
 local first_range=range_retry or range_interrupted
-local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or first_range
+local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or first_range or range_copies
+if range_copies then
+    local ctx=host._native_direct_reading
+    local cache=require('weread.lib.native_direct_cache')
+    local function current() return true end
+    local chapter=ctx.catalog.chapters[2]
+    assert(chapter.chapterUid=='38')
+    local copies=assert(cache.list(settings,scope.vid,'42',current,chapter.chapterUid))
+    local complete
+    for _,entry in ipairs(copies) do
+        if entry.missing_images==0 then complete=entry end
+    end
+    local source=assert(cache.open(settings,scope.vid,'42',assert(complete),current))
+    if input.mode=='range_copies' then
+        assert(#copies==1)
+        local partial=assert(cache.publish(settings,scope.vid,ctx.book,chapter,{
+            book_id='42',chapter_uid=chapter.chapterUid,book_version=ctx.catalog.version,
+            catalog_sha256=ctx.catalog.reading_digest,reading_catalog_sha256=ctx.catalog.reading_digest,
+            source_sha256=source.source_sha256,source_raw=assert(cache.read_raw_source(source.path,complete)),
+            source_channel='eink',coordinate_source_authoritative=false,missing_images=1,
+            xhtml='<p>Synthetic cached copy with an image placeholder.</p>',css='',assets={},
+        },current))
+        assert(partial.path~=source.path and #assert(cache.list(settings,scope.vid,'42',current,chapter.chapterUid))==2)
+    else
+        assert(#copies==2,'repeating the batch replaced or deleted a saved copy')
+        local damaged=assert(io.open(source.path,'ab'))
+        assert(damaged:write('synthetic damage'));assert(damaged:close())
+        assert(not cache.open(settings,scope.vid,'42',complete,current))
+    end
+end
 if range_mode then
     G_reader_settings:saveSetting('items_per_page',2)
     local ctx=host._native_direct_reading
@@ -750,9 +780,11 @@ else
         local template=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
         local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2'
             or (input.mode=='cleanup_redownload' or input.mode=='range' or range_retry or range_reopen) and '1' or '0'
-        local saved=(input.mode=='resume' or input.mode=='range_repeat' or range_retry or range_reopen) and '1'
+        local saved=(input.mode=='resume' or input.mode=='range_repeat' or range_retry or range_reopen or range_copies) and '1'
             or (input.mode=='locked' or input.mode=='range') and '0' or input.mode=='cleanup_redownload' and '2' or '3'
-        assert(text==T(template,downloaded,saved,(input.mode=='locked' or range_mode and not range_retry) and '1' or '0','0'),text)
+        local unavailable=(input.mode=='locked' or range_mode and not range_retry) and '1' or '0'
+        local missing=input.mode=='range_damaged_copy' and '1' or '0'
+        assert(text==T(template,downloaded,saved,unavailable,missing),text)
         if range_retry or range_reopen then assert(not pending_plan(),'completed batch left a resume offer') end
     end
     assert(not host._native_direct_reading and not host.busy_message)

@@ -215,7 +215,7 @@ def run(runtime):
                     extract_candidate(candidate, root/'plugins')
                     env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
                     server.chapters = []
-                    for mode in ('range_cancel', 'range', 'range_repeat', 'offline_range'):
+                    for mode in ('range_cancel', 'range', 'range_repeat', 'offline_range', 'range_copies', 'range_damaged_copy'):
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
                                                 str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
                                                env=env, cwd=runtime, capture_output=True, timeout=150)

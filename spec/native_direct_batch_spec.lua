@@ -1,9 +1,13 @@
 package.path='./?.lua;'..package.path
 local rows,usable,room,failed,downloads,live,progress,cache_selection
 local capacity_mode,reserved,acquires,scans,releases
+local opened_copies
 package.preload['weread.lib.native_direct_cache']=function() return {
     list=function(_,_,_,_,selection) cache_selection=selection;return rows end,
-    open=function(_,_,_,entry) return usable[entry.chapter_uid] and {missing_images=entry.missing_images} end,
+    open=function(_,_,_,entry)
+        opened_copies[#opened_copies+1]=entry.missing_images
+        return usable[entry.chapter_uid] and not entry.damaged and {missing_images=entry.missing_images}
+    end,
     begin_capacity=function()
         acquires=acquires+1
         if capacity_mode~='ready' then return nil,capacity_mode end
@@ -41,6 +45,7 @@ local function setup()
     rows={{chapter_uid='1',book_version=1,catalog_sha256='digest',catalog_order=1,catalog_count=3,
         catalog_next='2',missing_images=0}}
     usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={};cache_selection=nil
+    opened_copies={}
     capacity_mode,reserved,acquires,scans,releases='absent',nil,0,0,0
 end
 local function run(range,on_progress)
@@ -78,6 +83,21 @@ setup();rows[2]={chapter_uid='3',book_version=1,catalog_sha256='digest',catalog_
 result=run({first=3,last=3})
 expect(result.ok and result.saved==1 and result.missing==1 and #downloads==0 and #progress==1 and progress[1]==99,
     'range did not verify the cached chapter against its full catalog position')
+setup();rows[1].missing_images=2
+local complete={chapter_uid='1',book_version=1,catalog_sha256='digest',catalog_order=1,catalog_count=3,
+    catalog_next='2',missing_images=0}
+rows[2]=complete
+result=run({first=1,last=1})
+expect(result.ok and result.saved==1 and result.missing==0 and #downloads==0
+    and #opened_copies==1 and opened_copies[1]==0,'batch preferred a copy with missing images over a complete copy')
+complete.damaged=true;opened_copies={}
+result=run({first=1,last=1})
+expect(result.ok and result.saved==1 and result.missing==1 and #downloads==0
+    and #opened_copies==2 and opened_copies[1]==0 and opened_copies[2]==2,'invalid complete copy prevented fallback')
+complete.damaged=false;complete.catalog_next='3';opened_copies={}
+result=run({first=1,last=1})
+expect(result.ok and result.saved==1 and result.missing==1 and #downloads==0
+    and #opened_copies==1 and opened_copies[1]==2,'wrong catalog position passed cache matching')
 setup();capacity_mode='ready';room=2;usable={};result=run()
 expect(result.ok and result.downloaded==2 and acquires==1 and scans==1 and releases==1,
     'batch did not reuse and release its capacity reservation')

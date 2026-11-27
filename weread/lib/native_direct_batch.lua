@@ -5,6 +5,10 @@ local Path=require('weread.lib.native_direct_path')
 local Protocol=require('weread.lib.native_position_protocol')
 local M={}
 
+local function fewer_missing(a,b)
+    return a.missing_images<b.missing_images
+end
+
 function M.run(client,settings,book,catalog,selected,current,progress,range)
     if type(book)~='table' or type(catalog)~='table' or catalog.book_id~=book.book_id
         or type(selected)~='table' or type(selected.scope)~='table'
@@ -31,7 +35,10 @@ function M.run(client,settings,book,catalog,selected,current,progress,range)
     if not rows then return {error='storage'} end
     local by_chapter={}
     for _,entry in ipairs(rows) do
-        if entry.book_version==catalog.version and entry.catalog_sha256==catalog.reading_digest then
+        local chapter=catalog.chapters[entry.catalog_order]
+        if chapter and chapter.chapterUid==entry.chapter_uid and entry.catalog_count==total
+            and entry.book_version==catalog.version and entry.catalog_sha256==catalog.reading_digest
+            and entry.catalog_prev==chapter.catalog_prev and entry.catalog_next==chapter.catalog_next then
             local group=by_chapter[entry.chapter_uid] or {};by_chapter[entry.chapter_uid]=group
             group[#group+1]=entry
         end
@@ -46,12 +53,11 @@ function M.run(client,settings,book,catalog,selected,current,progress,range)
             if not chapter.downloadable then result.unavailable=result.unavailable+1
             else
                 local found
-                for _,entry in ipairs(by_chapter[chapter.chapterUid] or {}) do
-                    if entry.catalog_order==index and entry.catalog_count==total
-                        and entry.catalog_prev==chapter.catalog_prev and entry.catalog_next==chapter.catalog_next then
-                        local verified=Cache.open(settings,account,book.book_id,entry,current)
-                        if verified then found=verified;break end
-                    end
+                local copies=by_chapter[chapter.chapterUid]
+                if copies and #copies>1 then table.sort(copies,fewer_missing) end
+                for _,entry in ipairs(copies or {}) do
+                    found=Cache.open(settings,account,book.book_id,entry,current)
+                    if found then break end
                 end
                 if found then result.saved=result.saved+1
                 else
