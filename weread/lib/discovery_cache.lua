@@ -74,8 +74,9 @@ function M.validate(value)
     if not seen[0] then fail() end
     return out
 end
-function M.state(value,cursor)
-    local saved=M.validate(value);cursor=cursor or saved.pages[#saved.pages].cursor
+-- The caller owns this freshly validated snapshot.
+local function restored_state(saved,cursor)
+    cursor=cursor or saved.pages[#saved.pages].cursor
     local lookup={};for _,row in ipairs(saved.pages) do lookup[row.cursor]=row end
     local row=lookup[0];local history={}
     while row and row.cursor~=cursor and #history<M.MAX_PAGES do
@@ -83,11 +84,14 @@ function M.state(value,cursor)
         history[#history+1]=row.cursor;row=lookup[row.next_cursor]
     end
     if not row or row.cursor~=cursor then return nil end
-    local result=M.query(saved.query)
-    for key,item in pairs(page(row)) do result[key]=item end
+    local result=saved.query
+    for key,item in pairs(row) do result[key]=item end
     result.history=history;result.has_more=row.has_more and lookup[row.next_cursor]~=nil
     result.source_kind=saved.source_kind;result.cached=true
     return result
+end
+function M.state(value,cursor)
+    return restored_state(M.validate(value),cursor)
 end
 local function nonce()
     local f=io.open('/dev/urandom','rb');if not f then return nil end
@@ -152,7 +156,7 @@ function M:read(query,cursor)
         local value
         if query and query.kind=='search' then value=search(self,db,query)
         else value=read(self,db,query and M.key(query)) end
-        return value and M.state(value,cursor)
+        return value and restored_state(value,cursor)
     end)
 end
 -- List only validated search queries already stored in this account's cache.
