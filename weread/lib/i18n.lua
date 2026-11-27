@@ -865,6 +865,7 @@ local zh = {
     ["Reading position opened, but it could not be saved. Check storage before continuing."] = "已打开阅读位置，但未能保存。请检查存储空间后再继续。",
     ["Checking the current reading position..."] = "正在检查当前页的阅读位置…",
     ["Current chapter"] = "当前章节",
+    ["Cloud reading chapter"] = "云端续读章节",
     ["The current page has been located.\nChapter: %1\n\nPrecision cloud sync is still being validated."] = "已定位到当前页正文。\n章节：%1\n\n精确云端同步仍在验证中。",
     ["This page has no text position to check."] = "当前页没有可检查位置的正文。",
     ["This file has no original position data. Download the chapter again to check its position."] = "当前文件缺少定位所需的原文，请重新下载本章后再检查。",

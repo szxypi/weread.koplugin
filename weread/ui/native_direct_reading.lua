@@ -195,6 +195,7 @@ function M.start(host,book,view,options)
     if failed_copy and (not cached or not require('weread.lib.native_direct_cache').valid_entry(failed_copy,id,scope.vid)) then return false end
     local anchor=type(options)=='table' and options.anchor or nil
     if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
+    local want_cloud_chapter=not anchor and not batch and not target and type(options)=='table' and options.cloud_chapter==true
     local selected=not offline and capture(host.settings) or nil
     local fallback_reason
     if not offline and (not selected or selected.native.renewal_pending) then
@@ -321,7 +322,7 @@ function M.start(host,book,view,options)
             end})
         if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.') end
     end
-    local function show_chapter_menu(rows,picker,saved_catalog)
+    local function show_chapter_menu(rows,picker,saved_catalog,cloud_chapter)
         if #rows==0 then
             fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.');return
         end
@@ -361,12 +362,22 @@ function M.start(host,book,view,options)
         else
             current_index=current_row(rows,anchor,ctx.catalog)
         end
-        local initial_index=picker and picker.start or current_index
-        local screen=sections and require('device').screen
-        local indent=screen and screen:scaleBySize(16)
+        local cloud_index
+        if not current_index and type(cloud_chapter)=='table' and Protocol.id(cloud_chapter.uid) then
+            for index,row in ipairs(rows) do
+                if row.chapterUid==cloud_chapter.uid
+                    and (row.chapterIdx==nil or cloud_chapter.idx==nil or row.chapterIdx==cloud_chapter.idx) then
+                    cloud_index=index
+                    break
+                end
+            end
+        end
+        local initial_index=picker and picker.start or current_index or cloud_index
+        local screen=require('device').screen
+        local indent=sections and screen:scaleBySize(16)
         -- A single item per page can otherwise make the keyboard shortcut
-        -- as wide as the screen, leaving no room for indented chapter titles.
-        local shortcut_width=screen and screen:scaleBySize(24)
+        -- as wide as the screen, leaving no room for chapter titles.
+        local shortcut_width=screen:scaleBySize(24)
         local search=''
         local by_index,menu
         local function items()
@@ -381,14 +392,17 @@ function M.start(host,book,view,options)
                     or ChapterSearch.label(chapter_title,row.catalog_order,counts,saved_labels and saved_labels[index])
                 if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
-                if index==current_index then label=_('Current chapter')..' · '..label end
+                if index==current_index then label=_('Current chapter')..' · '..label
+                elseif index==cloud_index then label=_('Cloud reading chapter')..' · '..label end
                 local order=not offline and index or orders and orders[index]
                 local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index,
                     bold=order and headings and headings[order],indent=order and depths and depths[order] and depths[order]*indent,
                     shortcut_icon_width=shortcut_width}
                 result[number],by_index[index]=item,item
             end
-            if #result==0 then result[1]={text=_('No matching chapters.'),select_enabled=false} end
+            if #result==0 then
+                result[1]={text=_('No matching chapters.'),select_enabled=false,shortcut_icon_width=shortcut_width}
+            end
             return result
         end
         local menu_title=picker and picker.title or _(offline and 'Saved E-Ink chapters' or 'E-Ink chapters')
@@ -665,16 +679,27 @@ function M.start(host,book,view,options)
                 return saved or {error=reason}
             end
             if phase=='catalog' then
+                local native=ctx.selected.native
                 local auth=require('weread.lib.native_authorization'):new(host.client,{
-                    expected_vid=ctx.selected.native.scope.vid,is_current=current})
+                    expected_vid=native.scope.vid,is_current=current})
                 local good,value=pcall(require('weread.lib.native_book_catalog').read,auth,
-                    ctx.selected.native.credentials,id,'native_catalog')
-                auth:cancel()
+                    native.credentials,id,'native_catalog')
                 if not good then
+                    auth:cancel()
                     local reason=type(value)=='string' and value:match('^native_auth/native_catalog_%a+/([%w_]+)$')
                     return {error=catalog_errors[reason] or 'unavailable'}
                 end
                 local result=project(value,id)
+                if result and want_cloud_chapter then
+                    local ok,raw=pcall(auth._request,auth,'direct_progress',
+                        'https://i.weread.qq.com/book/getProgress?bookId='..id,nil,native.credentials,{2,3})
+                    if ok then
+                        local point,_,provided=require('weread.lib.remote_progress').project(raw,id,'native')
+                        local uid=point and Protocol.id(point.chapter_uid)
+                        if uid then result.cloud_chapter={uid=uid,idx=provided.chapter_idx and point.chapter_idx or nil} end
+                    end
+                end
+                auth:cancel()
                 if result and host.library_db then
                     pcall(require('weread.lib.native_direct_catalog_store').save,host.library_db,host.settings,host.client,
                         scope,result,current)
@@ -805,7 +830,7 @@ function M.start(host,book,view,options)
                     if not chapter.downloadable then fail('The adjacent E-Ink chapter is unavailable.');return end
                     ctx.chapter=chapter;ctx.phase='chapter';launch();return
                 end
-                show_chapter_menu(checked.chapters);return
+                show_chapter_menu(checked.chapters,nil,nil,result.cloud_chapter);return
             end
             if (phase=='saved_matches' or phase=='chapter') and type(result)=='table' then
                 if phase=='saved_matches' and result.error=='not_saved' then

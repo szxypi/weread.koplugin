@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from urllib.parse import parse_qs, urlsplit
 
 import test_native_full_book_runtime as fixture
 from run_persistent_ui_probe import extract_candidate
@@ -16,6 +17,22 @@ from run_persistent_ui_probe import extract_candidate
 REPO = Path(__file__).resolve().parent.parent
 fixture.body = lambda uid: '<html><body>' + ''.join(
     f'<p>Chapter {uid}, synthetic paragraph {index} for pagination.</p>' for index in range(100)) + '</body></html>'
+
+
+class ResumeHandler(fixture.Handler):
+    def dispatch(self):
+        target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (target.hostname, target.path) != ('i.weread.qq.com', '/book/getProgress'):
+            return super().dispatch()
+        server = self.server
+        server.progress_requests += 1
+        server.valid &= (self.command == 'GET' and target.query == 'bookId=42' and server.cloud_chapter is not None)
+        server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
+        body = json.dumps(dict(book=dict(bookId='42', chapterUid=server.cloud_chapter, progress=25))).encode()
+        self.send_response(200 if server.valid else 400)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def frame(child, marker):
@@ -42,26 +59,34 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         server.valid = True
         server.leaked = False
         server.image_requests = server.tar_requests = 0
+        server.cloud_chapter = '38' if entry in ('details', 'shelf') else None
+        server.progress_requests = 0
+        uid = server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
-            mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid='37', book_version=1,
-            source_sha256=hashlib.sha256(fixture.body('37').encode()).hexdigest(), read_entry=entry)
+            mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid, book_version=1,
+            source_sha256=hashlib.sha256(fixture.body(uid).encode()).hexdigest(), read_entry=entry)
+        if server.cloud_chapter is not None:
+            payload['cloud_chapter_uid'] = server.cloud_chapter
         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
                                input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
         result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
         assert result['ok'] and result['source_matches'] and Path(result['path']).is_file()
-        assert server.chapters == ['37'] and server.valid and not server.leaked
+        assert server.chapters == [uid] and server.valid and not server.leaked
+        assert server.progress_requests == int(server.cloud_chapter is not None)
         if entry in ('details', 'catalog'):
             mode = 'detail_catalog_saved' if entry == 'catalog' else 'detail_read_saved'
             offline = dict(mode=mode, path=result['path'])
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
                                    input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
             assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode=mode, network_blocked=True)
-            assert server.chapters == ['37']
+            assert server.chapters == [uid]
 
 
 def run(runtime, read_entries_only=False):
-    server = ThreadingHTTPServer(('127.0.0.1', 0), fixture.Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), ResumeHandler)
+    server.cloud_chapter = None
+    server.progress_requests = 0
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -72,6 +97,7 @@ def run(runtime, read_entries_only=False):
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
                 for entry in ('details', 'catalog', 'shelf'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
+                server.cloud_chapter = None
                 if read_entries_only:
                     continue
                 with tempfile.TemporaryDirectory(prefix='weread-native-home-', dir='/dev/shm') as root:

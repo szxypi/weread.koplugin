@@ -2921,7 +2921,7 @@ function M:startBookReading(book, view, origin)
                 if not latest then return false end
             end
             return require('weread.ui.native_direct_reading').start(self,latest,owner,{
-                cached=saved_native,shelf_current=not view and origin.current or nil,
+                cached=saved_native,cloud_chapter=native,shelf_current=not view and origin.current or nil,
             })
         end
     end

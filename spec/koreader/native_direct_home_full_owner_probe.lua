@@ -47,6 +47,8 @@ Client.request=function(self,options)
     assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     if query and url==base..'/store/search?'..query then assert(options.method=='GET')
     elseif url==base..'/book/info?bookId='..input.book_id then assert(options.method=='GET')
+    elseif input.cloud_chapter_uid and url==base..'/book/getProgress?bookId='..input.book_id then
+        assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1' and options.method=='GET')
     elseif url==base..'/book/chapterInfos' then
         local body=json.decode(options.body)
         assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -109,6 +111,7 @@ local shelf_owner
 if input.read_entry then
     assert(os.getenv('WEREAD_SYNTHETIC')=='1' and not next(host.settings:get('cookies',{})))
     host.qr_login.start=function() error('native-only reading tried to start Web login') end
+    if input.cloud_chapter_uid then G_reader_settings:saveSetting('items_per_page',1) end
 end
 if input.read_entry=='shelf' then
     local shelf_settings=host.settings:get('shelf')
@@ -172,6 +175,11 @@ if shelf_owner then
 end
 for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
 assert(index and ctx.menu.item_table[index].select_enabled)
+if input.cloud_chapter_uid then
+    local prefix=require('weread.lib.plugin_util').tr('Cloud reading chapter')..' · '
+    assert(input.uid==input.cloud_chapter_uid and index==2 and ctx.menu.page==2
+        and ctx.menu.item_table[index].text:find(prefix,1,true)==1,'the catalog did not locate the cloud chapter')
+end
 local failure,ui_failed
 local worker=assert(host._native_direct_worker);local worker_start=worker.start
 worker.start=function(self,task,callback,...)

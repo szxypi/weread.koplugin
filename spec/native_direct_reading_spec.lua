@@ -9,6 +9,7 @@ local selected=initial_access
 local account_valid=true
 package.preload['ui/uimanager']=function() return {show=function() end,
     close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
+package.preload['device']=function() return {screen={scaleBySize=function(_,n) return n end}} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) local args={...};return (text:gsub('%%(%d)',function(i) return args[tonumber(i)] or '' end)) end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_,value) return value end} end
@@ -32,7 +33,17 @@ package.preload['weread.lib.native_read_recovery']=function() return {
         opts.complete(true,{native=selected,base_revision=old.base_revision});return true
     end,
 } end
-package.preload['weread.lib.native_authorization']=function() return {new=function() return {cancel=function() end} end} end
+local cloud_progress,cloud_error,progress_calls
+package.preload['weread.lib.native_authorization']=function() return {new=function(_,_,options) return {
+    cancel=function() end,
+    _request=function(_,stage,url,body,credentials,timeout)
+        assert(stage=='direct_progress' and url=='https://i.weread.qq.com/book/getProgress?bookId=456'
+            and body==nil and credentials==selected.credentials and options.is_current() and timeout[2]<=3)
+        progress_calls=progress_calls+1
+        if cloud_error then error(cloud_error,0) end
+        return cloud_progress
+    end,
+} end} end
 local sample={book_id='456',version=7,reading_digest=digest,reading_chapters={
     {chapterUid='1',title='First',chapterIdx=1,downloadable=true},
     {chapterUid='2',title='Locked',chapterIdx=2,downloadable=false},
@@ -69,6 +80,7 @@ expect(projected.chapters[1].level==0 and projected.chapters[2].level==3 and pro
     'worker projection lost the catalog depth or order')
 local function fixture()
     selected=initial_access;account_valid=true;catalog_error=nil;build_error=nil
+    cloud_progress=nil;cloud_error=nil;progress_calls=0
     local state={jobs={},opened=0,info=0,view={}}
     local host={_book_detail_view=state.view,discovery_epoch=1,_reader_session_gen=1,ui={},client={},
         settings={data_dir='/tmp/settings',get_auth_scope=function() return scope end,
@@ -100,6 +112,7 @@ local host,s=fixture()
 expect(UI.start(host,{book_id='456',title='Test',author='Author'},s.view),'failed to start')
 s.finish(1)
 expect(#s.items==2 and s.items[1].select_enabled and not s.items[2].select_enabled,'entitlement not shown')
+expect(progress_calls==0,'browsing the catalog unnecessarily fetched cloud progress')
 expect(s.subtitle=='Online: sync position or save selected highlights and private thoughts.','chapter capability hint missing')
 s.select(2);expect(#s.jobs==1,'locked chapter opened')
 s.select(1);expect(#s.jobs==2,'chapter not scheduled')
@@ -160,6 +173,29 @@ menu:onLeftButtonTap();s.input.input='First';s.input.buttons[1][2].callback()
 expect(s.page==1 and #s.items==1 and not marked(s.items[1]),'title search did not start at its first match')
 menu:onLeftButtonTap();s.input.buttons[1][1].callback()
 expect(s.page==2 and marked(s.items[2]) and #s.jobs==1,'clearing search did not return to the current chapter')
+local function cloud_marked(item) return item.text:find('Cloud reading chapter · ',1,true)==1 end
+host,s=fixture();cloud_progress={book={bookId='456',chapterUid=2,chapterIdx=2,progress=0}}
+expect(UI.start(host,{book_id='456'},s.view,{cloud_chapter=true}),'cloud chapter catalog failed')
+s.finish(1)
+expect(progress_calls==1 and s.page==2 and cloud_marked(s.items[2]) and not s.items[2].select_enabled
+    and not cloud_marked(s.items[1]) and #s.jobs==1,'cloud hint did not respect chapter identity or entitlement')
+menu=host._native_direct_reading.menu
+menu:onLeftButtonTap();s.input.input='First';s.input.buttons[1][2].callback()
+menu:onLeftButtonTap();s.input.buttons[1][1].callback()
+expect(s.page==2 and cloud_marked(s.items[2]) and progress_calls==1,'clearing search lost the cloud chapter')
+for _,point in ipairs({{bookId='457',chapterUid=2,progress=10},
+    {bookId='456',chapterUid=2,chapterIdx=1,progress=10},
+    {bookId='456',chapterUid=0,progress=0},
+    {bookId='456',chapterUid=3,chapterIdx=2,progress=10},false}) do
+    host,s=fixture();cloud_progress=point and {book=point};cloud_error=not point and 'native_auth/direct_progress/http_401'
+    expect(UI.start(host,{book_id='456'},s.view,{cloud_chapter=true}),'catalog required a cloud hint')
+    s.finish(1)
+    expect(progress_calls==1 and not s.page and not cloud_marked(s.items[2]) and #s.jobs==1 and s.info==0,
+        'unverified cloud progress changed the normal catalog')
+end
+host,s=fixture();cloud_progress={book={bookId='456',chapterUid=1,progress=10}}
+UI.start(host,{book_id='456'},s.view,{anchor=anchor,cloud_chapter=true});s.finish(1)
+expect(progress_calls==0 and s.page==2 and marked(s.items[2]),'cloud lookup overrode the local chapter')
 anchor.book_version=6
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{anchor=anchor});s.finish(1)
 expect(not s.page and not marked(s.items[2]),'a different catalog version inherited a current chapter badge')
