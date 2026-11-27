@@ -27,15 +27,14 @@ function M.read(host,query,cursor,continuation)
     end)
     if not ok or not value or account~=host.library_db:accountKey()
         or query and query.public_only and value.source_kind~='public' then return nil end
-    if from_public then
-        -- Remain on the same public chain while paging, even if the account
-        -- acquires its own cache or another process replaces the public batch.
-        if shared then
-            local prior, ref=continuation._cache_view,value._cache_view
-            if not prior or not ref or prior.key~=ref.key or prior.generation~=ref.generation then return nil end
-        end
-        value._shared_public_category=true
+    if continuation then
+        -- A row's serial can change as more batches are saved. Only a new
+        -- generation replaces the list that the current page is browsing.
+        local prior,ref=continuation._cache_view,value._cache_view
+        if not prior or not ref or prior.key~=ref.key or prior.generation~=ref.generation
+            or continuation.source_kind~=value.source_kind then return nil end
     end
+    if from_public then value._shared_public_category=true end
     value.account=account
     return value
 end

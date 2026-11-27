@@ -3,12 +3,14 @@ local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
 local public_reads,personal_reads,public_writes,personal_writes=0,0,0,0
 local account,change,personal_source=nil,false,'native'
+local personal_generation='personal-generation'
 local personal_missing,public_generation,public_remembered,personal_remembered=false,'public-generation',0,0
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.discovery_cache']=function() return {new=function() return {
-    read=function()
+    read=function(_self,query,cursor)
         personal_reads=personal_reads+1
-        if not personal_missing then return {kind='search',source_kind=personal_source} end
+        if not personal_missing then return {kind=query and query.kind or 'search',source_kind=personal_source,cursor=cursor,
+            _cache_view={key=query and (query.category_id or query.keyword),generation=personal_generation}} end
     end,
     write=function() personal_writes=personal_writes+1;return 'personal-generation' end,
     remember=function(_self,state,_position,shared_public)
@@ -66,9 +68,18 @@ expect(next_batch and next_batch.cursor==20 and next_batch._shared_public_catego
     'public continuation mixed in a new account cache')
 public_generation='replaced'
 expect(not UI.read(host,query,20,value),'continuation silently switched to a replaced public chain')
-local owned={kind='category',account=account,cached=true}
+local owned=assert(UI.read(host,query,0))
 local own_batch=UI.read(host,query,20,owned)
 expect(own_batch and not own_batch._shared_public_category,'account continuation unexpectedly switched to public cache')
+personal_generation='personal-replaced'
+expect(not UI.read(host,query,20,owned),'account continuation silently switched to a replaced chain')
+personal_generation=owned._cache_view.generation;personal_source='gateway'
+expect(not UI.read(host,query,20,owned),'account continuation mixed sources')
+personal_source=owned.source_kind
+local mismatched_query={kind='category',category_id='200000',category_title='Other category',rank=false}
+expect(not UI.read(host,mismatched_query,20,owned),'account continuation mixed different queries')
+expect(not UI.read(host,query,20,{account=account,source_kind=personal_source,cached=true}),
+    'account continuation accepted a missing cache reference')
 personal_missing=true
 expect(not UI.read(host,query,20,owned),'missing account continuation spilled into public cache')
 change=true;account='another-account'

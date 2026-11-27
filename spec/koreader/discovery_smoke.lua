@@ -387,6 +387,32 @@ assert(plugin.discovery_state.cursor == 20 and #plugin.discovery_state.books == 
 press(plugin.shelf_view, "Previous batch")
 flush_tasks()
 assert(plugin.discovery_state.cursor == 0 and #plugin.discovery_state.history == 0)
+local function fail_rank_request()
+    local body=plugin.client:json_encode{match='/web/bookListInCategory/rising',times=1,status=503,delay=0.3}
+    local endpoint=plugin.settings.mock_endpoint
+    local ltn12=require('ltn12')
+    local _,code=require('socket.http').request{url=endpoint..'/__control',proxy=endpoint,method='POST',
+        source=ltn12.source.string(body),sink=ltn12.sink.null(),headers={['content-type']='application/json',['content-length']=#body}}
+    assert(code==200)
+end
+do
+    local Cache=require('weread.ui.discovery_cache')
+    local visible=assert(plugin.discovery_state)
+    local replacement=assert(Cache.read(plugin,visible,0))
+    local replacement_next=assert(Cache.read(plugin,visible,visible.next_cursor))
+    replacement.cached=nil
+    replacement.source_revision,replacement_next.source_revision=visible.source_revision,visible.source_revision
+    plugin.shelf_view.on_page_changed(2);flush_tasks()
+    local view=assert(plugin.shelf_view)
+    local focus=view:getFocusedBookId()
+    fail_rank_request()
+    plugin:loadDiscoveryBatch('category',nil,visible.next_cursor,false,false,visible)
+    assert(plugin.discovery_loading,'online rank continuation was not dispatched')
+    assert(Cache.save(plugin,replacement) and Cache.save(plugin,replacement_next,replacement,true))
+    flush_tasks()
+    assert(not plugin.discovery_loading and plugin.discovery_state==visible and plugin.shelf_view==view
+        and view.page==2 and view:getFocusedBookId()==focus,'failed continuation used a replacement cache')
+end
 press(plugin.shelf_view, "Browse books")
 flush_tasks()
 picker = assert(plugin._discovery_menu)
@@ -400,12 +426,7 @@ assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_s
     and #plugin.discovery_state.books == 15 and #plugin.discovery_state.history == 0)
 paint("store-subcategory-books")
 do
-    local body=plugin.client:json_encode{match='/web/bookListInCategory/rising',times=1,status=503,delay=0.3}
-    local endpoint=plugin.settings.mock_endpoint
-    local ltn12=require('ltn12')
-    local _,code=require('socket.http').request{url=endpoint..'/__control',proxy=endpoint,method='POST',
-        source=ltn12.source.string(body),sink=ltn12.sink.null(),headers={['content-type']='application/json',['content-length']=#body}}
-    assert(code==200)
+    fail_rank_request()
     local online=plugin.isNetworkOnline
     plugin.isNetworkOnline=function() error('bookstore request performed a synchronous Internet check') end
     plugin:loadDiscoveryBatch('category',nil,0,false,false,{category_id='rising',category_title='Rising',rank=true})

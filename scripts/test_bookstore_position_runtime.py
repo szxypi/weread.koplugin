@@ -27,7 +27,7 @@ def run(runtime):
                            LD_LIBRARY_PATH=str(runtime / 'libs'), EMULATE_READER='1',
                            EMULATE_READER_W=str(width), EMULATE_READER_H=str(height), EMULATE_READER_DPI=str(dpi),
                            EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8')
-                stages = ('write', 'reopen', 'replace', 'reopen-stale') if scope == 'shared' else ('write', 'reopen')
+                stages = ('write', 'reopen', 'replace', 'reopen-stale') if scope == 'shared' else ('write', 'reopen', 'stale-page')
                 for stage in stages:
                     result = subprocess.run([str(runtime / 'luajit'), str(probe), str(repo), scope, stage],
                                             env=env, cwd=runtime, capture_output=True, text=True, timeout=90)

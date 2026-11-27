@@ -9,7 +9,10 @@ package.preload['weread.lib.discovery_cache']=function() return {new=function() 
     read=function(_self,query,cursor)
         reads=reads+1
         read_query,read_cursor=query,cursor
-        if available then return {kind=query and query.kind or 'recommend',cursor=cursor or 0,cached=true,books={}} end
+        if available then
+            return {kind=query and query.kind or 'recommend',cursor=cursor or 0,cached=true,books={},source_kind='native',
+                _cache_view={key=query and query.keyword or 'recommend',generation='saved-generation'}}
+        end
     end,
     write=function() writes=writes+1;return string.rep('a',32) end,
 } end} end

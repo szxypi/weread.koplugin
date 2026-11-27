@@ -142,6 +142,37 @@ elseif stage=='replace' then
     switch_account(nil)
     local changed=batch(query,0);changed.books[1].title='Another guest result'
     assert(Cache.save(host,changed))
+elseif stage=='stale-page' then
+    assert(not shared)
+    local first=batch(query,0);assert(Cache.save(host,first))
+    assert(Cache.save(host,batch(query,20),first,true))
+    assert(Cache.open(host,query,0))
+
+    -- Another writer can extend the same saved list without invalidating
+    -- the batches already on screen.
+    local prior=host.discovery_state._cache_view
+    assert(Cache.save(host,batch(query,20),first,true))
+    press('Next batch')
+    assert(host.discovery_state.cursor==20 and host.discovery_state._cache_view.generation==prior.generation
+        and host.discovery_state._cache_view.serial~=prior.serial,'same-generation continuation stopped working')
+    press('Previous batch')
+    host.shelf_view.on_page_changed(2);flush_actions();focus(2)
+    assert_position(2)
+    local old_view,old_state=host.shelf_view,host.discovery_state
+
+    local replacement=batch(query,0);replacement.books[1].title='Replacement first batch'
+    local second=batch(query,20);second.books[1].title='Replacement second batch'
+    assert(Cache.save(host,replacement) and replacement._cache_generation~=prior.generation)
+    assert(Cache.save(host,second,replacement,true))
+    press('Next batch')
+    assert(host.shelf_view==old_view and host.discovery_state==old_state,
+        'next batch moved from the visible list into a replacement cache')
+    assert_position(2)
+
+    assert(Cache.open(host,query,0))
+    assert(host.discovery_state.books[1].title=='Replacement first batch','explicit reopen lost the updated list')
+    press('Next batch')
+    assert(host.discovery_state.books[1].title=='Replacement second batch','new list could not paginate')
 else
     assert(shared and stage=='reopen-stale')
     host:openBookstore()
