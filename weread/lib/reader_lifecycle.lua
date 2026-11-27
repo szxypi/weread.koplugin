@@ -343,6 +343,11 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local home_resume=package.loaded['weread.ui.native_home_resume']
+    if home_resume then
+        pcall(home_resume.record_closed,self)
+        home_resume.cancel(self)
+    end
     local reconnect=package.loaded['weread.ui.native_direct_reconnect']
     if reconnect then
         if reconnect.checkpoint(self)==false and self.showTransientInfo then
@@ -355,7 +360,6 @@ function M:onCloseDocument()
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end
     self._native_auto_time_epoch=(self._native_auto_time_epoch or 0)+1
     local auto_time=package.loaded['weread.lib.native_direct_time_auto'];if auto_time then auto_time.cancel(self) end
-    local home_resume=package.loaded['weread.ui.native_home_resume'];if home_resume then home_resume.cancel(self) end
     local direct_note=package.loaded['weread.ui.my_mark_navigation'];if direct_note and direct_note.cancel_incoming then direct_note.cancel_incoming(self) end
     local direct_close=package.loaded['weread.lib.native_direct_close']
     if self._native_direct_interval and not direct_close then direct_close=require('weread.lib.native_direct_close') end

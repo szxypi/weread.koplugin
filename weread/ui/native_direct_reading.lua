@@ -638,6 +638,12 @@ function M.start(host,book,view,options)
         }
         show_confirmation(dialog)
     end
+    local function open_saved(entry,is_current)
+        local cache=require('weread.lib.native_direct_cache')
+        local result,verified=cache.open(host.settings,scope.vid,id,entry,is_current,true)
+        if result then result.saved_entry=verified end
+        return result
+    end
     local function lookup_saved(is_current,complete_only)
         local cache=require('weread.lib.native_direct_cache')
         local chapter=ctx.chapter
@@ -649,7 +655,7 @@ function M.start(host,book,view,options)
                 if not complete_only then
                     matches[#matches+1]=entry
                 elseif entry.missing_images==0 and entry.chapter_idx==chapter.chapterIdx then
-                    local verified=cache.open(host.settings,scope.vid,id,entry,is_current)
+                    local verified=open_saved(entry,is_current)
                     if verified then
                         matches[#matches+1]=entry
                         saved=verified
@@ -659,7 +665,7 @@ function M.start(host,book,view,options)
         end
         if #matches>1 then return {copies=matches} end
         if #matches==0 then return nil,'not_saved' end
-        saved=saved or cache.open(host.settings,scope.vid,id,matches[1],is_current)
+        saved=saved or open_saved(matches[1],is_current)
         if saved then return saved end
         return nil,'damaged'
     end
@@ -717,7 +723,7 @@ function M.start(host,book,view,options)
                 end
                 return rows and {rows=rows,catalog=catalog} or {error='storage'}
             elseif phase=='offline_open' then
-                local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,is_current)
+                local result=open_saved(saved_entry,is_current)
                 return result or {error='damaged'}
             elseif phase=='saved_matches' then
                 local saved,reason=lookup_saved(is_current,false)
@@ -910,6 +916,9 @@ function M.start(host,book,view,options)
             if ctx.cloud_target and current() and connected(host) then
                 handoff=require('weread.ui.native_direct_cloud_open').for_catalog(host,result,ctx.catalog,
                     ctx.chapter,ctx.cloud_target,ctx.selected.native)
+            end
+            if result.saved_entry then
+                handoff=require('weread.ui.native_home_resume').for_verified_open(path,result.saved_entry,scope,handoff)
             end
             M.cancel(host)
             host:openFile(path,handoff)

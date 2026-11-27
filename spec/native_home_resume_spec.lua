@@ -124,4 +124,28 @@ end
 host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
 Resume.open(host,s.book,'42',view,function() return true end);sleep(host)
 expect(not wake(host) and #s.jobs==2 and not s.path and not host.busy_message,'wake replayed an explicit open')
+local function opened_callback(h,state,after_open)
+    h.ui.weread=h
+    return Resume.for_verified_open(path,entry,state.scope,after_open)
+end
+host,s=fixture()
+local delivered=0
+local after_open=opened_callback(host,s,function(reader) assert(reader==host.ui);delivered=delivered+1 end)
+after_open(host.ui);after_open(host.ui)
+expect(delivered==1 and not s.patches,'saved proof replayed its callback or wrote during the open')
+expect(Resume.record_closed(host) and s.patches==1 and s.book.native_home_resume.entry==entry,
+    'a quick normal close lost the saved chapter')
+expect(not Resume.record_closed(host) and s.patches==1,'normal close reused a consumed proof')
+host,s=fixture();Resume.record(host);opened_callback(host,s)(host.ui);s.finish(1)
+expect(not Resume.record_closed(host) and s.patches==1,'completed verification repeated the write at close')
+for _,change in ipairs({'account','document','session','newer','identity'}) do
+    host,s=fixture()
+    if change=='identity' then host.ui.document.identity.file_id='wrong' end
+    opened_callback(host,s)(host.ui)
+    if change=='account' then s.scope={vid='123',epoch=2}
+    elseif change=='document' then host.ui.document={file=path}
+    elseif change=='session' then host._reader_session_gen=2
+    elseif change=='newer' then s.book.home_recent_at=os.time()+10 end
+    expect(not Resume.record_closed(host) and not s.patches,'close accepted a stale copy proof: '..change)
+end
 print('PASS: native home recording and verified offline resume ('..checks..' checks)')

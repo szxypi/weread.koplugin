@@ -115,6 +115,32 @@ if record then
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
+    if input.mode=='shelf_close' then
+        require('ui/network/manager').isConnected=function() return false end
+        require('weread.ui.native_home_resume').record=function() return false end
+        assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
+        local shelf=host.settings:get('shelf');local tap_to_read=shelf.tap_to_read
+        shelf.tap_to_read=true;host.settings:set('shelf',shelf)
+        host:applyShelfSnapshot({{bookId=id,title='Synthetic book'}},{})
+        host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
+        local shelf_view=assert(host.shelf_view)
+        assert(shelf_view.books[1].bookId==id)
+        shelf_view.on_select(shelf_view.books[1],'books')
+        shelf.tap_to_read=tap_to_read;host.settings:set('shelf',shelf)
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local ctx=host._native_direct_reading
+        assert(ctx.offline and #ctx.menu.item_table==2)
+        ctx.menu:onMenuSelect(ctx.menu.item_table[1])
+        pump(function() return Reader.instance and Reader.instance.document.file==input.path end)
+        local reader=Reader.instance
+        assert(not reader.weread.settings:get_book(id).native_home_resume,'background verification was not suppressed')
+        reader:onHome()
+        assert(not Reader.instance and FM.instance and FM.instance.weread)
+        local recent=assert(FM.instance.weread.settings:get_book(id).native_home_resume,'normal close lost the selected chapter')
+        assert(recent.entry.chapter_uid=='37')
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        return
+    end
     if input.mode=='detail_read_saved' or input.mode=='detail_catalog_saved' then
         assert(os.getenv('WEREAD_SYNTHETIC')=='1')
         require('ui/network/manager').isConnected=function() return false end

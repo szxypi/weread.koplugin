@@ -33,14 +33,17 @@ end
 
 local function matches_document(document,entry)
     local identity=Identity.read_document(document,entry.book_id)
-    return identity.book_id==entry.book_id and identity.file_id==entry.file_id
+    return type(entry.file_id)=='string' and #entry.file_id==64
+        and identity.book_id==entry.book_id and identity.file_id==entry.file_id
         and identity.book_version==entry.book_version
 end
 
 local function save_recent(host,book,entry,owner,at)
     if not owned(book,entry.book_id,owner) or type(book.home_recent_at)=='number' and book.home_recent_at>at then return false end
+    local pointer={at=at,entry=entry}
+    if book.home_recent_account==owner and book.home_recent_at==at and same(book.native_home_resume,pointer) then return true end
     return host.settings:patch_reading_state(entry.book_id,{home_recent_at=at,home_recent_account=owner,
-        native_home_resume={at=at,entry=entry}})
+        native_home_resume=pointer})
 end
 
 -- The quick menu already verified the cached chapter. Keep its shortcut even
@@ -92,6 +95,37 @@ local function same_reader(host,ctx)
         and account(host,ctx.scope)==ctx.owner
 end
 
+-- Retain the exact saved-copy proof until routine recording succeeds. The
+-- normal KOReader close action can then save the shortcut without rereading
+-- the whole EPUB if the background verification has not finished yet.
+function M.for_verified_open(path,entry,scope,after_open)
+    if type(scope)~='table' or type(entry)~='table' or not Cache.valid_entry(entry,entry.book_id,scope.vid) then return after_open end
+    local used=false
+    return function(reader)
+        if used then return end
+        used=true
+        local host=reader and reader.weread
+        local document=reader and reader.document
+        if host and host.ui==reader and document and document.file==path then
+            local owner=account(host,scope)
+            if owner and Path.contains(host.settings,path) and matches_document(document,entry) then
+                local recording=host._native_home_resume
+                host._native_home_verified_open={reader=reader,document=document,path=path,scope=scope,owner=owner,
+                    session=host._reader_session_gen or 0,entry=entry,
+                    at=recording and recording.recording and recording.at or os.time()}
+            end
+        end
+        if after_open then return after_open(reader) end
+    end
+end
+
+function M.record_closed(host)
+    local opened=host._native_home_verified_open
+    host._native_home_verified_open=nil
+    if not opened or not same_reader(host,opened) then return false end
+    return save_recent(host,host.settings:get_book(opened.entry.book_id),opened.entry,opened.owner,opened.at)
+end
+
 local function record(host,opened_at)
     local reader=host.ui;local document=reader and reader.document
     local path=document and document.file
@@ -119,7 +153,9 @@ local function record(host,opened_at)
         if not matches_document(document,entry) then M.cancel(host);return end
         local reconnect=package.loaded['weread.ui.native_direct_reconnect']
         if reconnect and host._native_direct_reconnect then reconnect.bind(host,entry,value.pending) end
-        save_recent(host,host.settings:get_book(entry.book_id),entry,owner,ctx.at)
+        if save_recent(host,host.settings:get_book(entry.book_id),entry,owner,ctx.at) then
+            host._native_home_verified_open=nil
+        end
         M.cancel(host)
     end)
     if not ok or not started then M.cancel(host);return false end
@@ -184,7 +220,9 @@ local function open(host,book,id,view,view_current,detail)
         if type(value)~='table' or not Path.contains(host.settings,value.path)
             or value.file_id~=pointer.entry.file_id or value.book_version~=pointer.entry.book_version
             or value.source_sha256~=pointer.entry.source_sha256 then fail();return end
-        local path=value.path;M.cancel(host);host:openFile(path)
+        local path=value.path
+        M.cancel(host)
+        host:openFile(path,M.for_verified_open(path,pointer.entry,scope))
     end)
     if not ok or not started then fail();return false end
     return true
