@@ -18,7 +18,7 @@ local store={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local capture=Access.capture
 Access.capture=function(s,existing) return capture(s,existing or store) end
 local Common=require('weread.ui.common')
-Common.isNetworkOnline=function() return true end;Common.isNetworkConnected=Common.isNetworkOnline
+Common.isNetworkOnline=function() return input.offline~=true end;Common.isNetworkConnected=Common.isNetworkOnline
 local function diagnostic(name,value)
     local file=assert(io.open(home..'/native-home-'..name,'wb'));assert(file:write(value));assert(file:close())
 end
@@ -41,6 +41,8 @@ Archive.read=function(...)
 end
 local Client=require('weread.lib.client');local previous=Client.request
 Client.request=function(self,options)
+    local count=assert(io.open(home..'/request-count','ab'));assert(count:write('1'));assert(count:close())
+    assert(input.offline~=true,'offline shelf reading used the network')
     local url,headers=options.url,options.headers or {};local base='https://i.weread.qq.com'
     local query=input.store_search_keyword and require('weread.lib.protocol').sorted_query{
         keyword=input.store_search_keyword,scope=10,count=20,maxIdx=0}
@@ -64,7 +66,6 @@ Client.request=function(self,options)
     if url:find(base,1,true)==1 then
         assert(headers.vid==input.credentials.vid and headers.accessToken==input.credentials.accessToken)
     end
-    local count=assert(io.open(home..'/request-count','ab'));assert(count:write('1'));assert(count:close())
     local bytes,first=0,''
     if options.diagnostic_api=='native_chapter_download' and type(options.sink)=='function' then
         local sink=options.sink
@@ -117,6 +118,11 @@ if input.read_entry=='shelf' then
     local shelf_settings=host.settings:get('shelf')
     shelf_settings.tap_to_read=true;host.settings:set('shelf',shelf_settings);host.settings:flush()
     host:applyShelfSnapshot({{bookId=input.book_id,title='Synthetic book',author='Fixture'}},{})
+    if input.require_cached then
+        local book=host.settings:get_book(input.book_id)
+        assert(host:nativeChapterCachePresent(input.book_id) and not (book and book.native_home_resume),
+            'partial-download fixture already has a resume record or is missing its saved chapter')
+    end
     host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
     shelf_owner=assert(host.shelf_view)
     local row=assert(shelf_owner._item_rows[1]);assert(tostring(row.book.bookId)==input.book_id)
@@ -173,7 +179,12 @@ if shelf_owner then
         error('shelf refresh replaced the native chapter selector')
     end)
 end
-for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
+if input.offline then
+    assert(ctx.offline and not ctx.catalog and #ctx.menu.item_table==1,'offline shelf did not list the saved chapter')
+    index=1
+else
+    for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
+end
 assert(index and ctx.menu.item_table[index].select_enabled)
 if input.cloud_chapter_uid then
     local prefix=require('weread.lib.plugin_util').tr('Cloud reading chapter')..' · '
@@ -250,6 +261,8 @@ end
 local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));assert(file:close())
 while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
 reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
-local count=assert(io.open(home..'/request-count','rb'));local requests=#assert(count:read('*a'));assert(count:close())
+local count=io.open(home..'/request-count','rb');local requests=0
+if count then requests=#assert(count:read('*a'));assert(count:close()) end
+assert(input.offline~=true or requests==0)
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true})

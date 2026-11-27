@@ -2885,11 +2885,13 @@ function M:readFromBookList(book, view, current, cached_only, native_cached)
     local resume = record and record.native_home_resume and require('weread.ui.native_home_resume')
     if resume and resume.can_resume(self, record, id) then return resume.open(self, record, id, view, current) end
     local cached = self:bookRecordHasDownload(record)
-    if not cached and (cached_only and native_cached or self:nativeChapterCachePresent(id)) then
-        local detail = self:showBookMenu(book,{read_saved_native=cached_only==true})
+    if not cached_only then
+        return self:startBookReading(book, nil, {current=current,owner=view,allow_saved_native=not cached})
+    end
+    if not cached and (native_cached or self:nativeChapterCachePresent(id)) then
+        local detail = self:showBookMenu(book,{read_saved_native=true})
         return detail and require('weread.ui.native_direct_reading').start(self, book, detail, {cached=true}) or false
     end
-    if not cached_only then return self:startBookReading(book, nil, {current=current,owner=view}) end
     if cached then return self:readCachedCopy(record) end
     self:showInfo(_('No cached file.'))
     return false
@@ -2913,7 +2915,8 @@ function M:startBookReading(book, view, origin)
     if owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
         and require('weread.lib.native_position_protocol').id(selected_id) then
         local native=online and not exact and has_native_read_access(self.settings)
-        local saved_native=not online and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
+        local saved_native=not native and (not online or origin and origin.allow_saved_native)
+            and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
         if native or saved_native then
             local account=self.library_db and self.library_db:accountKey()
             if not stored or stored._library_account_key and stored._library_account_key~=account then

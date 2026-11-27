@@ -456,6 +456,29 @@ do
     target.cached_chapters['3']='/cache/3.epub';last_dialog.ok_callback()
     expect(opened_path=='/cache/3.epub','newly cached exact chapter was not preferred after warning')
     target.cached_chapters['3']=nil
+
+    local access=require('weread.lib.native_read_access')
+    local capture=access.capture
+    access.capture=function() return {} end
+    local module='weread.ui.native_direct_reading'
+    local previous=package.loaded[module]
+    local shelf={};local function current() return true end
+    local choice
+    package.loaded[module]={start=function(_,book,owner,options)
+        expect(book==uncached and owner==shelf and options.shelf_current==current,'reading lost the shelf owner')
+        choice=options;return true
+    end}
+    host.shelf_view=shelf
+    host.nativeChapterCachePresent=function(_,id) return id==uncached.book_id end
+    host.bookRecordHasDownload=function() return false end
+    online=true;authenticated=false
+    expect(host:readFromBookList(uncached,shelf,current) and choice.cloud_chapter and not choice.cached,
+        'partial E-Ink downloads hid the cloud continuation online')
+    authenticated=true;choice=nil
+    expect(host:readFromBookList(uncached,shelf,current) and choice.cached and not choice.cloud_chapter,
+        'an available downloaded copy was bypassed when the Web account was present')
+    host.shelf_view=nil;host.nativeChapterCachePresent=nil;host.bookRecordHasDownload=nil
+    package.loaded[module]=previous;access.capture=capture
     source.web_access=old_web_access;host.isNetworkConnected=nil
 end
 local detail_data
