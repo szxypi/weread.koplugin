@@ -138,24 +138,30 @@ end
 -- Preserve shelf order and use each book once even when groups overlap.
 -- If any remembered group is absent or ambiguous, leave the full shelf visible
 -- and keep the selection for a later complete snapshot.
-function Groups.selected(groups,keys,books)
+-- A redraw with prepared books only needs the current selection status.
+function Groups.selected(groups,keys,books,with_books)
     keys=Groups.normalize(keys)
     if not keys or #keys==0 then return nil,keys and 'all' or 'invalid' end
-    local members={}
+    local members=with_books~=false and {}
+    local incomplete=false
     for _,key in ipairs(keys) do
         local group=Groups.unique(groups,key)
         if not group then return nil,'unavailable' end
-        for _,book in ipairs(group.books or {}) do
-            local id=Identity.persisted_id(book)
-            if id then members[id]=true end
+        if group.incomplete then incomplete=true end
+        if members then
+            for _,book in ipairs(group.books or {}) do
+                local id=Identity.persisted_id(book)
+                if id then members[id]=true end
+            end
         end
     end
+    if not members then return nil,'selected',incomplete end
     local result,seen={},{}
     for _,book in ipairs(type(books)=='table' and books or {}) do
         local id=Identity.persisted_id(book)
         if id and members[id] and not seen[id] then result[#result+1]=book;seen[id]=true end
     end
-    return result,'selected'
+    return result,'selected',incomplete
 end
 
 return Groups

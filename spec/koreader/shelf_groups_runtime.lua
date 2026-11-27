@@ -855,6 +855,21 @@ if mode=='live' then
     assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'native multi-group union incorrect')
     local selected=plugin.shelf_view;first.callback();for _i=1,3 do tick() end
     assert(plugin.shelf_view==selected,'closed multi-group selector applied a stale callback')
+    if not selected.paged then
+        selected.on_display_change('paginated',true)
+        pump(function() return plugin.shelf_view~=selected end)
+        selected=plugin.shelf_view
+    end
+    do
+        local page_two_first=assert(selected.books[selected.page_size+1])
+        local label,combined=selected.group_label,selected.books
+        selected.on_page_changed(2)
+        pump(function() return plugin.shelf_view~=selected end)
+        selected=plugin.shelf_view
+        UI:forceRePaint()
+        assert(selected.page==2 and selected.books==combined and selected.group_label==label
+            and selected:getVisibleBooks()[1]==page_two_first,'multi-group next page changed the result')
+    end
     local partial={};for _,archive in ipairs(archives) do if tostring(archive.archiveId)~='21' then partial[#partial+1]=archive end end
     plugin:applyShelfSnapshot(books,partial);plugin:showShelfView('books',nil,selected)
     local fallback=assert(plugin.shelf_view);assert(#fallback.books==48 and #fallback.group_keys==2,'missing group hid shelf books')

@@ -917,18 +917,18 @@ function M:showShelfView(mode, keyword, old_view, options)
         options.prepared_shelf, options.page, options.rotation_anchor = nil, nil, nil
     end
     local multi=self.shelf_multi_groups or {}
-    local grouped,multi_state=ShelfGroups.selected(self.shelf_groups,multi,self.shelf_regular)
-    local multi_label=#multi>0 and (multi_state=='selected' and T(_('%1 groups'),tostring(#multi))
-        or _('Selected groups unavailable; showing all books')) or nil
-    if multi_state=='selected' then
-        for _index,key in ipairs(multi) do
-            local selected_group=ShelfGroups.unique(self.shelf_groups,key)
-            if selected_group and selected_group.incomplete then
-                multi_label=T(_('%1 (incomplete)'),multi_label);break
-            end
+    local prepared = options.prepared_shelf
+    local grouped, multi_label
+    if #multi > 0 then
+        local multi_state, incomplete
+        grouped, multi_state, incomplete = ShelfGroups.selected(self.shelf_groups, multi, self.shelf_regular, not prepared)
+        if multi_state == 'selected' then
+            multi_label = T(_('%1 groups'), tostring(#multi))
+            if incomplete then multi_label = T(_('%1 (incomplete)'), multi_label) end
+        else
+            multi_label = _('Selected groups unavailable; showing all books')
         end
     end
-    local prepared = options.prepared_shelf
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
     local books = prepared and prepared.books or filtered(group_source, true)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)

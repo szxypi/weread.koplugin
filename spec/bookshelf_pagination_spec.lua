@@ -305,6 +305,21 @@ host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);hos
 shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
 expect(#shown[#shown].data.books==20 and #shown[#shown].data.group_keys==2,'multi-group union missing books')
 expect(#profiles['account-a'].shelf_multi_groups_v1.keys==2,'multi-group selection not saved')
+do
+    local model=require('weread.lib.shelf_groups')
+    local selected=model.selected
+    local before=shown[#shown].data
+    local projects=0
+    model.selected=function(group_list,keys,books,with_books)
+        if with_books~=false then projects=projects+1 end
+        return selected(group_list,keys,books,with_books)
+    end
+    shown[#shown].callbacks.on_page_changed(2)
+    local after=shown[#shown].data
+    expect(projects==0 and after.page==2 and after.books==before.books and after.group_label==before.group_label,
+        'prepared multi-group page rebuilt the group union or changed its label')
+    model.selected=selected
+end
 shown[#shown].callbacks.on_select_groups({'__ungrouped__'})
 local all_ids={};for i=1,30 do all_ids[i]=tostring(i) end
 host:applyShelfSnapshot(grouped_books,{{archiveId=7,name='History',bookIds=all_ids}});host:showShelfView('books')

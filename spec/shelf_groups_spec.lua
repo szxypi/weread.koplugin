@@ -96,6 +96,17 @@ local overlap=Groups.list({
 local selection,state=Groups.selected(overlap,{'archive:2','archive:1'},books)
 expect(state=='selected' and #selection==3 and selection[1]==books[1] and selection[2]==books[2]
     and selection[3]==books[3],'multi-group union lost shelf order or duplicated a book')
+local identity=require('weread.lib.shelf_snapshot')
+local persisted_id=identity.persisted_id
+identity.persisted_id=function() error('validating prepared groups should not inspect books') end
+overlap[1].incomplete=true
+local selection_incomplete
+selection,state,selection_incomplete=Groups.selected(overlap,{'archive:2','archive:1'},books,false)
+expect(selection==nil and state=='selected' and selection_incomplete,'prepared groups lost the incomplete indicator')
+selection,state=Groups.selected(overlap,{'archive:1','archive:missing'},books,false)
+expect(selection==nil and state=='unavailable','prepared groups reused an unavailable selection')
+identity.persisted_id=persisted_id
+overlap[1].incomplete=nil
 selection,state=Groups.selected(overlap,{'archive:3'},books)
 expect(state=='selected' and #selection==0,'selected empty group fell back to all')
 selection,state=Groups.selected(overlap,{'archive:1','archive:missing'},books)
