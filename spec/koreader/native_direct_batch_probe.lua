@@ -344,8 +344,31 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         assert(protection.no_sidecars(short_path),'removed fixture sidecars were not cleared')
         assert(not protection.no_sidecars(home..'/missing.epub'),'missing chapter was treated as safe')
     end
-    cache.MAX_ENTRIES=3
     local lfs=require('libs/libkoreader-lfs')
+    if input.mode=='offline' then
+        local remaining_before=assert(cache.remaining(settings,scope.vid,'42',function() return true end))
+        local fake_entries={}
+        for index=1,138 do
+            local path=cache_dir..'/capacity-fixture-'..index
+            assert(lfs.mkdir(path));fake_entries[index]=path
+        end
+        local calls=0
+        local function counted()
+            calls=calls+1;return true
+        end
+        local room=cache.remaining(settings,scope.vid,'42',counted)
+        assert(room==remaining_before-#fake_entries,'capacity scan ignored directory entries')
+        assert(calls==2+math.floor((cache.MAX_ENTRIES-room)/32),'capacity scan repeated authorization checks')
+        for _,expired_at in ipairs({1,3,calls}) do
+            local checked=0
+            local cancelled=cache.remaining(settings,scope.vid,'42',function()
+                checked=checked+1;return checked<expired_at
+            end)
+            assert(cancelled==nil and checked==expired_at,'capacity scan accepted a changed account')
+        end
+        for _,path in ipairs(fake_entries) do assert(lfs.rmdir(path)) end
+    end
+    cache.MAX_ENTRIES=3
     local added={}
     for index=1,4-#rows do
         local path=cache_dir..'/synthetic-damaged-'..index

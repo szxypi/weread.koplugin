@@ -390,10 +390,15 @@ function M.remaining(settings,account,book_id,current)
     local ok,count=pcall(function()
         local total=0
         for name in lfs.dir(book_dir) do
-            if name~='.' and name~='..' and name~=OPERATION then total=total+1 end
-            if total>M.MAX_ENTRIES or current()~=true then return nil end
+            if name~='.' and name~='..' and name~=OPERATION then
+                total=total+1
+                if total>M.MAX_ENTRIES then return nil end
+                -- A capacity scan reads names only. Check authorization at
+                -- intervals and before returning the count to the downloader.
+                if total%32==0 and current()~=true then return nil end
+            end
         end
-        return total
+        return current()==true and total or nil
     end)
     return ok and count and M.MAX_ENTRIES-count or nil
 end
