@@ -283,36 +283,36 @@ end
 local account_key=plugin.library_db.accountKey
 local shelf_read,archives_read=plugin.library_db.getShelf,plugin.library_db.getShelfArchives
 local settings_read,settings_lookup=plugin.settings.get,plugin.settings.book_lookup
+local settings_indexes,settings_book=plugin.settings.get_book_indexes,plugin.settings.get_book
+local state_scope=plugin.settings.account_state_scope
+local recent_owner=string.rep('a',20)
 local recent_saved={
-    [42]={recent_read_at=30,recent_read_account='synthetic-owner'},
-    [9007199254740992]={recent_read_at=100,recent_read_account='synthetic-owner'},
+    [42]={recent_read_at=30,recent_read_account=recent_owner},
+    [9007199254740992]={recent_read_at=100,recent_read_account=recent_owner},
 }
 local recent_shelf={{bookId='9007199254740993',title='大编号',readUpdateTime=1},
                     {bookId='43',title='另一本',readUpdateTime=2},{bookId='42',title='旧缓存',readUpdateTime=0}}
-plugin.library_db.accountKey=function() return 'synthetic-owner' end
+plugin.library_db.accountKey=function() return recent_owner end
 plugin.library_db.getShelf=function() return recent_shelf end
 plugin.library_db.getShelfArchives=function() return {} end
-plugin.settings.get=function(self,key,default)
-    if key=='books' then return recent_saved end
-    return settings_read(self,key,default)
-end
+plugin.settings.get_book_indexes=function() return recent_saved end
+plugin.settings.account_state_scope=function() return recent_owner end
 plugin:showHome()
 local recent_view=assert(plugin.shelf_view)
 assert(#recent_view.books==3 and recent_view.books[1].bookId=='42' and recent_view.books[2].bookId=='43'
     and recent_view.books[3].bookId=='9007199254740993' and recent_view.books[3]._recent_time==1,
     'legacy numeric key attached a different large book to the home page')
-recent_saved['9007199254740993']={recent_read_at=90,recent_read_account='synthetic-owner'}
+recent_saved['9007199254740993']={recent_read_at=90,recent_read_account=recent_owner}
 plugin:showHome();recent_view=assert(plugin.shelf_view)
 assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1]._recent_time==90,
     'exact large string book key was not used on home')
 plugin:closeWeReadUI()
 plugin.library_db.accountKey=account_key;plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read
-plugin.settings.get=settings_read
+plugin.settings.get_book_indexes=settings_indexes;plugin.settings.account_state_scope=state_scope
 -- Persist an offline reading event in the real per-account book store, then
 -- verify the native shelf and a fresh process use it without leaking accounts.
 local account_a,account_b=string.rep('a',20),string.rep('b',20)
 local active_account=account_a
-local state_scope=plugin.settings.account_state_scope
 plugin.settings.account_state_scope=function() return active_account end
 plugin.library_db.accountKey=function() return active_account end
 if mode=='live' then
@@ -367,6 +367,9 @@ plugin.library_db.accountKey=function() return cache_owner end
 plugin.library_db.getShelf=function() return cache_shelf end;plugin.library_db.getShelfArchives=function() return {} end
 plugin.settings.get=function(self,key,default) if key=='books' then return cached_records end return settings_read(self,key,default) end
 plugin.settings.book_lookup=function() return cached_records end
+plugin.settings.get_book_indexes=function() return cached_records end
+plugin.settings.account_state_scope=function() return cache_owner end
+plugin.settings.get_book=function(_,id) return require('weread.lib.read_access').cached_key(cached_records,id) end
 plugin.shelf_filters={};plugin:applyShelfSnapshot(cache_shelf,{});plugin.shelf_multi_groups={};plugin:showShelfView('books')
 local cache_view=assert(plugin.shelf_view);local states={}
 for _,book in ipairs(cache_view.books) do states[book.bookId]=book._cached end
@@ -399,6 +402,7 @@ cached_records[42].book_id='42';shown=nil;assert(os.remove(downloaded_path));hom
 assert(not opened and shown==target,'home opened a cache file removed after drawing')
 plugin.startBookReading=read;plugin.showBookRecord=detail;plugin:closeWeReadUI()
 plugin.settings.get=settings_read;plugin.settings.book_lookup=settings_lookup
+plugin.settings.get_book_indexes=settings_indexes;plugin.settings.get_book=settings_book;plugin.settings.account_state_scope=state_scope
 do
     local options=plugin.settings:get('shelf')
     local old_mode,old_order=options.view_mode,options.sort_order
