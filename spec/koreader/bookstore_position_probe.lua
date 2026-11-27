@@ -29,7 +29,7 @@ local Cache=require('weread.ui.discovery_cache')
 local account
 local function switch_account(vid)
     host.settings:set('account',vid and {name='Synthetic',user_vid=vid,login_method='qr'} or {})
-    host.settings:set('cookies',vid and {wr_vid=vid,wr_skey='synthetic'} or {})
+    host.settings:set('cookies',{})
     assert(host.settings:flush())
     account=host.library_db:accountKey()
     assert((account~=nil)==(vid~=nil))
