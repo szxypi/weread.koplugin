@@ -361,15 +361,27 @@ if input.mode:find('^upload') or input.mode:find('^interval') then
               end
             end
         end
+        if input.mode=='interval_noack' or input.mode=='interval_close_noack' then
+            local service=require('weread.lib.native_position_service'):new{
+                settings=host.settings,client=host.client,library=host.library_db,scheduler=UI}
+            assert(assert(service:pending()).phase=='pending','automatic sync lost a request with an unknown result')
+        end
         if input.mode=='upload_lost_ack' or input.mode=='upload_missing_after' then
             host.checked_message=nil;open_menu()
             wait(function() return host._native_direct_position and host._native_direct_position.confirm end)
-            host._native_direct_position.confirm.ok_callback()
+            local review=host._native_direct_position
+            review.confirm.ok_callback()
             wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
-            assert(not host.checked_message and host._native_direct_position.confirm,'review failed')
-            host._native_direct_position.confirm.ok_callback()
-            wait(function() return host.checked_message~=nil end)
-            assert(host.checked_message==tr('Previous result archived. Choose sync again to check the current page.'))
+            if input.plain_text and input.mode=='upload_missing_after' then
+                assert(host.checked_message==tr('Could not check the previous position sync.')
+                    and not host._native_direct_position,'review accepted a TXT response without its literal summary')
+                assert(assert(review.service:pending()).phase=='acknowledged','incomplete TXT reply lost the acknowledged request')
+            else
+                assert(not host.checked_message and host._native_direct_position.confirm,'review failed')
+                host._native_direct_position.confirm.ok_callback()
+                wait(function() return host.checked_message~=nil end)
+                assert(host.checked_message==tr('Previous result archived. Choose sync again to check the current page.'))
+            end
         end
     end
 elseif input.mode=='move' or input.mode=='cloud_move' then
