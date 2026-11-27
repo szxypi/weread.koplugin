@@ -121,8 +121,17 @@ local ok=pcall(function()
     if input.ignore_case then owner.input.buttons[2][1].callback() else owner.input.buttons[1][2].callback() end
     wait(function() return owner.finished and not owner.job end)
     if full then assert(owner.discovered and not owner.discovery_incomplete and owner.checked==#chapters and owner.missing==0) end
-    assert(#owner.value==1 and owner.value[1].chapter_uid==input.chapter and owner.value[1].offset==input.offset)
-    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    local hit=owner.value[1]
+    assert(#owner.value==1 and hit.chapter_uid==input.chapter and hit.offset==input.offset)
+    local label=assert(owner.titles[hit.chapter_uid])..' · '..hit.context
+    local selected
+    for _,item in ipairs(owner.menu.item_table) do
+        if item.text==label and item.select_enabled~=false then
+            assert(not selected,'duplicate search result row')
+            selected=item
+        end
+    end
+    owner.menu:onMenuSelect(assert(selected,'search result row missing'))
     wait(function()
         local instance=require('apps/reader/readerui').instance
         if instance and instance.weread then reader=instance;plugin=instance.weread end
