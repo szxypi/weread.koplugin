@@ -1856,9 +1856,8 @@ function M:showBookReviews(book)
     if native_ui then native_ui.cancel(self) end
     local gateway_ui = package.loaded['weread.ui.gateway_book_reviews']
     if gateway_ui then gateway_ui.cancel(self) end
-    if type(self.isNetworkOnline)=='function' and not self:isNetworkOnline() then
-        local selected = require('weread.lib.native_book_reviews_source').capture(self.settings)
-        return require('weread.ui.native_book_reviews').open(self, book, selected)
+    if not require('weread.lib.network_link').available(self) then
+        return require('weread.ui.native_book_reviews').open(self, book)
     end
     if self.settings and self.settings.is_api_configured and not self.settings:is_api_configured() then
         local selected = require('weread.lib.native_book_reviews_source').capture(self.settings)

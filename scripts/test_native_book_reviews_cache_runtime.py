@@ -49,7 +49,9 @@ def main():
         EMULATE_READER_DPI=str(args.dpi))
     if args.public_stdin:env['WEREAD_PUBLIC_REVIEW_IMAGE']='1'
     marker=b'\nWEREAD_REVIEW_CACHE_UI='
-    for mode,requests in (('online',2),('offline',0),('failure',1)):
+    modes=[('online',2),('offline',0),('failure',1)]
+    if not (args.thought or args.public_stdin):modes.append(('skill_failure',0))
+    for mode,requests in modes:
         result=subprocess.run([str(runtime/'luajit'),str(probe)],cwd=runtime,env=dict(env,WEREAD_REVIEW_CACHE_MODE=mode),
                               input=raw,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=90)
         (root/(mode+'.log')).write_bytes(result.stdout)

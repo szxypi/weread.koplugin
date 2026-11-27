@@ -60,8 +60,12 @@ local host = {library_db = {accountKey = function() return account end}, setting
     showBusy = function(self, _, cancel) self.busy_message = {}; self.cancel_busy = cancel end,
     closeBusy = function(self) self.busy_message = nil end,
     showInfo = function(self, message) info = info + 1; self.last_info = message end,
-    isNetworkOnline = function() return online end,
-    runOnlineTask = function(_, _, callback) pending[#pending + 1] = callback; return true end,
+    isNetworkConnected = function() return online end,
+    isNetworkOnline = function() error('latest reviews probed the Internet on the UI thread') end,
+    runOnlineTask = function(_, _, callback, _, options)
+        assert(options.link_only and options.silent_offline)
+        pending[#pending + 1] = callback; return true
+    end,
     showBookReviewDetail = function(self, _, review, _, options)
         self.selected_review = review; return {options = options}
     end}
@@ -142,6 +146,11 @@ online=true;source_error=nil
 expect(UI.open(host,{book_id='42',title='Book'},selected),'filter review open failed');schedule();tick()
 local latest=views[#views];local calls,writes=fetch_calls,cache_writes
 expect(latest.data.mode=='latest' and latest.data.native_filters and #latest.result.items==20,'latest filter missing')
+host.runOnlineTask=function() return false end
+latest.callbacks.on_load_more()
+expect(host._native_reviews_owner.view==latest and #started==0 and not host.busy_message,
+    'link loss during pagination replaced the visible reviews or read another cache')
+host.runOnlineTask=original_schedule
 latest.callbacks.on_switch('five_stars')
 local filtered=views[#views]
 expect(filtered~=latest and filtered.data.mode=='five_stars' and #filtered.result.items==10

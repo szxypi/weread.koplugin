@@ -3,6 +3,7 @@ local Source = require('weread.lib.native_book_reviews_source')
 local Data = require('weread.lib.native_book_reviews')
 local Recovery = require('weread.lib.native_read_recovery')
 local Cache = require('weread.lib.native_book_reviews_cache')
+local NetworkLink = require('weread.lib.network_link')
 local UI = require('ui/uimanager')
 local Util = require('weread.lib.plugin_util')
 local _,T = Util.tr,Util.T
@@ -235,10 +236,12 @@ function M.open(host, book, selected)
                 if not started_ok or not started then failed() end
             end
             launch()
-        end,nil,{silent_offline=true})
-        if scheduled == false and host._native_reviews_owner == owner then finish();show_cached() end
+        end,nil,{link_only=true,silent_offline=true})
+        if scheduled == false and owner.context == context then
+            if owner.view then failed() else finish();show_cached() end
+        end
     end
-    if not selected or not selected.native or type(host.isNetworkOnline)=='function' and not host:isNetworkOnline() then
+    if not selected or not selected.native or not NetworkLink.available(host) then
         show_cached()
     else
         fetch(Data.PAGE_SIZE)

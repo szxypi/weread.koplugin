@@ -7,6 +7,7 @@ G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang(
 local Device=require('device');require('document/canvascontext'):init(Device)
 local UI=require('ui/uimanager');local socket=require('socket');local json=require('json');local ffi=require('ffi')
 local public=os.getenv('WEREAD_PUBLIC_REVIEW_IMAGE')=='1'
+local skill_failure=mode=='skill_failure'
 local input=public and assert(json.decode(io.read('*a'))) or nil
 pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
 local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
@@ -15,7 +16,7 @@ local account='900000'
 local settings={data_dir=home,get=function(_self,key,default)
     if key=='account' then return {user_vid=account} end
     return default
-end,is_api_configured=function() return false end}
+end,is_api_configured=function() return skill_failure end}
 local client={json_encode=function(_self,v) return json.encode(v) end,json_decode=function(_self,v) return json.decode(v) end}
 local image_url=public and input.url or 'https://weread-picture-1258476243.file.myqcloud.com/synthetic-review.png'
 client.request=function(_self,options)
@@ -54,13 +55,32 @@ Source.fetch_replies=function(c,id,review,limit,previous,_selected,_recover,kind
     return require('weread.lib.native_review_replies').project(c,
         {reviewId=review,review={reviewId=review,bookId=id,type=kind},comments=comments},id,review,limit,previous,kind)
 end
+if skill_failure then
+    local gateway=require('weread.lib.gateway_book_reviews_source')
+    local skill={api_key='synthetic-only'}
+    gateway.capture=function() return skill end
+    gateway.matches=function(_,access) return access==skill end
+    gateway.fetch=function(_,id,tab)
+        assert(id=='42' and tab=='recommended');calls[3]=calls[3]+1
+        error('gateway_reviews/unavailable',0)
+    end
+end
 local host={settings=settings,client=client,library_db=library,_book_detail_view={},discovery_epoch=1,
     _reader_session_gen=1,ui={document={}}}
-function host:isNetworkOnline() return mode~='offline' end
+local parent=tonumber(ffi.C.getpid())
+function host:isNetworkConnected() return mode~='offline' end
+function host:isNetworkOnline()
+    assert(tonumber(ffi.C.getpid())~=parent,'book reviews used a synchronous Internet check')
+    return mode=='online'
+end
+function host:requireLogin() return skill_failure end
 function host:showBusy(_text,cancel) self.busy_message={};self.cancel_busy=cancel end
 function host:closeBusy() self.busy_message=nil end
 function host:showInfo() error('unexpected_info') end
-function host:runOnlineTask(_label,fn) UI:scheduleIn(.01,fn);return true end
+function host:runOnlineTask(_label,fn,_delay,options)
+    assert(options.link_only and options.silent_offline)
+    UI:scheduleIn(.01,fn);return true
+end
 host.showBookReviewDetail=require('weread.ui.library').showBookReviewDetail
 local function wait(test)
     local until_time=socket.gettime()+35
@@ -77,6 +97,8 @@ else
     assert(#view.result.items==40 and not view.result.has_more and #view._review_buttons==40)
     assert(calls[0]==(mode=='failure' and 1 or 0))
 end
+assert(calls[3]==(skill_failure and 1 or 0) and not host._gateway_reviews_owner,
+    'Skill fallback retried or retained an old review owner')
 view._review_buttons[1].callback()
 local detail=assert(host._native_reviews_owner.detail)
 assert(detail.text:find('合成书评 1',1,true) and detail.buttons_table)

@@ -56,11 +56,15 @@ local ok = pcall(function()
         or {accountKey = function() return 'volatile-account' end}
     local host = {settings = settings, client = client, library_db = library,
         _book_detail_view = {}, discovery_epoch = 1, _reader_session_gen = 1, ui = {document = {}}}
-    function host:isNetworkOnline() return cache_mode~='offline' end
+    function host:isNetworkConnected() return cache_mode~='offline' end
+    function host:isNetworkOnline() error('replies used synchronous Internet reachability',0) end
     function host:showBusy(_, cancel) self.busy_message = {}; self.cancel_busy = cancel end
     function host:closeBusy() self.busy_message = nil end
     function host:showInfo() error('review_ui_failed', 0) end
-    function host:runOnlineTask(_, fn) UI:scheduleIn(0.01, fn); return true end
+    function host:runOnlineTask(_, fn, _delay, options)
+        assert(options.link_only and options.silent_offline)
+        UI:scheduleIn(0.01, fn); return true
+    end
     host.showBookReviewDetail = require('weread.ui.library').showBookReviewDetail
     local function wait(predicate)
         local deadline = socket.gettime() + 30

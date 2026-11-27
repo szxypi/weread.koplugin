@@ -56,11 +56,15 @@ local Replies = require('weread.ui.native_review_replies')
 local info, current, account, online = nil, true, 'a', true
 local parent = {selected = selected, detail = {}}
 local host = {settings = {}, client = {}, _native_reviews_owner = parent,
-    library_db={accountKey=function() return account end},isNetworkOnline=function() return online end,
+    library_db={accountKey=function() return account end},isNetworkConnected=function() return online end,
+    isNetworkOnline=function() error('replies probed the Internet on the UI thread') end,
     showBusy = function(self, _, cancel) self.busy_message = {}; self.cancel_busy = cancel end,
     closeBusy = function(self) self.busy_message = nil end,
     showInfo = function(_, value) info = value end,
-    runOnlineTask = function(_, _, fn) pending[#pending + 1] = fn; return true end}
+    runOnlineTask = function(_, _, fn, _, options)
+        assert(options.link_only and options.silent_offline)
+        pending[#pending + 1] = fn; return true
+    end}
 local book, review = {book_id = '42', title = 'Book'}, {review_id = 'review_1'}
 local function parent_current() return current end
 local function open() return Replies.open(host, parent, book, review, parent.detail, parent_current) end
@@ -75,6 +79,12 @@ expect(first.data.title_text == 'Review replies' and #first.result.items == 20 a
 first.callbacks.on_select(first.result.items[1])
 expect(host._native_review_replies_owner.viewer.text:find('Reply 1', 1, true), 'long reply viewer did not open')
 host._native_review_replies_owner.viewer.close_callback()
+local schedule_online=host.runOnlineTask
+host.runOnlineTask=function() return false end
+first.callbacks.on_load_more()
+expect(host._native_review_replies_owner.view==first and #started==0 and not host.busy_message,
+    'link loss during pagination replaced the visible replies or read another cache')
+host.runOnlineTask=schedule_online
 first.callbacks.on_load_more(); schedule(); tick()
 expect(#views[#views].result.items == 40 and not views[#views].result.has_more and closed > 0, 'pagination failed')
 views[#views].callbacks.on_close(); expect(not host._native_review_replies_owner, 'close did not cancel owner')

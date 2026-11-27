@@ -11,8 +11,9 @@ end
 package.preload['ui/uimanager'] = empty
 local native_opens, gateway_opens, native_cancels, gateway_cancels = 0, 0, 0, 0
 local native_cache=false
+local captures=0
 local native_selected, gateway_selected = {native = {}}, {api_key = 'synthetic'}
-package.preload['weread.lib.native_book_reviews_source'] = function() return {capture = function() return native_selected end} end
+package.preload['weread.lib.native_book_reviews_source'] = function() return {capture = function() captures=captures+1;return native_selected end} end
 package.preload['weread.lib.gateway_book_reviews_source'] = function() return {capture = function() return gateway_selected end} end
 package.preload['weread.ui.native_book_reviews'] = function()
     return {cancel = function() native_cancels = native_cancels + 1 end,
@@ -27,7 +28,8 @@ local Library = require('weread.ui.library')
 local configured, allowed, info, online = false, true, nil, true
 local host = {settings = {is_api_configured = function() return configured end},
     requireLogin = function() return allowed end, showInfo = function(_, message) info = message end,
-    isNetworkOnline = function() return online end}
+    isNetworkConnected = function() return online end,
+    isNetworkOnline = function() error('review entry probed the Internet on the UI thread') end}
 for key, value in pairs(Library) do if host[key] == nil then host[key] = value end end
 local book = {book_id = '42'}
 assert(host:showBookReviews(book) and native_opens == 1 and gateway_opens == 0, 'native route lost')
@@ -38,7 +40,9 @@ assert(not host:showBookReviews(book) and gateway_opens == 1, 'missing authoriza
 native_cache=true
 assert(host:showBookReviews(book) and gateway_opens==1,'cached reviews required native authorization')
 configured=true;online=false
-assert(host:showBookReviews(book) and gateway_opens==1,'offline Skill route skipped saved native reviews')
+local before_offline=captures
+assert(host:showBookReviews(book) and gateway_opens==1 and captures==before_offline,
+    'offline Skill route skipped saved native reviews or read authorization unnecessarily')
 native_cache=false;online=true
 configured = true; allowed = true; gateway_selected = nil
 assert(not host:showBookReviews(book) and info == 'Book review authorization changed. Please sign in again.',

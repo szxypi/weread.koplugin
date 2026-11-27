@@ -1,5 +1,6 @@
 -- Owner-bound Skill review list. HTTPS and response projection stay in a worker.
 local Source = require('weread.lib.gateway_book_reviews_source')
+local NativeData = require('weread.lib.native_book_reviews')
 local UI = require('ui/uimanager')
 local _ = require('weread.lib.plugin_util').tr
 local M = {}
@@ -104,9 +105,16 @@ function M.open(host, book, selected)
         if more and (not previous or not previous.has_more) then return end
         if not more and owner.cache[mode] then render(mode, owner.cache[mode], old_view, false); return end
         local context = {}; owner.context = context
-        local function failed()
+        local function failed(try_saved)
             if owner.context ~= context then return end
             stop(host, owner)
+            if try_saved and not owner.view and owner.account and NativeData.book_id(id) and current() then
+                M.cancel(host)
+                -- No selected source is the cache-only mode. Do not retry
+                -- the Skill request or start another HTTP review request.
+                require('weread.ui.native_book_reviews').open(host, book)
+                return
+            end
             host:showInfo(_('Could not load book reviews. Please try again.'))
             if not owner.view then M.cancel(host) end
         end
@@ -120,7 +128,9 @@ function M.open(host, book, selected)
         local function complete(value)
             if owner.context ~= context then return end
             if not current() then if host._gateway_reviews_owner == owner then M.cancel(host) end return end
-            if type(value) ~= 'table' or value.ok ~= true or type(value.page) ~= 'table' then failed(); return end
+            if type(value) ~= 'table' or value.ok ~= true or type(value.page) ~= 'table' then
+                failed(type(value)=='table' and value.unavailable); return
+            end
             stop(host, owner); owner.cache[mode] = value.page
             render(mode, value.page, old_view, more)
         end
@@ -134,13 +144,13 @@ function M.open(host, book, selected)
             owner.worker = worker
             local started_ok, started = pcall(worker.start, worker, function()
                 local valid, page = pcall(Source.fetch, host.client, id, mode, previous, owner.selected)
-                return valid and {ok = true, page = page} or {ok = false}
+                return valid and {ok = true, page = page}
+                    or {ok = false, unavailable = page == 'gateway_reviews/unavailable'}
             end, complete)
             if not started_ok or not started then failed() end
-        end)
+        end,nil,{link_only=true,silent_offline=true})
         if scheduled == false and owner.context == context then
-            stop(host, owner)
-            if not owner.view then M.cancel(host) end
+            failed(true)
         end
     end
     load('recommended')
