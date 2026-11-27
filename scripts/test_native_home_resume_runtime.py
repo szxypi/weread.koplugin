@@ -61,14 +61,24 @@ def run(runtime):
                     for mode in ('record_alternative', 'record_suspended', 'quick_home', 'quick_shelf', 'quick_store',
                                  'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
-                                 'detail_damage', 'downloads_choose', 'quick_choose', 'switch'):
+                                 'detail_damage', 'downloads_choose', 'quick_choose',
+                                 'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all', 'switch'):
                         receipt = path.parent/'receipt.txt'
                         original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'no_alternative') else None
-                        missing = path if mode == 'shelf_damage' else alternative if mode == 'no_alternative' else None
+                        repair = mode in ('downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all')
+                        missing = []
+                        if mode in ('shelf_damage', 'downloads_missing_all'):
+                            missing.append(path)
+                        if mode == 'no_alternative' or repair:
+                            missing.append(alternative)
+                        marker = alternative.parents[2] / ('.native-presence-' + alternative.parents[1].name)
+                        stale = 'native-presence-v1\nkey=' + alternative.parent.name + '\ncopy=0\n'
+                        if repair:
+                            marker.write_text(stale)
                         if original is not None:
                             receipt.write_bytes(original+b'corrupt')
-                        if missing:
-                            missing.rename(missing.with_suffix('.hidden'))
+                        for hidden in missing:
+                            hidden.rename(hidden.with_suffix('.hidden'))
                         case = dict(mode=mode, path=str(alternative if mode == 'record_alternative' else path),
                                     alternative=str(alternative))
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),
@@ -78,9 +88,13 @@ def run(runtime):
                         if original is not None:
                             assert receipt.read_bytes() == original+b'corrupt'
                             receipt.write_bytes(original)
-                        if missing:
-                            assert not missing.exists()
-                            missing.with_suffix('.hidden').rename(missing)
+                        for hidden in missing:
+                            assert not hidden.exists()
+                            hidden.with_suffix('.hidden').rename(hidden)
+                        if repair:
+                            expected = stale if mode != 'downloads_repair' else stale.replace(
+                                alternative.parent.name, path.parent.name)
+                            assert marker.read_text() == expected
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:

@@ -15,21 +15,27 @@ local function owned(record, account)
         or record._library_account_key == nil and (record.home_recent_account or record.recent_read_account) == account)
 end
 
-local function collect(host)
+local function collect(host, current)
     local account = host.library_db and host.library_db:accountKey()
     if not account then return {} end
     local saved = host.settings:get('books', {})
     local shelf = host.library_db:getShelf() or {}
     local rows, seen = {}, {}
     local function append(id, source)
-        if not id or seen[id] or not host:isBookDownloaded(source, saved) then return end
+        if not id or seen[id] then return end
         local row = Data.book(source)
         if not row then return end
         seen[id] = true
+        local record, conflict = ReadAccess.cached_book(saved, id)
+        if conflict then return end
+        local downloaded = host:bookRecordHasDownload(record)
+        local native_cached = not downloaded and host:nativeChapterCachePresent(id, current)
+        if not (downloaded or native_cached) then return end
         row.bookId = id
         if row.title == '' then row.title = id end
         if row.author == '' and type(source.authors)=='string' then row.author = source.authors end
         row._cached = true
+        row._native_cached_hint = native_cached or nil
         rows[#rows + 1] = row
     end
     for _, book in ipairs(shelf) do
@@ -51,15 +57,18 @@ end
 
 local function show_detail(host, book)
     local record, conflict = ReadAccess.load_cached_book(host.settings, book.bookId)
-    if conflict or not (host:bookRecordHasDownload(record) or host:nativeChapterCachePresent(book.bookId)) then
+    local downloaded = not conflict and host:bookRecordHasDownload(record)
+    local native_cached = not conflict and (book._native_cached_hint or host:nativeChapterCachePresent(book.bookId))
+    if not (downloaded or native_cached) then
         host:showInfo(_('No cached file.'))
         return
     end
-    if not owned(record, host.library_db:accountKey()) then return host:showBookMenu(book) end
     local detail = {}
-    for key,value in pairs(record) do detail[key] = value end
-    for key,value in pairs(book) do detail[key] = value end
-    return host:showBookMenu(detail)
+    if owned(record, host.library_db:accountKey()) then
+        for key,value in pairs(record) do detail[key] = value end
+    end
+    for key,value in pairs(book) do if key~='_native_cached_hint' then detail[key] = value end end
+    return host:showBookMenu(detail,{read_saved_native=not downloaded and native_cached})
 end
 
 local function show_actions(host, book, view, current)
@@ -77,7 +86,7 @@ local function show_actions(host, book, view, current)
     dialog = require('ui/widget/buttondialog'):new{
         title = book.title, buttons = {
             {{text = _('Read downloaded copy'), callback = action(function()
-                host:readFromBookList(book, view, current, true)
+                host:readFromBookList(Data.book(book), view, current, true, book._native_cached_hint)
             end)}},
             {{text = _('Book details'), callback = action(function() show_detail(host, book) end)}},
             {{text = _('Cancel'), callback = action()}},
@@ -149,7 +158,7 @@ load = function(host, query, page)
     host._download_library_job = job
     host:showBusy(_('Loading downloaded books…'), function() M.cancel(host) end)
     job.busy = host.busy_message
-    local started = worker:start(function() return { rows=collect(host) } end, function(result)
+    local started = worker:start(function() return { rows=collect(host, current) } end, function(result)
         if host._download_library_job ~= job then return end
         local live = not host._weread_suspended and current()
         M.cancel(host)

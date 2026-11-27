@@ -246,7 +246,8 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
         old_output=package.loaded['weread.lib.notes_export_file']
         package.loaded['weread.lib.notes_export_file']={create=function() return nil end}
     end
-    local rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==(input.expected_rows or 3))
+    local rows,available=cache.list(settings,scope.vid,'42',function() return true end)
+    assert(rows and #rows==(input.expected_rows or 3) and available,'listing failed to recognize usable files')
     if input.mode=='presence_unwritable' then
         assert(not cache.present(settings,scope.vid,'42'),'failed index write claimed success')
         package.loaded['weread.lib.notes_export_file']=old_output

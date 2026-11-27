@@ -349,7 +349,8 @@ local function save_presence(...)
     return ok and result==true
 end
 
--- List bounded metadata only; a selected file is fully checked by open().
+-- List bounded metadata only; a selected file is fully checked by open(). A
+-- full listing also returns whether it found a copy, even if its marker failed to save.
 -- Missing/corrupt sidecars and old pre-index files are left untouched.
 -- A single chapter uses its filename; a set is matched against entry records.
 function M.list(settings,account,book_id,current,selection)
@@ -361,7 +362,7 @@ function M.list(settings,account,book_id,current,selection)
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return {} end
     local selected_file=chapter_uid and '/'..filename(book_id,chapter_uid)
-    local ok,result=pcall(function()
+    local ok,result,available=pcall(function()
         if type(current)~='function' or current()~=true then return nil end
         local rows,count={},0
         for name in lfs.dir(book_dir) do
@@ -398,16 +399,23 @@ function M.list(settings,account,book_id,current,selection)
         end)
         -- A full listing can repair the badge from any usable chapter.
         -- Opening a verified result can also repair its presence marker.
-        if selection==nil and not M.present(settings,account,book_id) then
-            if current()~=true then return nil end
-            for index,entry in ipairs(rows) do
-                if index%32==0 and current()~=true then return nil end
-                if candidate_present(lfs,book_dir,entry) then save_presence(settings,account,book_id,entry,current);break end
+        local present
+        if selection==nil then
+            present=M.present(settings,account,book_id)
+            if not present then
+                if current()~=true then return nil end
+                for index,entry in ipairs(rows) do
+                    if index%32==0 and current()~=true then return nil end
+                    if candidate_present(lfs,book_dir,entry) then
+                        present=true;save_presence(settings,account,book_id,entry,current);break
+                    end
+                end
             end
         end
-        return current()==true and rows or nil
+        if current()~=true then return nil end
+        return rows,present
     end)
-    return ok and result or nil
+    if ok then return result,available end
 end
 
 local function reserved_room(capacity,lfs,book_dir)

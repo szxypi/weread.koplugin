@@ -430,14 +430,21 @@ function M:bookRecordHasDownload(record)
     return false
 end
 
-function M:nativeChapterCachePresent(book_id)
+function M:nativeChapterCachePresent(book_id, repair_current)
     if not self.settings.get_auth_scope or not self.settings.auth_scope_matches
         or not self.library_db or not self.library_db.accountKey then return false end
     local scope=self.settings:get_auth_scope()
     if not scope or type(scope.vid)~='string' or not self.settings:auth_scope_matches(scope) then return false end
     local owner=require('weread.lib.crypto').sha256_hex('weread-library:'..scope.vid):sub(1,20)
     if self.library_db:accountKey()~=owner then return false end
-    return require('weread.lib.native_direct_cache').present(self.settings,scope.vid,book_id)
+    local cache=require('weread.lib.native_direct_cache')
+    local present=cache.present(self.settings,scope.vid,book_id)
+    if present or not repair_current then return present end
+    -- The downloaded-books worker alone can scan for a replacement marker.
+    local _,available=cache.list(self.settings,scope.vid,book_id,function()
+        return repair_current() and self.settings:auth_scope_matches(scope) and self.library_db:accountKey()==owner
+    end)
+    return available==true
 end
 
 function M:isBookDownloaded(book, saved_books, downloaded_cache)

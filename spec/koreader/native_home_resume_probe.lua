@@ -84,6 +84,16 @@ else
     for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
     if input.mode=='switch' then
         assert(not selected,'other account saw native home history')
+        require('weread.ui.download_library').show(host)
+        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        assert(#host.shelf_view.books==0,'other account saw a saved EPUB on the downloads page')
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        os.exit(0)
+    end
+    if input.mode=='downloads_missing_all' then
+        require('weread.ui.download_library').show(host)
+        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        assert(#host.shelf_view.books==0,'the stale marker showed a book without saved EPUBs')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         os.exit(0)
     end
@@ -95,9 +105,10 @@ else
     local message
     local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage' or input.mode=='no_alternative'
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
-    local downloads=input.mode=='downloads' or input.mode=='downloads_choose'
+    local repair=input.mode=='downloads_repair' or input.mode=='downloads_repair_unwritable'
+    local downloads=input.mode=='downloads' or input.mode=='downloads_choose' or repair
     local quick=input.mode=='quick_home' or input.mode=='quick_shelf' or input.mode=='quick_store' or input.mode=='quick_choose'
-    local choose=input.mode=='downloads_choose' or input.mode=='quick_choose'
+    local choose=input.mode=='downloads_choose' or input.mode=='quick_choose' or repair
     if damage then host.showInfo=function(_,text) message=text end end
     if shelf then
         -- Book details use the device link state, without a live DNS probe.
@@ -115,6 +126,13 @@ else
     end
     if downloads or quick then
         if choose then assert(host.settings:patch_reading_state(id,{native_home_resume=false})) end
+        if input.mode=='downloads_repair_unwritable' then
+            local files=require('weread.lib.notes_export_file');local create=files.create
+            files.create=function(directory,label,extension)
+                if label=='native-presence' then return nil end
+                return create(directory,label,extension)
+            end
+        end
         if downloads then
             require('weread.ui.download_library').show(host)
             pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
@@ -130,10 +148,21 @@ else
         require('ui/network/manager').isConnected=function() return false end
         local rejected=false
         host.showOffline=function() rejected=true end
-        view.on_hold(cached)
-        local button=assert(view._shelf_popup).buttons[1][1]
-        assert(button.text==require('weread.lib.plugin_util').tr(downloads and 'Read downloaded copy' or 'Read now'))
-        button.callback()
+        if input.mode=='downloads_repair_unwritable' then
+            view.on_select(cached,'books')
+            local detail=assert(host._book_detail_view,'repaired book could not open its local details')
+            UI:forceRePaint()
+            local action
+            for _,button in ipairs(detail._footer_actions) do
+                if button.text==require('weread.lib.plugin_util').tr('▤ Read') then action=button;break end
+            end
+            assert(action,'the recovered book had no primary action'):onTapFooterAction()
+        else
+            view.on_hold(cached)
+            local button=assert(view._shelf_popup).buttons[1][1]
+            assert(button.text==require('weread.lib.plugin_util').tr(downloads and 'Read downloaded copy' or 'Read now'))
+            button.callback()
+        end
         pump(function() return rejected or Reader.instance or host._native_home_resume or host._native_direct_reading end)
         assert(not rejected,'browse shortcut reported offline despite the saved E-Ink chapter')
         if choose then

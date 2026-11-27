@@ -1465,7 +1465,7 @@ function M:cancelBookMetadata()
     return require("weread.ui.book_metadata").cancel(self)
 end
 
-function M:showBookMenu(book)
+function M:showBookMenu(book, options)
     local book_id = ShelfSnapshot.persisted_id(book)
     if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
     local saved,conflict=ReadAccess.load_cached_book(self.settings,book_id)
@@ -1525,7 +1525,8 @@ function M:showBookMenu(book)
     if book.progress and book.progress > 0 then
         statuses[#statuses + 1] = T(_("Progress %1%"), tostring(book.progress))
     end
-    local direct_cached=self.nativeChapterCachePresent and self:nativeChapterCachePresent(book_id)
+    local direct_cached=options and options.read_saved_native
+        or self.nativeChapterCachePresent and self:nativeChapterCachePresent(book_id)
     if not direct_cached or any_cached_chapter or is_full_cached then statuses[#statuses + 1] = chapter_status end
     if direct_cached then
         statuses[#statuses+1]=_('E-Ink chapters saved')
@@ -1693,7 +1694,7 @@ function M:showBookMenu(book)
             end
         end)}
     end
-    local native_resume_action
+    local native_resume_action, download_native_action
     if require('weread.lib.native_position_protocol').id(book_id) then
         local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
         if resume and resume.can_resume(self,saved,book_id) then
@@ -1713,9 +1714,11 @@ function M:showBookMenu(book)
         actions[#actions+1]={text=_('Download E-Ink chapters'),callback=self:safeCallback(_('Download E-Ink chapters'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{batch=true}) end
         end)}
-        actions[#actions+1]={text=_('Read saved E-Ink chapter'),callback=self:safeCallback(_('Read saved E-Ink chapter'),function()
+        local read_saved_native=self:safeCallback(_('Read saved E-Ink chapter'),function()
             if self._book_detail_view==view then require('weread.ui.native_direct_reading').start(self,book,view,{cached=true}) end
-        end)}
+        end)
+        actions[#actions+1]={text=_('Read saved E-Ink chapter'),callback=read_saved_native}
+        if options and options.read_saved_native then download_native_action=read_saved_native end
         local native_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
         if native_scope and require('weread.lib.native_direct_cache').book_directory(self.settings,native_scope.vid,detail_id) then
             actions[#actions+1]={text=_('Clear unused E-Ink chapters'),callback=self:safeCallback(_('Clear unused E-Ink chapters'),function()
@@ -1758,7 +1761,7 @@ function M:showBookMenu(book)
         },
         {
             text = native_resume_action and _('▤ Continue reading') or _("▤ Read"),
-            callback = native_resume_action or self:safeCallback(_("Read"), function()
+            callback = native_resume_action or download_native_action or self:safeCallback(_("Read"), function()
                 self:startBookReading(book, view)
             end),
         },
@@ -2713,7 +2716,7 @@ function M:readCachedCopy(book,view)
     return false
 end
 
-function M:readFromBookList(book, view, current, cached_only)
+function M:readFromBookList(book, view, current, cached_only, native_cached)
     if self.shelf_view ~= view or not current() then return false end
     local id = ShelfSnapshot.persisted_id(book)
     if not id then return false end
@@ -2725,8 +2728,8 @@ function M:readFromBookList(book, view, current, cached_only)
     local resume = record and record.native_home_resume and require('weread.ui.native_home_resume')
     if resume and resume.can_resume(self, record, id) then return resume.open(self, record, id, view, current) end
     local cached = self:bookRecordHasDownload(record)
-    if not cached and self:nativeChapterCachePresent(id) then
-        local detail = self:showBookMenu(book)
+    if not cached and (cached_only and native_cached or self:nativeChapterCachePresent(id)) then
+        local detail = self:showBookMenu(book,{read_saved_native=cached_only==true})
         return detail and require('weread.ui.native_direct_reading').start(self, book, detail, {cached=true}) or false
     end
     if not cached_only then return self:startBookReading(book, nil, {current=current}) end
