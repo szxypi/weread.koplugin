@@ -98,4 +98,33 @@ expect(store:remove_search(entry.keyword,new_generation)=='changed' and not stor
 for i=1,10 do oversized.keyword='Budget '..i;assert(store:write(oversized)) end
 rawdb=library:open();expect(tonumber(rawdb:rowexec('SELECT SUM(length(CAST(payload AS BLOB))) FROM discovery_cache'))<=Cache.MAX_TOTAL);rawdb:close()
 expect(store:read{kind='search',keyword='Budget 1'}==nil and store:read{kind='search',keyword='Budget 10'}~=nil)
+local function search(kind,cursor)
+    local item=state('search',cursor);item.keyword='Shared search';item.source_kind=kind
+    item.books[1].bookId=kind..'-'..tostring(item.cursor)
+    return item
+end
+local public_first=search('public')
+public_first._cache_generation=assert(store:write(public_first))
+-- Simulate an installed profile with a public result under the old shared key.
+rawdb=library:open()
+local move=rawdb:prepare('UPDATE discovery_cache SET cache_key=? WHERE cache_key=?')
+move:bind(Cache.key(public_first),Cache.key(public_first,true)):step();move:close();rawdb:close()
+expect(store:read({kind='search',keyword='Shared search',public_only=true},0).books[1].bookId=='public-0')
+local ordinary_first=search('native')
+ordinary_first._cache_generation=assert(store:write(ordinary_first))
+local standard_query={kind='search',keyword='Shared search'}
+local native_query={kind='search',keyword='Shared search',source_kind='native'}
+local public_query={kind='search',keyword='Shared search',source_kind='public'}
+expect(store:read(standard_query,0).books[1].bookId=='native-0' and store:read(public_query,0).books[1].bookId=='public-0')
+local public_second=search('public',20);public_second._cache_generation=assert(store:write(public_second,public_first,true))
+expect(store:read(public_query,20).books[1].bookId=='public-20' and not store:read(native_query,20)
+    and not store:read(standard_query,20))
+local ordinary_second=search('native',20);ordinary_second._cache_generation=assert(store:write(ordinary_second,ordinary_first,true))
+expect(store:read(native_query,20).books[1].bookId=='native-20' and store:read(public_query,20).history[1]==0)
+local entries=assert(store:search_entries())
+expect(entries[1].keyword=='Shared search' and entries[1].source_kind=='native'
+    and entries[2].keyword==entries[1].keyword and entries[2].source_kind=='public')
+expect(store:remove_search('Shared search',public_second._cache_generation,'native')=='changed')
+expect(store:remove_search('Shared search',public_second._cache_generation,'public')=='deleted'
+    and store:read(native_query,20) and not store:read(public_query,0))
 print('PASS: discovery SQLite cache; '..checks..' checks')

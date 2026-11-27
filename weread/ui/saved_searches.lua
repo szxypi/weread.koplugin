@@ -4,7 +4,8 @@ local CacheUI=require('weread.ui.discovery_cache')
 local Popup=require('weread.ui.shelf_popup')
 local Scope=require('weread.ui.page_scope')
 local UI=require('ui/uimanager')
-local _=require('weread.lib.plugin_util').tr
+local Util=require('weread.lib.plugin_util')
+local _,T=Util.tr,Util.T
 local M={}
 
 function M.cancel(host)
@@ -22,10 +23,11 @@ local function show(host,owner,scope,items)
     local rows={}
     for _index,entry in ipairs(items) do
         local keyword=entry.keyword
-        rows[#rows+1]={text=keyword,saved_entry=entry,callback=function()
+        local text=entry.source_kind=='public' and T(_('Public search: %1'),keyword) or keyword
+        rows[#rows+1]={text=text,saved_entry=entry,callback=function()
             if not current() then return end
             host._discovery_menu=nil;Popup.close(owner)
-            if not CacheUI.open(host,{kind='search',keyword=keyword},0) then
+            if not CacheUI.open(host,{kind='search',keyword=keyword,source_kind=entry.source_kind},0) then
                 host:showInfo(_('This saved search is no longer available. Search again to refresh it.'))
             end
         end}
@@ -53,7 +55,7 @@ local function show(host,owner,scope,items)
                 host:showBusy(_('Removing saved search…'),function() M.cancel(host) end);job.busy=host.busy_message
                 local started,running=pcall(host.saved_searches_worker.start,host.saved_searches_worker,function()
                     if account~=host.library_db:accountKey() then return {status='changed'} end
-                    return {status=Cache:new(host.library_db,host.client):remove_search(entry.keyword,entry.generation)}
+                    return {status=Cache:new(host.library_db,host.client):remove_search(entry.keyword,entry.generation,entry.source_kind)}
                 end,function(result)
                     if not live() then if host.saved_searches_job==job then M.cancel(host) end;return end
                     M.cancel(host)
@@ -122,10 +124,12 @@ function M.open(host,input)
             for index=1,#value.items do
                 local entry=value.items[index]
                 if type(entry)~='table' or type(entry.generation)~='string' or #entry.generation~=32
-                    or not entry.generation:match('^[a-f0-9]+$') then error('invalid') end
+                    or not entry.generation:match('^[a-f0-9]+$')
+                    or entry.source_kind~='native' and entry.source_kind~='gateway' and entry.source_kind~='public' then error('invalid') end
                 local keyword=Cache.query{kind='search',keyword=entry.keyword}.keyword
-                if seen[keyword] then error('invalid') end
-                seen[keyword]=true;out[#out+1]={keyword=keyword,generation=entry.generation}
+                local key=Cache.key({kind='search',keyword=keyword},entry.source_kind=='public')
+                if seen[key] then error('invalid') end
+                seen[key]=true;out[#out+1]={keyword=keyword,generation=entry.generation,source_kind=entry.source_kind}
             end
             return out
         end)

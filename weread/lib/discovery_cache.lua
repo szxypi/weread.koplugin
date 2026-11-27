@@ -28,9 +28,11 @@ function M.query(value)
     elseif query.kind~='recommend' then fail() end
     return query
 end
-function M.key(value)
+function M.key(value, public_search)
     local query=M.query(value)
-    return Crypto.sha256_hex(query.kind..'\0'..(query.keyword or query.book_id or query.category_id or '')..'\0'..tostring(query.rank or false))
+    local identity=query.kind..'\0'..(query.keyword or query.book_id or query.category_id or '')..'\0'..tostring(query.rank or false)
+    if query.kind=='search' and public_search then identity=identity..'\0public' end
+    return Crypto.sha256_hex(identity)
 end
 local function books(value)
     if not array(value,100) then fail() end
@@ -119,12 +121,37 @@ local function read(self,db,key)
     if key then row=statement(db,sql..' WHERE cache_key=?',M.MAX_PAYLOAD,key)
     else row=statement(db,sql..' ORDER BY serial DESC LIMIT 1',M.MAX_PAYLOAD) end
     if not row or type(row[1])~='string' then return nil end
-    local value=M.validate(self.codec:json_decode(row[1]));if M.key(value.query)~=row[2] then fail() end
+    local value=M.validate(self.codec:json_decode(row[1]))
+    -- Accept the original key for public searches saved by older versions.
+    if M.key(value.query,value.source_kind=='public')~=row[2] and M.key(value.query)~=row[2] then fail() end
     return value
+end
+local function search(self,db,query)
+    local function get(key)
+        local ok,value=pcall(read,self,db,key)
+        if ok then return value end
+    end
+    local standard_key=M.key(query)
+    local source=query.source_kind
+    local standard
+    if not query.public_only and source~='public' then
+        standard=get(standard_key)
+        if standard and standard.source_kind~='public' and (not source or source==standard.source_kind) then
+            return standard,standard_key
+        end
+        if source then return nil end
+    end
+    local public_key=M.key(query,true)
+    local public=get(public_key)
+    if public then return public,public_key end
+    local legacy=standard or get(standard_key)
+    if legacy and legacy.source_kind=='public' then return legacy,standard_key end
 end
 function M:read(query,cursor)
     return run(self,function(db)
-        local value=read(self,db,query and M.key(query))
+        local value
+        if query and query.kind=='search' then value=search(self,db,query)
+        else value=read(self,db,query and M.key(query)) end
         return value and M.state(value,cursor)
     end)
 end
@@ -140,9 +167,12 @@ function M:search_entries()
             while row do
                 if type(row[1])=='string' then
                     local valid,value=pcall(function() return M.validate(self.codec:json_decode(row[1])) end)
-                    if valid and value.query.kind=='search' and M.key(value.query)==row[2]
-                        and not seen[value.query.keyword] then
-                        out[#out+1]={keyword=value.query.keyword,generation=value.generation};seen[value.query.keyword]=true
+                    if valid and value.query.kind=='search' then
+                        local key=M.key(value.query,value.source_kind=='public')
+                        if not seen[key] and (key==row[2] or M.key(value.query)==row[2]) then
+                            out[#out+1]={keyword=value.query.keyword,generation=value.generation,source_kind=value.source_kind}
+                            seen[key]=true
+                        end
                     end
                 end
                 row=stmt:step()
@@ -155,20 +185,24 @@ end
 function M:searches()
     local entries=self:search_entries()
     if not entries then return nil end
-    local out={};for _,entry in ipairs(entries) do out[#out+1]=entry.keyword end
+    local out,seen={},{}
+    for _,entry in ipairs(entries) do
+        if not seen[entry.keyword] then out[#out+1]=entry.keyword;seen[entry.keyword]=true end
+    end
     return out
 end
 
 -- Delete only the exact generation shown to the user. A refresh from another
 -- process must not be removed by a delayed confirmation.
-function M:remove_search(keyword,generation)
+function M:remove_search(keyword,generation,source_kind)
     if type(generation)~='string' or #generation~=32 or not generation:match('^[a-f0-9]+$') then return nil end
-    local valid,key=pcall(M.key,{kind='search',keyword=keyword})
+    local query={kind='search',keyword=keyword,source_kind=source_kind}
+    local valid=pcall(M.query,query)
     if not valid then return nil end
     return run(self,function(db,begin,commit)
         begin()
-        local saved=read(self,db,key)
-        if not saved or saved.query.kind~='search' or saved.query.keyword~=keyword or saved.generation~=generation then
+        local saved,key=search(self,db,query)
+        if not saved or saved.generation~=generation then
             commit();return 'changed'
         end
         statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',key)
@@ -176,18 +210,33 @@ function M:remove_search(keyword,generation)
     end)
 end
 function M:write(state,previous,continuation)
-    local projected=page(state);local query=M.query(state);local key=M.key(query)
+    local projected=page(state);local query=M.query(state)
+    local public_search=query.kind=='search' and state.source_kind=='public'
+    local key=M.key(query,public_search)
     return run(self,function(db,begin,commit)
         begin()
         local saved
         if continuation then
-            if not previous or previous.cached or not previous._cache_generation or M.key(previous)~=key
+            if not previous or previous.cached or not previous._cache_generation or M.key(previous,previous.source_kind=='public')~=key
                 or previous.source_kind~=state.source_kind or previous.source_revision~=state.source_revision then return nil end
             saved=read(self,db,key)
             if not saved or saved.generation~=previous._cache_generation then return nil end
         else
             if state.cursor~=0 then return nil end
             saved={schema=1,generation=nonce(),query=query,source_kind=state.source_kind,pages={},updated_at=state.loaded_at}
+            if query.kind=='search' then
+                local legacy_key=public_search and M.key(query) or key
+                local ok,legacy=pcall(read,self,db,legacy_key)
+                if ok and legacy and legacy.source_kind=='public' then
+                    if public_search then
+                        statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',legacy_key)
+                    else
+                        statement(db,[[INSERT OR IGNORE INTO discovery_cache(cache_key,payload,serial)
+                            SELECT ?,?,serial FROM discovery_cache WHERE cache_key=?]],
+                            M.key(query,true),self.codec:json_encode(legacy),legacy_key)
+                    end
+                end
+            end
         end
         local found=false
         for i,row in ipairs(saved.pages) do if row.cursor==state.cursor then saved.pages[i]=projected;found=true;break end end

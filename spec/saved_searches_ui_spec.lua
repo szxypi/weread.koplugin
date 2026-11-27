@@ -8,13 +8,14 @@ package.preload['ui/uimanager']=function() return {
     nextTick=function(_self,callback) callback() end,
 } end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,opts) return opts end} end
-package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
+package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end,
+    T=function(pattern,value) return (pattern:gsub('%%1',function() return value end)) end} end
 local opened={};local open_ok=true
 package.preload['weread.ui.discovery_cache']=function() return {open=function(_host,query,cursor)
     opened[#opened+1]={query=query,cursor=cursor};return open_ok
 end} end
 local Saved=require('weread.ui.saved_searches')
-local function entry(keyword) return {keyword=keyword,generation=string.rep('a',32)} end
+local function entry(keyword,source) return {keyword=keyword,generation=string.rep('a',32),source_kind=source or 'native'} end
 local owner={};local account='account-a';local info,menu,cancelled=nil,nil,0
 local worker={start=function(self,task,callback) self.task=task;self.callback=callback;return true end,
     cancel=function() cancelled=cancelled+1 end}
@@ -89,4 +90,10 @@ expect(Saved.open(host));local replacement=host.saved_searches_job
 old_menu:onCloseWidget()
 expect(host.saved_searches_job==replacement,'late old-menu close cancelled a newer search')
 Saved.cancel(host)
+expect(Saved.open(host));worker.callback({ok=true,items={entry('Same'),entry('Same','public')}})
+expect(menu.item_table[1].text=='Same' and menu.item_table[2].text=='Public search: Same',
+    'different saved sources with the same term were collapsed or mislabeled')
+menu.item_table[2].callback()
+expect(opened[#opened].query.source_kind=='public' and opened[#opened].query.keyword=='Same',
+    'public saved row opened the ordinary source')
 print('saved_searches_ui_spec: '..checks..' checks')

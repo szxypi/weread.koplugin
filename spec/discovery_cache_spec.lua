@@ -38,6 +38,8 @@ for _,query in ipairs({{kind='recommend'},{kind='search',keyword='三体'},
 end
 expect(Cache.key(snapshot().query)==Cache.key{kind='similar',book_id='900100',book_title='New title'},'display title changed identity')
 expect(Cache.key{kind='search',keyword='foo'}~=Cache.key{kind='search',keyword='foobar'},'query collision')
+local same_word={kind='search',keyword='foo'}
+expect(Cache.key(same_word)~=Cache.key(same_word,true),'public and ordinary searches shared a cache key')
 expect(Cache.key{kind='category',category_id='a',category_title='A',rank=true}~=Cache.key{kind='category',category_id='a',category_title='A',rank=false},'rank collision')
 for _,change in ipairs({'generation','books','duplicate','cursor','time','more','missing_first','limit','type'}) do
     local row=snapshot()

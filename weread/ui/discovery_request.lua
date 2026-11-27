@@ -8,10 +8,12 @@ local _=require("weread.lib.plugin_util").tr
 local M={}
 
 local function is_visible_batch(state,query,cursor)
+    local expected_source=query.public_only and 'public' or query.source_kind
     return state and state.cursor==cursor and state.kind==query.kind
         and state.keyword==query.keyword and state.book_id==query.book_id
         and state.category_id==query.category_id and state.rank==query.rank
-        and (not query.public_only or state.source_kind=='public')
+        and (query.kind~='search' or expected_source and state.source_kind==expected_source
+            or not expected_source and state.source_kind~='public')
 end
 
 function M.cancel(host)
@@ -29,9 +31,12 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     context=context or {}
     if context.account and context~=host.discovery_state then return end
     cursor=refresh and 0 or cursor or 0
+    local source_state=host.discovery_state
+    local binding=not refresh and (cursor>0 or previous) and (context.source_kind and context or source_state) or nil
     local public_search=kind=='search' and (context.public_search==true or context.source_kind=='public')
     local query={kind=kind,keyword=keyword,book_id=context.book_id,book_title=context.book_title,
-        category_id=context.category_id,category_title=context.category_title,rank=context.rank,public_only=public_search}
+        category_id=context.category_id,category_title=context.category_title,rank=context.rank,public_only=public_search,
+        source_kind=kind=='search' and binding and binding.source_kind or nil}
     local function offline()
         if Cache.open(host,query,cursor) then return true end
         host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
@@ -43,7 +48,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         if not selected then
             if kind=='search' and cursor==0 and not context.source_kind
                 and (reason=='native_required' or reason=='login_required' and not host.library_db:accountKey()) then
-                public_search=true;query.public_only=true
+                public_search=true
             elseif reason=="login_required" and host.qr_login then
                 host:showTransientInfo(_("Please scan the QR code to log in first."),2)
                 UIManager:scheduleIn(0.2,function() host.qr_login:start() end)
@@ -59,8 +64,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host:showInfo(_("Similar recommendations changed. Open similar books again."));return
     end
     local account=host.library_db:accountKey()
-    local epoch,source_state=host.discovery_epoch or 0,host.discovery_state
-    local binding=not refresh and (cursor>0 or previous) and (context.source_kind and context or source_state) or nil
+    local epoch=host.discovery_epoch or 0
     local request={kind=kind,keyword=keyword,cursor=cursor,book_id=book_id,session_id=session_id,
         category_id=context.category_id,rank=context.rank,
         source_kind=public_search and 'public' or binding and binding.source_kind,
@@ -91,7 +95,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     local launch
     local function fallback_public()
         if kind~='search' or request.cursor~=0 or request.source_kind or selected.api_key then return false end
-        public_search=true;query.public_only=true
+        public_search=true
         request.source_kind,request.source_revision='public','public'
         launch(false)
         return true

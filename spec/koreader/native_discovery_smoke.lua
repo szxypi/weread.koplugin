@@ -136,21 +136,35 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(plugin.discovery_state==saved and count("/api/agent/gateway","/book/recommend")==gateway_before,"rate failure fell back or discarded cache")
     UIManager:close(UIManager:getTopmostVisibleWidget())
     control{match="",delay=0,times=0}
+    plugin:loadDiscoveryBatch('search','测试作者',0,false,false,{public_search=true});wait()
+    assert(plugin.discovery_state.source_kind=='public' and #plugin.discovery_state.books==20)
+    press(plugin.shelf_view,'Next batch');wait()
+    assert(plugin.discovery_state.source_kind=='public' and plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6)
     plugin:closeWeReadUI()
     local online,connected=plugin.isNetworkOnline,plugin.isNetworkConnected
     plugin.isNetworkOnline,plugin.isNetworkConnected=function() return false end,function() return false end
-    local reads=count('/store/search')+count('/book/detailinfo')+count('/book/recommend')
+    local function requests()
+        return count('/store/search')+count('/book/detailinfo')+count('/book/recommend')+count('/web/search/global')
+            +count('/api/agent/gateway','/store/search')
+    end
+    local reads=requests()
     plugin.discovery_state=nil;plugin:showBookstore()
-    assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.cursor==20)
+    assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.source_kind=='public'
+        and plugin.discovery_state.cursor==20)
     press(plugin.shelf_view,'Previous batch');wait()
-    assert(plugin.discovery_state.cursor==0 and plugin.discovery_state.cached)
+    assert(plugin.discovery_state.cursor==0 and plugin.discovery_state.cached and plugin.discovery_state.source_kind=='public')
+    plugin:loadDiscoveryBatch('search','测试作者',0);wait()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.source_kind=='gateway' and plugin.discovery_state.cursor==0)
+    press(plugin.shelf_view,'Next batch');wait()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.source_kind=='gateway' and plugin.discovery_state.cursor==20
+        and #plugin.discovery_state.books==6,'public result replaced the same-keyword ordinary batch')
     paint('native-store-offline-search')
     plugin:showBookMenu(seed);local offline_detail=assert(plugin._book_detail_view)
     press(offline_detail,'Similar books');wait()
     assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='similar' and not plugin._book_detail_view)
     assert(UIManager:getTopmostVisibleWidget()~=offline_detail)
     paint('native-store-offline-similar')
-    assert(reads==count('/store/search')+count('/book/detailinfo')+count('/book/recommend'),'offline batch used HTTP')
+    assert(reads==requests(),'offline batch used HTTP')
     plugin:closeWeReadUI();plugin.isNetworkOnline,plugin.isNetworkConnected=online,connected
     plugin.discovery_state=nil
     plugin.fetchVisibleShelfCovers=covers
