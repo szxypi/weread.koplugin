@@ -27,16 +27,39 @@ class FullCachedSearchTests(unittest.TestCase):
         self.assertEqual(web.private_sources['1'],HTML)
         self.assertEqual(web.private_sources['2'],HTML)
         self.assertEqual(web.private_shards,{})
+        self.assertEqual(len(web.catalog_snapshot[0]),2)
+        self.assertIsInstance(web.shelf_hash,str)
         self.assertNotIn('source',sample)
         self.assertEqual(sample['book_id'],FIRST)
 
     def test_query_is_unique_across_the_full_book_and_maps_to_source(self):
         first='<html><body><p>春风穿过树林溪流缓缓流向山脚下的宁静村庄今天阳光明亮。</p></body></html>'
         second='<html><body><p>这是一段完全不同的合成章节用于保证搜索范围的完整性。</p></body></html>'
-        keyword,offset=target.unique_query({'1':first,'2':second},'1')
+        uid,keyword,offset=target.unique_query({'1':first,'2':second},'1')
+        self.assertEqual(uid,'1')
         self.assertIn(keyword,first);self.assertNotIn(keyword,second)
         self.assertEqual(FilteredSource(first,allow_multiple_bodies=True).locate(keyword)[0],offset)
         with self.assertRaises(ValueError):target.unique_query({'1':first,'2':first},'1')
+
+    def test_alternate_chapter_is_chosen_when_the_preferred_only_repeats(self):
+        repeated = '<html><body><p>春风穿过树林溪流缓缓流向山脚下的宁静村庄今天阳光明亮。</p>'
+        first = repeated + '</body></html>'
+        other = repeated + '<p>这是整书只有另一章中出现的唯一正文搜索定位段落。</p></body></html>'
+        uid, keyword, offset = target.unique_query({'1':first,'2':other},'1')
+        self.assertEqual(uid,'2')
+        self.assertNotIn(keyword,first)
+        self.assertEqual(FilteredSource(other,allow_multiple_bodies=True).locate(keyword)[0],offset)
+
+    def test_overlapping_matches_are_rejected(self):
+        overlapping = '<html><body><p>' + 'a' * 17 + '</p></body></html>'
+        other = '<html><body><p>结尾</p></body></html>'
+        with self.assertRaisesRegex(ValueError,'search_no_unique_query'):
+            target.unique_query({'1':overlapping,'2':other},'1')
+
+    def test_unsupported_chapter_prevents_a_claim_of_corpus_uniqueness(self):
+        first = '<html><body><p>这是整书其他章节里未出现的合成关键字定位段落。</p></body></html>'
+        with self.assertRaisesRegex(ValueError,'search_source_projection'):
+            target.unique_query({'1':first,'2':'invalid XHTML'},'1')
 
 
 if __name__=='__main__':unittest.main()

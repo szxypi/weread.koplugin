@@ -8,17 +8,17 @@ KOReader profiles, with no credentials or network access in the UI processes.
 import argparse
 import hashlib
 import json
-import re
 import resource
 import subprocess
 
 from fetch_weread_epub import decode_content_shards
 from secure_weread_session import COOKIE_NAMES, SessionStore
+from shelf_flag_change_contract import state_hash
 from verify_cb_full_reading import CbFullReadingProbe
-from verify_cb_reading import CbReadingProbe, baseline_position
+from verify_cb_reading import CbReadingProbe, baseline_position, readable_chapters
 from verify_source_coordinates import CoordinateError, FilteredSource
 from verify_translation_preflight import save_refreshed_web_session
-from verify_web_source_progress import BASE
+from verify_web_source_progress import BASE, versions
 
 
 class MemoryFullProbe(CbFullReadingProbe):
@@ -26,10 +26,17 @@ class MemoryFullProbe(CbFullReadingProbe):
         super().__init__(**kwargs)
         self.private_shards={}
         self.private_sources={}
+        self.catalog_snapshot=None
+        self.shelf_hash=None
 
     def request(self, stage, *args, **kwargs):
         result=super().request(stage,*args,**kwargs)
-        if stage in ('e_0','e_1','e_3'):
+        if stage=='shelf':
+            self.shelf_hash=state_hash(result)
+        elif stage=='catalog_before':
+            record,chapters=readable_chapters(result,self.book_id)
+            self.catalog_snapshot=(chapters,versions(record))
+        elif stage in ('e_0','e_1','e_3'):
             if not isinstance(result,str) or not self.chapter:raise ValueError('source_scope')
             parts=self.private_shards.setdefault(self.chapter,{})
             if stage in parts:raise ValueError('source_repeated')
@@ -43,25 +50,38 @@ class MemoryFullProbe(CbFullReadingProbe):
         return result
 
 
-def unique_query(sources, target):
-    models={uid:FilteredSource(raw,allow_multiple_bodies=True) for uid,raw in sources.items()}
-    if target not in models:raise ValueError('target')
-    texts={uid:''.join(char for char in model.characters if not char.isspace()) for uid,model in models.items()}
-    model=models[target]
-    indices=[i for i,char in enumerate(model.characters) if not char.isspace()]
-    text=texts[target]
-    for width,pattern in ((16,r'[\u4e00-\u9fff]{16}'),(12,r'[\u4e00-\u9fff]{12}'),
-                          (16,r'[A-Za-z]{16}'),(12,r'[A-Za-z]{12}')):
-        for at in range(min(max(len(text)-width+1,0),20000)):
-            keyword=text[at:at+width]
-            if (not re.fullmatch(pattern,keyword) or text.count(keyword)!=1
-                    or any(keyword in other for uid,other in texts.items() if uid!=target)):
-                continue
-            offset=model.starts[indices[at]]
-            try:model.anchor_at(offset)
-            except CoordinateError:continue
-            return keyword,offset
-    raise ValueError('unique_query')
+def unique_query(sources, preferred):
+    if preferred not in sources:
+        raise ValueError('search_chapter_missing')
+    texts = {}
+    for uid, raw in sources.items():
+        try:
+            model = FilteredSource(raw, allow_multiple_bodies=True)
+        except CoordinateError:
+            raise ValueError('search_source_projection') from None
+        texts[uid] = ''.join(char for char in model.characters if not char.isspace())
+
+    other_chapters = sorted((uid for uid in texts if uid != preferred), key=lambda uid: -len(texts[uid]))
+    for uid in (preferred, *other_chapters):
+        text = texts[uid]
+        others = [value for chapter, value in texts.items() if chapter != uid]
+        model = None
+        for width in (16, 12):
+            for at in range(min(max(len(text) - width + 1, 0), 20000)):
+                keyword = text[at:at + width]
+                if (not keyword.isalnum() or text.find(keyword) != at or text.find(keyword, at + 1) >= 0
+                        or any(keyword in other for other in others)):
+                    continue
+                if model is None:
+                    model = FilteredSource(sources[uid], allow_multiple_bodies=True)
+                    indices = [i for i, char in enumerate(model.characters) if not char.isspace()]
+                offset = model.starts[indices[at]]
+                try:
+                    model.anchor_at(offset)
+                except CoordinateError:
+                    continue
+                return uid, keyword, offset
+    raise ValueError('search_no_unique_query')
 
 
 def main(argv=None):
@@ -91,14 +111,16 @@ def main(argv=None):
             if (not isinstance(source,str) or hashlib.sha256(source.encode()).hexdigest()!=row['raw_sha256']
                     or len(source.encode())!=row['raw_bytes']):raise ValueError('source_changed')
             entries.append(dict(uid=uid,source=source))
-        target=sample['chapter_uid'];other=next((row['uid'] for row in entries if row['uid']!=target),None)
+        phase='source_match';target,keyword,offset=unique_query(sources,sample['chapter_uid'])
+        other=next((row['uid'] for row in entries if row['uid']!=target),None)
         if not other:raise ValueError('missing_second_chapter')
-        phase='source_match';keyword,offset=unique_query(sources,target)
         payload=dict(book=sample['book_id'],chapter=target,local_chapter=other,source=sources[target],
                      keyword=keyword,offset=offset,entries=entries)
         encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         if len(encoded)>8*1024*1024:raise ValueError('input_limit')
-        phase='native_ui';print(json.dumps({'phase':'native_ui','screens':2,'chapters':len(entries)}),flush=True)
+        report['alternate_chapter']=target!=sample['chapter_uid']
+        phase='native_ui';print(json.dumps({'phase':'native_ui','screens':2,'chapters':len(entries),
+                                            'alternate_chapter':report['alternate_chapter']}),flush=True)
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             command=['docker','exec','-i','-w','/source','weread-validation','xvfb-run','-a','python3',
                 'scripts/run_owner_catalog_free_ui.py','--koreader','/validation/runtime/lib/koreader',
@@ -115,18 +137,27 @@ def main(argv=None):
         after.verify_account()
         observed=baseline_position(after.request('progress_after',BASE+'/web/book/getProgress?bookId='+after.book_id),after.book_id)
         shelf=after.request('shelf',BASE+'/web/shelf/sync')
-        if observed!=sample['baseline'] or [str(row['bookId']) for row in shelf['books']]!=web.shelf_ids:
-            raise ValueError('state_changed')
+        record,chapters=readable_chapters(after.request('catalog_before',BASE+'/web/book/chapterInfos',
+                                                       {'bookIds':[after.book_id]}),after.book_id)
+        if observed!=sample['baseline']:raise ValueError('position_changed')
+        if state_hash(shelf)!=web.shelf_hash or [str(row['bookId']) for row in shelf['books']]!=web.shelf_ids:
+            raise ValueError('shelf_changed')
+        if (chapters,versions(record))!=web.catalog_snapshot:raise ValueError('catalog_changed')
         after.verify_account()
         save_refreshed_web_session(store,saved,after)
         report.update(result='PASS',chapters=len(entries),native_ui_screens=2,position_unchanged=True,
                       shelf_unchanged=True,catalog_unchanged=True,offline=True)
-    except Exception:
+    except Exception as error:
         report['phase']=phase
+        if (type(error) is ValueError and len(error.args)==1 and isinstance(error.args[0],str)
+                and error.args[0] in {'search_chapter_missing','search_source_projection','search_no_unique_query',
+                                      'position_changed','shelf_changed','catalog_changed'}):
+            report['reason']=error.args[0]
     finally:
         if web:
             report['completed_chapters']=web.completed
             web.private_shards.clear();web.private_sources.clear();web.samples.clear();web.manifest.clear();web.close()
+            web.catalog_snapshot=web.shelf_hash=None
         if after:after.close()
         if saved:saved.clear()
         if payload:payload.clear()
