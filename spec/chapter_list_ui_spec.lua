@@ -134,6 +134,10 @@ host.settings = {
     end,
 }
 local book = { bookId = "book-1", title = "Book", cached_chapters = {} }
+host.library_db = {
+    accountKey = function() return "synthetic-library" end,
+    putBook = function() error("catalog display wrote unrelated book metadata") end,
+}
 local cancelled_view
 package.loaded['weread.ui.catalog_request']={cancel=function(_,view) cancelled_view=view end}
 host:showChapterList(book)
@@ -239,7 +243,8 @@ manager.scheduleIn=old_schedule
 local input
 host.showInputDialog = function(_, widget) input = widget end
 local chapter_loads = 0
-host.loadChapters = function(_, _, callback)
+host.loadChapters = function(_, _, callback, force_refresh, read_only_cache)
+    assert(force_refresh == true or read_only_cache == true, "catalog browsing allowed cache writes")
     chapter_loads = chapter_loads + 1
     callback(chapters)
 end

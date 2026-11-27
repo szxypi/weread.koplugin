@@ -2294,47 +2294,32 @@ function M:cancelMPDownloadRecovery()
     return require('weread.ui.mp_download_recovery').cancel(self)
 end
 
-function M:loadChapters(book, callback, force_refresh)
+function M:loadChapters(book, callback, force_refresh, read_only_cache)
     if not force_refresh then
-        if book.chapters and #book.chapters > 0 then
-            local book_id = book.book_id or book.bookId
-            if self.library_db and book_id then
-                self.library_db:putChapters(book_id, book.chapters)
-            end
-            local catalog_path = Content.catalog_cache_path(
-                self.settings, book)
-            if catalog_path and not file_exists(catalog_path) then
-                local cache_ok, cache_err = Content.save_catalog_cache(
-                    self.client, self.settings, book, book.chapters)
-                if not cache_ok then
-                    logger.warn("save chapter catalog cache failed:",
-                        log_error(cache_err))
-                end
-            end
-            callback(book.chapters)
-            return
-        end
         local book_id = book.book_id or book.bookId
-        local cached = self.library_db and self.library_db:getChapters(book_id) or nil
+        local cached, source = book.chapters, "inline"
+        if type(cached) ~= "table" or #cached == 0 then
+            cached = self.library_db and self.library_db:getChapters(book_id)
+            source = "database"
+            if type(cached) ~= "table" or #cached == 0 then
+                cached = Content.load_catalog_cache(self.client, self.settings, book)
+                source = "file"
+            end
+        end
         if type(cached) == "table" and #cached > 0 then
             book.chapters = cached
-            local catalog_path = Content.catalog_cache_path(
-                self.settings, book)
-            if catalog_path and not file_exists(catalog_path) then
-                local cache_ok, cache_err = Content.save_catalog_cache(
-                    self.client, self.settings, book, cached)
-                if not cache_ok then
-                    logger.warn("save chapter catalog cache failed:",
-                        log_error(cache_err))
+            if not read_only_cache then
+                if source ~= "database" and self.library_db and book_id then
+                    self.library_db:putChapters(book_id, cached)
+                end
+                if source ~= "file" then
+                    local path = Content.catalog_cache_path(self.settings, book)
+                    if path and not file_exists(path) then
+                        local ok, err = Content.save_catalog_cache(self.client, self.settings, book, cached)
+                        if not ok then logger.warn("save chapter catalog cache failed:", log_error(err)) end
+                    end
                 end
             end
-        else
-            cached = Content.load_catalog_cache(self.client, self.settings, book)
-            if type(cached) == "table" and #cached > 0 and self.library_db then
-                self.library_db:putChapters(book_id, cached)
-            end
-        end
-        if type(cached) == "table" and #cached > 0 then
             callback(cached)
             return
         end
@@ -2522,7 +2507,6 @@ function M:showChapterList(book, on_close)
         for field in pairs(local_cache_fields) do
             if latest[field] ~= nil then book[field] = latest[field] end
         end
-        if self.library_db then self.library_db:putBook(latest) end
     end
     local showCatalog
     showCatalog = function(chapters, old_view, rows)
@@ -2613,7 +2597,7 @@ function M:showChapterList(book, on_close)
     end
     self:loadChapters(book, function(chapters)
         showCatalog(chapters)
-    end)
+    end, false, true)
 end
 
 function M:showChapterDownloadSelection(book, chapters, on_downloaded)

@@ -235,6 +235,33 @@ expect(callback_chapters == db_chapters and db_book.chapters == db_chapters,
 expect(catalog_save_count == 2,
     "SQLite chapter hit did not backfill missing catalog.json")
 
+do
+    local json_chapters = { { chapterUid = 9, title = "File chapter" } }
+    local load_file, chapter_writes = content.load_catalog_cache, written_chapters
+    local saved_count, probes = catalog_save_count, path_probes["/cache/42/catalog.json"]
+    content.load_catalog_cache = function() return json_chapters end
+    for index, expected in ipairs({fetched_chapters, db_chapters, json_chapters}) do
+        if index == 3 then db_chapters = nil end
+        local displayed = { book_id = "42", chapters = index == 1 and expected or nil }
+        host:loadChapters(displayed, function(chapters)
+            callback_chapters = chapters
+        end, false, true)
+        expect(callback_chapters == expected and displayed.chapters == expected,
+            "read-only catalog did not use the available local source")
+    end
+    expect(written_chapters == chapter_writes and catalog_save_count == saved_count
+        and path_probes["/cache/42/catalog.json"] == probes,
+        "browsing the local catalog tried to persist or check its redundant copy")
+
+    content.load_catalog_cache = load_file
+    host:loadChapters({ book_id = "42" }, function(chapters)
+        callback_chapters = chapters
+    end, false, true)
+    expect(callback_chapters == fetched_chapters and written_chapters == fetched_chapters
+        and catalog_save_count == saved_count + 1,
+        "opening a catalog without local chapters did not fetch and save it")
+end
+
 local partial = {
     book_id = "42",
     chapter_uid = 3,
