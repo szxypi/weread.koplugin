@@ -440,6 +440,29 @@ local expected,actual=home(complete),home(previews)
 expect(#actual==#expected and actual[1].bookId=='52' and actual[2].bookId=='51'
     and actual[3]._recent_time==expected[3]._recent_time and actual[3]._recent_time==10,
     'home projection revived a stale numeric alias or changed the legacy order')
+do
+    local data=require('weread.lib.discovery_data')
+    local cloud={}
+    for i=1,5 do cloud[i]={bookId=tostring(900000+i),readUpdateTime=100} end
+    cloud[6]={bookId=cloud[1].bookId,readUpdateTime=101}
+    expect(not data.recent_floor(cloud,6),'duplicate shelf rows set a cutoff too early')
+    cloud[7]={bookId='900006',readUpdateTime=60}
+    local minimum=data.recent_floor(cloud,6)
+    expect(minimum==60,'known cloud candidates did not set a safe cutoff')
+    local tied=data.recent(cloud,BookStore.home_books(scoped,indexes,owner_a,minimum),owner_a,6)
+    expect(#tied==6 and tied[6].bookId=='52','cutoff dropped a local book that wins a timestamp tie')
+    local legacy_only=data.recent({}, {[53]=previews[53]},owner_a,6)
+    expect(#legacy_only==1 and legacy_only[1].bookId=='53','unambiguous legacy numeric book was lost')
+    cloud[7].readUpdateTime=61
+    rawset(io,'open',function(path,...)
+        expect(path~=current_home.cache_dir..'/metadata.json','home hydrated a local event below the cutoff')
+        return original_open(path,...)
+    end)
+    local filtered=BookStore.home_books(scoped,indexes,owner_a,data.recent_floor(cloud,6))
+    rawset(io,'open',original_open)
+    expect(filtered['52']==false and filtered['51'].home_recent_at==50 and filtered['53']==false,
+        'cutoff lost legacy fallback or allowed an older alias to replace a preferred record')
+end
 active=owner_b
 expect(not next(BookStore.home_books(scoped,indexes,owner_a)) and not next(BookStore.home_books(scoped,indexes,nil)),
     'home projection exposed another account or signed-out events')

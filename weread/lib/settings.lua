@@ -279,8 +279,8 @@ function Settings:get_book_indexes()
     return type(value)=='table' and value or nil
 end
 
-function Settings:home_recent_books(account)
-    return BookStore.home_books(self,self:get_book_indexes() or {},account)
+function Settings:home_recent_books(account, minimum_time)
+    return BookStore.home_books(self,self:get_book_indexes() or {},account,minimum_time)
 end
 
 function Settings:download_books()

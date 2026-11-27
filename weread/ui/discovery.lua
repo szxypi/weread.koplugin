@@ -14,8 +14,10 @@ local view_position = BookstoreNavigation.position
 
 local function home_recent(host,account,limit)
     local settings=host.settings
-    local books=settings.home_recent_books and settings:home_recent_books(account) or settings:get('books',{})
-    return Data.recent(host.shelf_regular,books,account,limit)
+    local shelf=host.shelf_regular
+    local books=settings.home_recent_books and settings:home_recent_books(account,Data.recent_floor(shelf,limit))
+        or settings:get('books',{})
+    return Data.recent(shelf,books,account,limit)
 end
 
 function M:discoveryNavigation(active, current, on_leave)

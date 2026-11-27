@@ -138,6 +138,29 @@ function M.categories(data)
     return { ranks = ranks, categories = categories }
 end
 
+local function recent_limit(limit)
+    limit = tonumber(limit)
+    return (limit == 6 or limit == 12 or limit == 24) and limit or 12
+end
+
+-- This many distinct cloud rows already qualify at or above the returned
+-- time. Older local events cannot enter the visible list.
+function M.recent_floor(books, limit)
+    limit = recent_limit(limit)
+    local oldest, count, seen = math.huge, 0, {}
+    for _, book in ipairs(books or {}) do
+        local id = type(book) == 'table' and text(book.bookId or book.book_id) or ''
+        if id ~= '' and not seen[id] then
+            seen[id] = true
+            local time = ShelfTime.value(book.readUpdateTime)
+            if time and time > 0 then
+                oldest, count = math.min(oldest, time), count + 1
+                if count == limit then return oldest end
+            end
+        end
+    end
+end
+
 function M.recent(books, saved, account, limit)
     local candidates, seen = {}, {}
     saved=type(saved)=='table' and saved or {}
@@ -159,7 +182,10 @@ function M.recent(books, saved, account, limit)
             local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId or key)
             local event_account,time
             if type(book)=='table' then event_account,time=recent_event(book) end
-            if id and tostring(key)==id and not seen[id] and time and time>0 and event_account==account
+            -- A legacy numeric key cannot replace a preferred string key,
+            -- including one whose local event was excluded from this view.
+            if id and tostring(key)==id and (type(key)=='string' or saved[id]==nil)
+                and not seen[id] and time and time>0 and event_account==account
                 and (book._library_account_key==nil or book._library_account_key==account)
                 and (book.book_id==nil or text(book.book_id)==id) and (book.bookId==nil or text(book.bookId)==id) then
                 candidates[#candidates+1]={id=id,time=time,book=book}
@@ -171,8 +197,7 @@ function M.recent(books, saved, account, limit)
         if a.time==b.time then return a.id<b.id end
         return a.time>b.time
     end)
-    limit = tonumber(limit) or 12
-    if limit ~= 6 and limit ~= 12 and limit ~= 24 then limit = 12 end
+    limit = recent_limit(limit)
 
     -- Only prepare the books the home page will show. Keep cloud shelf rows
     -- intact and expose only display fields from locally opened off-shelf books.

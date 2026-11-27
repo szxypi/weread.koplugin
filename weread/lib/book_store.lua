@@ -305,7 +305,7 @@ end
 local home_fields={'book_id','bookId','title','author','cover','category','_library_account_key',
     'recent_read_at','recent_read_account','home_recent_at','home_recent_account'}
 
-function BookStore.home_books(settings,indexes,account)
+function BookStore.home_books(settings,indexes,account,minimum_time)
     local result={}
     if type(account)~='string' or account=='' or settings:account_state_scope()~=account then return result end
     local valid_time=require('weread.lib.shelf_time').value
@@ -317,8 +317,11 @@ function BookStore.home_books(settings,indexes,account)
         local path=scoped_path(settings,dir,account)
         if not path then return {} end
         local state=read_json(path)
+        local time=state and valid_time(state.home_recent_at)
+        -- Keep ties and legacy records so identity and fallback times can
+        -- still affect which books make the list.
         if not state or state.home_recent_account==nil
-            or state.home_recent_account==account and valid_time(state.home_recent_at) then
+            or state.home_recent_account==account and time and (not minimum_time or time>=minimum_time) then
             local metadata=read_json(dir..'/metadata.json')
             if not state and not exists(path) then state=legacy_state(dir,metadata,account) end
             local book={}

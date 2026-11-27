@@ -456,6 +456,33 @@ assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()
 local legacy=assert(plugin.settings:get_book('1',true))
 assert(not legacy.home_recent_at and not legacy.last_local_position and not legacy.pending_upload_position,
     'reading wrote a position to the legacy sibling book')
+do
+    local record=assert(plugin.settings:get_book(id))
+    local recent_count=plugin:homePreferences().recent_limit
+    local stamp=assert(record.home_recent_at)
+    local shelf={books={},archives={}}
+    for i=1,recent_count do
+        shelf.books[i]={bookId=tostring(920000+i),title='合成最近书目 '..i,readUpdateTime=stamp+60}
+    end
+    local metadata=record.cache_dir..'/metadata.json'
+    local open,reads=io.open,0
+    rawset(io,'open',function(filename,...)
+        if filename==metadata then reads=reads+1 end
+        return open(filename,...)
+    end)
+    local ok,err=pcall(plugin.showHome,plugin,false,shelf)
+    rawset(io,'open',open)
+    assert(ok,err)
+    local recent=assert(plugin.shelf_view).books
+    assert(#recent==recent_count and recent[1].bookId=='920001' and reads==0,
+        'a newer cloud list still hydrated an older local book')
+    for _,book in ipairs(shelf.books) do book.readUpdateTime=stamp end
+    plugin:showHome(false,shelf)
+    recent=assert(plugin.shelf_view).books
+    assert(#recent==recent_count and recent[1].bookId==id and recent[1]._recent_time==stamp,
+        'an off-shelf book lost its place in a cloud timestamp tie')
+    UI:forceRePaint()
+end
 print('PASS: downloaded books, offline search and resume shortcut, account isolation')
 assert(requests[0]==0,'local home attempted network')
 print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,
