@@ -110,7 +110,7 @@ local ok,reason=pcall(function()
         for key in pairs(b) do if a[key]==nil then return false end end
         return true
     end
-    local function verify(sample)
+    local function verify(sample,restored)
         local state=assert(plugin.discovery_state)
         assert(state.kind=='category' and state.category_id==sample.entry.id and state.rank==sample.entry.rank
             and state.cursor==sample.cursor and state.source_kind=='public' and not state.account)
@@ -129,6 +129,12 @@ local ok,reason=pcall(function()
         private.views[#private.views+1]=view;report.batch_views=report.batch_views+1
         if mode=='live' then private.sources[#private.sources+1]={role=sample.role,cursor=state.cursor,source=assert(state._probe_source)} end
         local total=plugin.shelf_view.page_count;local checked=0
+        if restored then assert(plugin.shelf_view.page==total,'offline startup did not restore the last browsed page') end
+        while plugin.shelf_view.page>1 do
+            local page=plugin.shelf_view.page
+            plugin.shelf_view:onShelfSwipe(nil,{direction='east'})
+            assert(plugin.shelf_view.page==page-1,'could not return to the first page for inspection')
+        end
         local function paint(page,reverse)
             local current=plugin.shelf_view;assert(current.page==page and current.page_count==total)
             local size=current[1]:getSize();assert(size.h==Device.screen:getHeight() and size.w<=Device.screen:getWidth())
@@ -156,7 +162,7 @@ local ok,reason=pcall(function()
         end
     end
     plugin:showBookstore()
-    if mode=='reopen' then assert(plugin.discovery_state and plugin.discovery_state.cached);verify(input.samples[#input.samples]) end
+    if mode=='reopen' then assert(plugin.discovery_state and plugin.discovery_state.cached);verify(input.samples[#input.samples],true) end
     report.phase='catalog';plugin:showDiscoveryCategories(mode=='live');wait(function() return plugin._discovery_menu~=nil end)
     local tree=assert(Catalog:new(plugin.settings,plugin.client):read());assert(#tree.ranks==#input.catalog.ranks and #tree.categories==#input.catalog.categories)
     report.directory_persisted=true
@@ -165,18 +171,48 @@ local ok,reason=pcall(function()
         plugin:showDiscoveryCategories();local menu=assert(plugin._discovery_menu)
         menu:onMenuSelect(menu.item_table[sample.role=='rank' and 1 or 2])
         local entries=sample.role=='rank' and tree.ranks or tree.categories
-        local index,parent_entry
+        local index
         if sample.role=='child' then
             for entry_index,entry in ipairs(entries) do
-                for child_index,child in ipairs(entry.children) do
-                    if child.id==sample.entry.id then index,parent_entry=entry_index,child_index end
+                for _,child in ipairs(entry.children) do
+                    if child.id==sample.entry.id then index=entry_index end
                 end
             end
         else for entry_index,entry in ipairs(entries) do if entry.id==sample.entry.id then index=entry_index end end end
-        assert(index);local row=menu.item_table[index];menu:onMenuSelect(row)
-        if sample.role=='child' then row=menu.item_table[parent_entry+1];menu:onMenuSelect(row)
-        elseif sample.role=='main' and #entries[index].children>0 then row=menu.item_table[1];menu:onMenuSelect(row) end
-        assert(row.callback);local stale=row.callback
+        assert(index);local row=menu.item_table[index]
+        local stale
+        if sample.role=='child' or sample.role=='rank' then
+            local parent_category=sample.role=='child' and entries[index]
+            if parent_category then menu:onMenuSelect(row) end
+            local original=menu.item_table
+            menu:onLeftButtonTap()
+            local dialog=assert(menu._shelf_popup)
+            dialog:setInputText('无匹配的合成类别');dialog.buttons[1][2].callback()
+            local results=assert(menu._shelf_popup)
+            assert(#results.item_table==1 and results.item_table[1].select_enabled==false)
+            results:onLeftButtonTap()
+            assert(results._shelf_popup).buttons[1][1].callback()
+            assert(not menu._shelf_popup and menu.item_table==original and not plugin.discovery_loading)
+            menu:onLeftButtonTap()
+            dialog=assert(menu._shelf_popup)
+            dialog:setInputText('　'..sample.entry.title..(parent_category and '　'..parent_category.title or '')..'　')
+            dialog.buttons[1][2].callback()
+            results=assert(menu._shelf_popup)
+            if mock then assert(#results.item_table==1) end
+            row=nil
+            for _,item in ipairs(results.item_table) do
+                if item.entry and item.entry.id==sample.entry.id and item.entry.rank==sample.entry.rank then row=item;break end
+            end
+            assert(row and row.text:find(sample.entry.title,1,true)
+                and (not parent_category or row.text:find(parent_category.title,1,true)), 'search lost the category or its parent')
+            UI:forceRePaint()
+            stale=function() results:onMenuSelect(row) end
+            stale()
+        else
+            menu:onMenuSelect(row)
+            if sample.role=='main' and #entries[index].children>0 then row=menu.item_table[1];menu:onMenuSelect(row) end
+            stale=assert(row.callback)
+        end
         wait(function() return plugin.discovery_state and plugin.discovery_state.category_id==sample.entry.id and plugin.discovery_state.cursor==0 end)
         local current=plugin.shelf_view;stale();for _tick_index=1,3 do tick() end
         assert(plugin.shelf_view==current and not plugin.discovery_loading and not plugin._discovery_menu)

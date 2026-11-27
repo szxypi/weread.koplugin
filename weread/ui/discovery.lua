@@ -358,27 +358,88 @@ function M:showDiscoveryCategoryPicker(data)
         if self._discovery_menu == menu then self._discovery_menu = nil end
         if owner then Popup.close(owner) elseif menu then UIManager:close(menu) end
     end
+    local function browse(entry)
+        if not current() then return end
+        dismiss()
+        self:loadDiscoveryBatch("category", nil, 0, false, false, {
+            category_id = entry.id, category_title = entry.title, rank = entry.rank,
+        })
+    end
     local function rows(entries)
         local items = {}
         for _i, entry in ipairs(entries) do
-            local function browse()
-                if not current() then return end
-                dismiss()
-                self:loadDiscoveryBatch("category", nil, 0, false, false, {
-                    category_id = entry.id, category_title = entry.title, rank = entry.rank,
-                })
-            end
-            local item = { text = entry.title, callback = browse }
+            local item = { text = entry.title, callback = function() browse(entry) end }
             if #entry.children > 0 then
                 item.sub_item_table = rows(entry.children)
                 table.insert(item.sub_item_table, 1, {
-                    text = PluginUtil.T(_("All in %1"), entry.title), callback = browse,
+                    text = PluginUtil.T(_("All in %1"), entry.title), callback = item.callback,
                 })
             end
             items[#items + 1] = item
         end
         if #items == 0 then items[1] = { text = _("No available categories."), select_enabled = false } end
         return items
+    end
+    local function result_rows(keyword)
+        local Search = require('weread.lib.shelf_search')
+        local needle = Search.prepare(keyword)
+        local terms = Search.terms(needle)
+        local items = {}
+        local function match(entries, path)
+            for _, entry in ipairs(entries) do
+                if Search.matches({title=entry.title,author=path},needle,terms) then
+                    items[#items+1] = {text=entry.title .. '  ·  ' .. path,entry=entry}
+                end
+                if #entry.children>0 then match(entry.children,path .. ' › ' .. entry.title) end
+            end
+        end
+        match(data.ranks, _('Book rankings'))
+        match(data.categories, _('Browse categories'))
+        if #items==0 then items[1]={text=_('No matching rankings or categories.'),select_enabled=false} end
+        return items
+    end
+    local prompt
+    local function show_results(keyword)
+        local results
+        results = self:showList(_('Ranking and category results'),result_rows(keyword),nil,{
+            left_icon='appbar.search',on_choice=function(item)
+                if not current() or not Popup.current(menu,results) or results._shelf_popup or not item.entry then return end
+                browse(item.entry)
+            end,
+        })
+        if not results then return end
+        results.onLeftButtonTap=function() return prompt(results,keyword) end
+        local closed=results.onCloseWidget
+        results.onCloseWidget=function(widget,...)
+            widget._shelf_closed=true
+            Popup.close(widget)
+            if closed then return closed(widget,...) end
+        end
+        Popup.show(menu,results,function() end)
+    end
+    prompt=function(source,keyword)
+        local function active()
+            return current() and (source==menu or Popup.current(menu,source))
+        end
+        if not active() or source._shelf_popup then return true end
+        local dialog
+        local function submit(value)
+            if not active() or not Popup.current(source,dialog) then return end
+            local query=require('weread.lib.search_query').trim(value)
+            if #query>1024 then self:showInfo(_('Search text is too long.'));return end
+            Popup.close(source)
+            if query==keyword then return end
+            if query=='' then Popup.close(menu) else show_results(query) end
+        end
+        dialog=require('ui/widget/inputdialog'):new{
+            title=_('Find a ranking or category'),input=keyword,input_type='text',
+            buttons={{
+                {text=_('Clear'),callback=function() submit('') end},
+                {text=_('Search'),is_enter_default=true,callback=function() submit(dialog:getInputText()) end},
+            }},
+        }
+        Popup.show(source,dialog,function(widget) self:showInputDialog(widget) end)
+        return true
     end
     local old_menu=self._discovery_menu;self._discovery_menu=nil
     if old_menu then UIManager:close(old_menu) end
@@ -393,7 +454,9 @@ function M:showDiscoveryCategoryPicker(data)
             dismiss()
             self:showDiscoveryCategories(true)
         end },
-    })
+    },nil,{left_icon='appbar.search'})
+    if not menu then return end
+    menu.onLeftButtonTap=function() return prompt(menu,'') end
     self._discovery_menu = menu
     local function forget()
         if self._discovery_menu == menu then
@@ -403,6 +466,8 @@ function M:showDiscoveryCategoryPicker(data)
     end
     local on_close = menu.onCloseWidget
     menu.onCloseWidget = function(widget, ...)
+        widget._shelf_closed=true
+        Popup.close(widget)
         forget()
         if on_close then return on_close(widget, ...) end
     end
