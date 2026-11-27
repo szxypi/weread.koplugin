@@ -211,8 +211,16 @@ pump_until(function()
         if not cancelled_wait and worker then
             local pid=assert(worker.pid);old_wait=job.source_wait
             plugin:onSuspend()
-            assert(not sync.pulling and not sync.pull_job and not plugin.source_position.worker.job
-                and require('ffi/util').isSubProcessDone(pid),'suspend retained source wait or local child')
+            assert(not sync.pulling and not sync.pull_job and not plugin.source_position.worker.job,
+                'suspend retained source wait or local worker job')
+            -- Cancellation retires the job immediately and reaps the child on a UI tick.
+            local ffi=require('ffi')
+            local reap_deadline=socket.gettime()+2
+            pump_until(function()
+                if ffi.C.kill(pid,0)~=0 then return true end
+                assert(socket.gettime()<reap_deadline,'suspended source worker was not reaped')
+                return false
+            end)
             cancelled_wait=true;plugin:onResume()
         elseif cancelled_wait and not stale_checked then
             old_wait.wake();old_wait.expire()
