@@ -54,15 +54,16 @@ end
 local function synthetic_gateway(self, book, mode, cursor, sync, key)
     assert(tonumber(ffi.C.getpid()) ~= pid and book == '42' and key == 'synthetic-key')
     socket.sleep(0.2)
-    if cursor then assert(cursor == 20 and sync == 123) end
+    if cursor then assert((cursor == 20 or cursor == 60) and sync == 123) end
     local rows = self:json_decode('[]')
-    local start = cursor and 21 or 1
-    for i = start, start + 19 do
+    local start = (cursor or 0) + 1
+    local last = start + (cursor and 39 or 19)
+    for i = start, last do
         local id = (mode == 1 and 'recommended-' or 'latest-') .. i
         rows[#rows + 1] = {idx = i, review = {reviewId = id, review = {reviewId = id, bookId = book,
             author = {name = '合成读者'}, content = '合成书评 ' .. i, star = 100, createTime = 1700001000 - i}}}
     end
-    return {reviews = rows, reviewsHasMore = cursor and 0 or 1, synckey = 123}
+    return {reviews = rows, reviewsHasMore = last < 100 and 1 or 0, synckey = 123}
 end
 if not mock_port then client.get_gateway_book_reviews = synthetic_gateway end
 local ReplySource = require('weread.lib.native_book_reviews_source')
@@ -109,10 +110,10 @@ if offline then
         assert(show(host,book))
         wait(function() return host._gateway_reviews_owner and host._gateway_reviews_owner.view end)
         local view=host._gateway_reviews_owner.view
-        assert(view.mode=='recommended' and #view.result.items==40 and not view.result.has_more
-            and not view.result.seen_cursors and #view._review_buttons==40
+        assert(view.mode=='recommended' and #view.result.items==100 and not view.result.has_more
+            and not view.result.seen_cursors and #view._review_buttons==100
             and view.incomplete_text:find('保存于',1,true),'could not restore the saved recommendation list')
-        assert(view.result.items[1].review_id=='recommended-1' and view.result.items[40].review_id=='recommended-40')
+        assert(view.result.items[1].review_id=='recommended-1' and view.result.items[100].review_id=='recommended-100')
         view._review_buttons[1].callback()
         local detail=assert(host._gateway_reviews_owner.detail)
         assert(detail.text:find('合成书评 1',1,true),'cached review body was not visible')
@@ -120,8 +121,9 @@ if offline then
         view._tab_buttons[2].callback()
         wait(function() return host._gateway_reviews_owner.view~=view end)
         local latest=host._gateway_reviews_owner.view
-        assert(latest.mode=='latest' and #latest.result.items==20 and not latest.result.has_more
-            and latest.result.items[1].review_id=='latest-1','latest tab reused another saved list')
+        assert(latest.mode=='latest' and #latest.result.items==100 and not latest.result.has_more
+            and latest.result.items[1].review_id=='latest-1' and latest.result.items[100].review_id=='latest-100',
+            'latest tab reused another saved list')
         latest:onClose();vid='124'
     end
     show(host,book)
@@ -156,18 +158,27 @@ end
 detail:onClose()
 assert(not host._native_review_replies_owner and not host._gateway_reviews_owner.detail)
 view._review_scroll:setScrolledOffset({x = 0, y = 500})
-view._review_buttons[21].callback()
+local function load_more(current, expected_count, expected_more)
+    current._review_buttons[#current.result.items + 1].callback()
+    wait(function() return host._gateway_reviews_owner.view ~= current end)
+    local result = host._gateway_reviews_owner.view
+    assert(#result.result.items == expected_count and result.result.has_more == expected_more
+        and result.result.seen_cursors[#result.result.seen_cursors] == expected_count,
+        'gateway returned the wrong continuation or cursor')
+    return result
+end
+view = load_more(view, 60, true)
+assert(#view.result.seen_cursors == 2 and view.result.seen_cursors[1] == 20
+    and view._review_scroll:getScrolledOffset().y == 500, 'gateway cursor or scroll roundtrip failed')
+view = load_more(view, 100, false)
+UI:forceRePaint(); view._tab_buttons[2].callback()
 local previous = view; wait(function() return host._gateway_reviews_owner.view ~= previous end)
 view = host._gateway_reviews_owner.view
-assert(#view.result.items == 40 and not view.result.has_more and #view.result.seen_cursors == 2
-    and view.result.seen_cursors[1] == 20 and view.result.seen_cursors[2] == 40
-    and view._review_scroll:getScrolledOffset().y == 500, 'gateway cursor or scroll roundtrip failed')
-UI:forceRePaint(); view._tab_buttons[2].callback()
-previous = view; wait(function() return host._gateway_reviews_owner.view ~= previous end)
-view = host._gateway_reviews_owner.view
 assert(view.mode == 'latest' and #view.result.items == 20)
+view = load_more(view, 60, true)
+view = load_more(view, 100, false)
 view._tab_buttons[1].callback()
 view = host._gateway_reviews_owner.view
-assert(view.mode == 'recommended' and #view.result.items == 40, 'tab cache failed')
+assert(view.mode == 'recommended' and #view.result.items == 100, 'tab cache failed')
 UI:forceRePaint(); view:onClose(); assert(not host._gateway_reviews_owner and not host.busy_message)
 print('GATEWAY_BOOK_REVIEWS_SMOKE_PASS')

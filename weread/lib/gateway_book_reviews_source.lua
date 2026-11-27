@@ -3,6 +3,8 @@ local Access = require('weread.lib.native_gateway_access')
 local Reviews = require('weread.lib.book_reviews')
 local Protocol = require('weread.lib.protocol')
 local M = {MAX_ITEMS = 200}
+-- The gateway can return 40 new items for a continuation requested with count=20.
+local MAX_BATCH = 40
 local function fail(kind) error('gateway_reviews/' .. kind, 0) end
 local function integer(value, max)
     return type(value) == 'number' and value >= 0 and value <= max and value % 1 == 0
@@ -43,12 +45,12 @@ function M.project(client, raw, book_id, previous)
     local mt = getmetatable(array)
     local function present(value) return value ~= nil and value ~= null end
     if type(raw) ~= 'table' or raw == null or type(raw.reviews) ~= 'table' or raw.reviews == null
-        or #raw.reviews > 20 or #raw.reviews == 0 and mt and getmetatable(raw.reviews) ~= mt then fail('rows') end
+        or #raw.reviews > MAX_BATCH or #raw.reviews == 0 and mt and getmetatable(raw.reviews) ~= mt then fail('rows') end
     for _, key in ipairs({'errcode', 'errCode'}) do
         if present(raw[key]) and tonumber(raw[key]) ~= 0 then fail('rejected') end
     end
     if present(raw.succ) and raw.succ ~= true and raw.succ ~= 1 and raw.succ ~= '1' then fail('rejected') end
-    for key in pairs(raw.reviews) do if not integer(key, 20) or key < 1 or key > #raw.reviews then fail('rows') end end
+    for key in pairs(raw.reviews) do if not integer(key, MAX_BATCH) or key < 1 or key > #raw.reviews then fail('rows') end end
     local more = raw.reviewsHasMore
     if present(more) and more ~= true and more ~= false and more ~= 0 and more ~= 1 and more ~= '0' and more ~= '1' then fail('page') end
     local clean = {reviews = array, reviewsHasMore = more == true or more == 1 or more == '1'}

@@ -24,12 +24,18 @@ expect(#first.items == 20 and first.items[1].rating == 5 and first.items[1].auth
 expect(not first.items[1].book and not first.items[1].secret, 'non-display data escaped projection')
 local second = Data.project(codec, sample(21, 20, false), '42', first)
 expect(#second.items == 40 and not second.has_more and #first.items == 20, 'Skill continuation failed')
+local extended = Data.project(codec, sample(21, 40, true), '42', first)
+local last = Data.project(codec, sample(61, 40, false), '42', extended)
+expect(#extended.items == 60 and extended.max_idx == 60 and extended.synckey == 1234 and extended.has_more,
+    '40-item Skill continuation did not advance the cursor')
+expect(#last.items == 100 and last.items[61].review_id == 'r61' and last.items[100].review_id == 'r100'
+    and not last.has_more and #first.items == 20, '40-item final Skill continuation was lost')
 local repeated = sample(1, 20, true)
 expect(not pcall(Data.project, codec, repeated, '42', first), 'cursor cycle accepted')
 local empty = Data.project(codec, sample(1, 0, false), '42')
 expect(#empty.items == 0 and not empty.has_more, 'empty page failed')
 for _, field in ipairs({'rows', 'too_many', 'book', 'private', 'id', 'nested_id', 'author', 'content', 'rating', 'time', 'idx', 'synckey', 'more', 'err'}) do
-    local raw = sample(1, field == 'too_many' and 21 or 20, true)
+    local raw = sample(1, field == 'too_many' and 41 or 20, true)
     local review = raw.reviews[1].review.review
     if field == 'rows' then raw.reviews = {}
     elseif field == 'book' then review.book.bookId = '43'
@@ -50,7 +56,7 @@ local overlap = sample(20, 2, false)
 expect(#Data.project(codec, overlap, '42', first).items == 21, 'duplicate review was not removed')
 local previous = {items = {}, seen_cursors = {}}
 for i = 1, 195 do previous.items[i] = {review_id = 'old-' .. i} end
-local bounded = Data.project(codec, sample(196, 20, false), '42', previous)
+local bounded = Data.project(codec, sample(196, 40, false), '42', previous)
 expect(#bounded.items == 200 and bounded.limited and not bounded.has_more, 'large page not bounded')
 local tmp = os.tmpname()
 local function disk(key)

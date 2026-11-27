@@ -28,14 +28,15 @@ class Handler(BaseHTTPRequestHandler):
                     or value.get('reviewListType') not in (1, 3):
                 raise ValueError('unexpected_payload')
             cursor = value.get('maxIdx')
-            if cursor not in (None, 20) or cursor is not None and value.get('synckey') != 123:
+            if cursor not in (None, 20, 60) or cursor is not None and value.get('synckey') != 123:
                 raise ValueError('unexpected_cursor')
             self.server.calls.append(value)
             time.sleep(0.2)
             start = cursor + 1 if cursor is not None else 1
+            size = 40 if cursor is not None else 20
             prefix = 'recommended-' if value['reviewListType'] == 1 else 'latest-'
             rows = []
-            for index in range(start, start + 20):
+            for index in range(start, start + size):
                 rid = prefix + str(index)
                 review = {
                     'reviewId': rid, 'bookId': '42', 'author': {'name': '合成读者'},
@@ -43,7 +44,7 @@ class Handler(BaseHTTPRequestHandler):
                 if index == 1:
                     review['pictures'] = [{'url': 'https://weread-picture-1258476243.file.myqcloud.com/gateway-fixture.png'}]
                 rows.append({'idx': index, 'review': {'reviewId': rid, 'review': review}})
-            data = json.dumps({'reviews': rows, 'reviewsHasMore': 0 if cursor else 1, 'synckey': 123},
+            data = json.dumps({'reviews': rows, 'reviewsHasMore': int(start + size <= 100), 'synckey': 123},
                               ensure_ascii=False).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -96,7 +97,7 @@ def main():
                                           capture_output=True, timeout=90)
                 if reopened.returncode or b'GATEWAY_BOOK_REVIEWS_OFFLINE_PASS' not in reopened.stdout:
                     failure = reopened
-        expected = [(1, None), (1, 20), (3, None)]
+        expected = [(mode, cursor) for mode in (1, 3) for cursor in (None, 20, 60)]
         got = [(row.get('reviewListType'), row.get('maxIdx')) for row in server.calls]
         if failure is not None or server.invalid or got != expected:
             if failure is not None:
