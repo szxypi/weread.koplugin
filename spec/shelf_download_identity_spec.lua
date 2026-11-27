@@ -38,8 +38,10 @@ host.settings.get_auth_scope=function() return scope end
 host.settings.auth_scope_matches=function(_,value) return value==scope end
 host.library_db={accountKey=function() return owner end}
 package.loaded['weread.lib.native_direct_cache']={
-    present=function(_,vid,id) calls=calls+1;return vid=='123' and id=='42' end,
-    repair_presence=function(_,vid,id,current)
+    present=function(_,vid,id,current)
+        calls=calls+1
+        if vid=='123' and id=='42' then return true end
+        if not current then return false end
         repairs=repairs+1;return vid=='123' and id=='43' and current()
     end,
 }
@@ -47,9 +49,11 @@ assert(downloaded({bookId='42'},{}),'native cached chapter was not recognized')
 assert(not downloaded({bookId='43'},{}),'another book acquired native cache status')
 local before=calls
 assert(repairs==0,'shelf checks tried to repair the marker')
+assert(host:nativeChapterCachePresent('42',function() error('valid marker started a scan') end))
 assert(host:nativeChapterCachePresent('43',function() return true end),'download worker did not use repair')
 assert(not host:nativeChapterCachePresent('43',function() return false end),'cancelled worker retained its result')
-assert(calls==before and repairs==2,'download worker repeated the marker lookup')
+assert(calls==before+3 and repairs==2,'download worker repeated the marker lookup')
+before=calls
 assert(not downloaded({bookId='42'},{['42']={book_id='43'}}),'native hint bypassed conflicting saved identity')
 assert(calls==before,'conflicting record consulted native cache hint')
 host.library_db.accountKey=function() return 'other-account' end

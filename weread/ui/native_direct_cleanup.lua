@@ -43,7 +43,7 @@ function M.cancel(host)
             return not host._weread_suspended and host.library_db and host.library_db:accountKey()==ctx.account
                 and host.settings:auth_scope_matches(ctx.scope)
         end
-        if owner_current() then pcall(Cache.repair_presence,host.settings,ctx.scope.vid,ctx.id,owner_current) end
+        if owner_current() then pcall(Cache.present,host.settings,ctx.scope.vid,ctx.id,owner_current) end
     end
 end
 
@@ -78,7 +78,7 @@ function M.start(host,book,view)
     UIManager:scheduleIn(.2,ctx.watch)
     local function refresh()
         if not owner_current() then return end
-        Cache.repair_presence(host.settings,scope.vid,id,owner_current)
+        Cache.present(host.settings,scope.vid,id,owner_current)
         if host.refreshShelfCacheIndicators then host:refreshShelfCacheIndicators() end
     end
     local function fail(message)
@@ -125,7 +125,7 @@ function M.start(host,book,view)
                     local ok=Model.step(host.settings,host.client,plan,lease,index,current)
                     if not ok then return {error='stopped'} end
                 end
-                Cache.repair_presence(host.settings,scope.vid,id,current)
+                Cache.present(host.settings,scope.vid,id,current)
                 return {done=true,count=#plan.items}
             end)
         end,function(result)

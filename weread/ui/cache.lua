@@ -438,9 +438,8 @@ function M:nativeChapterCachePresent(book_id, repair_current)
     local owner=require('weread.lib.crypto').sha256_hex('weread-library:'..scope.vid):sub(1,20)
     if self.library_db:accountKey()~=owner then return false end
     local cache=require('weread.lib.native_direct_cache')
-    if not repair_current then return cache.present(self.settings,scope.vid,book_id) end
-    -- The downloaded-books worker alone can scan for a replacement marker.
-    return cache.repair_presence(self.settings,scope.vid,book_id,function()
+    -- Only the downloaded-books worker can scan for a replacement marker here.
+    return cache.present(self.settings,scope.vid,book_id,repair_current and function()
         return repair_current() and self.settings:auth_scope_matches(scope) and self.library_db:accountKey()==owner
     end)
 end

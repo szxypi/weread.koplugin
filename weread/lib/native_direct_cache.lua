@@ -327,10 +327,6 @@ local function marker_present(lfs,book_dir,book_id,account,verified_entry)
     local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
     return entry and candidate_present(lfs,book_dir,entry) or false
 end
-function M.present(settings,account,book_id)
-    local lfs,book_dir=existing_book_dir(settings,account,book_id)
-    return lfs and marker_present(lfs,book_dir,book_id,account) or false
-end
 local function save_presence_unsafe(settings,account,book_id,entry,current)
     if type(current)~='function' or current()~=true or not valid_entry(entry,book_id,account) then return false end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
@@ -375,12 +371,9 @@ end
 
 -- Downloaded books only need one usable copy. Check the directory limit
 -- before reading entries, then stop at the first match without loading its catalog.
-function M.repair_presence(settings,account,book_id,current)
-    local lfs,book_dir=existing_book_dir(settings,account,book_id)
-    if not lfs or type(current)~='function' then return false end
+local function repair_presence(lfs,book_dir,settings,account,book_id,current)
     local ok,available=pcall(function()
         if current()~=true then return false end
-        if marker_present(lfs,book_dir,book_id,account) then return current()==true end
         local names={}
         for name in lfs.dir(book_dir) do
             if name~='.' and name~='..' and name~=OPERATION then
@@ -401,6 +394,16 @@ function M.repair_presence(settings,account,book_id,current)
         return false
     end)
     return ok and available==true
+end
+
+-- Ordinary shelf checks only read the marker. Callers that can scan provide
+-- a live guard for the repair path.
+function M.present(settings,account,book_id,repair_current)
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs then return false end
+    if marker_present(lfs,book_dir,book_id,account) then return true end
+    return type(repair_current)=='function'
+        and repair_presence(lfs,book_dir,settings,account,book_id,repair_current)
 end
 
 -- List bounded metadata only; a selected file is fully checked by open(). A

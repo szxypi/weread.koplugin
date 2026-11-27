@@ -248,10 +248,10 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
         package.loaded['weread.lib.notes_export_file']={create=function() return nil end}
         local old_limit=cache.MAX_ENTRIES
         cache.MAX_ENTRIES=2
-        assert(not cache.repair_presence(settings,scope.vid,'42',current),'overfull directory was scanned')
+        assert(not cache.present(settings,scope.vid,'42',current),'overfull directory was scanned')
         cache.MAX_ENTRIES=old_limit
         local checks=0
-        assert(not cache.repair_presence(settings,scope.vid,'42',function()
+        assert(not cache.present(settings,scope.vid,'42',function()
             checks=checks+1;return checks<2
         end) and not cache.present(settings,scope.vid,'42'),'stale scan returned a hint')
     end
@@ -261,7 +261,7 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
         if path:match('/catalog%.txt$') then catalog_reads=catalog_reads+1 end
         return open(path,...)
     end)
-    local available=cache.repair_presence(settings,scope.vid,'42',current)
+    local available=cache.present(settings,scope.vid,'42',current)
     rawset(io,'open',open)
     assert(available and catalog_reads==0,'repair failed or read catalog records')
     if input.mode=='presence_unwritable' then
@@ -271,8 +271,9 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     end
     local rows=assert(cache.list(settings,scope.vid,'42',current))
     assert(#rows==(input.expected_rows or 3),'listing did not return all saved chapters')
-    assert(cache.present(settings,scope.vid,'42'),'saved chapters did not repair the presence marker')
-    assert(not cache.repair_presence(settings,'87654321','42',current),'presence escaped its account')
+    assert(cache.present(settings,scope.vid,'42',function() error('valid marker started a scan') end),
+        'saved chapters did not repair the presence marker')
+    assert(not cache.present(settings,'87654321','42',current),'presence escaped its account')
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
 if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' or input.mode=='offline_range' then
