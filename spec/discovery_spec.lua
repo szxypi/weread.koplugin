@@ -185,7 +185,7 @@ plugin.shelf_view = {}
 queued()
 expect(plugin.discovery_state.account == "account-b" and rendered == 4, "cover redraw discarded current result")
 
-local shown, opened, fetched
+local shown, opened, fetched, selected_record
 package.preload["weread.ui.library_view"] = function()
     return {
         getLayout = function(_cover, _count, _mode, reserved)
@@ -204,12 +204,15 @@ plugin.cancelShelfCovers = function(self) self.shelf_cover_generation=(self.shel
 plugin.isBookDownloaded = function() return true end
 plugin.bookRecordHasDownload = function(_self,book) return book.cached_chapters~=nil end
 plugin.fetchVisibleShelfCovers = function(_self, _view, _books, options) fetched = options end
-plugin.startBookReading = function(_self, book) opened = book end
+plugin.startBookReading = function(_self, book, _detail, _origin, options)
+    opened,selected_record=book,options.record
+end
 plugin.closeWeReadUI = function(self) self.shelf_view = nil self.discovery_epoch = self.discovery_epoch + 1 end
 plugin:showDiscoveryPage("home", { { bookId = "a" } }, { title = "Home" })
 expect(shown.data.portal and #shown.data.navigation == 4, "home navigation missing")
 shown.callbacks.on_select({ bookId = "a", _cached = true })
-expect(opened and opened.cached_chapters, "offline continue did not use saved chapter cache")
+expect(opened and opened.cached_chapters and selected_record==opened,
+    "offline continue did not carry the verified record into the read action")
 local selected_detail
 plugin.showBookRecord=function(_self,book) selected_detail=book end
 local native_only={book_id='42'}

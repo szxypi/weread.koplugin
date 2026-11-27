@@ -3,6 +3,7 @@ local ConfirmBox=require('ui/widget/confirmbox')
 local UI=require('ui/uimanager')
 local Popup=require('weread.ui.shelf_popup')
 local Scope=require('weread.ui.page_scope')
+local ReadAccess=require('weread.lib.read_access')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 
@@ -32,7 +33,7 @@ function M.show(host,book_id,view,expected_uid)
         ok_callback=function()
             if not current() then return end
             M.cancel(host)
-            local latest=host.settings:get_book(book_id)
+            local latest=ReadAccess.load_cached_book(host.settings,book_id)
             if not latest then return end
             local available,reason,uid=host:openBookForReading(latest,true,{prefer_exact=true,check_only=true})
             if available or reason=='resume_not_cached' and uid==expected_uid then

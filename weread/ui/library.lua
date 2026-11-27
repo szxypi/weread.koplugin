@@ -2912,11 +2912,11 @@ function M:openBookForReading(book, quiet, options)
     return false
 end
 
-function M:readCachedCopy(book,view)
+-- The selection or confirmation has already looked up the current record.
+function M:readCachedCopy(record,view)
     if view and self._book_detail_view~=view then return false end
-    local id=book.book_id or book.bookId
-    local latest=self.settings:get_book(id) or book
-    local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
+    local id=record.book_id or record.bookId
+    local opened,reason,uid=self:openBookForReading(record,true,{prefer_exact=true})
     if opened then return true end
     if reason=='resume_not_cached' then return require('weread.ui.missing_resume').show(self,id,view,uid) end
     if reason=='ambiguous_cache' then self:showInfo(_('No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'));return false end
@@ -2935,10 +2935,11 @@ function M:readFromBookList(book, view, current, cached_only, native_cached)
     end
     local resume = record and record.native_home_resume and require('weread.ui.native_home_resume')
     if resume and resume.can_resume(self, record, id) then return resume.open(self, record, id, view, current) end
-    local cached = self:bookRecordHasDownload(record)
     if not cached_only then
-        return self:startBookReading(book, nil, {current=current,owner=view,allow_saved_native=not cached})
+        return self:startBookReading(book, nil, {current=current,owner=view,allow_saved_native=true},
+            {record=record or false})
     end
+    local cached = self:bookRecordHasDownload(record)
     if not cached and (native_cached or self:nativeChapterCachePresent(id)) then
         local detail = self:showBookMenu(book,{read_saved_native=true})
         return detail and require('weread.ui.native_direct_reading').start(self, book, detail, {cached=true}) or false
@@ -2948,13 +2949,16 @@ function M:readFromBookList(book, view, current, cached_only, native_cached)
     return false
 end
 
-function M:startBookReading(book, view, origin, mode)
+function M:startBookReading(book, view, origin, options)
     if view and self._book_detail_view ~= view then return false end
     if origin and not origin.current() then return false end
     local warning=package.loaded['weread.ui.missing_resume']
     if warning then warning.cancel(self) end
     local id = book.book_id or book.bookId
-    local stored = self.settings:get_book(id)
+    options=options or {}
+    -- A caller may have already verified the saved record or its absence.
+    local stored=options.record
+    if stored==nil then stored=self.settings:get_book(id) end
     local latest = stored or book
     local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
     if opened then return true end
@@ -2963,11 +2967,12 @@ function M:startBookReading(book, view, origin, mode)
     local shelf_view=origin and origin.owner
     local owner=view or shelf_view
     local selected_id=ShelfSnapshot.persisted_id(book)
-    if mode~='standard' and owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
+    if not options.standard and owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
         and require('weread.lib.native_position_protocol').id(selected_id) then
         local native=online and (not exact or prefer_eink_chapters(self,latest,reason))
             and has_native_read_access(self.settings)
-        local saved_native=not native and (not online or origin and origin.allow_saved_native)
+        local saved_native=not native and (not online
+            or origin and origin.allow_saved_native and not self:bookRecordHasDownload(stored))
             and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
         if native or saved_native then
             local account=self.library_db and self.library_db:accountKey()
@@ -2983,7 +2988,7 @@ function M:startBookReading(book, view, origin, mode)
                         self:showInfo(_('Saved book information does not match. Check the local cache before opening.'))
                         return false
                     end
-                    return self:startBookReading(record or latest,view,origin,'standard')
+                    return self:startBookReading(record or latest,view,origin,{record=record or false,standard=true})
                 end
             end
             return require('weread.ui.native_direct_reading').start(self,latest,owner,{

@@ -386,6 +386,46 @@ do
         and not path_probes['/cache/after-gap.epub'],'a gapped catalog changed the preferred cached chapter')
 end
 
+do
+    local scope={}
+    local cached={book_id='76',chapters={{chapterUid=1},{chapterUid=2}},
+        chapter_uid=1,cached_chapters={['1']='/cache/76-1.epub'}}
+    local row={bookId='76',title='Legacy index'}
+    existing_paths['/cache/76-1.epub']=true
+    local prior_get,prior_download=host.settings.get_book,host.bookRecordHasDownload
+    local reads,download_probes=0,0
+    host.settings.get_book=function(_,id,allow_legacy)
+        expect(id=='76','read from another book record')
+        reads=reads+1
+        if allow_legacy then return cached end
+    end
+    host.bookRecordHasDownload=function(_,record)
+        expect(record==cached,'download check lost the verified record')
+        download_probes=download_probes+1
+        return true
+    end
+    host.shelf_view=scope
+    local function current() return true end
+    opened_path=nil
+    expect(host:readFromBookList(row,scope,current) and opened_path=='/cache/76-1.epub'
+        and reads==1 and download_probes==0,
+        'direct shelf reading should reuse the legacy record and skip the download badge check')
+    opened_path=nil
+    expect(host:readFromBookList(row,scope,current,true) and opened_path=='/cache/76-1.epub'
+        and reads==2 and download_probes==1,'opening a downloaded copy read the verified record twice')
+    cached.chapter_uid=2;opened_path=nil
+    expect(host:readFromBookList(row,scope,current,true) and reads==3 and not opened_path,
+        'a missing chapter skipped the fallback confirmation')
+    last_dialog.ok_callback()
+    expect(reads==4 and opened_path=='/cache/76-1.epub',
+        'fallback confirmation did not re-read and use the legacy record')
+    cached.book_id='77';opened_path=nil
+    expect(not host:readFromBookList(row,scope,current) and not opened_path and reads==5,
+        'a conflicting cached record was opened from the shelf')
+    host.settings.get_book,host.bookRecordHasDownload=prior_get,prior_download
+    host.shelf_view=nil
+end
+
 partial.pending_upload_account='account-a'
 partial.pending_upload_position={book_id='42',chapter_uid=2,percent=25}
 host:openBookForReading(partial)
@@ -614,8 +654,11 @@ do
     expect(host:readFromBookList(uncached,shelf,current) and choice.cloud_chapter and not choice.cached,
         'the E-Ink preference did not choose native continuation with Web access')
     local continue_standard=choice.standard_read;choice,preparation=nil,nil
-    expect(continue_standard and continue_standard() and preparation and preparation.book==uncached and not choice,
-        'standard reading restarted native selection or lost the original book')
+    local refreshed={book_id=uncached.book_id,title='Refreshed after choosing E-Ink'}
+    books['99']=refreshed
+    expect(continue_standard and continue_standard() and preparation and preparation.book==refreshed and not choice,
+        'standard reading restarted native selection or reused the record from before confirmation')
+    books['99']=uncached
     opened_path,choice=nil,nil
     expect(host:readFromBookList(partial,shelf,current) and opened_path==partial.full_path and not choice,
         'the E-Ink preference bypassed an existing ordinary EPUB')
