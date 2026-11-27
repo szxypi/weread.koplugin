@@ -13,7 +13,7 @@ import time
 from urllib.parse import urlencode
 
 from fetch_weread_epub import decode_content_shards, make_content_params, read_reader_state, reader_url_for
-from native_chapter_package import password, read
+from native_chapter_package import password, read, read_plain_tar
 from native_txt_read_model import body
 from readtime_upload_model import confirmed, guest_token, integer, local_zone
 from secure_native_session import NativeSessionStore
@@ -79,19 +79,32 @@ def state(raw,identity,source):
 
 
 def current_source(sample,uid,credentials,web):
-    fields_=dict(bookId=sample['book_id'],chapters='0,'+uid,bookType='epub',bookVersion=sample['expected']['version'],
+    txt=sample['expected'].get('format')=='txt'
+    fields_=dict(bookId=sample['book_id'],chapters=uid if txt else '0,'+uid,bookType='txt' if txt else 'epub',
+        bookVersion=sample['expected']['version'],
         pf='wechat_wx-2001-android-100-weread',pfkey='pfKey',zoneId=1,quote='',release=1,
         stopAutoPayWhenBNE=1,preload=2,preview=0,offline=1)
     probe=ChapterProbe();probe.archive_url=BASE+'/book/chapterdownload?'+urlencode(fields_)
-    archive,envelope=probe.download(probe.archive_url,credentials)
-    native=read(archive,password(envelope,credentials['vid']),uid)
-    if not native['html']:raise ValueError('direct_roundtrip/source')
+    if txt:
+        archive,_=probe.download(probe.archive_url,credentials,plain_text=True)
+        native=read_plain_tar(archive,sample['book_id'],uid)
+    else:
+        archive,envelope=probe.download(probe.archive_url,credentials)
+        decoded=read(archive,password(envelope,credentials['vid']),uid)
+        if not decoded['html']:raise ValueError('direct_roundtrip/source')
+        native=decoded['source']
     web.chapter=uid
     reader=read_reader_state(web.request('reader',reader_url_for(web.book_id,uid),as_json=False))
     params=make_content_params(web.book_id,uid,reader.psvts,sc=1)
-    parts=[web.request(key,WEB+'/web/book/chapter/'+key,params,as_json=False) for key in ('e_0','e_1','e_3')]
+    e0=web.request('e_0',WEB+'/web/book/chapter/e_0',params,as_json=False)
+    if txt:
+        from verify_txt_reading import fallback_marker
+        if not fallback_marker(e0,sample['book_id'],uid):raise ValueError('direct_roundtrip/source')
+        parts=[web.request(key,WEB+'/web/book/chapter/'+key,params,as_json=False) for key in ('t_0','t_1')]+['']
+    else:
+        parts=[e0]+[web.request(key,WEB+'/web/book/chapter/'+key,params,as_json=False) for key in ('e_1','e_3')]
     raw=decode_content_shards(*parts).encode()
-    if raw!=native['source']:raise ValueError('direct_roundtrip/source')
+    if raw!=native:raise ValueError('direct_roundtrip/source')
     return raw
 
 
@@ -106,11 +119,13 @@ def catalog(web,identity,uid,index):
     return digest(books[0]['updated'])
 
 
-def check(web,native,credentials,identity,expected,counts,shelf_hash,web_shelf_hash,previous=None):
+def check(web,native,credentials,identity,expected,counts,shelf_hash,web_shelf_hash,previous=None,*,both_counts=False):
     url=BASE+'/book/getProgress?'+urlencode(dict(bookId=identity))
     first,observed_counts=state(native.request('progress',url,credentials=credentials),identity,'native')
-    second,_=state(web.request('progress_after',WEB+'/web/book/getProgress?'+urlencode(dict(bookId=identity))),identity,'web')
-    if observed_counts!=counts or any(point!=expected and (previous is None or point!=previous) for point in (first,second)):
+    second,web_counts=state(web.request('progress_after',WEB+'/web/book/getProgress?'+urlencode(dict(bookId=identity))),identity,'web')
+    if (observed_counts!=counts or both_counts and (web_counts!=counts
+            or any(not integer(value,0,2**53-1) for value in web_counts.values()))
+            or any(point!=expected and (previous is None or point!=previous) for point in (first,second))):
         raise ValueError('direct_roundtrip/changed')
     if state_hash(native.request('shelf',BASE+'/shelf/sync',credentials=credentials))!=shelf_hash:
         raise ValueError('direct_roundtrip/shelf')

@@ -29,14 +29,19 @@ from verify_web_source_progress import BASE,WebSourceProbe
 FRAME=b'\nWEREAD_DIRECT_POSITION_OWNER_RUN='
 
 
-def independent_offset(raw,position):
+def independent_offset(raw,position,*,plain_text=False):
     if (not isinstance(position,dict) or set(position)!={'ok','text','point_offset','offset'}
             or position['ok'] is not True or not isinstance(position['text'],str)
             or type(position['point_offset']) is not int or type(position['offset']) is not int):
         return False
-    model=FilteredSource(raw.decode('utf-8'));flat=[];indices=[]
+    if plain_text:
+        from txt_coordinates import PlainSource
+        model=PlainSource(raw.decode('utf-8'))
+    else:model=FilteredSource(raw.decode('utf-8'))
+    flat=[];indices=[]
     for index,char in enumerate(model.characters):
-        if not char.isspace():flat.append(char);indices.append(index)
+        if not char.isspace() and not (plain_text and index==0 and char=='\ufeff'):
+            flat.append(char);indices.append(index)
     haystack=''.join(flat);text=position['text'];point=position['point_offset']
     if not 0<=point<=len(text):return False
     windows=[]

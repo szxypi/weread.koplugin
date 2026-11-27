@@ -1,9 +1,10 @@
-"""Host-owned two-step supervision of a native XHTML ReaderUI trial.
+"""Host-owned two-step supervision of a native chapter ReaderUI trial.
 
 No HTTP write path lives here. Private frames and the recovery plan never go
 to stdout; each claim is persisted before the UI worker may send its POST.
 """
 from copy import deepcopy
+from hashlib import sha256
 import re
 import subprocess
 import time
@@ -12,17 +13,20 @@ from native_trial_pipe import Frames,reply,stop,write_initial
 from native_txt_read_model import body
 from secure_native_txt_roundtrip import POINT_FIELDS,validate_binding
 from secure_weread_session import StoreError
+from txt_coordinates import PlainSource
 from verify_native_direct_position_owner import independent_offset
 from verify_native_position_lua import equivalent
 from verify_source_coordinates import FilteredSource
 
 PROTOCOL='native-direct-ui-xhtml-zero-time-v1'
+TXT_PROTOCOL='native-direct-ui-txt-zero-time-v1'
 
 
-def validate_plan(plan):
-    validate_binding(plan,PROTOCOL)
+def validate_plan(plan,protocol=PROTOCOL):
+    validate_binding(plan,protocol)
     if (any(plan['baseline'][key]!=plan['target'][key] for key in POINT_FIELDS-{'chapter_offset','summary'})
-            or plan['target']['chapter_offset']==plan['baseline']['chapter_offset'] or plan['chapter_progress'] is not None):
+            or plan['target']['chapter_offset']==plan['baseline']['chapter_offset'] or plan['chapter_progress'] is not None
+            or protocol==TXT_PROTOCOL and plan['version']!=0):
         raise StoreError('direct_ui_trial/plan')
 
 
@@ -32,21 +36,27 @@ def bind_metadata(metadata,anchor,plan,raw):
             or set(anchor)!={'text','point_offset'}:
         raise ValueError('direct_ui_trial/metadata')
     desired=metadata['desired']
-    if (metadata['basis']!='filtered_xhtml_utf16' or metadata['book_id']!=plan['baseline']['book_id']
+    txt=plan['protocol']==TXT_PROTOCOL
+    expected_basis='raw_txt_utf16' if txt else 'filtered_xhtml_utf16'
+    if (metadata['basis']!=expected_basis or metadata['book_id']!=plan['baseline']['book_id']
             or metadata['before']!=plan['baseline'] or metadata['counts']!=plan['counts']
             or metadata['version']!=plan['version'] or metadata['source_sha256']!=plan['source_sha256']
             or metadata['shelf_sha256']!=plan['shelf_sha256'] or not isinstance(metadata['file_id'],str)
             or not re.fullmatch('[a-f0-9]{64}',metadata['file_id']) or not isinstance(desired,dict)):
         raise ValueError('direct_ui_trial/metadata')
     point={'ok':True,'text':anchor['text'],'point_offset':anchor['point_offset'],'offset':desired.get('chapter_offset')}
-    if not independent_offset(raw,point):raise ValueError('direct_ui_trial/source')
-    model=FilteredSource(raw.decode('utf-8'),allow_multiple_bodies=True)
-    visible=[index for index,char in enumerate(model.characters) if not char.isspace()]
-    positions=[i for i,index in enumerate(visible) if model.starts[index]==desired['chapter_offset']]
-    if len(positions)!=1:raise ValueError('direct_ui_trial/source')
-    index=positions[0];summary=''.join(model.characters[i] for i in visible[index:index+20])
+    if not independent_offset(raw,point,plain_text=txt):raise ValueError('direct_ui_trial/source')
+    if txt:
+        if sha256(raw).hexdigest()!=plan['source_sha256']:raise ValueError('direct_ui_trial/source')
+        summary=PlainSource(raw.decode('utf-8')).excerpt(desired['chapter_offset'])['text']
+    else:
+        model=FilteredSource(raw.decode('utf-8'),allow_multiple_bodies=True)
+        visible=[index for index,char in enumerate(model.characters) if not char.isspace()]
+        positions=[i for i,index in enumerate(visible) if model.starts[index]==desired['chapter_offset']]
+        if len(positions)!=1:raise ValueError('direct_ui_trial/source')
+        index=positions[0];summary=''.join(model.characters[i] for i in visible[index:index+20])
     if not summary or desired.get('summary')!=summary:raise ValueError('direct_ui_trial/summary')
-    selected=deepcopy(plan);selected['target']=deepcopy(desired);validate_plan(selected)
+    selected=deepcopy(plan);selected['target']=deepcopy(desired);validate_plan(selected,TXT_PROTOCOL if txt else PROTOCOL)
     return selected
 
 

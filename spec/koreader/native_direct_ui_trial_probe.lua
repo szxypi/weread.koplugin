@@ -6,6 +6,8 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local size=assert(tonumber(io.stdin:read('*l')))
 assert(size>0 and size<=262144);local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial)
+local txt=input.plain_text==true
+assert(not txt or input.book_version==0)
 _G._direct_trial_error_token=trial.rpc_token
 local ffi=require('ffi');local parent=tonumber(ffi.C.getpid());local sequence=1
 local function rpc(kind,seq,extra)
@@ -100,8 +102,10 @@ client.request=function(self,options)
         local value=json.decode(options.body);assert(options.method=='POST' and #value.bookIds==1 and value.bookIds[1]==input.book_id
             and value.synckeys[1]==0 and value.updateTimes[1]==0 and value.maxfreeIdx[1]==0)
     elseif url:find(native..'/book/chapterdownload?',1,true)==1 then
+        local chapter=txt and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&'
+            or 'chapters=0%2C'..input.uid..'&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and url:find('chapters=0%2C'..input.uid..'&',1,true) and url:find('stopAutoPayWhenBNE=1',1,true))
+            and url:find(chapter,1,true) and url:find('stopAutoPayWhenBNE=1',1,true) and url:find('preview=0',1,true))
     elseif url==web..'/api/userInfo?userVid='..scope.vid then assert(options.method=='GET')
     elseif url==web..'/web/book/chapterInfos' then
         local value=json.decode(options.body);assert(options.method=='POST' and #value.bookIds==1 and value.bookIds[1]==input.book_id)
@@ -109,7 +113,9 @@ client.request=function(self,options)
     elseif url:find(web..'/web/book/getProgress?',1,true)==1 then
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true))
     elseif url==require('weread.lib.protocol').reader_url(input.book_id,input.uid) then assert(options.method=='GET')
-    elseif url==web..'/web/book/chapter/e_0' or url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3' then
+    elseif url==web..'/web/book/chapter/e_0'
+        or txt and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1')
+        or not txt and (url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3') then
         local value=json.decode(options.body);local proto=require('weread.lib.protocol')
         assert(options.method=='POST' and value.b==proto.e(input.book_id) and value.c==proto.e(input.uid)
             and value.sc==1 and value.prevChapter==false and value.st==0)
@@ -158,7 +164,15 @@ Service.start=function(self,value,guard,callback)
         trial_finished=true
     end)
 end
-assert(require('weread.ui.native_direct_position').start(host,entry,{upload=true}))
+assert(require('weread.ui.reader_navigation').onShowWeReadQuickMenu(host))
+local upload_button
+wait(function()
+    local top=UI:getTopmostVisibleWidget()
+    upload_button=top and type(top.getButtonById)=='function' and top:getButtonById('native_upload_position')
+    return upload_button or host.checked_message~=nil
+end)
+assert(upload_button and upload_button.enabled~=false,'direct_ui_trial/menu')
+upload_button:onTapSelectButton()
 wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
 assert(host._native_direct_position and host._native_direct_position.confirm,'direct_ui_trial/confirmation')
 if trial.timed or trial.closed then

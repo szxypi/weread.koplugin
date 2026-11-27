@@ -13,6 +13,7 @@ import math
 import re
 import ssl
 import sys
+import tarfile
 import zipfile
 
 MAX_ARCHIVE = 32 * 1024 * 1024
@@ -23,6 +24,38 @@ MAX_MANIFEST = 1024 * 1024
 
 class PackageError(ValueError):
     pass
+
+
+def read_plain_tar(data, book_id, chapter_uid):
+    """Read a verified two-file TXT chapter without extracting it to disk."""
+    if (not isinstance(data, bytes) or not 3072 <= len(data) <= MAX_ARCHIVE or len(data) % 512
+            or any(not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', value)
+                   for value in (book_id, chapter_uid))):
+        raise PackageError('package/txt_archive')
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode='r:') as archive:
+            first, second = archive.next(), archive.next()
+            rows = (first, second)
+            if (any(row is None or not row.isfile() or not re.fullmatch(r'[A-Za-z0-9_.-]+', row.name)
+                    or row.name in ('.', '..') or not 0 < row.size <= MAX_ENTRY for row in rows)
+                    or archive.next() is not None or sum(row.name == 'info.txt' for row in rows) != 1):
+                raise PackageError('package/txt_archive')
+            end = max(row.offset_data + (row.size + 511) // 512 * 512 for row in rows)
+            if len(data) - end < 1024 or data[end:].strip(b'\0'):
+                raise PackageError('package/txt_archive')
+            manifest, text = (first, second) if first.name == 'info.txt' else (second, first)
+            if manifest.size > MAX_MANIFEST:
+                raise PackageError('package/txt_archive')
+            info = decode_manifest(archive.extractfile(manifest).read())
+            chapters = info.get('chapters') if isinstance(info, dict) else None
+            if (not isinstance(chapters, list) or len(chapters) != 1 or not isinstance(chapters[0], dict)
+                    or str(info.get('bookId')) != book_id or str(chapters[0].get('chapterUid')) != chapter_uid):
+                raise PackageError('package/txt_identity')
+            raw = archive.extractfile(text).read()
+            raw.decode('utf-8', errors='strict')
+            return raw
+    except (tarfile.TarError, UnicodeError, OSError, EOFError):
+        raise PackageError('package/txt_archive') from None
 
 
 def decode_manifest(raw):

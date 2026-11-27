@@ -14,17 +14,30 @@ import time
 from urllib.parse import urlencode
 
 from native_chapter_remote_reference import search_token
-from native_direct_ui_trial_broker import PROTOCOL,execute
+from native_direct_ui_trial_broker import execute
 from readtime_upload_model import guest_token,local_zone
-from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore,NativeDirectCloseTrialStore
+from secure_native_direct_ui_trial import store_for
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
 from verify_eink_login import BASE
-from verify_native_chapter_package import ChapterProbe
+from verify_native_chapter_package import ChapterProbe,identity as numeric_id
 from verify_native_direct_roundtrip import Reads,catalog,check,current_source,state
-from verify_web_source_progress import BASE as WEB,WebSourceProbe
+from verify_cloud_source_target import WebSourceProbe
+from verify_translation_preflight import catalog as native_catalog,catalog_body
+from verify_web_source_progress import BASE as WEB
+
+
+def txt_sample(probe,credentials,offset):
+    shelf=probe.request('shelf',BASE+'/shelf/sync',credentials=credentials)
+    ids=list(dict.fromkeys(book for row in shelf.get('books',[]) if isinstance(row,dict) and row.get('format')=='txt'
+                           and (book:=numeric_id(row.get('bookId')))))
+    if offset>=len(ids):raise ValueError('direct_ui_trial/no_txt_sample')
+    book=ids[offset];probe.allowed={book}
+    info=probe.request('book',BASE+'/book/info?'+urlencode(dict(bookId=book)),credentials=credentials)
+    chapters=probe.request('catalog',BASE+'/book/chapterInfos',catalog_body(book),credentials=credentials)
+    return dict(book_id=book,expected=native_catalog(chapters,book,info))
 
 
 def main(argv=None):
@@ -33,7 +46,8 @@ def main(argv=None):
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--timed',action='store_true',help='exercise the guarded interval controller')
     modes.add_argument('--closed',action='store_true',help='exercise detached close synchronization')
-    parser.add_argument('--book-offset',type=int,choices=range(51),default=15)
+    parser.add_argument('--txt',action='store_true',help='select a zero-version TXT book')
+    parser.add_argument('--book-offset',type=int,choices=range(51))
     parser.add_argument('--start-page',type=int,choices=range(1,21),default=2)
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
@@ -46,11 +60,14 @@ def main(argv=None):
         resource.setrlimit(resource.RLIMIT_CORE,(0,0))
         from verify_native_thought_trial import other_pending
         if other_pending():raise ValueError('direct_ui_trial/other_pending')
-        store=(NativeDirectCloseTrialStore if args.closed else NativeDirectIntervalTrialStore if args.timed else NativeDirectUITrialStore)()
+        store=store_for(txt=args.txt,timed=args.timed,closed=args.closed)
         if store.read()[0] is not None:raise ValueError('direct_ui_trial/consumed')
         saved=SessionStore().load();credentials=NativeSessionStore().load(saved['vid'])
-        phase='source';sample,_,_=ChapterProbe().inspect(credentials,args.book_offset)
-        if sample['expected']['format']!='epub':raise ValueError('direct_ui_trial/format')
+        phase='source';probe=ChapterProbe()
+        offset=args.book_offset if args.book_offset is not None else 0 if args.txt else 15
+        sample=txt_sample(probe,credentials,offset) if args.txt else probe.inspect(credentials,offset)[0]
+        if (sample['expected']['format']!=('txt' if args.txt else 'epub')
+                or args.txt and sample['expected']['version']!=0):raise ValueError('direct_ui_trial/format')
         identity=sample['book_id'];native=Reads(credentials,identity)
         before,counts=state(native.request('progress',BASE+'/book/getProgress?'+urlencode(dict(bookId=identity)),credentials=credentials),identity,'native')
         chapters=[row for row in sample['expected']['chapters'] if str(row['uid'])==before['chapter_uid']
@@ -61,16 +78,21 @@ def main(argv=None):
         web.verify_account();web.book_id=identity;web.chapter=before['chapter_uid']
         catalog_hash=catalog(web,identity,before['chapter_uid'],before['chapter_idx'])
         raw=current_source(sample,before['chapter_uid'],credentials,web)
+        if args.txt:
+            from txt_coordinates import PlainSource
+            excerpt=PlainSource(raw.decode('utf-8')).excerpt(before['chapter_offset'],len(before['summary']))['text']
+            if excerpt!=before['summary']:raise ValueError('direct_ui_trial/original_summary')
         if catalog(web,identity,before['chapter_uid'],before['chapter_idx'])!=catalog_hash:raise ValueError('direct_ui_trial/catalog')
         shelf=state_hash(native.request('shelf',BASE+'/shelf/sync',credentials=credentials))
         web_shelf=state_hash(web.request('shelf',WEB+'/web/shelf/sync'))
         guest,_=guest_token(native.request('feature',BASE+'/feature?synckey=0',credentials=credentials))
-        plan=dict(protocol=PROTOCOL,owner_sha256=digest(saved['vid']),source_sha256=hashlib.sha256(raw).hexdigest(),
+        plan=dict(protocol=store.protocol,owner_sha256=digest(saved['vid']),source_sha256=hashlib.sha256(raw).hexdigest(),
             catalog_sha256=catalog_hash,grant_sha256=digest(credentials),shelf_sha256=shelf,baseline=before,target=deepcopy(before),
             counts=counts,version=sample['expected']['version'],chapter_progress=None)
-        check(web,native,credentials,identity,before,counts,shelf,web_shelf)
+        check(web,native,credentials,identity,before,counts,shelf,web_shelf,both_counts=args.txt)
         payload=dict(credentials=credentials,book_id=identity,uid=before['chapter_uid'],book_version=plan['version'],
-            source_sha256=plan['source_sha256'],search_token=search_token(raw),web_cookies=saved['cookies'],start_page=args.start_page,
+            source_sha256=plan['source_sha256'],search_token=before['summary'] if args.txt else search_token(raw),
+            plain_text=args.txt,web_cookies=saved['cookies'],start_page=args.start_page,
             trial=dict(plan=plan,armed=args.apply,timed=args.timed,closed=args.closed,natural=args.timed and args.apply,
                 guest=guest,time_zone=local_zone(),rpc_token=secrets.token_hex(16)))
         def current():
@@ -81,15 +103,18 @@ def main(argv=None):
             if hashlib.sha256(latest).hexdigest()!=bound['source_sha256'] \
                     or catalog(web,identity,before['chapter_uid'],before['chapter_idx'])!=bound['catalog_sha256']:
                 raise ValueError('direct_ui_trial/source')
-            check(web,native,credentials,identity,bound['baseline' if seq==1 else 'target'],counts,shelf,web_shelf)
+            check(web,native,credentials,identity,bound['baseline' if seq==1 else 'target'],counts,shelf,web_shelf,both_counts=args.txt)
         def after_write(seq,bound):
             wanted=bound['target' if seq==1 else 'baseline'];prior=bound['baseline' if seq==1 else 'target']
+            stable=0
             for attempt in range(4):
-                if check(web,native,credentials,identity,wanted,counts,shelf,web_shelf,previous=prior):return
+                seen=check(web,native,credentials,identity,wanted,counts,shelf,web_shelf,previous=prior,both_counts=args.txt)
+                stable=stable+1 if seen else 0
+                if stable==(2 if args.txt else 1):return
                 if attempt<3:time.sleep(1)
             raise ValueError('direct_ui_trial/readback_pending')
         phase='reader';execute(payload,args.lua_command,store,raw,report,current=current,before=before_write,after=after_write)
-        phase='final';check(web,native,credentials,identity,before,counts,shelf,web_shelf);web.verify_account()
+        phase='final';check(web,native,credentials,identity,before,counts,shelf,web_shelf,both_counts=args.txt);web.verify_account()
         report.update(cloud_and_shelf_restored=True,reading_counts_unchanged=True)
         if args.timed:report.update(timed_controller=True,natural_timer=args.apply,baseline_seeded_from_read_only_preview=True)
         if args.closed:report.update(closed_controller=True,baseline_seeded_from_read_only_preview=True)

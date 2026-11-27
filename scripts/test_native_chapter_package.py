@@ -5,7 +5,7 @@ import unittest
 import zipfile
 from urllib.parse import parse_qs, urlsplit
 
-from native_chapter_package import PackageError, password, read
+from native_chapter_package import PackageError, password, read, read_plain_tar
 from verify_eink_login import BASE, ProbeError
 from verify_native_chapter_package import ChapterProbe
 
@@ -21,6 +21,22 @@ def archive(rows):
 
 
 class NativeChapterPackageTests(unittest.TestCase):
+    def test_txt_tar_preserves_the_scoped_bytes(self):
+        from test_native_chapter_archive_runtime import plain_tar
+        manifest = json.dumps(dict(bookId=42, chapters=[dict(chapterUid=37)])).encode()
+        text = '\ufeff合成正文😀\r\n<literal> &'.encode()
+        rows = [('info.txt', manifest), ('chapter-body', text)]
+        data = plain_tar(rows)
+        self.assertEqual(read_plain_tar(data, '42', '37'), text)
+        self.assertEqual(read_plain_tar(plain_tar(rows[::-1]), '42', '37'), text)
+        for archive, book, chapter in ((data, '42', '38'), (data, '43', '37'),
+                (data[:-1]+b'\x01', '42', '37'),
+                (plain_tar(rows+[('additional.txt', text)]), '42', '37'),
+                (plain_tar([rows[0], ('../chapter-body', text)]), '42', '37'),
+                (plain_tar([rows[0], ('chapter-body', b'\xff')]), '42', '37')):
+            with self.assertRaises(PackageError):
+                read_plain_tar(archive, book, chapter)
+
     def test_envelope_and_real_zipcrypto(self):
         secret = password('vwSvXMONEDngLYTAXw3olg==', '12345678')
         self.assertEqual(secret, b'test-password')

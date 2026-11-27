@@ -2,16 +2,18 @@
 """Offline supervision tests: malformed plans, unknown receipts and no replay."""
 from copy import deepcopy
 from contextlib import ExitStack
+from hashlib import sha256
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
-from native_direct_ui_trial_broker import PROTOCOL,bind_metadata,execute
+from native_direct_ui_trial_broker import PROTOCOL,TXT_PROTOCOL,bind_metadata,execute
 from native_txt_read_model import body
 from readtime_upload_model import guest_token
 from secure_native_direct_ui_trial import NativeDirectUITrialStore,NativeDirectIntervalTrialStore,NativeDirectCloseTrialStore
 from test_secure_native_session import Backend
 from txt_full_summary import digest
+from txt_coordinates import PlainSource
 from verify_source_coordinates import FilteredSource
 
 
@@ -77,6 +79,20 @@ class BrokerTests(unittest.TestCase):
             metadata=deepcopy(self.metadata);mutate(metadata)
             with self.assertRaises(ValueError):bind_metadata(metadata,self.anchor,self.plan,self.raw)
 
+    def test_txt_body_uses_raw_utf16_and_literal_summary(self):
+        raw='\ufeff前文😀\r\nUnique <literal> context & reference with more words.'.encode()
+        model=PlainSource(raw.decode());text=model.flat.removeprefix('\ufeff')
+        point_offset=text.index('Unique');offset=model.locate_point('Unique<literal>',0)
+        desired=dict(self.before,chapter_offset=offset,summary=model.excerpt(offset)['text'])
+        plan=dict(self.plan,protocol=TXT_PROTOCOL,source_sha256=sha256(raw).hexdigest())
+        metadata=dict(self.metadata,basis='raw_txt_utf16',desired=desired,source_sha256=plan['source_sha256'])
+        anchor=dict(text=text,point_offset=point_offset)
+        self.assertEqual(bind_metadata(metadata,anchor,plan,raw)['target'],desired)
+        for change in (dict(basis='filtered_xhtml_utf16'),dict(desired=dict(desired,chapter_offset=offset-1)),
+                       dict(desired=dict(desired,summary=desired['summary'].replace(' ','')))):
+            with self.assertRaises(ValueError):bind_metadata(dict(metadata,**change),anchor,plan,raw)
+        with self.assertRaises(ValueError):bind_metadata(metadata,anchor,plan,raw+b' changed')
+
     def test_invalid_body_is_never_claimed(self):
         bad=self.request(self.target);bad['readingTime']=1
         with self.assertRaises(ValueError):self.run_sequence([self.plan_frame(),self.frame('claim',1,body=bad)])
@@ -123,6 +139,8 @@ class BrokerTests(unittest.TestCase):
                     factory=stack.enter_context(patch.object(shared,name))
                     factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
                     factories[name]=factory
+            interval=factories['NativeDirectIntervalTrialStore'];txt=Mock();txt.pending.return_value=False
+            interval.side_effect=lambda *,txt=False,epub=interval.return_value,other=txt: other if txt else epub
             factories['NativeDirectIntervalTrialStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_direct_ui=True))
             self.assertFalse(shared.other_pending(exclude_native_direct_interval=True))
@@ -139,11 +157,29 @@ class BrokerTests(unittest.TestCase):
                     factory=stack.enter_context(patch.object(shared,name))
                     factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
                     factories[name]=factory
+            close=factories['NativeDirectCloseTrialStore'];txt=Mock();txt.pending.return_value=False
+            close.side_effect=lambda *,txt=False,epub=close.return_value,other=txt: other if txt else epub
             factories['NativeDirectCloseTrialStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_direct_ui=True,exclude_native_direct_interval=True))
             self.assertFalse(shared.other_pending(exclude_native_direct_close=True))
             factories['NativeDirectIntervalTrialStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_direct_close=True))
+
+    def test_txt_scope_cannot_be_excluded_by_epub_recovery(self):
+        import verify_native_thought_trial as shared
+        with ExitStack() as stack:
+            factories={}
+            for name in dir(shared):
+                if name.endswith('Store'):
+                    factory=stack.enter_context(patch.object(shared,name))
+                    factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
+                    factories[name]=factory
+            factory=factories['NativeDirectUITrialStore'];txt=Mock();txt.pending.return_value=True
+            factory.side_effect=lambda *,txt=False,epub=factory.return_value,other=txt: other if txt else epub
+            self.assertTrue(shared.other_pending(exclude_native_direct_ui=True))
+            self.assertFalse(shared.other_pending(exclude_native_direct_txt='manual'))
+            factory.return_value.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_native_direct_txt='manual'))
 
 
 if __name__=='__main__':unittest.main()

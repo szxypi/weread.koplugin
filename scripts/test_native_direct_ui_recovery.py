@@ -61,13 +61,12 @@ class RecoveryTests(unittest.TestCase):
                     return {} if owner.mode=='noack' else {'succ':1}
                 if stage=='feature':return {'feature':{}}
                 return owner.shelf if stage=='shelf' else {}
-        def checked(_web,_native,_credentials,_identity,expected,_counts,_shelf,_web_shelf,previous=None):
+        def checked(_web,_native,_credentials,_identity,expected,_counts,_shelf,_web_shelf,previous=None,*,both_counts=False):
+            assert both_counts is False
             if owner.current==expected:return True
             if previous is not None and owner.current==previous:return False
             raise ValueError('synthetic changed')
-        patches=[patch.object(recovery,'NativeDirectUITrialStore',lambda:owner.store),
-            patch.object(recovery,'NativeDirectIntervalTrialStore',lambda:owner.store),
-            patch.object(recovery,'NativeDirectCloseTrialStore',lambda:owner.store),patch.object(recovery,'SessionStore',Session),
+        patches=[patch.object(recovery,'store_for',return_value=owner.store),patch.object(recovery,'SessionStore',Session),
             patch.object(recovery,'NativeSessionStore',Credentials),patch.object(recovery,'ChapterProbe',Chapter),
             patch.object(recovery,'WebSourceProbe',Web),patch.object(recovery,'Reads',Native),
             patch.object(recovery,'native_catalog',return_value={'format':'epub','version':1,'chapters':[{'uid':2,'free_or_owned':True}]}),

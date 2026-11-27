@@ -82,7 +82,7 @@ class ChapterProbe(NativeProbe):
         self.guard(stage, url, body)
         return super().request(stage, url, body, credentials, timeout)
 
-    def download(self, url, credentials):
+    def download(self, url, credentials, *, plain_text=False):
         if self.archive_attempted or not self.archive_url or url != self.archive_url:
             raise ProbeError('chapter/download_outside_scope')
         self.archive_attempted = True
@@ -92,6 +92,8 @@ class ChapterProbe(NativeProbe):
                 if response.status != 200:
                     raise ProbeError('chapter/http_rejected')
                 envelope = response.headers.get('encryptkey')
+                if plain_text and (envelope is not None or response.headers.get_content_type() != 'application/x-tar'):
+                    raise ProbeError('chapter/unsupported_txt_archive')
                 raw = response.read(MAX_ARCHIVE + 1)
         except HTTPError as exc:
             code = exc.code
@@ -99,7 +101,7 @@ class ChapterProbe(NativeProbe):
             raise ProbeError('chapter/http_' + str(code)) from None
         except (URLError, OSError, TimeoutError):
             raise ProbeError('chapter/connection_failed') from None
-        if len(raw) > MAX_ARCHIVE or not envelope:
+        if len(raw) > MAX_ARCHIVE or not plain_text and not envelope:
             raise ProbeError('chapter/archive_or_envelope_missing')
         return raw, envelope
 
