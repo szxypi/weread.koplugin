@@ -172,10 +172,12 @@ function M:showDiscoveryPage(tab, books, options)
     scope = Scope.capture(self, view)
     view._rotation_redraw=function()
         if not current() then return end
-        local anchor=(view.page-1)*view.page_size+1
+        local position=view_position(view)
         Popup.redraw(view,function()
             if current() and not self._book_detail_view then
-                options.rotation_anchor=anchor;self:showDiscoveryPage(tab,books,options)
+                options.rotation_anchor=position.anchor
+                options.focus_book_id=position.focus
+                self:showDiscoveryPage(tab,books,options)
             end
         end)
     end

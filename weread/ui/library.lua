@@ -1267,8 +1267,10 @@ function M:showShelfView(mode, keyword, old_view, options)
         if not current() or self._book_detail_view then return end
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
         next_options.prepared_shelf={books=books,accounts=accounts}
-        if paged then next_options.rotation_anchor=(view.page-1)*view.page_size+1
-        else next_options.scroll_offset=view:getScrollOffset() end
+        next_options.browse_position=view:getBrowsePosition()
+        if paged then
+            next_options.rotation_anchor=(view.page-1)*view.page_size+1
+        end
         self:showShelfView(mode,keyword,view,next_options)
     end
     view._finish_dirty=carry_dirty

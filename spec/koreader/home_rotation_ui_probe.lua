@@ -31,13 +31,26 @@ local ok,reason=pcall(function()
         author='测试作者',readUpdateTime=1800000000-index} end
     expect(plugin.library_db:cacheShelf(books,{}))
     local UI=require('ui/uimanager');local Screen=Device.screen;local tr=require('weread.lib.plugin_util').tr
-    local socket=require('socket');local Event=require('ui/event')
+    local socket=require('socket');local Event=require('ui/event');local Focus=require('ui/widget/focusmanager')
     local function item(menu,label)
         for _,entry in ipairs(menu.item_table) do if entry.text==tr(label) then return entry end end
         error('home_rotation/missing_'..label)
     end
+    local function focus_book(view,book)
+        for row_index,row in ipairs(view.layout) do
+            for column_index,widget in ipairs(row) do
+                if widget.book==book then
+                    expect(view:moveFocusTo(column_index,row_index,Focus.FORCED_FOCUS))
+                    expect(view:getFocusedBookId()==tostring(book.bookId or book.book_id))
+                    return
+                end
+            end
+        end
+        error('home_rotation/missing_book_focus')
+    end
     local function rotate(label,mode)
         local previous=assert(plugin.shelf_view);local anchor=(previous.page-1)*previous.page_size+1
+        local focused=previous:getFocusedBookId()
         plugin:showHomeQuickSettings();local menu=assert(plugin._home_controls_menu)
         menu:onMenuSelect(item(menu,'Screen orientation'))
         if label=='Landscape left' then
@@ -47,13 +60,15 @@ local ok,reason=pcall(function()
         menu:onMenuSelect(item(menu,label))
         expect(Screen:getRotationMode()==mode and plugin.shelf_view~=previous and previous._shelf_closed)
         local view=assert(plugin.shelf_view);expect(view.screen_w==Screen:getWidth() and view.screen_h==Screen:getHeight())
-        expect((view.page-1)*view.page_size+1<=anchor and view.page*view.page_size>=anchor)
+        if focused then expect(view:getFocusedBookId()==focused)
+        else expect((view.page-1)*view.page_size+1<=anchor and view.page*view.page_size>=anchor) end
         expect(not plugin._home_controls_menu and view._discovery_tab=='home')
         UI:forceRePaint()
     end
     plugin:showHome();local view=assert(plugin.shelf_view)
     expect(#view.books==24 and view.page_count>1 and Screen:getRotationMode()==Screen.DEVICE_ROTATED_UPRIGHT)
     view.on_page_changed(2);view=assert(plugin.shelf_view);expect(view.page==2)
+    focus_book(view,assert(view:getVisibleBooks()[2]))
     local width,height=Screen:getWidth(),Screen:getHeight()
     report.phase='left';rotate('Landscape left',Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE)
     expect(Screen:getWidth()==height and Screen:getHeight()==width)
@@ -67,6 +82,7 @@ local ok,reason=pcall(function()
     expect(plugin.shelf_view==old and Screen:getRotationMode()==Screen.DEVICE_ROTATED_UPRIGHT)
     local function external(mode)
         local before=assert(plugin.shelf_view);local anchor=(before.page-1)*before.page_size+1
+        local focused=before:getBrowsePosition().focus_book_id
         expect(UI:getTopmostVisibleWidget()==before)
         UI:broadcastEvent(Event:new('SetRotationMode',mode))
         local deadline=socket.gettime()+5
@@ -76,35 +92,33 @@ local ok,reason=pcall(function()
         end
         local after=assert(plugin.shelf_view)
         expect(before._shelf_closed and after.screen_w==Screen:getWidth() and after.screen_h==Screen:getHeight())
-        expect((after.page-1)*after.page_size+1<=anchor and after.page*after.page_size>=anchor)
+        if focused then expect(after:getFocusedBookId()==focused)
+        else expect((after.page-1)*after.page_size+1<=anchor and after.page*after.page_size>=anchor) end
         UI:forceRePaint();return after
     end
     report.phase='external_home';external(Screen.DEVICE_ROTATED_CLOCKWISE)
     plugin:showBookshelf();view=assert(plugin.shelf_view);expect(#view.books==24 and view.page_count>1)
     view.on_page_changed(2);view=assert(plugin.shelf_view);expect(view.page==2)
+    focus_book(view,assert(view:getVisibleBooks()[2]))
     report.phase='external_shelf';view=external(Screen.DEVICE_ROTATED_UPSIDE_DOWN);expect(#view.books==24)
     local shelf=plugin.settings:get('shelf');shelf.view_mode='list';shelf.paginated=false
     plugin.settings:set('shelf',shelf);plugin.settings:flush();plugin:showBookshelf()
     view=assert(plugin.shelf_view);expect(not view.paged)
     view.scroll:setScrolledOffset{x=0,y=50};expect(view:getScrollOffset().y==50)
+    focus_book(view,assert(view:getVisibleBooks()[2]))
     report.phase='external_scrolling_shelf';view=external(Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE)
     expect(not view.paged and view:getScrollOffset().y==50)
     plugin.discovery_state={account=plugin.library_db:accountKey(),books=books,kind='search',keyword='合成',
         loaded_at=os.time(),history={},has_more=false}
     plugin:showBookstore();view=assert(plugin.shelf_view);expect(view._discovery_tab=='store' and #view.books==24)
+    focus_book(view,assert(view:getVisibleBooks()[2]))
     report.phase='external_store';view=external(Screen.DEVICE_ROTATED_UPRIGHT)
     expect(view._discovery_tab=='store' and plugin.discovery_state.keyword=='合成')
     Screen:shot(assert(os.getenv('WEREAD_ROTATION_SHOTS'))..'/store-portrait.png')
     report.phase='detail';plugin:showHome();view=assert(plugin.shelf_view)
     view.on_page_changed(2);view=assert(plugin.shelf_view)
     local chosen=assert(view:getVisibleBooks()[2]);local id=tostring(chosen.bookId or chosen.book_id)
-    local Focus=require('ui/widget/focusmanager')
-    for row_index,row in ipairs(view.layout) do
-        for column_index,widget in ipairs(row) do
-            if widget==view._item_rows[2] then view:moveFocusTo(column_index,row_index,Focus.FORCED_FOCUS) end
-        end
-    end
-    expect(view:getFocusedBookId()==id)
+    focus_book(view,chosen)
     local detail=assert(plugin:showBookMenu({book_id=id,title=chosen.title,author=chosen.author,
         intro=string.rep('合成简介用于核对旋转后内容仍可浏览。',140),chapters={}}))
     UI:forceRePaint()
@@ -151,7 +165,10 @@ local ok,reason=pcall(function()
     expect(detail.screen_w==original_width and not detail._rotation_task and not plugin._book_detail_view)
     expect((returned.page-1)*returned.page_size+1<=anchor and returned.page*returned.page_size>=anchor)
     external(Screen.DEVICE_ROTATED_UPRIGHT)
-    plugin:showHome();view=assert(plugin.shelf_view);plugin:showHomeQuickSettings()
+    plugin:showHome();view=assert(plugin.shelf_view)
+    focus_book(view,assert(view:getVisibleBooks()[2]))
+    local popup_focus=assert(view:getFocusedBookId())
+    plugin:showHomeQuickSettings()
     menu=assert(plugin._home_controls_menu);expect(UI:getTopmostVisibleWidget()==menu)
     report.phase='popup';UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_CLOCKWISE))
     for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
@@ -162,7 +179,8 @@ local ok,reason=pcall(function()
         assert(socket.gettime()<deadline,'rotation after popup close did not reflow')
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
-    expect(plugin.shelf_view.screen_w==Screen:getWidth() and not plugin._home_controls_menu)
+    expect(plugin.shelf_view.screen_w==Screen:getWidth() and not plugin._home_controls_menu
+        and plugin.shelf_view:getFocusedBookId()==popup_focus)
     report.phase='rapid';view=assert(plugin.shelf_view)
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_UPSIDE_DOWN))
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE))
