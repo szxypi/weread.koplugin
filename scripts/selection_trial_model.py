@@ -5,8 +5,11 @@ from my_cloud_marks_model import identifier,integer
 from owner_selection_preview import validate_reference
 
 PROTOCOL='native-fresh-selection-three-notes-optional-new-mark-cleanup-v1'
+TXT_PROTOCOL='native-txt-selection-three-notes-optional-new-mark-cleanup-v1'
 HASHES={name+'_sha256' for name in ('context','selection','catalog','thoughts','marks','position','shelf','web_position')}
 FIELDS={'protocol','owner','book_id','chapter_uid','nonce','review_count','mark_count'}|HASHES
+TXT_HASHES={'source_sha256','grant_sha256'}
+TXT_FIELDS=FIELDS|TXT_HASHES|{'chapter_idx','source_bytes'}
 
 
 class PendingObservation(ValueError):
@@ -14,11 +17,14 @@ class PendingObservation(ValueError):
 
 
 def validate_plan(value):
-    if (not isinstance(value,dict) or set(value)!=FIELDS or value['protocol']!=PROTOCOL
+    txt=isinstance(value,dict) and value.get('protocol')==TXT_PROTOCOL
+    if (not isinstance(value,dict) or set(value)!=(TXT_FIELDS if txt else FIELDS) or value['protocol']!=(TXT_PROTOCOL if txt else PROTOCOL)
             or any(not identifier(value[k]) for k in ('owner','book_id','chapter_uid'))
             or not isinstance(value['nonce'],str) or not re.fullmatch('[a-f0-9]{32}',value['nonce'])
             or not integer(value['review_count'],18) or not integer(value['mark_count'],5000)
-            or any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{64}',value[k]) for k in HASHES)):
+            or any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{64}',value[k]) for k in HASHES|(TXT_HASHES if txt else set()))
+            or txt and (not integer(value['chapter_idx'],1000000)
+                or not integer(value['source_bytes'],2*1024*1024) or not value['source_bytes'])):
         raise ValueError('selection_trial/plan')
     return value
 
@@ -32,6 +38,18 @@ def bind(owner,payload,context,baseline,chapters,web_position,nonce):
     value=dict(protocol=PROTOCOL,owner=owner,book_id=payload['book_id'],chapter_uid=payload['chapter_uid'],nonce=nonce,
                review_count=len(baseline['thoughts']),mark_count=len(baseline['marks']['updated']),context_sha256=digest(context),
                selection_sha256=digest({k:cfg[k] for k in ('first','last','reference')}),catalog_sha256=digest(chapters),web_position_sha256=digest(web_position))
+    for key in ('thoughts','marks','position','shelf'):value[key+'_sha256']=digest(baseline[key])
+    return validate_plan(value)
+
+
+def bind_txt(chapter,context,baseline,web_position,nonce,source_bytes):
+    validate_context(context,chapter['book_id'],allow_txt_zero=True)
+    if context['bookVersion']!=0 or context['chapterUid']!=chapter['chapter_uid'] or 'chapterIdx' in context:
+        raise ValueError('selection_trial/txt_context')
+    value={key:chapter[key] for key in ('owner','book_id','chapter_uid','chapter_idx','source_sha256','grant_sha256','catalog_sha256')}
+    value.update(protocol=TXT_PROTOCOL,nonce=nonce,source_bytes=source_bytes,
+        review_count=len(baseline['thoughts']),mark_count=len(baseline['marks']['updated']),context_sha256=digest(context),
+        selection_sha256=digest([context['range'],context['abstract'],value['source_sha256']]),web_position_sha256=digest(web_position))
     for key in ('thoughts','marks','position','shelf'):value[key+'_sha256']=digest(baseline[key])
     return validate_plan(value)
 

@@ -7,9 +7,9 @@ from copy import deepcopy
 import secrets
 import subprocess
 
-from annotation_experiment_model import note_text,valid_key
+from annotation_experiment_model import digest,note_text,valid_key
 from native_trial_pipe import Frames,reply,stop,write_initial
-from selection_trial_model import fingerprint
+from selection_trial_model import TXT_PROTOCOL,fingerprint
 
 
 def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_final=None,offline_draft=False):
@@ -17,14 +17,19 @@ def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_fin
     state,current=store.read();probe.current()
     if state is None or current!=receipt or state['phase']!='prepared' or state['plan']!=probe.plan.bound:
         raise ValueError('direct_selection_trial/intent')
+    txt=probe.plan.bound['protocol']==TXT_PROTOCOL
     if (source['book_id']!=probe.plan.bound['book_id'] or source['uid']!=probe.plan.bound['chapter_uid']
-            or source['source_sha256']!=probe.payload['source_raw_sha256']):raise ValueError('direct_selection_trial/source')
+            or source['source_sha256']!=probe.payload['source_raw_sha256']
+            or (source.get('plain_text') is True)!=txt
+            or txt and (source['book_version']!=0 or any(source[k]!=probe.plan.bound[k]
+                for k in ('source_sha256','chapter_idx','source_bytes')))):raise ValueError('direct_selection_trial/source')
     probe.baseline(credentials,'direct_selection_before_launch')
     cfg=deepcopy(probe.payload['selection_preview']);token=secrets.token_hex(16)
     payload=dict(credentials=credentials,book_id=source['book_id'],uid=source['uid'],book_version=source['book_version'],
         source_sha256=source['source_sha256'],web_cookies=probe.payload['cookies'],selection_preview=cfg,
         trial=dict(armed=armed,rpc_token=token,original_ids=sorted(probe.plan.baseline['thoughts']),
             edited_text=note_text(probe.plan.bound['nonce'],True)))
+    if txt:payload.update(plain_text=True,chapter_idx=source['chapter_idx'],source_bytes=source['source_bytes'])
     if offline_draft:payload['trial']['offline_draft']=True
     # The caller never sends real credentials to a mock endpoint.
     if source.get('mock_endpoint') is not None:payload['mock_endpoint']=source['mock_endpoint']
@@ -43,6 +48,10 @@ def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_fin
                         or seq!=steps+1 or claims!=steps or not armed and seq!=1):raise ValueError('direct_selection_trial/sequence')
                 body=cfg['body'] if seq==1 else {'reviewId':target,**({'content':payload['trial']['edited_text']} if seq==2 else {})}
                 if value['body']!=body:raise ValueError('direct_selection_trial/body')
+                journal,owned=store.read()
+                if (owned!=receipt or journal is None or journal['phase']!=('pending' if armed else 'prepared')
+                        or journal['plan']!=probe.plan.bound or journal['native_steps']!=steps):
+                    raise ValueError('direct_selection_trial/intent')
                 if seq==1:probe.baseline(credentials,'direct_selection_before_create')
                 else:probe.read_step(credentials,seq-1,target)
                 claims=seq
@@ -70,6 +79,8 @@ def execute(probe,credentials,store,receipt,command,*,source,armed,report,on_fin
             claims=claims,independent_steps=steps,account_data_posts=3+probe.cleanup_posts if armed and not source.get('mock_endpoint') else 0,
             synthetic_posts=3+probe.cleanup_posts if armed and source.get('mock_endpoint') else 0,cleanup_posts=probe.cleanup_posts,temporary_profile_removed=True,credential_file_audit=True,
             installed_bytes_match=True,no_automatic_replay=True,intent_fingerprint=fingerprint(probe.plan.bound))
+        if txt:
+            report['baseline_fingerprint']=digest({key:value for key,value in probe.plan.bound.items() if key!='nonce'})
         if offline_draft:report['offline_draft_submitted']=armed;report['offline_draft_prepared']=True
         if armed:
             report['original_records_restored']=True

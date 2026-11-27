@@ -7,6 +7,7 @@ local function statement(db,sql,...)
     s:close();assert(ok);return row
 end
 function M:new(input,library,codec,root)
+    assert(input.source_format==nil or input.source_format=='web_txt')
     local value=setmetatable({input=input,library=library,codec=codec,path=root..'/trial-gate.db'},self)
     local db=require('lua-ljsqlite3/init').open(value.path)
     db:exec('PRAGMA synchronous=FULL');db:exec('CREATE TABLE trial(id INTEGER PRIMARY KEY,phase TEXT,posts INTEGER,target TEXT,preview TEXT)')
@@ -41,7 +42,7 @@ local function same(a,b)
     return true
 end
 function M:claim(operation,body)
-    assert(Contract.validate_body(operation,body))
+    assert(Contract.validate_body(operation,body,self.input.source_format))
     return self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         local expected=self.input.create_body

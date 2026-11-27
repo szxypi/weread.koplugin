@@ -48,12 +48,16 @@ class Reads(Probe):
     max_reads=64
 
 
-def txt_sample(probe,credentials,offset):
+def txt_sample(probe,credentials,offset,*,book_id=None):
     shelf=probe.request('shelf',BASE+'/shelf/sync',credentials=credentials)
     ids=list(dict.fromkeys(book for row in shelf.get('books',[]) if isinstance(row,dict) and row.get('format')=='txt'
                            and (book:=numeric_id(row.get('bookId')))))
-    if offset>=len(ids):raise ValueError('direct_ui_trial/no_txt_sample')
-    book=ids[offset];probe.allowed={book}
+    if book_id is None:
+        if not 0<=offset<len(ids):raise ValueError('direct_ui_trial/no_txt_sample')
+        book_id=ids[offset]
+    elif book_id not in ids:
+        raise ValueError('direct_ui_trial/no_txt_sample')
+    book=book_id;probe.allowed={book}
     info=probe.request('book',BASE+'/book/info?'+urlencode(dict(bookId=book)),credentials=credentials)
     chapters=probe.request('catalog',BASE+'/book/chapterInfos',catalog_body(book),credentials=credentials)
     return dict(book_id=book,expected=native_catalog(chapters,book,info))

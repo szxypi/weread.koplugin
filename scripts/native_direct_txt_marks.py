@@ -28,10 +28,10 @@ class TxtMarkProbe:
         self.notes=AnnotationProbe()
         self.target=None
 
-    def prepare(self,saved,credentials,offset):
+    def prepare(self,saved,credentials,offset,*,book_id=None):
         if hasattr(self,'plan') or saved['vid']!=credentials['vid']:
             raise ValueError('direct_txt_mark/owner')
-        self.sample=txt_sample(ChapterProbe(),credentials,offset)
+        self.sample=txt_sample(ChapterProbe(),credentials,offset,book_id=book_id)
         model=self.sample['expected']
         if model['format']!='txt' or model['version']!=0:
             raise ValueError('direct_txt_mark/format')

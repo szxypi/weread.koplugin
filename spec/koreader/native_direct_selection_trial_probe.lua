@@ -6,6 +6,8 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local size=assert(tonumber(io.stdin:read('*l')));assert(size>0 and size<=262144)
 local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial);local cfg=assert(input.selection_preview)
+local txt=input.plain_text==true
+assert(not txt or input.book_version==0)
 _G._direct_trial_error_token=trial.rpc_token
 local ffi=require('ffi');local parent=tonumber(ffi.C.getpid())
 local function rpc(kind,seq,extra)
@@ -46,14 +48,17 @@ client.request=function(self,options)
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
             and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(native..'/book/chapterdownload?',1,true)==1 then
+        local query=txt and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&' or 'chapters=0%2C'..input.uid..'&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and url:find('chapters=0%2C'..input.uid..'&',1,true) and url:find('stopAutoPayWhenBNE=1',1,true))
+            and url:find(query,1,true) and url:find('stopAutoPayWhenBNE=1',1,true))
     elseif url==web..'/api/userInfo?userVid='..scope.vid then assert(options.method=='GET')
     elseif url==web..'/web/book/chapterInfos' then
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id)
         for key in pairs(body) do assert(key=='bookIds') end
     elseif url==require('weread.lib.protocol').reader_url(input.book_id,input.uid) then assert(options.method=='GET')
-    elseif url==web..'/web/book/chapter/e_0' or url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3' then
+    elseif url==web..'/web/book/chapter/e_0'
+        or txt and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1')
+        or not txt and (url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3') then
         local body=json.decode(options.body);local p=require('weread.lib.protocol')
         assert(options.method=='POST' and body.b==p.e(input.book_id) and body.c==p.e(input.uid)
             and body.sc==1 and body.prevChapter==false and body.st==0)
@@ -79,33 +84,44 @@ local host={ui=reader,settings=settings,client=client,library_db=library,_reader
     showInputDialog=function(_,dialog) UI:show(dialog) end,showInfo=function(self,message) self.checked_message=message end,
     detectWeReadBook=function() return nil end,showList=require('weread.ui.common').showList}
 local gatepath=assert(arg[3]);gate=dofile(gatepath):new({permit_writes=trial.armed,book_id=input.book_id,
-    original_ids=trial.original_ids,create_body=cfg.body,edited_text=trial.edited_text},library,client,home)
-local matches=assert(reader.document:findAllText(cfg.reference.markText,false,0,3,false,0))
+    original_ids=trial.original_ids,create_body=cfg.body,edited_text=trial.edited_text,
+    source_format=txt and 'web_txt' or nil},library,client,home)
+local text=txt and cfg.body.abstract or cfg.reference.markText
+local matches=assert(reader.document:findAllText(text,false,0,3,false,0))
 assert(#matches==1 and matches[1].start and matches[1]['end'])
 local first,last=matches[1].start,matches[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
-assert(reader.document:getTextFromXPointers(first,last)==cfg.reference.markText)
+local selected=reader.document:getTextFromXPointers(first,last)
+assert(selected==text,'selected native text differs from source')
 local Selection=require('weread.ui.selection_thought');assert(Selection.attach(host))
-reader.highlight.selected_text={text=cfg.reference.markText,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+reader.highlight.selected_text={text=selected,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
 assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
 wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
 local owner=assert(host._selection_thought_owner);wait(function() return owner.reference~=nil or host.checked_message~=nil end)
-local row=assert(owner.reference);local expected=cfg.reference
-assert(row.range==expected.range and row.markText==expected.markText and row.bookmarkId==expected.bookmarkId
-    and row.chapterUid==expected.chapterUid and row.source.book_id==expected.source.book_id
-    and row.source.chapter_uid==expected.source.chapter_uid and row.source.raw_sha256==expected.source.raw_sha256
-    and row.source.raw_bytes==expected.source.raw_bytes)
+local row=assert(owner.reference)
+if txt then
+    assert(row.range==cfg.body.range and row.markText==cfg.body.abstract and row.chapterUid==tonumber(input.uid)
+        and row.chapterIdx==input.chapter_idx and row.source.book_id==input.book_id
+        and row.source.chapter_uid==input.uid and row.source.raw_sha256==input.source_sha256
+        and row.source.raw_bytes==input.source_bytes,'TXT thought differs from the independent raw-source check')
+else
+    local expected=cfg.reference
+    assert(row.range==expected.range and row.markText==expected.markText and row.bookmarkId==expected.bookmarkId
+        and row.chapterUid==expected.chapterUid and row.source.book_id==expected.source.book_id
+        and row.source.chapter_uid==expected.source.chapter_uid and row.source.raw_sha256==expected.source.raw_sha256
+        and row.source.raw_bytes==expected.source.raw_bytes)
+end
 local tr=require('weread.lib.plugin_util').tr
 local function tap(id)
     UI:forceRePaint();assert(owner.menu._shelf_popup.button_table:getButtonById(id)):onTapSelectButton()
 end
 if trial.offline_draft then
-    assert(owner.offline_source and require('weread.lib.native_direct_cache').read_raw_source(input.path,entry))
+    assert(owner.offline_source and require('weread.lib.native_direct_cache').read_raw_source(input.path,entry,txt and 'txt' or nil))
     local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Write private thought') then action=item.callback end end
     assert(action);action();wait(function() return owner.editor and owner.editor.input or host.checked_message end);assert(owner.editor and owner.editor.input)
     owner.editor.input:setInputText(cfg.body.content);tap('save_thought_draft')
     wait(function() return not owner.editor end);assert(host.checked_message==tr('Thought draft saved on this device.'))
     Selection.cancel(host);online=true;host.checked_message=nil
-    assert(Selection.open(host,{text=cfg.reference.markText,pos0=first,pos1=last}))
+    assert(Selection.open(host,{text=selected,pos0=first,pos1=last}))
     owner=assert(host._selection_thought_owner);wait(function() return owner.reference~=nil or host.checked_message~=nil end)
     assert(owner.reference and require('weread.lib.selection_reference').same(row,owner.reference))
 end
@@ -114,6 +130,14 @@ local function perform(kind,content,reference)
     if kind=='create' then
         local action;for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Write private thought') then action=item.callback end end
         assert(action);action();wait(function() return owner.editor and owner.editor.input or host.checked_message end)
+    elseif txt then
+        local action
+        for _,item in ipairs(owner.menu.item_table) do
+            if item.my_note_id==reference.reviewId then action=item.callback;break end
+        end
+        assert(action,'new private thought missing from the list')()
+        tap('thought_'..kind)
+        if kind=='edit' then wait(function() return owner.editor and owner.editor.input or host.checked_message end) end
     else
         local editor=require('weread.ui.thought_editor')
         assert(editor.start(host,owner,kind,reference,function(h,o) return h._selection_thought_owner==o end))
@@ -140,6 +164,15 @@ for _,item in ipairs(assert(cache:read(input.book_id)).reviews) do
     if item.content==cfg.body.content and item.isPrivate==1 then assert(not target);target=item end
 end
 assert(target);rpc('verified',1,{created_id=target.reviewId});gate:advance(1,target.reviewId);sequence=2
+local Marks
+if txt then
+    Selection.cancel(host);host.checked_message=nil
+    Marks=require('weread.ui.my_cloud_marks')
+    host.showMyCloudThoughts=function(self,id) return Marks.show(self,id,'thoughts') end
+    assert(require('weread.ui.native_direct_navigation').open_notes(host,'thoughts'))
+    wait(function() return host._my_marks_owner or host.checked_message~=nil end)
+    owner=assert(host._my_marks_owner)
+end
 perform('edit',trial.edited_text,target)
 assert(host.checked_message==tr('Cloud thought change verified.') and journal:read().phase=='idle')
 for _,item in ipairs(assert(cache:read(input.book_id)).reviews) do if item.reviewId==target.reviewId then target=item end end
@@ -147,5 +180,6 @@ assert(target.content==trial.edited_text);rpc('verified',2,{created_id=target.re
 perform('delete',nil,target)
 assert(host.checked_message==tr('Cloud thought change verified.') and journal:read().phase=='idle')
 rpc('verified',3,{created_id=target.reviewId})
+if Marks then Marks.cancel(host) end
 Selection.cancel(host)
 print('WEREAD_NATIVE_THOUGHT_'..trial.rpc_token..'_RESULT='..json.encode{result='PASS',steps=3,posts=3,blocked=false})

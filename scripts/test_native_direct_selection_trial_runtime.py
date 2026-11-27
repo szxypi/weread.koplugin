@@ -13,11 +13,12 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs,urlsplit
 
 from annotation_experiment_model import note_text
+from highlight_trial_model import txt_request
 from native_direct_selection_trial_broker import execute
 from owner_selection_preview import choose
 from secure_selection_trial import SelectionTrialStore
-from selection_trial_model import bind
-from test_native_direct_position_runtime import BODY,Handler,REPO
+from selection_trial_model import bind,bind_txt
+from test_native_direct_position_runtime import BODY,Handler,REPO,TXT
 from test_secure_native_session import Backend
 
 
@@ -44,7 +45,7 @@ class TrialHandler(Handler):
 
 
 class Probe:
-    def __init__(self,server):
+    def __init__(self,server,*,txt=False):
         chosen=choose(BODY,{},'42','37',1);row=chosen['reference'];nonce='1'*32
         context=dict(bookId='42',chapterUid='37',bookVersion=1,type=1,range=row['range'],abstract=row['markText'],isPrivate=1)
         credentials=dict(vid='12345678',accessToken='synthetic-access',refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19)
@@ -52,7 +53,16 @@ class Probe:
         self.payload=dict(book_id='42',chapter_uid='37',source_raw_sha256=hashlib.sha256(BODY.encode()).hexdigest(),cookies=cookies,
             selection_preview=dict(credentials=credentials,first=chosen['first'],last=chosen['last'],reference=row,body=dict(context,content=note_text(nonce))))
         baseline=dict(thoughts={},marks={'updated':{},'chapters':{}},position={},shelf={})
-        bound=bind('12345678',self.payload,context,baseline,[{'chapterUid':37}],{},nonce)
+        if txt:
+            mark=txt_request('42','37',TXT,baseline)
+            context.update(bookVersion=0,range=mark['range'],abstract=mark['markText'])
+            sha=hashlib.sha256(TXT.encode()).hexdigest()
+            self.payload.update(source_raw_sha256=sha,
+                selection_preview=dict(credentials=credentials,body=dict(context,content=note_text(nonce))))
+            chapter=dict(owner='12345678',book_id='42',chapter_uid='37',chapter_idx=1,source_sha256=sha,
+                grant_sha256='a'*64,catalog_sha256='b'*64)
+            bound=bind_txt(chapter,context,baseline,{},nonce,len(TXT.encode()))
+        else:bound=bind('12345678',self.payload,context,baseline,[{'chapterUid':37}],{},nonce)
         self.plan=SimpleNamespace(bound=bound,baseline=baseline);self.server=server;self.cleanup_posts=0;self.derived_chapter_metadata_changed=False
         server.expected=self.payload['selection_preview']['body'];server.edited=note_text(nonce,True)
     def current(self):pass
@@ -71,8 +81,9 @@ class Probe:
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--offline-draft',action='store_true');args=parser.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    parser.add_argument('--offline-draft',action='store_true');parser.add_argument('--txt',action='store_true');args=parser.parse_args()
+    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);server.plain_text=args.txt
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-direct-trial-test-',dir='/dev/shm') as directory:
             candidate=Path(directory)/'candidate.zip'
@@ -81,9 +92,10 @@ def main():
                 cases=((False,'normal'),(True,'normal')) if args.offline_draft else ((False,'normal'),(True,'normal'),(True,'lost_ack'),(True,'no_effect'))
                 for armed,case in cases:
                     server.case=case;server.mode='selection_direct_trial';server.calls=[];server.leaked=False;server.valid=True;server.mark=None;server.review=None
-                    probe=Probe(server);store=SelectionTrialStore(Backend());receipt=store.prepare(probe.plan.bound);report={}
-                    source=dict(book_id='42',uid='37',book_version=1,source_sha256=probe.payload['source_raw_sha256'],
+                    probe=Probe(server,txt=args.txt);store=SelectionTrialStore(Backend());receipt=store.prepare(probe.plan.bound);report={}
+                    source=dict(book_id='42',uid='37',book_version=0 if args.txt else 1,source_sha256=probe.payload['source_raw_sha256'],
                         mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                    if args.txt:source.update(plain_text=True,chapter_idx=1,source_bytes=len(TXT.encode()))
                     command=[sys.executable,str(REPO/'scripts/run_native_direct_selection_trial.py'),'--koreader',str(args.koreader),
                         '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
                     try:execute(probe,probe.payload['selection_preview']['credentials'],store,receipt,command,source=source,armed=armed,report=report,offline_draft=args.offline_draft)

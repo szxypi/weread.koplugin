@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 
-from annotation_experiment_model import digest,note_text
+from annotation_experiment_model import digest,note_text,validate_context
 from secure_native_thought_trial import NativeThoughtTrialStore
 from secure_selection_trial import SelectionTrialStore,Receipt
 from secure_weread_session import StoreError
-from selection_trial_model import bind,fingerprint,observe,restored
+from selection_trial_model import TXT_PROTOCOL,bind,bind_txt,fingerprint,observe,restored
 from selection_trial_probe import Plan,SelectionProbe
 from test_owner_selection_preview import payload
 from test_owner_reading import stage,COOKIES
@@ -58,6 +58,23 @@ class TrialTests(unittest.TestCase):
         with self.assertRaises(ValueError):NativeThoughtTrialStore(Backend()).prepare(plan.bound)
         bad=deepcopy(plan.bound);bad['protocol']='private-thought-create-edit-delete-v1'
         with self.assertRaises(ValueError):store.prepare(bad)
+
+    def test_txt_plan_accepts_zero_version_only_with_the_bound_chapter(self):
+        _p,plan=fixture()
+        context=dict(plan.context,bookVersion=0)
+        chapter=dict(owner='900000',book_id=context['bookId'],chapter_uid=context['chapterUid'],chapter_idx=2,
+            source_sha256='a'*64,grant_sha256='b'*64,catalog_sha256='c'*64)
+        bound=bind_txt(chapter,context,plan.baseline,plan.web_position,'1'*32,1024)
+        self.assertEqual(bound['protocol'],TXT_PROTOCOL)
+        self.assertNotIn(context['abstract'],json.dumps(bound))
+        with self.assertRaises(ValueError):validate_context(context,context['bookId'])
+        for changed in (dict(context,bookVersion=1),dict(context,chapterUid='99'),dict(context,chapterIdx=2)):
+            with self.assertRaises(ValueError):bind_txt(chapter,changed,plan.baseline,plan.web_position,'1'*32,1024)
+        store=SelectionTrialStore(Backend())
+        receipt=store.prepare(bound)
+        self.assertEqual(store.read()[0]['plan'],bound)
+        store.claim(receipt)
+        with self.assertRaises(StoreError):store.claim(receipt)
 
     def test_four_slots_reserved_before_native_steps_and_optional_cleanup(self):
         _p,_plan,store,r=self.store();r=store.claim(r)

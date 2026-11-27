@@ -93,15 +93,18 @@ class SelectionProbe:
                 or self.payload['selection_preview']['body']!=dict(p.context,content=note_text(p.bound['nonce']))):raise ValueError('selection_trial/changed')
 
     def baseline(self,credentials,stage):
-        self.current();value=self.notes.observe(credentials,stage)
+        self.current();value=self.observe(credentials,stage)
         if value!=self.plan.baseline:raise ValueError('selection_trial/changed')
         return value
+
+    def observe(self,credentials,stage):
+        return self.notes.observe(credentials,stage)
 
     def read_step(self,credentials,step,target):
         self.current()
         for attempt in range(3):
             if attempt:self.sleep(.5*attempt)
-            observed=self.notes.observe(credentials,'selection_trial_step_'+str(step))
+            observed=self.observe(credentials,'selection_trial_step_'+str(step))
             try:
                 row,mark=observe(self.plan.baseline,observed,self.plan.context,self.plan.bound['nonce'],('created','edited','deleted')[step-1],self.created_id,self.mark)
                 break
@@ -119,7 +122,7 @@ class SelectionProbe:
         self.current();state,owned=store.read()
         if (owned!=receipt or state['phase']!='pending' or state['native_steps']!=3 or state['plan']!=self.plan.bound
                 or state['cleanup_pending'] or state['cleanup_verified'] or self.cleanup_posts):raise ValueError('selection_trial/intent')
-        before=self.notes.observe(credentials,'selection_trial_before_cleanup')
+        before=self.observe(credentials,'selection_trial_before_cleanup')
         _row,mark=observe(self.plan.baseline,before,self.plan.context,self.plan.bound['nonce'],'deleted',self.created_id,self.mark)
         if mark is None:return store.verified_cleanup(receipt)
         if mark!=state['mark'] or self.cleanup_posts:raise ValueError('selection_trial/cleanup_target')
@@ -131,13 +134,13 @@ class SelectionProbe:
         except ProbeError:pass
         for attempt in range(3):
             if attempt:self.sleep(.5*attempt)
-            value=self.notes.observe(credentials,'selection_trial_cleanup_readback')
+            value=self.observe(credentials,'selection_trial_cleanup_readback')
             observe(self.plan.baseline,value,self.plan.context,self.plan.bound['nonce'],'deleted',self.created_id,self.mark)
             if restored(self.plan.baseline,value,self.plan.context,self.plan.bound['nonce'],self.created_id,self.mark):return store.verified_cleanup(receipt)
         raise ValueError('selection_trial/cleanup_unconfirmed')
 
     def final(self,credentials,cookies):
-        self.current();value=self.notes.observe(credentials,'selection_trial_final')
+        self.current();value=self.observe(credentials,'selection_trial_final')
         if not restored(self.plan.baseline,value,self.plan.context,self.plan.bound['nonce'],self.created_id,self.mark):raise ValueError('selection_trial/final')
         self.derived_chapter_metadata_changed=value['marks']['chapters']!=self.plan.baseline['marks']['chapters']
         self.web.cookies.clear()

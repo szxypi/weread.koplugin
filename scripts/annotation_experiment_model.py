@@ -74,12 +74,13 @@ def context(source,info,identity,owner,bookmark_id=None):
     if row.get('chapterIdx') is not None:result['chapterIdx']=row['chapterIdx']
     return chosen,result
 
-def validate_context(ctx,identity):
+def validate_context(ctx,identity,*,allow_txt_zero=False):
     fields={'bookId','chapterUid','bookVersion','type','range','abstract','isPrivate'}
     if not isinstance(ctx,dict) or set(ctx) not in (fields,fields|{'chapterIdx'}) or ctx['bookId']!=identity:fail('context')
     if not identifier(ctx['chapterUid']) or int(ctx['chapterUid'])>2147483647:fail('context')
     if type(ctx['type']) is not int or ctx['type']!=1 or type(ctx['isPrivate']) is not int or ctx['isPrivate']!=1:fail('context')
-    if not integer(ctx['bookVersion'],2147483647) or not ctx['bookVersion'] or not text(ctx['abstract'],4096,False):fail('context')
+    if (not integer(ctx['bookVersion'],2147483647) or not ctx['bookVersion'] and not allow_txt_zero
+            or not text(ctx['abstract'],4096,False)):fail('context')
     match=re.fullmatch(r'([0-9]{1,10})-([0-9]{1,10})',ctx.get('range',''))
     if not match or not 0<=int(match[1])<int(match[2])<=2147483647:fail('context')
     if 'chapterIdx' in ctx and not integer(ctx['chapterIdx'],2147483647):fail('context')
