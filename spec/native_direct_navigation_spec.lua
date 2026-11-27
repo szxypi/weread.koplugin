@@ -11,6 +11,7 @@ local next_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=str
 local full_entry={book_id='42',chapter_uid='38',book_version=1,source_sha256=string.rep('d',64),key=string.rep('f',64),copy=0,
     title='Next',missing_images=0,catalog_sha256=source.catalog_sha256,catalog_order=3,catalog_count=3,catalog_prev='37'}
 local rows={next_entry};local source_ok=true;local can_open=true
+local listed_uid
 local page=1;local in_worker=false
 package.preload['weread.lib.source_context']=function() return {
     location=function() assert(not in_worker,'background task accessed reader geometry');return {page=page} end,
@@ -19,7 +20,7 @@ package.preload['weread.lib.source_context']=function() return {
 package.preload['weread.lib.native_direct_cache']=function() return {MAX_ENTRIES=2000,
     valid_entry=function(entry,id,account) return (entry==source or entry==next_entry or entry==full_entry) and id=='42' and account=='123' end,
     identify=function(_,_,_,current) return current() and source_ok and source or nil end,
-    list=function() return rows end,
+    list=function(_,_,_,_,uid) listed_uid=uid;return rows end,
     open=function(_,_,_,entry,current)
         if (entry==next_entry or entry==full_entry) and current() and can_open then return {
             path=entry==next_entry and '/tmp/x/native-reader-v1/next.epub' or '/tmp/x/native-reader-v1/full.epub',
@@ -75,7 +76,8 @@ local host,s=fixture();expect(Nav.start(host),'navigation did not start');s.fini
 expect(shown and shown.opts.show_previous_chapter and shown.opts.show_next_chapter and not shown.opts.show_sync_row,
     'native quick menu did not show chapter navigation or hid sync')
 shown.callbacks.on_next();s.finish(2)
-expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub'),'adjacent saved chapter not opened')
+expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub') and listed_uid=='38',
+    'adjacent saved chapter not found through its targeted lookup')
 host,s=fixture();Nav.start(host);s.finish(1)
 expect(not shown.callbacks.on_native_refresh_images,'complete chapter offered image retry')
 source.missing_images=2;host,s=fixture();Nav.start(host);s.finish(1)

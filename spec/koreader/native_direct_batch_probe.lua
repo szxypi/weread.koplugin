@@ -382,6 +382,20 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
             end)
             assert(cancelled==nil and checked==expired_at,'metadata scan returned rows for a changed account')
         end
+        local function current() return true end
+        assert(rows[1].chapter_uid=='37' and rows[2].chapter_uid=='38')
+        local source=assert(cache.open(settings,scope.vid,'42',rows[1],current))
+        local target=assert(cache.open(settings,scope.vid,'42',rows[2],current))
+        local unrelated=assert(source.path:match('^(.*)/[^/]+$'))..assert(target.path:match('(/[^/]+)$'))
+        local file=assert(io.open(unrelated,'wb'));assert(file:write('synthetic'));assert(file:close())
+        local selected=assert(cache.list(settings,scope.vid,'42',current,'38'))
+        assert(#selected==1 and selected[1].key==rows[2].key and selected[1].copy==rows[2].copy
+            and selected[1].catalog_sha256==rows[2].catalog_sha256,'chapter lookup trusted the filename over metadata')
+        assert(os.remove(unrelated))
+        assert(#assert(cache.list(settings,scope.vid,'42',current,'99'))==0,'missing chapter found a copy')
+        assert(cache.list(settings,scope.vid,'42',current,'../38')==nil,'invalid chapter selector was accepted')
+        assert(cache.list(settings,scope.vid,'42',function() return false end,'38')==nil,
+            'chapter lookup returned rows for a changed account')
         for _,path in ipairs(fake_entries) do assert(lfs.rmdir(path)) end
     end
     cache.MAX_ENTRIES=3
@@ -393,6 +407,8 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         if index==4-#rows then
             assert(remaining==nil,'overfull cache accepted')
             assert(cache.list(settings,scope.vid,'42',function() return true end)==nil,'overfull metadata list accepted')
+            assert(cache.list(settings,scope.vid,'42',function() return true end,rows[1].chapter_uid)==nil,
+                'targeted lookup ignored the metadata scan limit')
         else assert(remaining==3-#rows-index,'incorrect cache capacity') end
     end
     for _,path in ipairs(added) do assert(lfs.rmdir(path)) end

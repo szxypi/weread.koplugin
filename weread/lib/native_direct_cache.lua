@@ -284,6 +284,9 @@ end
 local function filename(book_id,uid)
     return 'wr-chapter-'..Crypto.sha256_hex(book_id..'\0'..uid)..'.epub'
 end
+local function is_chapter_file(attr)
+    return attr and attr.mode=='file' and attr.size>0 and attr.size<=M.MAX_FILE
+end
 
 -- A bounded, account-scoped hint for shelf badges and filters. It is not an
 -- opening receipt: selected chapters still pass the complete Cache.open check.
@@ -300,7 +303,7 @@ local function candidate_present(lfs,book_dir,entry)
     local receipt=read_file(lfs,dir..'/receipt.txt',256)
     local key,size,digest
     if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
-    return file~=nil and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE
+    return is_chapter_file(file)
         and key==entry.key and size==tostring(file.size) and hash(digest) or false
 end
 function M.present(settings,account,book_id)
@@ -347,9 +350,11 @@ end
 
 -- List bounded metadata only; a selected file is fully checked by open().
 -- Missing/corrupt sidecars and old pre-index files are left untouched.
-function M.list(settings,account,book_id,current)
+function M.list(settings,account,book_id,current,chapter_uid)
+    if chapter_uid~=nil and NativeProtocol.id(chapter_uid)~=chapter_uid then return nil end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return {} end
+    local selected_file=chapter_uid and '/'..filename(book_id,chapter_uid)
     local ok,result=pcall(function()
         if type(current)~='function' or current()~=true then return nil end
         local rows,count={},0
@@ -364,11 +369,15 @@ function M.list(settings,account,book_id,current)
                 local copy=tonumber(suffix)
                 if hash(key) and copy and tostring(copy)==suffix and copy<M.MAX_COPIES then
                     local dir=book_dir..'/'..name;local attr=mode(lfs,dir)
-                    local entry=attr and attr.mode=='directory' and not mode(lfs,dir..'/'..RETIRING)
+                    -- Use the known filename only to avoid reading unrelated
+                    -- sidecars. The sidecar must still identify this chapter.
+                    local entry=attr and attr.mode=='directory'
+                        and (not selected_file or is_chapter_file(mode(lfs,dir..selected_file)))
+                        and not mode(lfs,dir..'/'..RETIRING)
                         and read_entry(lfs,dir,key,copy,book_id,account)
-                    local file=entry and mode(lfs,dir..'/'..filename(book_id,entry.chapter_uid))
-                    if entry and file and file.mode=='file' and file.size>0 and file.size<=M.MAX_FILE then
-                        rows[#rows+1]=attach_ref(lfs,dir,entry)
+                    if entry and (not chapter_uid or entry.chapter_uid==chapter_uid) then
+                        local file=mode(lfs,dir..(selected_file or '/'..filename(book_id,entry.chapter_uid)))
+                        if is_chapter_file(file) then rows[#rows+1]=attach_ref(lfs,dir,entry) end
                     end
                 end
             end
@@ -381,7 +390,9 @@ function M.list(settings,account,book_id,current)
             if a.key~=b.key then return a.key<b.key end
             return a.copy<b.copy
         end)
-        if not M.present(settings,account,book_id) then
+        -- A full listing can repair the badge from any usable chapter.
+        -- Opening a verified result can also repair its presence marker.
+        if not selected_file and not M.present(settings,account,book_id) then
             if current()~=true then return nil end
             for index,entry in ipairs(rows) do
                 if index%32==0 and current()~=true then return nil end

@@ -125,7 +125,7 @@ function M.start(host,direction,notes)
         end
         run(function()
             if not source_unchanged() then return {error='changed'} end
-            local rows=Cache.list(host.settings,scope.vid,entry.book_id,current)
+            local rows=Cache.list(host.settings,scope.vid,entry.book_id,current,uid)
             if not rows then return {error='storage'} end
             local choices={}
             for _,candidate in ipairs(rows) do
