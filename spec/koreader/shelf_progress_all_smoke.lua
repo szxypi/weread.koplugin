@@ -70,9 +70,72 @@ return function(plugin,books,count,control,wait_progress,evidence)
     assert(count('/web/book/read')==writes,'bulk display update wrote reading progress')
     control{match='',times=0,delay=0}
     plugin.shelf_progress_retry_at=nil;plugin.shelf_progress_retry_revision=nil
+    plugin:closeWeReadUI()
+    settings:update_auth({api_key='',cookies={}},{replace_cookies=true})
+    local Credentials=require('weread.lib.native_credentials')
+    local store=Credentials:new(settings)
+    local scope=assert(settings:get_auth_scope())
+    local _,revision=store:read()
+    assert(store:save({vid=scope.vid,accessToken='mock-native-access',refreshToken='mock-native-refresh',
+        deviceId='eink334691225'..string.rep('1',19)},scope,revision,#sample))
+    local native_path='/book/getProgress'
+    local native_writes=count('/book/read')
+    local web_before=count('/web/book/getProgress')
+    local gateway_before=count('/api/agent/gateway','/book/getprogress')
+    local function expire(rows)
+        local snapshots={}
+        for _,book in ipairs(rows) do snapshots[#snapshots+1]={book_id=book.bookId,percent=9,fetched_at=0} end
+        assert(plugin.library_db:putShelfProgress(snapshots))
+    end
+    local original_request=plugin.client.request
+    local parent=tonumber(require('ffi').C.getpid())
+    function plugin.client:request(options)
+        if options.url:find('https://i.weread.qq.com/book/getProgress?',1,true)==1 then
+            assert(tonumber(require('ffi').C.getpid())~=parent,'native progress blocked the UI')
+            assert(options.method=='GET' and options.skip_cookie and options.persist_response_cookies==false
+                and options.headers.vid==scope.vid and options.headers.accessToken=='mock-native-access'
+                and not options.headers.Cookie,'native progress used the wrong authorization')
+        end
+        return original_request(self,options)
+    end
+    expire({sample[1]});before=count(native_path)
+    plugin:showHome();wait_progress()
+    local home=plugin.library_db:getShelfProgress({sample[1].bookId})[sample[1].bookId]
+    assert(count(native_path)>before and home.source=='native' and home.percent==37
+        and plugin.shelf_view.books[1]._shelf_progress==83,'native-only home did not update or lost pending position')
+    plugin:closeWeReadUI()
+    expire(books);before=count(native_path)
+    plugin:showBookshelf();wait_progress()
+    local visible=plugin.shelf_view:getVisibleBooks()
+    assert(count(native_path)-before==#visible,'native-only shelf queried outside its visible area')
+    for _,book in ipairs(visible) do
+        assert(plugin.library_db:getShelfProgress({book.bookId})[book.bookId].source=='native')
+    end
+    plugin:closeWeReadUI()
+    plugin:applyShelfSnapshot(sample,{})
+    plugin:showShelfView('books');wait_progress()
+    notices={};before=count(native_path);job=start();wait_done()
+    assert(job.done==#sample and count(native_path)-before==#sample and #notices==1,'native-only bulk refresh missed books')
+    cached=plugin.library_db:getShelfProgress(ids)
+    for _,id in ipairs(ids) do assert(cached[id] and cached[id].source=='native') end
+    assert(cached[sample[1].bookId].exact_percent==37 and cached[sample[2].bookId].exact_percent==0,
+        'native-only cache lost explicit percentages')
+    control{progress_response='foreign'}
+    notices={};before=count(native_path);job=start();wait_done()
+    local retained_native=plugin.library_db:getShelfProgress(ids)
+    assert(job.done==0 and count(native_path)-before==1 and #notices==1 and plugin.shelf_progress_retry_at>os.time(),
+        'foreign native progress did not stop the batch')
+    for _,id in ipairs(ids) do assert(retained_native[id].fetched_at==cached[id].fetched_at) end
+    control{progress_response='plain'}
+    plugin.shelf_progress_retry_at=nil;plugin.shelf_progress_retry_revision=nil
+    assert(count('/web/book/getProgress')==web_before and count('/api/agent/gateway','/book/getprogress')==gateway_before
+        and count('/web/book/read')==writes and count('/book/read')==native_writes,'native-only update contacted another route or wrote progress')
+    plugin.client.request=original_request
+    local _,updated_revision=store:read()
+    assert(store:clear(scope,updated_revision))
     plugin:closeWeReadUI();plugin.showTransientInfo=transient;plugin.shelf_filters=old_filters
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})
     settings:set('shelf',plugin.client:json_decode(old_shelf));settings:flush()
     plugin:applyShelfSnapshot(plugin.library_db:getShelf(),plugin.library_db:getShelfArchives())
-    print('PASS: bulk progress native menu, batched HTTP/SQLite, cancel and 429; no reading writes')
+    print('PASS: native-only home and shelf progress; bulk progress dialog, batched HTTP/SQLite, cancel and 429; no reading writes')
 end

@@ -270,4 +270,42 @@ host:refreshVisibleShelfProgress(host.shelf_view,{books[2]},{[progress_id]=updat
 expect(tasks[#tasks]==carried,'rebuilding the same page restarted its progress worker')
 carried.options.on_done{ok=true,value={snapshots={updated}}}
 expect(redrawn==previous_redraws,'progress was compared with the view that had already closed')
+
+local original_credentials=package.loaded['weread.lib.native_credentials']
+local grant={vid=scope.vid,accessToken='synthetic-native-access'}
+local native_revision,native_pending=1,false
+package.loaded['weread.lib.native_credentials']={new=function()
+    return {read=function() return grant,native_revision,nil,native_pending end}
+end}
+settings.data_dir='/unused'
+cookies={}
+local native_access=Data.selection(settings)
+expect(native_access and native_access.native and not Data.supports('CB_Example',native_access),'native-only routing')
+local native_calls,reply,rotate=0,nil,false
+function client:request(options)
+    native_calls=native_calls+1
+    expect(options.url=='https://i.weread.qq.com/book/getProgress?bookId=900001'
+        and options.method=='GET' and options.skip_cookie and options.persist_response_cookies==false
+        and options.headers.accessToken==grant.accessToken and not options.headers.Cookie,'native display request')
+    if rotate then native_revision=native_revision+1 end
+    return 'synthetic response',200
+end
+function client:json_decode() return reply end
+reply={bookId='900001',book={progress=0.25,summary='private position'}}
+batch=Data.fetch(client,{'900001'},ctx,native_access)
+expect(#batch.snapshots==1 and batch.snapshots[1].source=='native' and batch.snapshots[1].exact_percent==0.25
+    and batch.snapshots[1].summary==nil,'native display imported raw response or lost precision')
+reply={book={progress=0}}
+batch=Data.fetch(client,{'900001','900002'},ctx,native_access)
+expect(batch.failed and #batch.snapshots==0 and native_calls==2,'native display accepted progress without book identity')
+reply={bookId='900001',recordReadingTime=2}
+batch=Data.fetch(client,{'900001'},ctx,native_access)
+expect(batch.failed and #batch.snapshots==0,'native display inferred zero from recorded time')
+reply={bookId='900001',book={progress=0}}
+rotate=true
+batch=Data.fetch(client,{'900001'},ctx,native_access)
+expect(batch.stale and #batch.snapshots==0,'replaced E-Ink grant allowed a result into the cache')
+native_pending=true
+expect(not Data.selection(settings),'pending native renewal allowed a new display request')
+package.loaded['weread.lib.native_credentials']=original_credentials
 print("shelf_progress_spec: " .. checks .. " checks")

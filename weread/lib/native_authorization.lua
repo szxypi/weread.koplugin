@@ -232,6 +232,16 @@ function Auth:read_book_metadata(credentials, book_id)
     return self:_request("metadata", BASE .. "/book/info?bookId=" .. Protocol.urlencode(book_id), nil, credentials)
 end
 
+function Auth:read_shelf_progress(credentials, book_id)
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("shelf_progress", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("shelf_progress", "account_mismatch") end
+    book_id = require("weread.lib.read_access").book_id(book_id)
+    if not book_id then fail("shelf_progress", "invalid_book") end
+    return self:_request("shelf_progress", BASE .. "/book/getProgress?bookId=" .. book_id, nil, credentials, { 5, 10 })
+end
+
 -- Read-only chapter annotations verified against real nonempty replies first.
 function Auth:read_annotations(credentials, kind, book_id, chapter_uid, batch)
     local Data = require("weread.lib.native_annotation_data")

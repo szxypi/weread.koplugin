@@ -42,7 +42,7 @@ local function valid_prefix(values,batch)
     for index,value in ipairs(values) do
         if type(value)~='table' or value.book_id~=batch[index] or type(value.fetched_at)~='number'
             or value.fetched_at~=value.fetched_at or value.fetched_at<1 or value.fetched_at>253402300799
-            or value.source~='web' and value.source~='gateway' then return false end
+            or value.source~='web' and value.source~='gateway' and value.source~='native' then return false end
         if value.unavailable==true then
             if value.percent~=nil or value.exact_percent~=nil then return false end
         elseif type(value.percent)~='number' or value.percent~=value.percent or value.percent%1~=0

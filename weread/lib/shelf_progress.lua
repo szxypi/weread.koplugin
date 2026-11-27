@@ -1,7 +1,22 @@
 -- Read-only display snapshots. Never write these into a reader's sync state.
 local M = { TTL = 120 }
 local Access = require("weread.lib.read_access")
-M.book_id, M.selection, M.matches = Access.display_book_id, Access.capture, Access.matches
+local NativeAccess = require("weread.lib.native_read_access")
+M.book_id = Access.display_book_id
+
+function M.selection(settings)
+    local access = Access.capture(settings)
+    if access or not settings then return access end
+    local native = NativeAccess.capture(settings)
+    if native and not native.renewal_pending then
+        return { native = { kind = "native", grant = native }, revision = native.fingerprint }
+    end
+end
+
+function M.matches(settings, selected)
+    if selected and selected.native then return NativeAccess.matches(settings, selected.native.grant) end
+    return Access.matches(settings, selected)
+end
 
 function M.supports(id, selected)
     return M.book_id(id) ~= nil and (Access.book_id(id) ~= nil or type(selected) == "table" and type(selected.web) == "table")
@@ -47,6 +62,14 @@ function M.parse(data, id, now)
     return { book_id = tostring(id), percent = math.floor(precise), exact_percent = precise, fetched_at = now or os.time() }
 end
 
+local function parse_native(data, id)
+    -- The native shelf endpoint includes the requested identity in its reply.
+    -- A missing position is not evidence that reading is at zero.
+    if type(data) ~= "table" or data.bookId == nil or tostring(data.bookId) ~= tostring(id) then return end
+    local snapshot = M.parse(data, id)
+    return snapshot
+end
+
 function M.display(saved, snapshot, account, id)
     -- Legacy local records without an account binding cannot override this account's cloud data.
     local pending = type(saved) == "table" and saved.pending_upload_position
@@ -68,11 +91,18 @@ function M.fetch(client, ids, context, selected, options)
     selected = selected or M.selection(client.settings)
     local snapshots = {}
     if not selected then return { snapshots = snapshots, failed = true } end
-    local access = options and options.web_only and selected.web or selected.gateway or selected.web
+    local access = options and options.web_only and selected.web or selected.gateway or selected.web or selected.native
     if not access or options and options.web_only and not selected.web then return {snapshots=snapshots,failed=true} end
     local function current()
         context.checkCancelled()
         return M.matches(client.settings, selected)
+    end
+    local owner = client
+    local read = client.get_shelf_display_progress
+    if access.kind == "native" then
+        local grant = access.grant
+        owner = require("weread.lib.native_authorization"):new(client, { expected_vid = grant.scope.vid, is_current = current })
+        read = function(auth, id) return auth:read_shelf_progress(grant.credentials, id) end
     end
     for index, id in ipairs(ids) do
         if not current() then return { snapshots = {}, stale = true } end
@@ -83,10 +113,13 @@ function M.fetch(client, ids, context, selected, options)
         if type(id) == "string" and id:sub(1, 3) == "CB_" and not selected.web then
             return { snapshots = snapshots, failed = true }
         end
-        local ok, value = pcall(client.get_shelf_display_progress, client, id, book_access)
+        local ok, value = pcall(read, owner, id, book_access)
         if not current() then return { snapshots = {}, stale = true } end
         local snapshot, reason
-        if ok then snapshot, reason = M.parse(value, id) end
+        if ok then
+            if book_access.kind == "native" then snapshot = parse_native(value, id)
+            else snapshot, reason = M.parse(value, id) end
+        end
         if not snapshot and reason ~= "unavailable" and book_access.kind == "gateway" and selected.web then
             -- After one failed gateway read, use Web for the rest of this batch.
             access = selected.web

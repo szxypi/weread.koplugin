@@ -490,6 +490,12 @@ class MockServer(ThreadingHTTPServer):
                 if set(query)!={'bookId'} or query['bookId']!=[book_id] or not any(row['bookId']==book_id for row in BOOKS):
                     raise ValueError('invalid native finished-mark position query')
                 return 200,self.get_progress(book_id)
+            if path == "/book/getProgress" and method == "GET":
+                if query != {"bookId": [book_id]} or not any(row["bookId"] == book_id for row in BOOKS):
+                    raise ValueError("invalid native shelf progress query")
+                result = self.get_progress(book_id)
+                result.setdefault("bookId", book_id)
+                return 200, result
             if self.private_fixture and path=='/book/secret' and method=='POST':
                 if (query or set(data)!={'bookIds','private'} or data['bookIds']!=[BOOK_ID]
                         or type(data['private']) is not int or data['private'] not in (0,1)
