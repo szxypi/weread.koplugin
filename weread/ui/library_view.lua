@@ -1591,6 +1591,7 @@ function LibraryView:init()
     if self._navigation_buttons then rows[#rows + 1] = self._navigation_buttons end
     for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
     for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
+    self._first_item_focus_row = first_item_row
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
     FocusNav.initialFocus(self, focus_x or 1, focus_y or first_item_row or 1)
     local body = { align = "left", header }
@@ -1617,29 +1618,38 @@ function LibraryView:init()
             GestureRange:new{ ges = "swipe", range = scroll.dimen },
         }
     end
-    if self.paged and Device:hasKeys() then
-        self.onNextPage = function(view)
-            if view.page < view.page_count and view.on_page_changed then
-                view.on_page_changed(view.page + 1)
-            end
-            return true
-        end
-        self.onPrevPage = function(view)
-            if view.page > 1 and view.on_page_changed then
-                view.on_page_changed(view.page - 1)
-            end
-            return true
+    if Device:hasKeys() then
+        self.onNextPage = function(view) return view:turnShelfPage(1) end
+        self.onPrevPage = function(view) return view:turnShelfPage(-1) end
+    end
+end
+
+function LibraryView:turnShelfPage(direction)
+    if self.paged then
+        local page = self.page + direction
+        if page >= 1 and page <= self.page_count and self.on_page_changed then self.on_page_changed(page) end
+        return true
+    end
+
+    -- The viewport may have moved by touch since the last focus change.
+    local scrolled
+    if direction > 0 then scrolled = self.scroll:onScrollPageDown()
+    else scrolled = self.scroll:onScrollPageUp() end
+    if scrolled and Device:hasDPad() and self._first_item_focus_row then
+        local index = ShelfVisible.first(self._list_bottoms, self:getScrollOffset().y)
+        local y = self._first_item_focus_row + index - 1
+        if index <= #self._list_bottoms and (self.selected.y ~= y or self.selected.x ~= 1) then
+            self:moveFocusTo(1, y, FocusManager.FORCED_FOCUS)
         end
     end
+    return true
 end
 
 function LibraryView:onShelfSwipe(_, ges)
     if not self.paged then return false end
     local delta = ges.direction == "west" and 1 or ges.direction == "east" and -1
     if not delta then return false end
-    local page = self.page + delta
-    if page >= 1 and page <= self.page_count and self.on_page_changed then self.on_page_changed(page) end
-    return true
+    return self:turnShelfPage(delta)
 end
 
 function LibraryView:onShow()

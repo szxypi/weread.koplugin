@@ -28,6 +28,11 @@ if mode=='live' then assert(plugin.library_db:cacheShelf(shelf.books,shelf.archi
 local books=assert(plugin.library_db:getShelf());local archives=assert(plugin.library_db:getShelfArchives())
 assert(#books==#shelf.books and #archives==#shelf.archive)
 if mode=='live' then
+    local Event,Key=require('ui/event'),require('device/key')
+    local function page_key(name)
+        UI:sendEvent(Event:new('KeyPress',Key:new(name,{})))
+        UI:forceRePaint()
+    end
     local prefs=plugin.settings:get('shelf')
     local saved_mode,saved_paginated,saved_sort=prefs.view_mode,prefs.paginated,prefs.sort_order
     prefs.view_mode,prefs.paginated='list',false
@@ -46,16 +51,65 @@ if mode=='live' then
     assert(plugin._book_detail_view):onClose()
     assert(plugin.shelf_view~=shelf_view and plugin.shelf_view:getScrollOffset().y==offset
         and plugin.shelf_view:getVisibleBooks()[1]==visible,'book detail return reset continuous bookshelf scroll')
+    if Device:hasKeys() then
+        local scrolled=plugin.shelf_view
+        UI:forceRePaint()
+        local maximum=scrolled.scroll._max_scroll_offset_y
+        local distance=math.floor(scrolled.scroll.dimen.h/2)
+        scrolled.scroll:_scrollBy(0,maximum-distance-scrolled:getScrollOffset().y)
+        UI:forceRePaint()
+        assert(scrolled:getScrollOffset().y==maximum-distance and maximum>distance)
+        page_key('RPgFwd')
+        local last_page=scrolled:getVisibleBooks()
+        assert(scrolled:getScrollOffset().y==maximum and last_page[#last_page]==scrolled.books[#scrolled.books],
+            'page-forward key did not reach the bottom from the current viewport')
+        local focused=scrolled:getFocusItem()
+        if Device:hasDPad() then
+            assert(focused.book==last_page[1],'paging did not move directional focus into the viewport')
+        end
+        page_key('LPgFwd')
+        assert(scrolled:getScrollOffset().y==maximum,'page-forward key wrapped at the bottom')
+        page_key('RPgBack')
+        local viewport=scrolled.scroll:getCropRegion().h
+        assert(scrolled:getScrollOffset().y==math.max(0,maximum-viewport),
+            'page-back key did not move one viewport')
+        while scrolled:getScrollOffset().y>0 do
+            local before=scrolled:getScrollOffset().y
+            page_key('LPgBack')
+            assert(scrolled:getScrollOffset().y<before,'page-back key could not reach the top')
+        end
+        page_key('LPgBack')
+        assert(scrolled:getScrollOffset().y==0,'page-back key wrapped at the top')
+        local has_dpad=Device.hasDPad
+        Device.hasDPad=function() return false end
+        page_key('RPgFwd')
+        Device.hasDPad=has_dpad
+        assert(scrolled:getScrollOffset().y==math.min(viewport,maximum),
+            'page-forward key required a directional pad')
+    end
     plugin:showBookMenu(visible)
     plugin:applyShelfSnapshot({books[1],books[2],books[3]},archives)
     assert(plugin._book_detail_view):onClose()
     assert(plugin.shelf_view:getScrollOffset().y==0 and #plugin.shelf_view:getVisibleBooks()==3,
         'previous scroll offset hid a shorter shelf')
+    if Device:hasKeys() then
+        page_key('RPgFwd')
+        assert(plugin.shelf_view:getScrollOffset().y==0,'page-forward key moved a list that fits one screen')
+    end
 
     prefs.paginated,prefs.sort_order=true,'name_asc'
     plugin.settings:set('shelf',prefs)
     plugin:applyShelfSnapshot(books,archives)
-    plugin:showShelfView('books',nil,plugin.shelf_view,{page=2})
+    plugin:showShelfView('books',nil,plugin.shelf_view,{page=1})
+    if Device:hasKeys() then
+        page_key('LPgFwd')
+        assert(plugin.shelf_view.page==2,'page-forward key did not advance the paged list')
+        page_key('RPgBack')
+        assert(plugin.shelf_view.page==1,'page-back key did not return to the first page')
+        page_key('RPgFwd')
+    else
+        plugin.shelf_view.on_page_changed(2)
+    end
     local paged=plugin.shelf_view
     local chosen=assert(paged._item_rows[2])
     for y,row in ipairs(paged.layout) do

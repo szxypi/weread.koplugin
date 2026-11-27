@@ -14,6 +14,10 @@ local Device = require("device")
 require("document/canvascontext"):init(Device)
 local UIManager = require("ui/uimanager")
 local Screen = Device.screen
+local Event, Key = require("ui/event"), require("device/key")
+local function page_key(name)
+    UIManager:sendEvent(Event:new("KeyPress", Key:new(name, {})))
+end
 assert(require("weread.lib.mock_environment").save{ enabled = true, host = "127.0.0.1", port = assert(tonumber(os.getenv("WEREAD_MOCK_PORT"))) })
 local Plugin = dofile(source .. "/main.lua")
 local registered = false
@@ -285,6 +289,15 @@ flush_tasks()
 assert(plugin.discovery_state.kind=='search' and plugin.discovery_state.source_kind=='public'
     and #plugin.discovery_state.books==20 and plugin.discovery_state.has_more)
 paint('store-public-search')
+if Device:hasKeys() then
+    assert(plugin.shelf_view.page_count>1)
+    page_key('RPgFwd')
+    assert(plugin.shelf_view.page==2 and plugin.discovery_state.cursor==0,
+        'page-forward key changed the search batch instead of its visible page')
+    page_key('LPgBack')
+    assert(plugin.shelf_view.page==1 and plugin.discovery_state.cursor==0,
+        'page-back key did not return to the first search page')
+end
 press(plugin.shelf_view,'Next batch')
 flush_tasks()
 assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==5
@@ -595,12 +608,11 @@ editor:onMenuSelect(item(editor, "Recent reading count"))
 editor:onMenuSelect(item(editor, "24"))
 plugin._home_controls_menu:onCloseAllMenus()
 if Device:hasKeys() then
-    local event = require("ui/event")
     assert(plugin.shelf_view.page_count > 1, "24-book home fixture must paginate")
-    plugin.shelf_view:handleEvent(event:new("NextPage"))
-    assert(plugin.shelf_view.page == 2, "native next-page event did not advance home")
-    plugin.shelf_view:handleEvent(event:new("PrevPage"))
-    assert(plugin.shelf_view.page == 1, "native previous-page event did not return home")
+    page_key("RPgFwd")
+    assert(plugin.shelf_view.page == 2, "native next-page key did not advance home")
+    page_key("LPgBack")
+    assert(plugin.shelf_view.page == 1, "native previous-page key did not return home")
 end
 plugin:showHomeLayoutSettings()
 editor = plugin._home_controls_menu
