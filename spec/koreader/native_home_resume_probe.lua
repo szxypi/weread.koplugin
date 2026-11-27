@@ -87,6 +87,49 @@ else
         require('weread.ui.download_library').show(host)
         pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
         assert(#host.shelf_view.books==0,'other account saw a saved EPUB on the downloads page')
+        assert(not host.shelf_view._action_buttons,'other account saw unfinished downloads')
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        os.exit(0)
+    end
+    if input.mode=='downloads_pending' then
+        local scope=assert(host.settings:get_auth_scope())
+        local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+        local function current() return true end
+        local empty_id='999991'
+        assert(host.library_db:putBook{book_id=empty_id,title='Pending without chapters'})
+        local catalog={book_id=id,version=1,reading_digest=string.rep('a',64),chapters={{},{},{}}}
+        assert(store:begin(catalog,{first=1,last=2},nil,current))
+        catalog.book_id=empty_id
+        assert(store:begin(catalog,{first=2,last=3},nil,current))
+        require('ui/network/manager').isConnected=function() return false end
+        require('weread.ui.download_library').show(host)
+        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        view=host.shelf_view
+        for _,book in ipairs(view.books) do assert(book.bookId~=empty_id,'unfinished book claimed a downloaded file') end
+        local util=require('weread.lib.plugin_util')
+        local action=assert(view._action_buttons and view._action_buttons[1])
+        assert(action.text==util.T(util.tr('Unfinished downloads · %1'),2))
+        action:onTapSelectButton()
+        pump(function() return view._shelf_popup end)
+        local menu=view._shelf_popup
+        assert(#menu.item_table==2 and menu.item_table[2].text:find('Pending without chapters',1,true),
+            'unfinished list omitted the book without a local file')
+        assert(menu.item_table[1].text:find(util.T(util.tr('Chapters %1–%2'),1,2),1,true))
+        menu:onMenuSelect(menu.item_table[2])
+        local dialog=assert(menu._shelf_popup)
+        assert(dialog.buttons[1][1].text==util.tr('Continue download'))
+        dialog.buttons[3][1].callback()
+        pump(function() return not menu._shelf_popup end)
+        assert(view._shelf_popup==menu,'cancelling an action lost the unfinished list')
+        menu:onMenuSelect(menu.item_table[1])
+        dialog=assert(menu._shelf_popup)
+        assert(dialog.buttons[2][1].text==util.tr('Saved E-Ink chapters'))
+        dialog.buttons[2][1].callback()
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local saved=host._native_direct_reading
+        assert(saved.offline and saved.book.book_id==id and #saved.menu.item_table>0 and not view._shelf_popup)
+        saved.menu:onMenuSelect(saved.menu.item_table[1])
+        pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==input.path end)
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         os.exit(0)
     end

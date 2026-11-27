@@ -247,6 +247,27 @@ retry=assert(host._native_direct_reading.confirm);retry.ok_callback()
 sample.version=8;s.finish(3);sample.version=7
 expect(#s.jobs==3 and not host._native_direct_reading and s.message=='The chapter list changed. Please open it again.',
     'retry used old chapter bounds in a changed catalog')
+local owner=require('weread.lib.native_position_contract').account_key(scope.vid)
+local reviewed={schema=1,account=owner,book_id='456',version=7,digest=digest,count=2,first=1,last=1,revision=string.rep('e',32)}
+local observed=reviewed
+for _,mode in ipairs({'same','updated','catalog_changed'}) do
+    host,s=fixture()
+    host.library_db.accountKey=function() return owner end
+    host.library_db.getProfileState=function() return observed end
+    if mode=='updated' then
+        observed={};for key,value in pairs(reviewed) do observed[key]=value end
+        observed.revision=string.rep('f',32)
+    else observed=reviewed end
+    expect(UI.start(host,{book_id='456'},s.view,{batch=true,resume_plan=reviewed}),'selected plan could not be checked')
+    if mode=='catalog_changed' then sample.version=8 end
+    s.finish(1);sample.version=7
+    if mode=='same' then
+        expect(host._native_direct_reading.confirm.choice1_text=='Continue download' and #s.jobs==1,
+            'selected plan started without confirmation')
+    else
+        expect(not host._native_direct_reading and #s.jobs==1 and s.info==1,'a stale plan proceeded')
+    end
+end
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
 confirm=assert(host._native_direct_reading.confirm);require('ui/uimanager'):close(confirm);confirm.choice2_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'dismissed download options retained a valid action')

@@ -129,6 +129,7 @@ function M.start(host,book,view,options)
     local cached=type(options)=='table' and options.cached==true
     local offline=cached or not connected(host)
     local batch=type(options)=='table' and options.batch==true
+    local resume_plan=type(options)=='table' and options.resume_plan or nil
     if batch and offline then host:showOffline(_('Download E-Ink chapters'));return false end
     local target=type(options)=='table' and options.target or nil
     if target~=nil and (offline or type(target)~='table' or type(target.uid)~='string'
@@ -150,7 +151,6 @@ function M.start(host,book,view,options)
         host:showInfo(_('E-Ink authorization is required to read these chapters.'))
         return false
     end
-    M.cancel(host)
     local title=text(book.title,2048) and book.title or id
     local author=text(book.author,2048) and book.author or ''
     local ctx={epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
@@ -159,6 +159,8 @@ function M.start(host,book,view,options)
     if batch and host.library_db then
         ctx.batch_store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
     end
+    if resume_plan and (not ctx.batch_store or not ctx.batch_store:verified(resume_plan,id)) then return false end
+    M.cancel(host)
     host._native_direct_reading=ctx
     local function view_current()
         local now=host.ui and host.ui.document
@@ -563,6 +565,15 @@ function M.start(host,book,view,options)
                             ctx.batch_record=result.batch_record
                         end
                         local range=ctx.batch_store and ctx.batch_store:range(ctx.batch_record,checked)
+                        if resume_plan then
+                            if not ctx.batch_record or ctx.batch_record.revision~=resume_plan.revision
+                                or ctx.batch_record.first~=resume_plan.first or ctx.batch_record.last~=resume_plan.last
+                                or ctx.batch_record.digest~=resume_plan.digest or ctx.batch_record.version~=resume_plan.version
+                                or ctx.batch_record.count~=resume_plan.count then
+                                fail('This download plan changed. Reopen the unfinished downloads list.');return
+                            end
+                            if not range then fail('The chapter list changed. Please open it again.');return end
+                        end
                         if range then show_batch_plan(range,checked.chapters)
                         else show_batch_options(checked.chapters) end
                     end

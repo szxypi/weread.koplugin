@@ -17,10 +17,17 @@ end
 
 local function collect(host, current)
     local account = host.library_db and host.library_db:accountKey()
-    if not account then return {} end
+    if not account then return {}, {} end
     local saved = host.settings:get('books', {})
     local shelf = host.library_db:getShelf() or {}
-    local rows, seen = {}, {}
+    local scope=host.settings.get_auth_scope and host.settings:get_auth_scope()
+    local records={}
+    if scope then
+        local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+        records=store:list(current) or {}
+    end
+    local rows, seen, books = {}, {}, {}
+    for _,record in ipairs(records) do books[record.book_id]=false end
     local function append(id, source)
         if not id or seen[id] then return end
         local row = Data.book(source)
@@ -30,13 +37,16 @@ local function collect(host, current)
         if conflict then return end
         local downloaded = host:bookRecordHasDownload(record)
         local native_cached = not downloaded and host:nativeChapterCachePresent(id, current)
-        if not (downloaded or native_cached) then return end
+        if not (downloaded or native_cached or books[id]~=nil) then return end
         row.bookId = id
         if row.title == '' then row.title = id end
         if row.author == '' and type(source.authors)=='string' then row.author = source.authors end
-        row._cached = true
-        row._native_cached_hint = native_cached or nil
-        rows[#rows + 1] = row
+        if books[id]~=nil then books[id]=row end
+        if downloaded or native_cached then
+            row._cached = true
+            row._native_cached_hint = native_cached or nil
+            rows[#rows + 1] = row
+        end
     end
     for _, book in ipairs(shelf) do
         append(ReadAccess.display_book_id(ShelfSnapshot.persisted_id(book)), book)
@@ -52,7 +62,15 @@ local function collect(host, current)
         if titles[a] == titles[b] then return a.bookId < b.bookId end
         return titles[a] < titles[b]
     end)
-    return rows
+    local plans={}
+    for _,record in ipairs(records) do
+        local id=record.book_id
+        local book=books[id]
+        if not book and host.library_db.getBook then book=Data.book(host.library_db:getBook(id)) end
+        if not book or book.bookId~=id or book.title=='' then book={bookId=id,title=T(_('Book ID: %1'),id)} end
+        plans[#plans+1]={book=book,record=record}
+    end
+    return rows,plans
 end
 
 local function show_detail(host, book)
@@ -95,8 +113,57 @@ local function show_actions(host, book, view, current)
     Popup.show(view, dialog)
 end
 
+local function show_plan_actions(host, entry, view, menu, current)
+    if menu._shelf_popup then return end
+    local dialog
+    local function action(options)
+        return function()
+            UI:nextTick(function()
+                if not current() or not Popup.current(view,menu) or not Popup.current(menu,dialog) then return end
+                if not options then Popup.close(menu);return end
+                Popup.close(view)
+                if not current() then return end
+                local detail=host:showBookMenu(entry.book,{read_saved_native=options.cached==true})
+                if detail then require('weread.ui.native_direct_reading').start(host,entry.book,detail,options) end
+            end)
+        end
+    end
+    dialog=require('ui/widget/buttondialog'):new{
+        title=entry.book.title,buttons={
+            {{text=_('Continue download'),callback=action({batch=true,resume_plan=entry.record})}},
+            {{text=_('Saved E-Ink chapters'),callback=action({cached=true})}},
+            {{text=_('Cancel'),callback=action()}},
+        },
+    }
+    Popup.show(menu,dialog)
+end
+
+local function show_plans(host,plans)
+    local view=host.shelf_view
+    if not view or view._shelf_popup then return end
+    local current=Scope.capture(host,view)
+    local items,menu={}
+    for index,entry in ipairs(plans) do
+        local text=T(_('Chapters %1–%2'),entry.record.first,entry.record.last)
+        items[index]={text=text..' · '..entry.book.title,index=index}
+    end
+    menu=host:showList(_('Unfinished downloads'),items,nil,{on_choice=function(item)
+        if type(item)~='table' or not item.index or items[item.index]~=item or not current()
+            or not Popup.current(view,menu) then return end
+        show_plan_actions(host,plans[item.index],view,menu,current)
+    end})
+    if not menu then return end
+    local closed=menu.onCloseWidget
+    menu.onCloseWidget=function(widget,...)
+        widget._shelf_closed=true
+        Popup.close(widget)
+        if closed then return closed(widget,...) end
+    end
+    Popup.show(view,menu,function() end)
+end
+
 local load
-local function render(host, rows, query, page)
+local function render(host, rows, plans, query, page)
     local needle = Search.prepare(query)
     local terms = Search.terms(needle)
     local books = {}
@@ -107,6 +174,7 @@ local function render(host, rows, query, page)
     host:showDiscoveryPage('downloads', books, {
         title = query == '' and _('Downloaded books') or T(_('Downloaded books · %1'), query),
         page = page,
+        actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=function() show_plans(host,plans) end}} or nil,
         empty_text = query == '' and _('No downloaded books for this account.') or _('No matching books.'),
         on_refresh = reload,
         on_return = function(next_page)
@@ -121,7 +189,7 @@ local function render(host, rows, query, page)
                 local next_query = Query.trim(value)
                 if #next_query > 1024 then host:showInfo(_('Search text is too long.')); return end
                 Popup.close(view)
-                if next_query ~= query then render(host, rows, next_query, 1) end
+                if next_query ~= query then render(host, rows, plans, next_query, 1) end
             end
             dialog = require('ui/widget/inputdialog'):new{
                 title = _('Search downloaded books'), input = query, input_type = 'text', buttons = {{
@@ -158,13 +226,16 @@ load = function(host, query, page)
     host._download_library_job = job
     host:showBusy(_('Loading downloaded books…'), function() M.cancel(host) end)
     job.busy = host.busy_message
-    local started = worker:start(function() return { rows=collect(host, current) } end, function(result)
+    local started = worker:start(function()
+        local rows,plans=collect(host,current)
+        return {rows=rows,plans=plans}
+    end, function(result)
         if host._download_library_job ~= job then return end
         local live = not host._weread_suspended and current()
         M.cancel(host)
         if not live then return end
-        if not result or type(result.rows)~='table' then host:showInfo(message); return end
-        render(host, result.rows, query, page)
+        if not result or type(result.rows)~='table' or type(result.plans)~='table' then host:showInfo(message); return end
+        render(host, result.rows, result.plans, query, page)
     end)
     if not started then M.cancel(host); host:showInfo(message) end
 end

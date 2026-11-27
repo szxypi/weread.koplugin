@@ -4,13 +4,14 @@ local Contract=require('weread.lib.native_position_contract')
 local Protocol=require('weread.lib.native_position_protocol')
 local M={}
 M.__index=M
+local PREFIX='eink_batch_v1:'
 
 local function hex(value,length)
     return type(value)=='string' and #value==length and value:match('^[a-f0-9]+$')~=nil
 end
 
 local function key(id)
-    if type(id)=='string' and Protocol.id(id)==id then return 'eink_batch_v1:'..id end
+    if type(id)=='string' and Protocol.id(id)==id then return PREFIX..id end
 end
 
 local fields={schema=true,account=true,book_id=true,version=true,digest=true,count=true,first=true,last=true,revision=true}
@@ -52,6 +53,33 @@ function M:read(id,guard)
     if not name or not self:_current(guard) or type(self.library.getProfileState)~='function' then return end
     local ok,value=pcall(self.library.getProfileState,self.library,name)
     if ok and self:verified(value,id) and self:_current(guard) then return value end
+end
+
+function M:list(guard)
+    if not self:_current(guard) or type(self.library.openRead)~='function' then return end
+    local opened,db=pcall(self.library.openRead,self.library)
+    if not opened or not db then return end
+    local statement
+    local ok,records=pcall(function()
+        local json=require('json')
+        statement=db:prepare([[SELECT name,CASE WHEN length(CAST(payload AS BLOB))<=1024 THEN payload END
+            FROM profile_state WHERE name GLOB ? ORDER BY name]])
+        statement:bind(PREFIX..'*')
+        local result={}
+        while true do
+            local row=statement:step()
+            if not row then break end
+            local id=row[1]:sub(#PREFIX+1)
+            if type(row[2])=='string' then
+                local decoded,record=pcall(json.decode,row[2])
+                if decoded and self:verified(record,id) then result[#result+1]=record end
+            end
+        end
+        return result
+    end)
+    if statement then pcall(statement.close,statement) end
+    pcall(db.close,db)
+    if ok and self:_current(guard) then return records end
 end
 
 function M:range(record,catalog)

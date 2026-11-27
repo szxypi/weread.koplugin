@@ -48,5 +48,12 @@ local db=library:open()
 db:exec([[INSERT INTO profile_state VALUES ('eink_batch_v1:42','damaged')]])
 db:close()
 assert(not reopened:read('42',current),'a malformed plan became a resume offer')
+catalog.book_id='43'
+local listed=assert(reopened:begin(catalog,{first=2,last=2},nil,current))
+assert(library:putProfileState('statistics',listed))
+local records=assert(reopened:list(current))
+assert(#records==1 and records[1].revision==listed.revision,'listing accepted damaged or unrelated rows')
+vid='456'
+assert(not reopened:list(current) and #assert(other:list(current))==1,'listing exposed another account')
 os.remove(path);os.remove(other_path)
 print('PASS: local chapter download plans survive reopen and protect book, account and newer ranges')

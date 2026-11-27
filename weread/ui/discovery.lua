@@ -50,7 +50,8 @@ function M:showDiscoveryPage(tab, books, options)
     end end
     local cover_mode = not home or home.view_mode ~= "list"
     if downloads then cover_mode = self.settings:get('shelf').view_mode == 'cover' end
-    local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home, store = tab=='store' })
+    local extra_height=downloads and options.actions and #options.actions>0 and 162 or 108
+    local layout = LibraryView.getLayout(cover_mode, #books, "books", extra_height, { home = home, store = tab=='store' })
     local focus_book_index=options.focus_book_id and LibraryView.bookIndex(books,options.focus_book_id)
     local page_anchor=focus_book_index or options.rotation_anchor
     local target_page=page_anchor and math.floor((page_anchor-1)/layout.page_size)+1 or options.page or 1
