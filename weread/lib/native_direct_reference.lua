@@ -12,16 +12,20 @@ local function active(settings,native,web,current)
     local ok,value=pcall(current)
     return ok and value==true and Access.matches(settings,native) and Currentness.matches(settings,web)
 end
+local function verified(client,settings,entry,file,native,web,current)
+    local raw,why,_,_,format=Position.verified_source(client,settings,entry,file,native,web,current,{allow_txt=true})
+    return raw,why,format
+end
 function M.capture(client,settings,entry,file,input,native,web,current,bookmark,library)
     if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current) then return nil,'invalid' end
-    local raw,why=Position.verified_source(client,settings,entry,file,native,web,current)
+    local raw,why,format=verified(client,settings,entry,file,native,web,current)
     if not raw then return nil,why end
     local ref=bookmark and require('weread.lib.bookmark_reference') or Reference
-    local row,reason=ref.capture_direct(input,entry,file,raw)
+    local row,reason=ref.capture_direct(input,entry,file,raw,format)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     if row and library then
         -- A cache failure never prevents the already verified online action.
-        pcall(function() require('weread.lib.native_direct_mark_source_store'):new(library):write(entry,raw) end)
+        pcall(function() require('weread.lib.native_direct_mark_source_store'):new(library):write(entry,raw,format) end)
     end
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
@@ -37,26 +41,28 @@ local function cached(settings,library,entry,file,native,web,current)
         if pinned[key]~=entry[key] then return nil,'source_changed' end
     end
     if not live() then return nil,'session_changed' end
-    local ok,raw=pcall(function() return require('weread.lib.native_direct_mark_source_store'):new(library):read(pinned) end)
+    local ok,raw,format=pcall(function() return require('weread.lib.native_direct_mark_source_store'):new(library):read(pinned) end)
     if not live() then return nil,'session_changed' end
     if not ok or not raw then
         ok,raw=pcall(Cache.read_raw_source,file,pinned)
+        format='web_xhtml'
+        if not ok or not raw then ok,raw=pcall(Cache.read_raw_source,file,pinned,'txt');format='web_txt' end
         if not live() then return nil,'session_changed' end
         if not ok or not raw then return nil,'offline_source_unavailable' end
     end
-    return raw
+    return raw,nil,format
 end
 function M.capture_cached(settings,library,entry,file,input,native,web,current)
-    local raw,why=cached(settings,library,entry,file,native,web,current)
+    local raw,why,format=cached(settings,library,entry,file,native,web,current)
     if not raw then return nil,why end
-    local row,reason=Reference.capture_direct(input,entry,file,raw)
+    local row,reason=Reference.capture_direct(input,entry,file,raw,format)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
 end
 function M.restore_cached(settings,library,entry,file,key,native,web,current)
-    local raw,why=cached(settings,library,entry,file,native,web,current)
+    local raw,why,format=cached(settings,library,entry,file,native,web,current)
     if not raw then return nil,why end
-    local row,reason=Reference.restore_direct(entry,file,key,raw)
+    local row,reason=Reference.restore_direct(entry,file,key,raw,format)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
 end
@@ -69,21 +75,21 @@ function M.verify(client,settings,native,row,file,current,bookmark)
     if not live() then return nil,'session_changed' end
     local entry=Cache.identify(settings,native.scope.vid,file,live)
     if not entry or not live() then return nil,'source_changed' end
-    local raw,why=Position.verified_source(client,settings,entry,file,native,web,live)
+    local raw,why,format=verified(client,settings,entry,file,native,web,live)
     if not raw then return nil,why end
     local ref=bookmark and require('weread.lib.bookmark_reference') or Reference
-    local verified,reason=ref.verify_direct(row,entry,file,raw)
+    local checked,reason=ref.verify_direct(row,entry,file,raw,format)
     if not live() then return nil,'session_changed' end
-    return verified,reason,entry.book_version
+    return checked,reason,entry.book_version,format
 end
 function M.restore(client,settings,entry,file,key,native,web,current,library)
     if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current) then return nil,'invalid' end
-    local raw,why=Position.verified_source(client,settings,entry,file,native,web,current)
+    local raw,why,format=verified(client,settings,entry,file,native,web,current)
     if not raw then return nil,why end
-    local row,reason=Reference.restore_direct(entry,file,key,raw)
+    local row,reason=Reference.restore_direct(entry,file,key,raw,format)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     if row and library then
-        pcall(function() require('weread.lib.native_direct_mark_source_store'):new(library):write(entry,raw) end)
+        pcall(function() require('weread.lib.native_direct_mark_source_store'):new(library):write(entry,raw,format) end)
     end
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason

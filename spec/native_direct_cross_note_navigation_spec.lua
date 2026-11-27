@@ -29,7 +29,7 @@ end}
 package.loaded['weread.lib.personal_mark_task']={MAX_NATIVE_BYTES=4096,prepare_direct=function(_,_,_,file,entry,metadata,rows)
     assert(file==state.target_file and entry==target)
     local row=rows[1]
-    return {metadata=metadata,rows={{bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+    return {metadata=metadata,format='web_xhtml',rows={{bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
         bookmark=row.type==0 or nil,anchor={co=1},first_anchor={},last_anchor={},normalized_sha256=string.rep('d',64)}}}
 end,verify=function(rows) return {rows[1].bookmarkId} end}
 package.loaded['weread.lib.source_dom']={open_direct_prepared=function(_,book,chapter,_,options)

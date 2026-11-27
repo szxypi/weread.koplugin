@@ -295,10 +295,10 @@ end
 
 -- Payloads and readback semantics verified by the user-authorized Python
 -- create/edit/delete roundtrip. No renewal or write replay exists here.
-function Auth:write_my_thought(credentials,operation,body,on_dispatch)
+function Auth:write_my_thought(credentials,operation,body,on_dispatch,source_format)
     if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid or not text(credentials.accessToken,8192)
         or type(on_dispatch)~='function' then fail('my_thought_write','invalid_credentials') end
-    if not require('weread.lib.thought_edit_contract').validate_body(operation,body) then fail('my_thought_write','invalid_payload') end
+    if not require('weread.lib.thought_edit_contract').validate_body(operation,body,source_format) then fail('my_thought_write','invalid_payload') end
     local path=operation=='create' and '/review/add' or operation=='edit' and '/review/useredit' or '/review/delete'
     return self:_request('my_thought_write',BASE..path,body,credentials,nil,on_dispatch)
 end
@@ -306,10 +306,10 @@ end
 -- Exact ordinary-highlight creation/removal and independent readback verified
 -- by verify_highlight_trial.py. No automatic renewal or write replay.
 -- Style-only updates verified by verify_mark_style_trial.py on a new test mark.
-function Auth:write_my_highlight(credentials,operation,body,on_dispatch)
+function Auth:write_my_highlight(credentials,operation,body,on_dispatch,source_format)
     if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid or not text(credentials.accessToken,8192)
         or type(on_dispatch)~='function' then fail('my_highlight_write','invalid_credentials') end
-    if not require('weread.lib.mark_edit_contract').validate_body(operation,body) then fail('my_highlight_write','invalid_payload') end
+    if not require('weread.lib.mark_edit_contract').validate_body(operation,body,source_format) then fail('my_highlight_write','invalid_payload') end
     local path=(operation=='create' or operation=='bookmark_create') and '/book/addBookmark'
         or (operation=='style' or operation=='color') and '/book/updateBookmark' or '/book/removeBookmark'
     return self:_request('my_highlight_write',BASE..path,body,credentials,nil,on_dispatch)

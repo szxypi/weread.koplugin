@@ -63,7 +63,7 @@ package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_
     prepare_direct=function(_,_,_,file,e,metadata,rows,online)
         assert(file=='/direct.epub' and e==entry and type(online)=='function');prepares=prepares+1
         if not state.source then error('missing cache') end
-        local result={metadata=metadata,rows={}}
+        local result={metadata=metadata,format='web_xhtml',rows={}}
         for _,row in ipairs(rows) do result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
             first_anchor={point=1},last_anchor={point=2}} end
         return result

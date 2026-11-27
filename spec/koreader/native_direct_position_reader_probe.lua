@@ -110,7 +110,8 @@ end
 if input.mode:find('^selection_direct') then
     require('weread.ui.selection_thought')
     assert(host._selection_thought_hook,'native chapter selection action was not attached')
-    local matches=assert(reader.document:findAllText('Unique paragraph 0001',false,0,3,false,0))
+    local quote=input.plain_text and 'Unique paragraph 0002' or 'Unique paragraph 0001'
+    local matches=assert(reader.document:findAllText(quote,false,0,3,false,0))
     assert(#matches==1 and matches[1].start and matches[1]['end'])
     local bookmark=input.mode:find('^selection_direct_bookmark')~=nil
     if bookmark then
@@ -126,7 +127,7 @@ if input.mode:find('^selection_direct') then
             assert(action,'native direct bookmark menu missing');action()
         end
     else
-        reader.highlight.selected_text={text='Unique paragraph 0001',pos0=matches[1].start,pos1=matches[1]['end']}
+        reader.highlight.selected_text={text=quote,pos0=matches[1].start,pos1=matches[1]['end']}
         reader.highlight:onShowHighlightMenu();UI:forceRePaint()
         assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
     end

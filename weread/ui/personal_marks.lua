@@ -41,7 +41,7 @@ local function metadata(host,s)
         if s.direct then
             local e=s.entry;local identity=require('weread.lib.book_file_identity').read_document(s.document,s.book)
             if not e or identity.file_id~=e.file_id or identity.book_version~=e.book_version then return nil end
-            return {metadata=e.file_id..e.source_sha256..e.key,chapter_uid=e.chapter_uid,record={format='web_xhtml'}}
+            return {metadata=e.file_id..e.source_sha256..e.key,chapter_uid=e.chapter_uid,record={format=s.source_format or 'web_xhtml'}}
         end
         local xp=s.document:getXPointer();local member=Dom.member(s.document,xp)
         return member and Source.document_metadata(s.document,s.book,nil,member.render_path)
@@ -99,6 +99,12 @@ batch=function(host,s,job)
     end,function(result)
         if not same_job(host,s,job) then return end
         if type(result)~='table' or result.metadata~=job.metadata or type(result.rows)~='table' then s.job=nil;return end
+        if s.direct then
+            if result.format~='web_xhtml' and result.format~='web_txt' or s.source_format and result.format~=s.source_format then
+                s.job=nil;return
+            end
+            s.source_format=result.format
+        end
         local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil,text=row.markText} end
         local expected={}
         if #result.rows>Task.BATCH then s.job=nil;return end
@@ -111,6 +117,7 @@ batch=function(host,s,job)
         local last_yield=os.clock()
         local thread=coroutine.create(function()
             local options={is_current=function() return same_job(host,s,job) end,
+                source_format=s.direct and result.format=='web_txt' and 'web_txt' or nil,
                 yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end}
             job.index=job.index or (s.direct and Dom.open_direct_prepared(s.document,s.book,job.uid,s.identity,options)
                 or not s.direct and Dom.open_prepared(s.document,s.book,job.metadata,options))

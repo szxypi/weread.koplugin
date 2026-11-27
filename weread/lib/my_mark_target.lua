@@ -59,7 +59,8 @@ local function project(raw,book,chapter,row,search,format)
             or chapter_id(row,search)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book then fail('scope') end
         local quote=row.markText
-        if type(quote)~='string' or #quote>131072 or quote:find('[%z\1-\8\11-\31\127]') then fail('quote') end
+        local controls=format=='web_txt' and '[%z\1-\8\11\12\14-\31\127]' or '[%z\1-\8\11-\31\127]'
+        if type(quote)~='string' or #quote>131072 or quote:find(controls) then fail('quote') end
         local needle=Dom.normalize(quote)
         if not needle or needle=='' then fail('quote') end
         local first,last

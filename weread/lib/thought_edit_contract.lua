@@ -47,11 +47,13 @@ function M.snapshot_hash(snapshot)
     local parts={'thoughts-v1',#rows};for _i,row in ipairs(rows) do parts[#parts+1]=M.row_hash(row) end
     return M.digest(parts)
 end
-function M.valid_content(value)
-    if type(value)~='string' or #value==0 or #value>M.MAX_CONTENT or value:find('[%z\1-\8\11-\31\127]')
+local function valid_text(value,controls)
+    if type(value)~='string' or #value==0 or #value>M.MAX_CONTENT or value:find(controls)
         or Protocol.utf8_substr(value,#value)~=value then return false end
     local clean=Dom.normalize(value);return clean~=nil and clean~=''
 end
+function M.valid_content(value) return valid_text(value,'[%z\1-\8\11-\31\127]') end
+function M.valid_quote(value) return valid_text(value,'[%z\1-\8\11\12\14-\31\127]') end
 function M.reference_hash(operation,row)
     return operation=='create' and fields_hash(row,{'bookmarkId','type','chapterUid','range','markText'}) or M.row_hash(row)
 end
@@ -65,7 +67,7 @@ local function match_hash(row,indexed)
     if indexed then parts[#parts+1]=scalar(row.chapterIdx) end
     return Crypto.sha256_hex(table.concat(parts))
 end
-function M.context(client,marks,metadata,book,owner,reference)
+function M.context(client,marks,metadata,book,owner,reference,source_format)
     local row
     if reference.selection then
         if not require('weread.lib.selection_reference').valid(reference,book) then fail('selection') end
@@ -82,7 +84,7 @@ function M.context(client,marks,metadata,book,owner,reference)
     if not first or #first>10 or #last>10 or tonumber(first)>=tonumber(last) or tonumber(last)>2147483647 then fail('range') end
     if type(metadata)~='table' or tostring(metadata.bookId)~=book then fail('metadata') end
     local version=metadata.bookVersion or metadata.version
-    if not integer(version,2147483647) or version==0 and Marks.id(book) then fail('version') end
+    if not integer(version,2147483647) or version==0 and Marks.id(book) and source_format~='web_txt' then fail('version') end
     local ctx={bookId=book,chapterUid=tostring(row.chapterUid),bookVersion=version,type=1,range=row.range,abstract=row.markText,isPrivate=1}
     -- Selection catalog indices belong to Web source verification. The real
     -- native creation fixture omitted chapterIdx; do not invent a conversion.
@@ -94,15 +96,15 @@ function M.body_hash(body)
     local parts={'body-v1'};for _i,key in ipairs(keys) do parts[#parts+1]=key;parts[#parts+1]=body[key] end
     return M.digest(parts)
 end
-function M.validate_body(operation,body)
+function M.validate_body(operation,body,source_format)
     if type(body)~='table' then return false end
     local allowed
     if operation=='create' then
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,range=true,abstract=true,isPrivate=true,content=true,chapterIdx=true}
         if not Marks.display_id(body.bookId) or not Marks.id(body.chapterUid) or tonumber(body.chapterUid)>2147483647
-            or not integer(body.bookVersion,2147483647) or body.bookVersion==0 and Marks.id(body.bookId)
+            or not integer(body.bookVersion,2147483647) or body.bookVersion==0 and Marks.id(body.bookId) and source_format~='web_txt'
             or body.type~=1 or body.isPrivate~=1
-            or not M.valid_content(body.content) or not M.valid_content(body.abstract) or #body.abstract>4096
+            or not M.valid_content(body.content) or not M.valid_quote(body.abstract) or #body.abstract>4096
             or body.chapterIdx~=nil and (not Marks.id(body.bookId) or not integer(body.chapterIdx,2147483647)) then return false end
         local first,last
         if type(body.range)=='string' then first,last=body.range:match('^(%d+)%-(%d+)$') end
@@ -113,7 +115,7 @@ function M.validate_body(operation,body)
     for key in pairs(body) do if not allowed[key] then return false end end
     return true
 end
-function M.make(client,snapshot,operation,reference,content,marks,metadata,owner)
+function M.make(client,snapshot,operation,reference,content,marks,metadata,owner,source_format)
     local book=type(snapshot)=='table' and snapshot.book_id
     if not Marks.display_id(book) or operation~='create' and operation~='edit' and operation~='delete' then fail('operation') end
     snapshot=Thoughts.validate(client,snapshot,book)
@@ -121,7 +123,7 @@ function M.make(client,snapshot,operation,reference,content,marks,metadata,owner
     local before=M.snapshot_hash(snapshot)
     local body,target,after,reference_hash,matching,indexed
     if operation=='create' then
-        body=M.context(client,marks,metadata,book,owner,reference);body.content=content
+        body=M.context(client,marks,metadata,book,owner,reference,source_format);body.content=content
         target,after,reference_hash=reference.bookmarkId,'',M.reference_hash(operation,reference)
         indexed=body.chapterIdx~=nil;matching=match_hash(body,indexed)
     else

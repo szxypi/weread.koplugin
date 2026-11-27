@@ -200,7 +200,8 @@ end
 local function from_mark(raw,book,chapter,row,format,map_provider,spans_provider,point_provider)
     return guarded(function()
         local imported=not Marks.id(book)
-        if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,imported) or tostring(row.chapterUid)~=chapter
+        local require_preview=imported or format=='web_txt'
+        if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,require_preview) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book then fail('scope') end
         format=format or 'web_xhtml'
         if format=='web_txt' then return txt_point(raw,book,chapter,row,map_provider) end
@@ -236,11 +237,12 @@ local function prepare(raw,book,chapter,row,format,map_provider,spans_provider,p
         return {anchor=anchor}
     end)
 end
-local function source_providers(raw,format)
+local function source_providers(raw,format,omit_initial_bom)
     local map,attempted,spans
     return function()
         if not attempted then
-            attempted=true;map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true})
+            attempted=true;map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true,
+                omit_initial_bom=omit_initial_bom})
         end
         return map
     end,function()
@@ -253,9 +255,9 @@ function M.prepare(raw,book,chapter,row,format)
     return prepare(raw,book,chapter,row,format,map,spans)
 end
 -- Batch resources are limited to the one verified source supplied by the worker.
-function M.prepare_batch(raw,book,chapter,rows,format)
+function M.prepare_batch(raw,book,chapter,rows,format,omit_initial_bom)
     if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'bookmark_point/batch' end
-    local map,spans=source_providers(raw,format);local values,reasons={},{}
+    local map,spans=source_providers(raw,format,omit_initial_bom);local values,reasons={},{}
     local wanted,ready={}
     for _i,row in ipairs(rows) do
         if type(row)=='table' and row.type==0 then

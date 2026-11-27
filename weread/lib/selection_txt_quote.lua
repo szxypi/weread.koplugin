@@ -41,7 +41,7 @@ function M.project(raw,first,last,text)
     local ok,value=pcall(function()
         if not integer(first) or not integer(last) or first>=last then fail('boundary') end
         if type(text)~='string' or #text==0 or #text>Quote.MAX_QUOTE
-            or text:find('[%z\1-\8\11-\31\127]') or Protocol.utf8_substr(text,#text)~=text then fail('text') end
+            or text:find('[%z\1-\8\11\12\14-\31\127]') or Protocol.utf8_substr(text,#text)~=text then fail('text') end
         local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
         local begin,ending=Quote.boundary(map,first),Quote.boundary(map,last)
         if not begin or not ending or begin>=ending or Dom.normalize(text)~=map.flat:sub(begin,ending-1) then fail('selection') end
@@ -91,9 +91,9 @@ end
 -- Resolve native endpoint contexts against one raw TXT source. This helper is
 -- intentionally unbound to a book or archive; callers must establish those
 -- identities separately before considering its result for any operation.
-function M.project_context(raw,first,last,text)
+function M.project_context(raw,first,last,text,omit_initial_bom)
     local ok,value=pcall(function()
-        local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
+        local map=Coordinates.build(raw,{format='web_txt',omit_initial_bom=omit_initial_bom});if not map then fail('source') end
         local normalized=Dom.normalize(text)
         if type(normalized)~='string' or normalized=='' or type(text)~='string' or #text>Quote.MAX_QUOTE then fail('text') end
         local function endpoint(context)

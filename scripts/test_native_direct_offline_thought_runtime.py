@@ -4,11 +4,13 @@ import argparse,json,os,sqlite3,subprocess,tempfile,threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from run_persistent_ui_probe import extract_candidate
-from test_native_direct_position_runtime import BODY,CLOUD_OFFSET,Handler,REPO,frame
+from test_native_direct_position_runtime import BODY,TXT,CLOUD_OFFSET,Handler,REPO,frame
 
 
-def run(runtime):
-    server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+def run(runtime,plain_text=False):
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    server.plain_text=plain_text
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='direct-offline-thought-package-',dir='/dev/shm') as package:
             candidate=Path(package)/'candidate.zip'
@@ -21,14 +23,16 @@ def run(runtime):
                         SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                         EMULATE_READER_W=str(width),EMULATE_READER_H=str(height),EMULATE_READER_DPI=str(dpi),WEREAD_SYNTHETIC='1')
                     creds=dict(vid='12345678',accessToken='synthetic-access',refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19)
-                    payload=dict(credentials=creds,mock_endpoint='http://127.0.0.1:'+str(server.server_port),mode='match')
+                    payload=dict(credentials=creds,mock_endpoint='http://127.0.0.1:'+str(server.server_port),
+                                 mode='match',plain_text=plain_text)
                     server.mode='match';server.calls=[];server.leaked=False;server.valid=True;server.mark=None;server.review=None
                     server.cloud_offset=CLOUD_OFFSET;server.cloud_summary='Synthetic cloud point'
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
                     payload['path']=frame(child,'WEREAD_POSITION_PREPARED=')['path']
-                    native_source=Path(payload['path']).parent/'native-source.txt'
-                    native_raw=native_source.read_bytes();assert native_raw.decode()==BODY
+                    source_name='native-plain-source.txt' if plain_text else 'native-source.txt'
+                    native_source=Path(payload['path']).with_name(source_name)
+                    native_raw=native_source.read_bytes();assert native_raw.decode()==(TXT if plain_text else BODY)
                     assert native_source.stat().st_mode & 0o077==0
                     def reader(mode,offline):
                         payload.update(mode=mode,offline=offline);server.mode=mode;server.calls=[]
@@ -52,7 +56,7 @@ def run(runtime):
                     dbs=list((root/'weread').glob('library-*.db'));assert len(dbs)==1
                     with sqlite3.connect(dbs[0]) as db:
                         raw=db.execute('SELECT body FROM native_direct_mark_source').fetchone()[0]
-                        assert raw==BODY and db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1
+                        assert raw==native_raw.decode() and db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1
                         db.execute("UPDATE native_direct_mark_source SET body='tampered'")
                     reader('selection_direct_thought_offline_draft',True)
                     native_source.write_bytes(b'tampered')
@@ -74,4 +78,5 @@ def run(runtime):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--txt',action='store_true');args=parser.parse_args()
+    run(args.koreader.resolve(),args.txt)

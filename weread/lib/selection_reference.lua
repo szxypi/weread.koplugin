@@ -39,7 +39,7 @@ function M.valid(row,book)
         and expected.book_id==book and expected.chapter_uid==ref.chapter_uid and expected.raw_sha256==ref.raw_sha256
         and row.chapterUid==tonumber(ref.chapter_uid) and row.chapterIdx==expected.chapter_idx and row.range==ref.range
         and type(row.markText)=='string' and #row.markText>0 and #row.markText<=Quote.MAX_QUOTE
-        and not row.markText:find('[%z\1-\8\11-\31\127]') and normalized~=nil and normalized~='' or false
+        and not row.markText:find('[%z\1-\8\11\12\14-\31\127]') and normalized~=nil and normalized~='' or false
 end
 local function archive(file,book,uid,read)
     if type(file)~='string' or file=='' or #file>4096 or file:find('[%z%c]') then fail('file') end
@@ -144,7 +144,7 @@ local function direct_source(entry,file,raw)
         or not hash(entry.file_id) or not hash(entry.source_sha256) or type(file)~='string' or file==''
         or type(raw)~='string' or #raw<1 or #raw>Coordinates.MAX_BYTES or Crypto.sha256_hex(raw)~=entry.source_sha256 then fail('source') end
 end
-function M.capture_direct(input,entry,file,raw)
+function M.capture_direct(input,entry,file,raw,format)
     return guarded(function()
         direct_source(entry,file,raw)
         local a,b=type(input)=='table' and input.first,input and input.last
@@ -155,29 +155,40 @@ function M.capture_direct(input,entry,file,raw)
                 or context.identity.book_id~=entry.book_id or context.identity.file_id~=entry.file_id
                 or context.identity.book_version~=entry.book_version then fail('source_changed') end
         end
-        local value=project_context(raw,a,b,input.text)
+        local value
+        if format=='web_txt' then value=TxtQuote.project_context(raw,a,b,input.text,true)
+        elseif format==nil or format=='web_xhtml' then value=project_context(raw,a,b,input.text) end
+        if not value then fail('selection') end
         return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
     end)
 end
-function M.verify_direct(row,entry,file,raw)
+local function direct_quote(raw,range,format)
+    if format=='web_txt' then return TxtQuote.extract(raw,range) end
+    if format==nil or format=='web_xhtml' then return Raw.quote(Raw.index(raw,{body_only=true}),range) end
+end
+function M.verify_direct(row,entry,file,raw,format)
     return guarded(function()
         direct_source(entry,file,raw)
         if not M.valid(row,entry.book_id) or row.chapterUid~=tonumber(entry.chapter_uid)
             or row.chapterIdx~=entry.chapter_idx or row.source.raw_sha256~=entry.source_sha256
             or row.source.raw_bytes~=#raw then fail('source_changed') end
-        local quote=trim(Raw.quote(Raw.index(raw,{body_only=true}),row.range))
+        local quote=direct_quote(raw,row.range,format)
+        if not quote then fail('source_changed') end
+        quote=trim(quote)
         local expected=reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,
             {range=row.range,abstract=quote,raw_sha256=entry.source_sha256,raw_bytes=#raw})
         if not M.same(row,expected) then fail('source_changed') end
         return expected
     end)
 end
-function M.restore_direct(entry,file,key,raw)
+function M.restore_direct(entry,file,key,raw,format)
     return guarded(function()
         direct_source(entry,file,raw)
         local parsed=M.parse(key)
         if not parsed or parsed.chapter_uid~=entry.chapter_uid or parsed.raw_sha256~=entry.source_sha256 then fail('source_changed') end
-        local quote=trim(Raw.quote(Raw.index(raw,{body_only=true}),parsed.range))
+        local quote=direct_quote(raw,parsed.range,format)
+        if not quote then fail('source_changed') end
+        quote=trim(quote)
         return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,
             {range=parsed.range,abstract=quote,raw_sha256=entry.source_sha256,raw_bytes=#raw})
     end)

@@ -7,9 +7,10 @@ local scope={vid=owner}
 local entry={book_id='41',chapter_uid='2',book_version=7,file_id=string.rep('a',64),key=string.rep('b',64),source_sha256=Crypto.sha256_hex(raw)}
 local settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,s) return live and s==scope end}
 local saved,fetches,writes=nil,0,0
+local sidecar
 package.preload['weread.lib.native_direct_cache']=function() return {valid_entry=function(e,book,vid)
     return e==entry and book=='41' and vid==owner
-end} end
+end,read_raw_source=function(_,e,format) assert(e==entry and format=='txt');return sidecar end} end
 package.preload['weread.lib.native_direct_mark_source_store']=function() return {new=function() return {
     read=function() return saved end,write=function(_,e,value) assert(e==entry and value==raw);saved=value;writes=writes+1;return true end,
 } end} end
@@ -39,6 +40,13 @@ expect(#Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{row},onl
 local bad={bookmarkId=row.bookmarkId,type=1,chapterUid=2,markText='Changed quote',range=row.range}
 expect(#Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{bad},false).rows==0,'wrong quotation accepted')
 expect(not pcall(Task.prepare_direct,{},settings,{},'/book.epub',entry,metadata..'x',{row},false),'different file identity accepted')
+saved=nil;sidecar='\239\187\191A long unique selection of TXT at the start of a chapter. '
+entry.source_sha256=Crypto.sha256_hex(sidecar)
+metadata=entry.file_id..entry.source_sha256..entry.key
+local txt_row={bookmarkId='synthetic-txt',type=1,chapterUid=2,markText='A long unique selection',range='0-23'}
+local projected=Task.prepare_direct({},settings,{},'/book.epub',entry,metadata,{txt_row},false)
+expect(projected.format=='web_txt' and #projected.rows==1 and projected.rows[1].first_anchor.basis=='raw_txt_utf16'
+    and projected.rows[1].first_anchor.co==1,'raw TXT sidecar was not used for offline mark projection')
 live=false;expect(not pcall(Task.prepare_direct,{},settings,{},'/book.epub',entry,metadata,{row},false),'expired account scope accepted')
 live=true;scope={vid='456'};expect(not pcall(Task.prepare_direct,{},settings,{},'/book.epub',entry,metadata,{row},false),'different account accepted')
 print('personal_mark_direct_task_spec: '..checks..' checks passed')

@@ -61,19 +61,19 @@ local function preview(value)
     return type(value)=='string' and #value>0 and #value<=4096 and Protocol.utf8_substr(value,#value)==value
         and not value:find('[%z\1-\8\11\12\14-\31\127]') and require('weread.lib.source_dom').normalize(value)~=''
 end
-function M.validate_body(operation,body)
+function M.validate_body(operation,body,source_format)
     if type(body)~='table' then return false end
     local allowed
     if creating(operation) then
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,style=true,colorStyle=true,range=true,markText=true}
         if not supported(body.bookId,operation) or not integer(body.chapterUid,2147483647) or body.chapterUid==0
             or not integer(body.bookVersion,2147483647)
-            or body.bookVersion==0 and Marks.id(body.bookId) then return false end
+            or body.bookVersion==0 and Marks.id(body.bookId) and source_format~='web_txt' then return false end
         if operation=='bookmark_create' then
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end
         elseif body.type~=1 or not Style.valid(body.style) or not Color.valid(body.colorStyle)
-            or not Base.valid_content(body.markText) or #body.markText>4096 or not range(body) then return false end
+            or not Base.valid_quote(body.markText) or #body.markText>4096 or not range(body) then return false end
     elseif deleting(operation) then
         allowed={bookmarkIds=true}
         if type(body.bookmarkIds)~='table' or #body.bookmarkIds~=1 or not Base.key(body.bookmarkIds[1]) then return false end
@@ -89,7 +89,7 @@ function M.body_hash(body)
     if body.bookmarkIds then return Base.digest({'remove-mark-v1',body.bookmarkIds[1]}) end
     return Base.body_hash(body)
 end
-function M.make(client,snapshot,operation,reference,metadata,style,color)
+function M.make(client,snapshot,operation,reference,metadata,style,color,source_format)
     local book=type(snapshot)=='table' and snapshot.book_id
     snapshot=Data.validate(client,snapshot,book)
     if not supported(book,operation) or not creating(operation) and not deleting(operation) and not updating(operation) or type(reference)~='table' then fail('operation') end
@@ -125,7 +125,7 @@ function M.make(client,snapshot,operation,reference,metadata,style,color)
         end
     end
     if (operation=='create' or operation=='delete') and not disjoint(snapshot.thoughts.reviews,row) then fail('linked_thought') end
-    if not M.validate_body(operation,body) then fail('body') end
+    if not M.validate_body(operation,body,source_format) then fail('body') end
     local uid=tostring(row.chapterUid);local present=0
     for _i,v in ipairs(snapshot.marks.chapters) do if tostring(v.chapterUid)==uid then present=1 end end
     local after=''

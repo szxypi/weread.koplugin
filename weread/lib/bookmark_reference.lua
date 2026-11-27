@@ -67,29 +67,29 @@ local function direct_source(entry,file,raw)
         or not hash(entry.file_id) or not hash(entry.source_sha256) or type(file)~='string' or file==''
         or type(raw)~='string' or #raw<1 or #raw>Source.MAX_BYTES or Crypto.sha256_hex(raw)~=entry.source_sha256 then fail('source') end
 end
-function M.capture_direct(input,entry,file,raw)
+function M.capture_direct(input,entry,file,raw,format)
     return guarded(function()
         direct_source(entry,file,raw)
         if type(input)~='table' or type(input.identity)~='table' or input.book_id~=entry.book_id
             or input.chapter_uid~=entry.chapter_uid or input.file~=file or input.metadata~=entry.file_id..entry.source_sha256
             or input.render_path~='OEBPS/text/chapter.xhtml' or input.identity.book_id~=entry.book_id
             or input.identity.file_id~=entry.file_id or input.identity.book_version~=entry.book_version then fail('source_changed') end
-        local map=require('weread.lib.source_coordinates').build(raw,{allow_multiple_bodies=true})
+        local map=require('weread.lib.source_coordinates').build(raw,{format=format,allow_multiple_bodies=true,omit_initial_bom=true})
         local co=map and require('weread.lib.source_position_worker').locate_verified_map(map,input.text,input.point_offset)
-        local value=co and Point.project(raw,co,'web_xhtml')
+        local value=co and Point.project(raw,co,format)
         if not value then fail('point') end
         return reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
     end)
 end
-function M.verify_direct(row,entry,file,raw)
+function M.verify_direct(row,entry,file,raw,format)
     return guarded(function()
         direct_source(entry,file,raw)
         if not M.valid(row,entry.book_id) or tostring(row.chapterUid)~=entry.chapter_uid
             or row.chapterIdx~=entry.chapter_idx or row.source.raw_sha256~=entry.source_sha256 or row.source.raw_bytes~=#raw then
             fail('source_changed')
         end
-        local point=Point.from_mark(raw,entry.book_id,entry.chapter_uid,row,'web_xhtml')
-        local value=point and Point.project(raw,point.chapter_offset,'web_xhtml')
+        local point=Point.from_mark(raw,entry.book_id,entry.chapter_uid,row,format)
+        local value=point and Point.project(raw,point.chapter_offset,format)
         local rebuilt=value and reference(entry.book_id,entry.chapter_uid,entry.chapter_idx,value)
         if not rebuilt or rebuilt.bookmarkId~=row.bookmarkId or rebuilt.markText~=row.markText
             or rebuilt.range~=row.range then fail('source_changed') end

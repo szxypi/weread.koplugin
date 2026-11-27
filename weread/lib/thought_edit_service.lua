@@ -59,7 +59,8 @@ function M:prepare(input,guard,callback,resolve)
         local value=type(result)=='table' and result.value
         local valid,snapshot=pcall(Thoughts.validate,self.client,resolve and value or type(value)=='table' and value.snapshot,request.book_id)
         if not valid or not resolve and (not Task.same(value.metadata,value.metadata)
-            or not Contract.validate_body(request.operation,value.body) or Contract.body_hash(value.body)~=value.metadata.request_hash) then
+            or not Contract.validate_body(request.operation,value.body,value.source_format)
+            or Contract.body_hash(value.body)~=value.metadata.request_hash) then
             callback(nil,type(result)=='table' and result.reason or 'unavailable',access);return
         end
         job.snapshot=snapshot

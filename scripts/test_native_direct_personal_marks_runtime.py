@@ -12,7 +12,7 @@ import tempfile
 import threading
 
 from run_persistent_ui_probe import extract_candidate
-from test_native_direct_position_runtime import BODY,Handler,REPO
+from test_native_direct_position_runtime import BODY,TXT,Handler,REPO,txt_offset
 
 
 class PersonalHandler(Handler):
@@ -33,8 +33,10 @@ def frame(child,marker):
     return json.loads(lines[0].split('=',1)[1])
 
 
-def run(runtime):
-    server=ThreadingHTTPServer(('127.0.0.1',0),PersonalHandler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+def run(runtime,plain_text=False):
+    server=ThreadingHTTPServer(('127.0.0.1',0),PersonalHandler)
+    server.plain_text=plain_text
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-direct-marks-package-',dir='/dev/shm') as package:
             candidate=Path(package)/'candidate.zip'
@@ -47,12 +49,16 @@ def run(runtime):
                         SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                         EMULATE_READER_W=str(width),EMULATE_READER_H=str(height),EMULATE_READER_DPI=str(dpi),WEREAD_SYNTHETIC='1')
                     credentials=dict(vid='12345678',accessToken='synthetic-access',refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19)
-                    payload=dict(credentials=credentials,mock_endpoint='http://127.0.0.1:'+str(server.server_port),mode='selection_direct')
+                    payload=dict(credentials=credentials,mock_endpoint='http://127.0.0.1:'+str(server.server_port),
+                                 mode='selection_direct',plain_text=plain_text)
                     server.mode='match';server.calls=[];server.leaked=False;server.valid=True
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     path=frame(child,'WEREAD_POSITION_PREPARED=')['path'];assert Path(path).is_file()
-                    quote='Unique paragraph 0001';first=BODY.index(quote);marker=f'{first}-{first+len(quote)}'
+                    quote='Unique paragraph 0001'
+                    first=txt_offset(TXT.removeprefix('\ufeff'),quote) if plain_text else BODY.index(quote)
+                    if plain_text:Path(path).with_name('native-plain-source.txt').unlink()
+                    marker=f'{first}-{first+len(quote)}'
                     server.mode='selection_direct_overlay';server.calls=[]
                     server.mark=dict(bookmarkId='synthetic-direct-mark',chapterUid=37,type=1,range=marker,markText=quote,style=1,colorStyle=0,createTime=1700000000)
                     server.marks=[server.mark,dict(bookmarkId='synthetic-direct-point',chapterUid=37,type=0,range=str(first),markText=quote,createTime=1700000000),
@@ -76,8 +82,8 @@ def run(runtime):
                     reader(True)
                     dbs=list((root/'weread').glob('library-*.db'));assert len(dbs)==1
                     with sqlite3.connect(dbs[0]) as db:
-                        rows=db.execute('SELECT length(body) FROM native_direct_mark_source').fetchall()
-                        assert len(rows)==1 and rows[0][0]>0
+                        rows=db.execute('SELECT length(body),cache_key FROM native_direct_mark_source').fetchall()
+                        assert len(rows)==1 and rows[0][0]>0 and rows[0][1].endswith(':txt')==plain_text
                         db.execute("UPDATE native_direct_mark_source SET body='corrupted'")
                     reader(True,True)
         print('PASS: two sizes; verified search fallback, offline reopen, corrupt source rejected without network')
@@ -86,4 +92,5 @@ def run(runtime):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    args=parser.parse_args();run(args.koreader.resolve())
+    parser.add_argument('--txt',action='store_true')
+    args=parser.parse_args();run(args.koreader.resolve(),args.txt)

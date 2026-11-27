@@ -64,7 +64,8 @@ function M.verified_source(client,settings,entry,file,native,web,current,options
         or not hash(entry.file_id) or not (Protocol.integer(entry.chapter_idx,0,1000000)
             or entry.chapter_idx==nil and type(options)=='table' and options.resolve_index==true)
         or not active() then return nil,'invalid' end
-    local ok,map,reason,raw,stamp,index=pcall(source_map,client,settings,entry,file,native,web,active,options)
+    local ok,map,reason,raw,stamp,index=pcall(source_map,client,settings,entry,file,native,web,active,options,
+        type(options)=='table' and options.allow_txt==true)
     if not ok then
         if not active() then return nil,'session_changed' end
         if map=='source_currentness/web_expired' then return nil,'web_expired' end
@@ -74,7 +75,7 @@ function M.verified_source(client,settings,entry,file,native,web,current,options
     if not map or type(raw)~='string' then return nil,reason or 'unavailable' end
     local checked,later=pcall(Cache.identify,settings,native.scope.vid,file,active)
     if not checked or not same(entry,later) or not active() then return nil,'file_changed' end
-    return raw,nil,stamp,index
+    return raw,nil,stamp,index,map.basis=='raw_txt_utf16' and 'web_txt' or 'web_xhtml'
 end
 local function target_anchor(map,offset,summary)
     if map.basis=='raw_txt_utf16' then

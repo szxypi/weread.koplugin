@@ -292,6 +292,7 @@ function M.start(host,owner,row,is_current)
                 return Task.prepare_direct(host.client,host.settings,host.library_db,file,entry,metadata,{mark},online)
             end,function(value)
                 if not file_current(entry) or type(value)~='table' or value.metadata~=metadata
+                    or value.format~='web_xhtml' and value.format~='web_txt'
                     or type(value.rows)~='table' or #value.rows~=1 then fail();return end
                 local projected=value.rows[1]
                 if type(projected)~='table' or projected.bookmarkId~=mark.bookmarkId or projected.reference_hash~=hash
@@ -299,7 +300,8 @@ function M.start(host,owner,row,is_current)
                 local last_yield=os.clock()
                 local thread=coroutine.create(function()
                     local index=require('weread.lib.source_dom').open_direct_prepared(document,owner.id,entry.chapter_uid,
-                        Identity.read_document(document,owner.id),{is_current=function() return file_current(entry) end,
+                        Identity.read_document(document,owner.id),{source_format=value.format=='web_txt' and 'web_txt' or nil,
+                            is_current=function() return file_current(entry) end,
                             yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end})
                     if not index then return end
                     if point then

@@ -29,11 +29,11 @@ function M.load_thoughts(client,library,book,access,online)
     end
     return {snapshot=saved or false,refreshed=false}
 end
-local function project_rows(raw,book,uid,format,metadata,rows)
+local function project_rows(raw,book,uid,format,metadata,rows,omit_initial_bom)
     local result={metadata=metadata,rows={}}
-    local spans=Span.prepare_batch(raw,book,uid,rows,format)
+    local spans=Span.prepare_batch(raw,book,uid,rows,format,omit_initial_bom)
     if not spans then error('personal_marks/scope',0) end
-    local points=Point.prepare_batch(raw,book,uid,rows,format)
+    local points=Point.prepare_batch(raw,book,uid,rows,format,omit_initial_bom)
     if not points then error('personal_marks/scope',0) end
     for index,row in ipairs(rows) do
         if row.type==0 then
@@ -78,19 +78,27 @@ function M.prepare_direct(client,settings,library,file,entry,metadata,rows,onlin
         error('personal_marks/scope',0)
     end
     local store=require('weread.lib.native_direct_mark_source_store'):new(library)
-    local raw=store:read(entry)
+    local raw,format=store:read(entry)
+    if not raw then
+        raw=DirectCache.read_raw_source(file,entry,'txt')
+        if raw then format='web_txt' end
+    end
     if not raw and (type(online)=='function' and online() or online==true) then
         local access=require('weread.lib.native_read_access').capture(settings)
         local web=require('weread.lib.source_currentness').capture(settings)
         if access and web then
-            raw=require('weread.lib.native_direct_position').verified_source(client,settings,entry,file,access,web,function()
+            local source,_,_,_,kind=require('weread.lib.native_direct_position').verified_source(client,settings,entry,file,access,web,function()
                 return settings:auth_scope_matches(scope)
-            end)
-            if raw then store:write(entry,raw) end
+            end,{allow_txt=true})
+            raw,format=source,kind
+            if raw then store:write(entry,raw,format) end
         end
     end
     if not raw or not settings:auth_scope_matches(scope) then error('personal_marks/source',0) end
-    return project_rows(raw,entry.book_id,entry.chapter_uid,'web_xhtml',metadata,rows)
+    format=format or 'web_xhtml'
+    local result=project_rows(raw,entry.book_id,entry.chapter_uid,format,metadata,rows,true)
+    result.format=format
+    return result
 end
 function M.verify(rows)
     if type(rows)~='table' or #rows>M.BATCH then return {} end

@@ -19,8 +19,8 @@ package.preload['weread.lib.personal_mark_task']=function() return {MAX_NATIVE_B
     prepare_direct=function(_,_,_,file,value,metadata,rows,online)
         assert(file==state.file and value==entry and online==state.online and #rows==1)
         state.prepares=state.prepares+1;local row=rows[1]
-        if state.missing then return {metadata=metadata,rows={}} end
-        return {metadata=metadata,rows={{bookmarkId=row.bookmarkId,reference_hash=state.bad_hash and 'wrong' or Contract.row_hash(row),
+        if state.missing then return {metadata=metadata,format='web_xhtml',rows={}} end
+        return {metadata=metadata,format='web_xhtml',rows={{bookmarkId=row.bookmarkId,reference_hash=state.bad_hash and 'wrong' or Contract.row_hash(row),
             bookmark=row.type==0 or nil,anchor={co=15},first_anchor={},last_anchor={},normalized_sha256=string.rep('e',64)}}}
     end,
     verify=function(rows) return state.bad_quote and {} or {rows[1].bookmarkId} end} end

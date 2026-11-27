@@ -13,7 +13,7 @@ import threading
 from run_persistent_ui_probe import extract_candidate
 from annotation_source_quotes import SourceQuotes
 from test_native_direct_personal_marks_runtime import PersonalHandler
-from test_native_direct_position_runtime import BODY2, REPO
+from test_native_direct_position_runtime import BODY2, TXT2, REPO, txt_offset
 import test_native_direct_position_runtime as fixture
 
 
@@ -24,8 +24,9 @@ def frame(child, marker):
     return json.loads(lines[0][len(marker):])
 
 
-def run(runtime, only_cancel=False):
+def run(runtime, only_cancel=False, plain_text=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), PersonalHandler)
+    server.plain_text = plain_text
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-cross-note-package-', dir='/dev/shm') as package:
@@ -45,8 +46,10 @@ def run(runtime, only_cancel=False):
                     child = subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     payload['path'] = frame(child,'WEREAD_POSITION_PREPARED=')['path']
-                    quote='Target paragraph 0100'; first=BODY2.index(quote); last=first+len(quote)
-                    assert SourceQuotes(BODY2,body_only=True).quote(f'{first}-{last}')==quote
+                    quote='Target paragraph 0100'
+                    first=txt_offset(TXT2.removeprefix('\ufeff'),quote) if plain_text else BODY2.index(quote)
+                    last=first+len(quote)
+                    if not plain_text:assert SourceQuotes(BODY2,body_only=True).quote(f'{first}-{last}')==quote
                     server.marks=[dict(bookmarkId='cross-mark',chapterUid=38,type=1,range=f'{first}-{last}',markText=quote,
                                        style=1,colorStyle=0,createTime=1700000000),
                                   dict(bookmarkId='cross-bookmark',chapterUid=38,type=0,range=str(first),markText=quote,createTime=1700000000)]
@@ -73,9 +76,13 @@ def run(runtime, only_cancel=False):
                     payload.pop('expect_cancel');payload.pop('cancel_mode')
                     if only_cancel: continue
                     databases=list((root/'weread').glob('library-*.db'));assert len(databases)==1
-                    with sqlite3.connect(databases[0]) as db:
-                        assert db.execute('SELECT count(*) FROM native_direct_mark_source').fetchone()[0]>=1
-                        db.execute("UPDATE native_direct_mark_source SET body='corrupted'")
+                    if plain_text:
+                        sources=list((root/'weread').rglob('native-plain-source.txt'));assert len(sources)>=2
+                        for source in sources:source.write_bytes(b'corrupted')
+                    else:
+                        with sqlite3.connect(databases[0]) as db:
+                            assert db.execute('SELECT count(*) FROM native_direct_mark_source').fetchone()[0]>=1
+                            db.execute("UPDATE native_direct_mark_source SET body='corrupted'")
                     payload.update(offline=True,kind='mark',expect_failure=True);server.calls=[]
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
@@ -83,12 +90,13 @@ def run(runtime, only_cancel=False):
                     assert not server.calls
                     # Retain two different copies under the same catalog, then
                     # exercise the actual offline refusal and online recovery.
-                    fixture.BODY2=BODY2.replace('</body>','<p>Earlier cached edition.</p></body>')
+                    if plain_text:fixture.TXT2=TXT2+'\r\nEarlier cached edition.'
+                    else:fixture.BODY2=BODY2.replace('</body>','<p>Earlier cached edition.</p></body>')
                     server.mode='match';server.calls=[]
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_conflict_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     conflict=Path(frame(child,'WEREAD_CONFLICT_PREPARED=')['path']);assert conflict.is_file()
-                    fixture.BODY2=BODY2;server.mode='selection_direct_overlay'
+                    fixture.BODY2=BODY2;fixture.TXT2=TXT2;server.mode='selection_direct_overlay'
                     payload.update(offline=True,kind='mark',expect_failure=True);server.calls=[]
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_cross_note_probe.lua')],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
@@ -107,5 +115,5 @@ def run(runtime, only_cancel=False):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
-    parser.add_argument('--only-cancel',action='store_true');args=parser.parse_args()
-    run(args.koreader.resolve(),args.only_cancel)
+    parser.add_argument('--only-cancel',action='store_true');parser.add_argument('--txt',action='store_true')
+    args=parser.parse_args();run(args.koreader.resolve(),args.only_cancel,args.txt)

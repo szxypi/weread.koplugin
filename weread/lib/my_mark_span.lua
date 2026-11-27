@@ -54,11 +54,12 @@ local function project_ranges(spans,ranges,expected)
 end
 local function project(raw,book,chapter,row,format,map_provider,source_cache)
     local ok,value,prepared_map=pcall(function()
+        local controls=format=='web_txt' and '[%z\1-\8\11\12\14-\31\127]' or '[%z\1-\8\11-\31\127]'
         if not Marks.display_id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
             or type(row.chapterUid)~='number' or tostring(row.chapterUid)~=chapter
             or type(row.markText)~='string' or #row.markText==0 or #row.markText>131072
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book
-            or row.markText:find('[%z\1-\8\11-\31\127]') or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then fail('scope') end
+            or row.markText:find(controls) or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then fail('scope') end
         local a,b
         if type(row.range)=='string' then a,b=row.range:match('^(%d+)%-(%d+)$') end
         if not a or #a>10 or #b>10 or tonumber(a)>=tonumber(b) or tonumber(b)>2147483647 then fail('range') end
@@ -130,7 +131,7 @@ function M.prepare(raw,book,chapter,row,format)
 end
 -- A batch is bound to one immutable source string and remains in the worker.
 -- Invalid rows are kept separate; no caller-supplied coordinate map is trusted.
-function M.prepare_batch(raw,book,chapter,rows,format)
+function M.prepare_batch(raw,book,chapter,rows,format,omit_initial_bom)
     if type(rows)~='table' or #rows>M.MAX_BATCH then return nil,'my_mark_span/batch' end
     local map,attempted,raw_length,raw_spans,bounds_ready
     local ranges,by_range={},{}
@@ -148,7 +149,7 @@ function M.prepare_batch(raw,book,chapter,rows,format)
     local function get_map()
         if not attempted then
             attempted=true
-            map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true})
+            map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true,omit_initial_bom=omit_initial_bom})
         end
         return map
     end

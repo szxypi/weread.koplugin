@@ -18,16 +18,16 @@ function M.observe(client,settings,selected,book)
 end
 function M.preview(client,settings,selected,input)
     local snapshot=M.observe(client,settings,selected,input.book_id)
-    local metadata,direct_version
+    local metadata,direct_version,source_format
     if input.operation=='create' or input.operation=='bookmark_create' then
         local bookmark=input.operation=='bookmark_create'
         if require('weread.lib.native_direct_path').contains(settings,input.source_file) then
-            local reference,why,version=require('weread.lib.native_direct_reference').verify(client,settings,selected,input.reference,
+            local reference,why,version,format=require('weread.lib.native_direct_reference').verify(client,settings,selected,input.reference,
                 input.source_file,function() return current(settings,selected) end,bookmark)
             if not reference then error(why=='auth_expired' and 'native_direct/auth_expired'
                 or why=='web_expired' and 'source_currentness/web_expired' or 'mark_edit/source',0) end
             if not require('weread.lib.native_position_protocol').integer(version,0,2147483647) then error('mark_edit/source',0) end
-            direct_version=version
+            direct_version,source_format=version,format
         else
             local book=settings:get_book(input.book_id)
             if not book then error('mark_edit/source',0) end
@@ -49,10 +49,13 @@ function M.preview(client,settings,selected,input)
                 if metadata[key]~=nil and metadata[key]~=direct_version then error('mark_edit/source',0) end
             end
             if metadata.bookVersion==nil and metadata.version==nil then error('mark_edit/source',0) end
+            if direct_version==0 and source_format=='web_txt' and metadata.format~='txt' then error('mark_edit/source',0) end
         end
     end
     if not current(settings,selected) then error('mark_edit/login',0) end
-    return Contract.make(client,snapshot,input.operation,input.reference,metadata,input.style,input.color)
+    local plan=Contract.make(client,snapshot,input.operation,input.reference,metadata,input.style,input.color,source_format)
+    plan.source_format=source_format
+    return plan
 end
 function M.expired(reason) return reason==Thoughts.EXPIRED or reason=='native_auth/my_marks/http_401' or reason=='native_auth/metadata/http_401'
     or reason=='native_direct/auth_expired' end
@@ -73,13 +76,13 @@ function M.run(client,settings,selected,input,record,store,options)
     if not owns() then out.kind='login';return out end
     local ok,plan=pcall(M.preview,client,settings,selected,input)
     if not ok then out.kind=M.expired(plan) and 'login' or M.source_login(plan) and 'source_login' or 'changed';return out end
-    if not M.same(plan.metadata,record.metadata) or not Contract.validate_body(input.operation,plan.body)
+    if not M.same(plan.metadata,record.metadata) or not Contract.validate_body(input.operation,plan.body,plan.source_format)
         or Contract.body_hash(plan.body)~=record.metadata.request_hash then out.kind='changed';return out end
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
     pcall(auth.write_my_highlight,auth,selected.credentials,input.operation,plan.body,function()
         if not owns() or not store:claim(record) then error('mark_edit/replaced',0) end
         attempted=true
-    end)
+    end,plan.source_format)
     auth:cancel();out.attempted=attempted
     if not attempted then out.kind='unavailable';return out end
     local sleep=options.sleep or function(seconds) require('socket').sleep(seconds) end

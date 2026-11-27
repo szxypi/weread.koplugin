@@ -37,26 +37,32 @@ local function run(self,write,task)
 end
 function M:read(entry)
     if not valid(entry) then return nil end
-    return run(self,false,function(db)
+    local found=run(self,false,function(db)
         local row=statement(db,[[SELECT book_id,chapter_uid,file_id,source_hash,
-            CASE WHEN length(CAST(body AS BLOB))<=? THEN body ELSE NULL END
-            FROM native_direct_mark_source WHERE cache_key=?]],M.MAX_SOURCE,entry.key)
+            CASE WHEN length(CAST(body AS BLOB))<=? THEN body ELSE NULL END,cache_key
+            FROM native_direct_mark_source WHERE cache_key IN (?,?) LIMIT 1]],M.MAX_SOURCE,entry.key,entry.key..':txt')
         if not row or row[1]~=entry.book_id or row[2]~=entry.chapter_uid or row[3]~=entry.file_id
             or row[4]~=entry.source_sha256 or type(row[5])~='string' or #row[5]==0
             or Crypto.sha256_hex(row[5])~=entry.source_sha256 then return nil end
-        return row[5]
+        return {raw=row[5],format=row[6]==entry.key and 'web_xhtml' or 'web_txt'}
     end)
+    if found then return found.raw,found.format end
 end
-function M:write(entry,raw)
+function M:write(entry,raw,format)
+    if format~=nil and format~='web_xhtml' and format~='web_txt' then return false end
     if not valid(entry) or type(raw)~='string' or #raw==0 or #raw>M.MAX_SOURCE
         or Crypto.sha256_hex(raw)~=entry.source_sha256 then return false end
+    -- Keep legacy XHTML cache keys and distinguish TXT without rewriting the database.
+    local key,alternate=entry.key,entry.key..':txt'
+    if format=='web_txt' then key,alternate=alternate,key end
     local value=run(self,true,function(db,begin,commit)
         begin()
+        statement(db,'DELETE FROM native_direct_mark_source WHERE cache_key=?',alternate)
         statement(db,[[INSERT INTO native_direct_mark_source(cache_key,book_id,chapter_uid,file_id,source_hash,body,serial)
             VALUES(?,?,?,?,?,?,(SELECT COALESCE(MAX(serial),0)+1 FROM native_direct_mark_source))
             ON CONFLICT(cache_key) DO UPDATE SET book_id=excluded.book_id,chapter_uid=excluded.chapter_uid,
             file_id=excluded.file_id,source_hash=excluded.source_hash,body=excluded.body,serial=excluded.serial]],
-            entry.key,entry.book_id,entry.chapter_uid,entry.file_id,entry.source_sha256,raw)
+            key,entry.book_id,entry.chapter_uid,entry.file_id,entry.source_sha256,raw)
         local stmt=db:prepare('SELECT cache_key,length(CAST(body AS BLOB)) FROM native_direct_mark_source ORDER BY serial DESC')
         local remove,count,total={},0,0
         local ok=pcall(function()
@@ -70,7 +76,7 @@ function M:write(entry,raw)
             end
         end)
         stmt:close();if not ok then error('direct_mark_source/quota',0) end
-        for _,key in ipairs(remove) do statement(db,'DELETE FROM native_direct_mark_source WHERE cache_key=?',key) end
+        for _,deleted in ipairs(remove) do statement(db,'DELETE FROM native_direct_mark_source WHERE cache_key=?',deleted) end
         commit();return true
     end)
     return value==true

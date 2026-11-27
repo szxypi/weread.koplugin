@@ -75,6 +75,7 @@ local function configure(active)
             or url==native..'/review/list?bookId=42&listType=11&listMode=0&mine=1&synckey=0&count=20'
             or url:find(native..'/book/chapterdownload?',1,true)==1
             or url==web..'/api/userInfo?userVid=12345678' or url==web..'/web/book/chapterInfos'
+            or input.plain_text and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1')
             or url:find(web..'/web/reader/',1,true)==1 or url:find(web..'/web/book/chapter/e_',1,true)==1,
             'personal direct request outside scope')
         return previous(self,options)

@@ -32,19 +32,31 @@ TXT2=TXT.replace('Unique paragraph','Target paragraph')
 def txt_offset(raw, marker):
     return len(raw[:raw.index(marker)].encode('utf-16-le'))//2
 
+
+def txt_mark_quote(mark_range, bookmark):
+    raw=TXT.removeprefix('\ufeff').encode('utf-16-le')
+    if bookmark:
+        start=int(mark_range)
+        return raw[2*start:].decode('utf-16-le')[:140].strip()
+    start,stop=map(int,mark_range.split('-'))
+    return raw[2*start:2*stop].decode('utf-16-le')
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*_args):pass
     def do_GET(self):self.dispatch()
     def do_POST(self):self.dispatch()
     def dispatch(self):
         server=self.server
+        plain_text=getattr(server,'plain_text',False)
+        start_offset=getattr(server,'start_offset',CLOUD_OFFSET)
+        start_summary=getattr(server,'start_summary','Synthetic cloud point')
         server.leaked |= any(k.lower() in ('vid','accesstoken','cookie') for k in self.headers)
         target=urlsplit(parse_qs(urlsplit(self.path).query).get('url',[''])[0])
         server.calls.append((self.command,target.hostname,target.path))
         code,headers,data=200,{},None
         if target.hostname=='i.weread.qq.com' and target.path=='/book/info' and self.command=='GET':
-            data=json.dumps(dict(bookId='42',format='txt' if server.plain_text else 'epub',
-                                 version=0 if server.plain_text else 1)).encode()
+            data=json.dumps(dict(bookId='42',format='txt' if plain_text else 'epub',
+                                 version=0 if plain_text else 1)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/bookmarklist' and self.command=='GET' and server.mode.startswith('selection_direct_'):
             server.valid &= parse_qs(target.query)=={'bookId':['42'],'synckey':['0']}
             data=json.dumps(dict(bookId='42',updated=[server.mark] if server.mark else [],
@@ -55,7 +67,10 @@ class Handler(BaseHTTPRequestHandler):
         elif target.hostname=='i.weread.qq.com' and target.path in ('/book/addBookmark','/review/add') and self.command=='POST' and server.mode.startswith('selection_direct_'):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             is_bookmark=server.mode.startswith('selection_direct_bookmark')
-            if is_bookmark:
+            if plain_text:
+                quote=txt_mark_quote(request['range'],is_bookmark)
+                if not is_bookmark:server.valid &= quote=='Unique paragraph 0002'
+            elif is_bookmark:
                 from bookmark_point import from_mark,project
                 point=from_mark(BODY,'42','37',dict(type=0,chapterUid=37,range=request.get('range'),markText=request.get('markText')))
                 quote=project(BODY,point['chapter_offset'])['markText']
@@ -63,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
                 from annotation_source_quotes import SourceQuotes
                 quote=SourceQuotes(BODY,body_only=True).quote(request.get('range'))
                 server.valid &= quote=='Unique paragraph 0001'
-            server.valid &= request.get('bookId')=='42' and request.get('bookVersion')==1
+            server.valid &= request.get('bookId')=='42' and request.get('bookVersion')==(0 if plain_text else 1)
             if target.path=='/book/addBookmark':
                 server.valid &= request.get('chapterUid')==37 and request.get('markText')==quote and request.get('type')==(0 if is_bookmark else 1) and server.mark is None
                 if not server.mode.endswith('_no_effect'):
@@ -89,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             server.valid &= (request.get('bookId')=='42' and request.get('chapterUid')==37 and request.get('chapterIdx')==1
                 and type(request.get('chapterOffset')) is int and bool(request.get('summary')) and request.get('readingTime')==0)
-            if server.plain_text:
+            if plain_text:
                 excerpt=TXT.encode('utf-16-le')[2*request['chapterOffset']:].decode('utf-16-le')[:30]
                 server.valid &= request['bookVersion']==0 and request['summary']==excerpt
             server.cloud_offset=request['chapterOffset'];server.cloud_summary=request['summary']
@@ -99,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
             server.valid &= parse_qs(target.query)=={'bookId':['42']}
             if server.mode=='cloud_move':time.sleep(0.8)
             count=sum(path=='/book/getProgress' for _,_,path in server.calls)
-            uid,index,offset,progress,summary=37,1,server.start_offset,50,server.start_summary
+            uid,index,offset,progress,summary=37,1,start_offset,50,start_summary
             if server.mode.startswith(('upload','interval')):
                 offset,summary=server.cloud_offset,server.cloud_summary
                 if server.mode=='upload_changed' and count>=3:offset+=1
@@ -109,8 +124,8 @@ class Handler(BaseHTTPRequestHandler):
             if server.mode=='cloud_changed' and count==2:offset+=1
             if server.mode=='cloud_after' and count>=3:offset+=1
             if server.mode=='cloud_other' or server.mode.startswith('cross_'):
-                uid,index,offset=38,2,server.cross_offset
-                summary=server.cross_summary
+                uid,index,offset=38,2,getattr(server,'cross_offset',CROSS_OFFSET)
+                summary=getattr(server,'cross_summary',start_summary)
             if server.mode=='cross_changed' and count>=3:offset+=1
             if server.mode=='cross_after_switch' and count>=9:offset+=1
             if server.mode=='cross_unlocatable':offset=0
@@ -138,16 +153,20 @@ class Handler(BaseHTTPRequestHandler):
             query=parse_qs(target.query,keep_blank_values=True)
             chapters=query.get('chapters',[''])[0]
             server.valid &= (query.get('bookId')==['42'] and query.get('stopAutoPayWhenBNE')==['1']
-                and chapters in (('37','38') if server.plain_text else ('0,37','0,38'))
-                and query.get('bookType')==(['txt'] if server.plain_text else ['epub']))
+                and chapters in (('37','38') if plain_text else ('0,37','0,38'))
+                and query.get('bookType')==(['txt'] if plain_text else ['epub']))
             uid=chapters.split(',')[-1];raw=BODY if uid=='37' else BODY2
             if server.mode in ('selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_bookmark_changed') and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
                 raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
             if server.mode in ('selection_direct_auth_expired','selection_direct_limited'):
                 code,data=(401 if server.mode=='selection_direct_auth_expired' else 429),b''
-            elif server.plain_text:
+            elif plain_text:
+                text=TXT if uid=='37' else TXT2
+                if server.mode.endswith('_changed') and server.mode.startswith('selection_direct_') \
+                        and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
+                    text=text.replace('Unique paragraph 0002','Changed paragraph 0002')
                 manifest=json.dumps(dict(bookId='42',chapters=[dict(chapterUid=int(uid))])).encode()
-                data=plain_tar([('info.txt',manifest),('chapter-body',(TXT if uid=='37' else TXT2).encode())])
+                data=plain_tar([('info.txt',manifest),('chapter-body',text.encode())])
                 headers['Content-Type']='application/x-tar'
             else:
                 data=archive([('text/'+uid+'.html',raw),('style/book.css','p{color:black}')]);headers['encryptkey']='vwSvXMONEDngLYTAXw3olg=='
@@ -159,9 +178,9 @@ class Handler(BaseHTTPRequestHandler):
                 data=json.dumps(dict(vid='12345678')).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET' and server.mode.startswith(('preview','upload','interval')):
             count=sum(path=='/web/book/getProgress' for _,_,path in server.calls)
-            offset=(server.cloud_offset if server.mode.startswith(('upload','interval')) else server.start_offset)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
+            offset=(server.cloud_offset if server.mode.startswith(('upload','interval')) else start_offset)+(1 if server.mode=='preview_web_changed' and count==2 else 0)
             response=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=offset,progress=50,
-                summary=server.cloud_summary if server.mode.startswith(('upload','interval')) else server.start_summary)
+                summary=server.cloud_summary if server.mode.startswith(('upload','interval')) else start_summary)
             if server.mode.startswith('upload_initial'):
                 response['progress']=0
                 if not any(path=='/book/read' for _,_,path in server.calls):
@@ -178,14 +197,15 @@ class Handler(BaseHTTPRequestHandler):
             state={'reader':{'bookInfo':{'bookId':'42','title':'Synthetic','author':'Fixture'},'psvts':'mock-session',
                              'pclts':'mock-clock','progress':{},'currentChapter':{'chapterUid':int(uid)}}}
             data=('<script>window.__INITIAL_STATE__='+json.dumps(state)+';(function(){})();</script>').encode()
-        elif target.hostname=='weread.qq.com' and server.plain_text and self.command=='POST' and target.path in (
+        elif target.hostname=='weread.qq.com' and plain_text and self.command=='POST' and target.path in (
                 '/web/book/chapter/e_0','/web/book/chapter/t_0','/web/book/chapter/t_1'):
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             uid=next((uid for uid in ('37','38') if request.get('c')==weread_e(uid)),None)
             server.valid &= request.get('b')==weread_e('42') and uid is not None
             part=target.path.rsplit('/',1)[-1]
             raw=TXT if uid=='37' else TXT2
-            if server.mode=='mismatch':raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
+            if server.mode in ('mismatch','selection_direct_mismatch'):
+                raw=raw.replace('Unique paragraph 0002','Changed paragraph 0002')
             data=json.dumps(dict(bookId='42',chapterUid=int(uid))).encode() if part=='e_0' else shards(raw,2)[('t_0','t_1').index(part)].encode()
         elif target.hostname=='weread.qq.com' and target.path in ('/web/book/chapter/e_0','/web/book/chapter/e_1','/web/book/chapter/e_3') and self.command=='POST':
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
@@ -268,8 +288,11 @@ def run(runtime,modes=MODES,plain_text=False):
                             print(f'{width}x{height} {mode}: {server.calls}')
                         result=frame(child,'WEREAD_POSITION_READER=');assert result['ok'] and result['mode']==mode
                         if mode=='selection_direct':
-                            from annotation_source_quotes import SourceQuotes
-                            assert SourceQuotes(BODY,body_only=True).quote(result['range'])==result['quote']=='Unique paragraph 0001'
+                            if plain_text:
+                                assert txt_mark_quote(result['range'],False)==result['quote']=='Unique paragraph 0002'
+                            else:
+                                from annotation_source_quotes import SourceQuotes
+                                assert SourceQuotes(BODY,body_only=True).quote(result['range'])==result['quote']=='Unique paragraph 0001'
                         if mode in ('match','preview','preview_missing','upload','upload_missing_before','upload_initial_time','upload_initial_zero','interval'):compare_offset(result,plain_text)
                         assert server.valid and not server.leaked
                         writes=[path for _,_,path in server.calls if path in ('/web/book/read','/book/read')]
@@ -298,5 +321,7 @@ if __name__=='__main__':
     parser.add_argument('--txt',action='store_true')
     args=parser.parse_args()
     txt_modes=('match','mismatch','preview','upload','upload_cancel','upload_changed','upload_lost_ack',
-               'upload_initial_zero','interval','interval_close','cloud','cross_cached','cross_download')
+               'upload_initial_zero','interval','interval_close','cloud','cross_cached','cross_download',
+               'selection_direct','selection_direct_mismatch','selection_direct_bookmark_roundtrip',
+               'selection_direct_mark','selection_direct_thought','selection_direct_thought_draft')
     run(args.koreader.resolve(),args.mode or (txt_modes if args.txt else MODES),args.txt)
