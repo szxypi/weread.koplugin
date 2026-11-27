@@ -18,7 +18,7 @@ package.preload["weread.lib.book_reviews"] = function()
     return { format_date = function() return "" end }
 end
 package.preload["weread.ui.book_reviews_view"] = empty_module
-package.preload["ui/widget/buttondialog"] = empty_module
+package.preload["ui/widget/buttondialog"] = function() return {new=function(_, options) return options end} end
 package.preload["ui/widget/confirmbox"] = empty_module
 package.preload["weread.lib.content"] = empty_module
 package.preload["ui/widget/infomessage"] = empty_module
@@ -41,6 +41,8 @@ package.preload["ui/uimanager"] = function()
     return {
         scheduleIn = function(_self, _delay, callback) callback() end,
         close = function() closed = closed + 1 end,
+        show = function() end,
+        nextTick = function(_self, callback) callback() end,
     }
 end
 package.preload["weread.lib.plugin_util"] = function()
@@ -285,10 +287,10 @@ local function filter_selection(query)
     input.buttons[1][2].callback()
 end
 filter_selection("　ALPHA chapter　")
-expect(#filtered_selection.items == 3 and filtered_selection.items[2].text_func() == "[  ] 1. Chapter Alpha"
-    and filtered_selection.items[3].text_func() == "[  ] 4. Chapter Alpha", "selection filter preserves duplicate positions")
+expect(#filtered_selection.items == 4 and filtered_selection.items[3].text_func() == "[  ] 1. Chapter Alpha"
+    and filtered_selection.items[4].text_func() == "[  ] 4. Chapter Alpha", "selection filter preserves duplicate positions")
 old_item.callback()
-filtered_selection.items[3].callback()
+filtered_selection.items[4].callback()
 expect(filtered_selection.items[1].text_func() == "[Download] Selected chapters (2)", "hidden selection counts toward download")
 filter_selection("not a chapter title")
 expect(#filtered_selection.items == 2 and not filtered_selection.items[2].select_enabled
@@ -306,6 +308,41 @@ fake_menu:onCloseWidget()
 old_selection_query.input = "Alpha"
 old_selection_query.buttons[1][2].callback()
 expect(not fake_menu._shelf_popup and filtered_selection.subtitle == "", "closing selection dismisses and invalidates its search")
+
+chapters[2].title = "Introduction"
+host:showChapterList(book)
+catalog_view_callbacks.on_select_download()
+local bulk = shown[#shown]
+bulk.items[3].callback()
+local old_download = bulk.items[1].callback
+filter_selection("chapter")
+expect(#bulk.items == 10 and bulk.items[7].text == "Matching chapters…",
+    "matching chapter actions are reachable on a later page")
+bulk.items[7].callback()
+local options = assert(fake_menu._shelf_popup)
+options.buttons[1][1].callback()
+expect(bulk.items[1].text_func() == "[Download] Selected chapters (7)"
+    and bulk.items[10].text_func():find("[✓]",1,true)==1, "select matched every page and retained the hidden chapter")
+local last_targets = downloaded_targets
+old_download()
+expect(downloaded_targets == last_targets, "an old filter's download button started a different selection")
+bulk.items[1].callback()
+expect(#downloaded_targets == 7 and downloaded_targets[2] == chapters[2] and downloaded_targets[7] == chapters[7],
+    "bulk download did not preserve original chapter order")
+bulk.items[2].callback()
+options = assert(fake_menu._shelf_popup)
+options.buttons[2][1].callback()
+bulk.items[1].callback()
+expect(#downloaded_targets == 1 and downloaded_targets[1] == chapters[2],
+    "deselecting matches removed a hidden selection")
+bulk.items[2].callback()
+options = assert(fake_menu._shelf_popup)
+local old_tick, queued = manager.nextTick
+manager.nextTick = function(_, callback) queued = callback end
+options.buttons[1][1].callback()
+fake_menu:onCloseWidget();queued()
+manager.nextTick = old_tick
+expect(bulk.items[1].text_func() == "[Download] Selected chapters (1)", "a closed menu applied deferred bulk selection")
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))

@@ -46,16 +46,39 @@ return function(host,kind,pump,tick)
     end
     function M.selected(book,first)
         local Util=require('weread.lib.plugin_util')
+        local previous_page_size=G_reader_settings:readSetting('items_per_page')
+        G_reader_settings:saveSetting('items_per_page',4)
         host:showChapterList(book)
         local view=assert(host._chapter_list_view)
         view._toolbar_buttons[2].callback()
         local menu=assert(UI:getTopmostVisibleWidget())
-        for _,title in ipairs({'第6章','第5章'}) do
+        local function filter(title)
             UI:forceRePaint()
             assert(menu.title_bar.left_button).callback()
             local dialog=assert(menu._shelf_popup)
             dialog:setInputText(title)
             dialog.buttons[1][2].callback()
+        end
+        filter('第')
+        local bulk,chapter_rows={},0
+        for index,item in ipairs(menu.item_table) do
+            if item.text==Util.tr('Matching chapters…') then bulk[#bulk+1]=index end
+            if item.mandatory_func then chapter_rows=chapter_rows+1 end
+        end
+        assert(#bulk>1 and chapter_rows>=6,'filtered chapter selection has no actions across pages')
+        menu:onGotoPage(menu:getPageNumber(bulk[2]))
+        for _,selection in ipairs({{button=1,count=chapter_rows},{button=2,count=0}}) do
+            menu:onMenuSelect(menu.item_table[bulk[2]])
+            local actions=assert(menu._shelf_popup)
+            actions.buttons[selection.button][1].callback()
+            pump(function() return menu._shelf_popup==nil end)
+            assert(menu.item_table[1].text_func()==Util.T(Util.tr('[Download] Selected chapters (%1)'),tostring(selection.count)),
+                'bulk action did not update chapters on every page')
+        end
+        if previous_page_size then G_reader_settings:saveSetting('items_per_page',previous_page_size)
+        else G_reader_settings:delSetting('items_per_page') end
+        for _,title in ipairs({'第6章','第5章'}) do
+            filter(title)
             assert(menu.subtitle:find(title,1,true) and #menu.item_table==2,'download filter showed the wrong chapters')
             local item=menu.item_table[2]
             assert(item.text_func():find(title,1,true),'filtered download row did not retain the chapter title')
