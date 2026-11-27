@@ -118,9 +118,16 @@ function M.start(host,book,view,options)
         if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
         ctx.busy=nil
     end
+    local function finish_saved_check()
+        ctx.generation=ctx.generation+1
+        ctx.entry=nil
+        host._native_direct_worker:cancel()
+        close_busy()
+    end
     local function fail(message)
         if host._native_direct_reading~=ctx then return end
-        local live=view_current();M.cancel(host)
+        local live=view_current()
+        if live and ctx.entry and ctx.menu then finish_saved_check() else M.cancel(host) end
         if live then host:showInfo(_(message or 'Could not prepare the E-Ink chapter. Please try again.')) end
     end
     if not host._native_direct_worker then
@@ -176,12 +183,24 @@ function M.start(host,book,view,options)
                 local index=type(item)=='table' and item.chapter_index
                 if ctx.menu~=menu or not index or by_index[index]~=item or not item.select_enabled then return end
                 if not current() then M.cancel(host);return end
-                ctx.menu=nil;UIManager:close(menu)
-                if picker then picker.choose(index);return end
-                if offline then ctx.entry=rows[index];ctx.phase='offline_open'
-                else ctx.chapter=rows[index];ctx.phase='chapter' end
+                if ctx.entry then return end
+                local busy
+                local function cancel_open()
+                    if host._native_direct_reading~=ctx or ctx.busy~=busy then return end
+                    if ctx.entry and ctx.menu==menu and current() then finish_saved_check()
+                    else M.cancel(host) end
+                end
+                if offline and not picker then
+                    Popup.close(menu)
+                    ctx.entry=rows[index];ctx.phase='offline_open'
+                else
+                    ctx.menu=nil;UIManager:close(menu)
+                    if picker then picker.choose(index);return end
+                    ctx.chapter=rows[index];ctx.phase='chapter'
+                end
                 host:showBusy(_(offline and 'Checking saved E-Ink chapter...' or 'Preparing E-Ink chapter...'),
-                    function() M.cancel(host) end);ctx.busy=host.busy_message
+                    cancel_open)
+                busy=host.busy_message;ctx.busy=busy
                 launch()
             end})
         if not menu then M.cancel(host);return end
@@ -194,7 +213,9 @@ function M.start(host,book,view,options)
             if closed then return closed(widget,...) end
         end
         menu.onLeftButtonTap=function()
-            ChapterSearch.prompt(host,menu,search,function() return ctx.menu==menu and current() end,function(query)
+            ChapterSearch.prompt(host,menu,search,function()
+                return ctx.menu==menu and not ctx.entry and current()
+            end,function(query)
                 search=query
                 menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
                 menu:switchItemTable(nil,items(),nil,nil,menu.subtitle)
@@ -276,7 +297,7 @@ function M.start(host,book,view,options)
     launch=function()
         if not current() then M.cancel(host);return end
         ctx.generation=(ctx.generation or 0)+1
-        local generation,phase=ctx.generation,ctx.phase
+        local generation,phase,saved_entry=ctx.generation,ctx.phase,ctx.entry
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
             if phase=='batch' then
                 return require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
@@ -289,7 +310,7 @@ function M.start(host,book,view,options)
                 end
                 return rows and {rows=rows} or {error='storage'}
             elseif phase=='offline_open' then
-                local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,ctx.entry,current)
+                local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,current)
                 return result or {error='damaged'}
             end
             if phase=='catalog' then
@@ -389,12 +410,13 @@ function M.start(host,book,view,options)
                 end
                 show_chapter_menu(checked.chapters);return
             end
-            local version=phase=='offline_open' and ctx.entry.book_version or ctx.catalog.version
+            local version=phase=='offline_open' and saved_entry.book_version or ctx.catalog.version
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)
                 or not hash(result.source_sha256) or result.book_version~=version
                 or not Protocol.integer(result.missing_images,0,64) then
-                fail(phase=='offline_open' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
-                    or result and result.error=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil);return
+                local reason=type(result)=='table' and result.error
+                fail(reason=='damaged' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
+                    or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil);return
             end
             local path=result.path
             M.cancel(host)

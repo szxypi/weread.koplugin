@@ -183,7 +183,7 @@ stale_target.catalog_sha256=string.rep('d',64)
 UI.start(host,{book_id='456'},s.view,{target=stale_target});s.finish(1)
 expect(#s.jobs==1 and s.message=='The chapter list changed. Please open it again.','changed catalog was used for adjacent download')
 local cache=require('weread.lib.native_direct_cache');local pending=require('weread.lib.native_direct_pending')
-local old_list,old_valid,old_mark=cache.list,cache.valid_entry,pending.mark
+local old_list,old_valid,old_open,old_mark=cache.list,cache.valid_entry,cache.open,pending.mark
 local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0}
 cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
 pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end
@@ -205,5 +205,41 @@ expect(#s.items==1 and s.opened==0 and s.subtitle:find('Choose another saved cha
     'alternative chooser opened automatically or offered a failed copy')
 s.select(1)
 expect(host._native_direct_reading.entry==other_copy,'alternative chooser discarded another copy of the same chapter')
-cache.list,cache.valid_entry,pending.mark=old_list,old_valid,old_mark
+cache.open=function(_,_,_,entry)
+    if entry==other_copy then
+        return {path='/tmp/settings/native-reader-v1/account/book/other.epub',book_version=7,
+            source_sha256=digest,missing_images=0}
+    end
+end
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true});s.finish(1)
+local chooser=host._native_direct_reading.menu
+chooser:onLeftButtonTap();s.input.input='Saved';s.input.buttons[1][2].callback()
+chooser:onGotoPage(2)
+local filtered=s.items
+s.select(1);s.select(2)
+expect(#s.jobs==2,'a second choice replaced an in-flight saved-file check')
+s.finish(2)
+expect(host._native_direct_reading.menu==chooser and s.items==filtered and s.page==2
+    and not host.busy_message and s.message:find('file was kept',1,true),'failed check discarded the chapter list')
+s.select(2)
+local cancelled_job=s.jobs[3]
+local cancelled_result=cancelled_job.task()
+local stop=s.cancel
+stop()
+expect(s.cancelled and not host.busy_message and host._native_direct_reading.menu==chooser,
+    'cancelling the file check closed the saved-chapter list')
+s.select(2);stop();cancelled_job.callback(cancelled_result)
+expect(#s.jobs==4 and s.opened==0 and host.busy_message,'stale cancellation or result affected the new check')
+s.finish(4)
+expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading and not host.busy_message,
+    'a second saved copy could not open from the same list')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true});s.finish(1)
+s.select(2);local valid_result=s.jobs[2].task();account_valid=false;s.jobs[2].callback(valid_result)
+expect(not host._native_direct_reading and s.opened==0 and s.info==0,'stale account retained the saved chooser')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true});s.finish(1)
+s.select(2);valid_result=s.jobs[2].task()
+require('ui/uimanager'):close(host._native_direct_reading.menu)
+s.jobs[2].callback(valid_result)
+expect(not host._native_direct_reading and s.cancelled and s.opened==0,'closing the list left a saved file able to open')
+cache.list,cache.valid_entry,cache.open,pending.mark=old_list,old_valid,old_open,old_mark
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')

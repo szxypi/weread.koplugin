@@ -47,7 +47,7 @@ def run(runtime):
                 frames=[line for line in retry.stdout.splitlines() if line.startswith('WEREAD_DIRECT_UI=')]
                 assert len(frames)==1 and json.loads(frames[0].split('=',1)[1])['path']==str(path)
                 assert path.stat().st_ino==inode and entry.is_file()
-                for scenario in ('normal','cached','other','switch','bad-entry','bad-receipt','damage'):
+                for scenario in ('normal','cached','cancel','other','switch','bad-entry','bad-receipt','damage'):
                     other_account=None
                     if scenario=='other':
                         account_dir=path.parents[2]
