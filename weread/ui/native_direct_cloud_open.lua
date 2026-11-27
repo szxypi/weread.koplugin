@@ -152,8 +152,11 @@ function M.start(host,entry,wanted,native,web,native_resume)
                 local verified=applied and geometry.contains_anchor(doc,frame,point.xpointer)
                 if host._native_direct_cloud_open~=ctx then return end
                 M.cancel(host)
-                host:showInfo(_(verified and 'Opened the cloud reading position in this chapter.'
-                    or 'Could not confirm the cloud position. Please check the current page.'))
+                if not verified then
+                    host:showInfo(_('Could not confirm the cloud position. Please check the current page.'))
+                elseif not native_resume then
+                    host:showInfo(_('Opened the cloud reading position in this chapter.'))
+                end
             end,true)
         end
         ctx.task=step;UI:scheduleIn(0.1,step)

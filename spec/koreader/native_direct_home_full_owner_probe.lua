@@ -245,9 +245,10 @@ if ui_failed then print('WEREAD_DIRECT_HOME_REASON='..(failure or 'unavailable')
 local reader=Reader.instance;local path=reader.document.file
 assert(require('weread.lib.native_direct_path').contains(reader.weread.settings,path))
 if input.exact_resume then
-    stage='cloud_position';pump(function() return resume_message~=nil end)
-    local tr=require('weread.lib.plugin_util').tr
-    assert(resume_message==tr('Opened the cloud reading position in this chapter.'),resume_message)
+    stage='cloud_position';pump(function()
+        return resume_message~=nil or cloud_xpointer and not reader.weread._native_direct_cloud_open
+    end)
+    assert(not resume_message,resume_message)
     local doc=reader.document
     assert(cloud_xpointer and doc:isXPointerInCurrentPage(cloud_xpointer))
     local normalize=require('weread.lib.source_dom').normalize
