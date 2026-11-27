@@ -28,6 +28,28 @@ expect(#first.hits==30 and first.next_byte and not first.complete and calls==2,'
 expect(first.hits[1].chapter_uid=='37' and first.hits[1].file_id==saved.file_id
     and first.hits[1].anchor.basis=='filtered_xhtml_utf16' and first.hits[1].context:find('needle',1,true),
     'local result lacks a verifiable anchor')
+local function resolve(selected,keyword,ignore)
+    return Search.find_hit({},account,entry,keyword or 'needle',selected,ignore,current,deps)
+end
+local Coordinates=require('weread.lib.source_coordinates');local build=Coordinates.build;local anchors=0
+Coordinates.build=function(...)
+    local map=build(...);local anchor=map.anchor
+    map.anchor=function(...)
+        anchors=anchors+1
+        return anchor(...)
+    end
+    return map
+end
+local selected=first.hits[1]
+calls=0;local resolved=resolve(selected)
+Coordinates.build=build
+expect(resolved.path==saved.path and resolved.hit.byte==selected.byte and resolved.hit.anchor.co==selected.anchor.co
+    and resolved.hit.file_id==selected.file_id and calls==2 and anchors==1,'selected match scanned more than its own anchor')
+expect(resolve({file_id=selected.file_id,byte=selected.byte+1}).error=='changed','a later match replaced the selected byte')
+local read=deps.archive.read
+deps.archive.read=function() error('wrong file reached the archive') end
+expect(resolve({file_id=string.rep('5',64),byte=selected.byte}).error=='changed','wrong file was searched')
+deps.archive.read=read
 local second=scan('needle',first.next_byte)
 expect(#second.hits==7 and second.complete and first.hits[1].anchor.co~=second.hits[1].anchor.co,
     'continuation lost or repeated results')
@@ -41,6 +63,7 @@ live_state=false;expect(scan('needle').error=='invalid','stale session accepted'
 local original=deps.cache.open
 calls=0;deps.cache.open=function() calls=calls+1;return calls==1 and saved or nil end
 expect(scan('needle').error=='unavailable','changed file accepted after scanning')
+calls=0;expect(resolve(selected).error=='unavailable','changed file accepted after resolving the selected match')
 deps.cache.open=original
 local original_read=deps.archive.read
 deps.archive.read=function() live_state=false;return {['OEBPS/text/chapter.xhtml']=raw} end
@@ -51,4 +74,6 @@ deps.archive.read=original_read
 raw='<html><body><p>中文 English needle 结束，唯一上下文用于校验定位。</p></body></html>'
 local chinese=scan('中文 English')
 expect(#chinese.hits==1 and chinese.hits[1].context:find('中文 English',1,true),'mixed-language query failed')
+local mixed=resolve(chinese.hits[1],'中文 eNglIsh',true)
+expect(mixed.hit and mixed.hit.byte==chinese.hits[1].byte,'case-insensitive selection lost its original byte')
 print(('native_direct_search_spec: %d checks'):format(checks))

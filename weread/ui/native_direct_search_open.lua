@@ -64,14 +64,12 @@ function M.start(host,entry,hit,keyword,ignore_case)
     local function run(done)
         local called,started=pcall(worker.start,worker,function()
             local active=function() return host.settings:auth_scope_matches(scope) end
-            local saved=Cache.open(host.settings,scope.vid,entry.book_id,entry,active)
-            if not saved or saved.file_id~=hit.file_id then return {error='changed'} end
-            local result=Search.scan(host.settings,scope.vid,entry,keyword,hit.byte,ignore_case,active)
-            local found=type(result)=='table' and type(result.hits)=='table' and result.hits[1]
+            local result=Search.find_hit(host.settings,scope.vid,entry,keyword,hit,ignore_case,active)
+            local found=type(result)=='table' and result.hit
             if not found or found.byte~=hit.byte or found.file_id~=hit.file_id or not same_anchor(found.anchor,hit.anchor) then
                 return {error='changed'}
             end
-            return {path=saved.path}
+            return {path=result.path}
         end,function(result)
             if host._native_direct_search_open~=ctx then return end
             if not current() then M.cancel(host);return end

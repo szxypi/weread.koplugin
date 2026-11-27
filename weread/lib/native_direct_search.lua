@@ -20,7 +20,7 @@ end
 
 -- `from` is an original normalized UTF-8 byte offset, never a folded offset.
 -- The caller must pin account, reader, and document through `current`.
-function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependencies)
+local function scan(settings,account,entry,keyword,from,ignore_case,current,dependencies,expected_file_id)
     if type(current)~='function' or type(account)~='string' or NativeProtocol.id(account)~=account
         or type(entry)~='table' or type(entry.book_id)~='string'
         or not Cache.valid_entry(entry,entry.book_id,account)
@@ -35,6 +35,7 @@ function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependen
         local saved=cache.open(settings,account,entry.book_id,entry,current)
         if not saved or type(saved.file_id)~='string' or #saved.file_id~=64
             or not saved.file_id:match('^[a-f0-9]+$') or not live(current) then return {error='unavailable'} end
+        if expected_file_id and saved.file_id~=expected_file_id then return {error='changed'} end
         local function finish(value)
             if not live(current) then return {error='cancelled'} end
             local fresh=cache.open(settings,account,entry.book_id,entry,current)
@@ -63,7 +64,10 @@ function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependen
         while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
             if not live(current) then return {error='cancelled'} end
             local first=haystack:find(needle,at,true)
-            if not first then return finish({hits=hits,complete=true,unresolved=unresolved}) end
+            if not first then
+                if expected_file_id then return {error='changed'} end
+                return finish({hits=hits,complete=true,unresolved=unresolved})
+            end
             examined=examined+1
             local source_first,exact=first,true
             if unicode then
@@ -75,17 +79,31 @@ function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependen
             else resume=first+1 end
             at=first+1
             if exact then
+                if expected_file_id and source_first~=from then return {error='changed'} end
                 local found,co=pcall(map._point,map,source_first)
                 local anchor=found and (map:anchor(co,{segment_only=true}) or map:anchor(co))
                 if anchor then
-                    hits[#hits+1]={anchor=anchor,chapter_uid=entry.chapter_uid,file_id=saved.file_id,byte=source_first,
-                        context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)}
+                    local hit={anchor=anchor,chapter_uid=entry.chapter_uid,file_id=saved.file_id,byte=source_first}
+                    if expected_file_id then return finish({path=saved.path,hit=hit}) end
+                    hit.context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)
+                    hits[#hits+1]=hit
                 else unresolved=unresolved+1 end
             else unresolved=unresolved+1 end
         end
         if not live(current) then return {error='cancelled'} end
+        if expected_file_id then return {error='changed'} end
         return finish({hits=hits,next_byte=resume,unresolved=unresolved})
     end)
     return ok and result or {error='unavailable'}
+end
+function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependencies)
+    return scan(settings,account,entry,keyword,from,ignore_case,current,dependencies)
+end
+
+-- Recompute one selected match from its saved file and original byte offset.
+function M.find_hit(settings,account,entry,keyword,selected,ignore_case,current,dependencies)
+    if type(selected)~='table' or type(selected.file_id)~='string' or #selected.file_id~=64
+        or not selected.file_id:match('^[a-f0-9]+$') then return {error='invalid'} end
+    return scan(settings,account,entry,keyword,selected.byte,ignore_case,current,dependencies,selected.file_id)
 end
 return M

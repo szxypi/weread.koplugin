@@ -15,10 +15,10 @@ local hit={chapter_uid='37',file_id=file_id,byte=4,anchor={co=2,text='long enoug
 local path='/tmp/native-reader-v1/target.epub'
 package.preload['weread.lib.native_direct_cache']=function() return {
     valid_entry=function(e,id,account) return e==entry and id=='42' and account=='123' end,
-    open=function(_,_,_,e,current) assert(e==entry and current());return not changed_file and {path=path,file_id=file_id} end,
 } end
-package.preload['weread.lib.native_direct_search']=function() return {scan=function(_,_,e,keyword,byte,ignore,current)
-    assert(e==entry and keyword=='needle' and byte==4 and not ignore and current());return {hits={hit}}
+package.preload['weread.lib.native_direct_search']=function() return {find_hit=function(_,_,e,keyword,selected,ignore,current)
+    assert(e==entry and keyword=='needle' and selected==hit and not ignore and current())
+    return changed_file and {error='changed'} or {path=path,hit=hit}
 end} end
 package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,value) return value==path end} end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function() return {
