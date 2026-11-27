@@ -113,6 +113,47 @@ expect(request.method=="GET" and request.body==nil and request.sensitive and req
     and request.persist_response_cookies==false and request.headers.accessToken=="synthetic-access"
     and not request.headers.Cookie and not request.headers.Authorization,"isolated native transport")
 expect(f.gateway_count()==0,"native success skips gateway")
+do
+    local empty=fixture()
+    empty.data.books={};empty.data.hasMore=false
+    local calls={}
+    empty.client.get_gateway_discovery=function(_client,kind,options,key)
+        expect(kind=='recommend' and key=='synthetic-key','empty recommendation used the wrong Skill access')
+        calls[#calls+1]=options.cursor
+        return {books={{bookId='900002',title='Skill recommendation',searchIdx=options.cursor==0 and 20 or 21}},
+            hasMore=options.cursor==0}
+    end
+    local access=empty.capture()
+    local first=Source.fetch(empty.client,{kind='recommend',cursor=0},access)
+    expect(first.source_kind=='gateway' and first.source_revision==access.revision and first.has_more and first.next_cursor==20
+        and #calls==1 and #empty.requests==1,'explicit empty native first page did not fall back once')
+    local second=Source.fetch(empty.client,{kind='recommend',cursor=first.next_cursor,source_kind=first.source_kind,
+        source_revision=first.source_revision},access)
+    expect(second.source_kind=='gateway' and second.next_cursor==21 and not second.has_more
+        and #calls==2 and calls[2]==20 and #empty.requests==1,'Skill continuation retried native or reset the cursor')
+    local bound=Source.fetch(empty.client,{kind='recommend',cursor=0,source_kind='native',source_revision=access.revision},access)
+    expect(bound.source_kind=='native' and #bound.books==0 and #calls==2,'bound native recommendation changed source')
+    empty.data.hasMore=true
+    Source.fetch(empty.client,{kind='recommend',cursor=0},access)
+    expect(#calls==2,'contradictory empty result started a fallback')
+    empty.data.hasMore=false;empty.data.books={{not_a_book=true}}
+    Source.fetch(empty.client,{kind='recommend',cursor=0},access)
+    expect(#calls==2,'filtered invalid rows were mistaken for an explicit empty response')
+    empty.data.books={}
+    empty.client.get_gateway_discovery=function() return {books={},hasMore=false} end
+    local neither=Source.fetch(empty.client,{kind='recommend',cursor=0},access)
+    expect(neither.source_kind=='native' and #neither.books==0,'empty fallback changed the selected source')
+    empty.client.get_gateway_discovery=function() error('discovery/rate_limited',0) end
+    local unchanged=Source.fetch(empty.client,{kind='recommend',cursor=0},access)
+    expect(unchanged.source_kind=='native' and #unchanged.books==0,'optional Skill failure lost a valid native response')
+    empty.client.get_gateway_discovery=function() empty.change{revision=2};error('discovery/gateway_unavailable',0) end
+    local accepted,reason=pcall(Source.fetch,empty.client,{kind='recommend',cursor=0},access)
+    expect(not accepted and reason=='discovery/session_changed','optional fallback restored a stale native result')
+    empty.change{key=''}
+    empty.client.get_gateway_discovery=function() error('unexpected Skill request',0) end
+    local keyless=Source.fetch(empty.client,{kind='recommend',cursor=0},empty.capture())
+    expect(keyless.source_kind=='native' and #keyless.books==0,'valid keyless empty recommendations were lost')
+end
 for _,status in ipairs({401,403,500,503,"transport"}) do
     f=fixture();f.change{status=status};selected=f.capture()
     result=Source.fetch(f.client,{kind="recommend",cursor=0},selected)

@@ -182,7 +182,8 @@ class MockServer(ThreadingHTTPServer):
         self.active_requests = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
-                            empty_shelf=False, shelf_progress=False, empty_annotations=False, guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
+                            empty_shelf=False, shelf_progress=False, empty_native_recommend=False, empty_annotations=False,
+                            guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
                             shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1)
         self.progress_confirmation_book = None
@@ -602,6 +603,8 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError("invalid native discovery cursor/count")
                 start = int(start_text)
                 if path == "/store/search" and query["scope"] != ["10"]:raise ValueError("invalid native search scope")
+                if path == "/book/recommend" and control["empty_native_recommend"]:
+                    return 200, dict(books=[], hasMore=False)
                 if path == "/book/detailinfo":
                     session = "mock-native-similar-" + book_id
                     if (query["listtypes"] != ["2"] or query["synckey"] != ["0"] or not any(b["bookId"] == book_id for b in BOOKS)
@@ -968,6 +971,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("times must be -1 (always) or a non-negative integer")
             if type(candidate["shelf_progress"]) is not bool:
                 raise ValueError("invalid shelf progress fixture")
+            if type(candidate["empty_native_recommend"]) is not bool:
+                raise ValueError("invalid recommendation fixture")
             if type(candidate['skip']) is not int or not 0 <= candidate['skip'] <= 10000:
                 raise ValueError('skip must be a bounded non-negative integer')
             if type(candidate["status"]) is not int or not 400 <= candidate["status"] <= 599:

@@ -170,6 +170,17 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(plugin.discovery_state==saved and count("/api/agent/gateway","/book/recommend")==gateway_before,"rate failure fell back or discarded cache")
     UIManager:close(UIManager:getTopmostVisibleWidget())
     control{match="",delay=0,times=0}
+    control{empty_native_recommend=true}
+    local native_before=count('/book/recommend')
+    press(plugin.shelf_view,'For you');wait()
+    assert(plugin.discovery_state.kind=='recommend' and plugin.discovery_state.source_kind=='gateway'
+        and #plugin.discovery_state.books==20 and count('/book/recommend')==native_before+1
+        and count('/api/agent/gateway','/book/recommend')==gateway_before+1,'empty native first page did not show Skill recommendations')
+    press(plugin.shelf_view,'Next batch');wait()
+    assert(plugin.discovery_state.source_kind=='gateway' and #plugin.discovery_state.books==6
+        and count('/book/recommend')==native_before+1 and count('/api/agent/gateway','/book/recommend')==gateway_before+2,
+        'recommendation continuation mixed sources')
+    control{empty_native_recommend=false}
     plugin:loadDiscoveryBatch('search','测试作者',0,false,false,{public_search=true});wait()
     assert(plugin.discovery_state.source_kind=='public' and #plugin.discovery_state.books==20)
     press(plugin.shelf_view,'Next batch');wait()
@@ -203,6 +214,12 @@ return function(plugin,count,flush_tasks,home,pump_until)
     press(plugin.shelf_view,'Next batch');wait()
     assert(plugin.discovery_state.cached and plugin.discovery_state.source_kind=='gateway' and plugin.discovery_state.cursor==20
         and #plugin.discovery_state.books==6,'public result replaced the same-keyword ordinary batch')
+    plugin:loadDiscoveryBatch('recommend',nil,0);wait()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.source_kind=='gateway' and #plugin.discovery_state.books==20,
+        'Skill fallback recommendations did not reopen offline')
+    press(plugin.shelf_view,'Next batch');wait()
+    assert(plugin.discovery_state.cached and #plugin.discovery_state.books==6 and plugin.discovery_state.cursor==20,
+        'Skill fallback recommendations lost their saved second batch')
     paint('native-store-offline-search')
     plugin:showBookMenu(seed);local offline_detail=assert(plugin._book_detail_view)
     press(offline_detail,'Similar books');wait()

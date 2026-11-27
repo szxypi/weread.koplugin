@@ -121,6 +121,15 @@ function M.fetch(client, request, selected, options)
         end
         local value=M.project(client,request.kind,data,request.cursor)
         value.source_kind,value.source_revision="native",selected.revision
+        -- A successful empty first page can precede a populated Skill list.
+        -- Keep the native result if the optional lookup cannot supply books.
+        local more=data.hasMore
+        if request.kind=="recommend" and (request.cursor or 0)==0 and not request.source_kind and selected.api_key
+            and #data.books==0 and (more==nil or more==false or more==0 or more=="0") then
+            local found,alternate=pcall(gateway)
+            current()
+            if found and #alternate.books>0 then return alternate end
+        end
         return value
     elseif kind=="gateway" and selected.api_key then
         return gateway()
