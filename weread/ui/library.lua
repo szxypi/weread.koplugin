@@ -2791,6 +2791,8 @@ function M:openBookForReading(book, quiet, options)
     local claim_cache={}
     local full_path = self:getFullBookCachePath(book,nil,claim_cache)
     local book_id = book.book_id or book.bookId
+    -- A confirmation permits falling back from only the chapter it showed.
+    local confirmed_missing_uid=options and options.confirmed_missing_uid
     local claims=require('weread.lib.chapter_cache_claim')
     local Reading=require('weread.ui.book_reading')
     local unusable_shared=false
@@ -2829,7 +2831,9 @@ function M:openBookForReading(book, quiet, options)
                 self:showInfo(_('Could not verify the saved chapter. Search downloaded chapters again or choose another chapter.'))
                 return true
             end
-            if options and options.prefer_exact then return false,'resume_not_cached',hint.chapter_uid end
+            if options and options.prefer_exact and hint.chapter_uid~=confirmed_missing_uid then
+                return false,'resume_not_cached',hint.chapter_uid
+            end
         end
     end
     if file_exists(full_path) then
@@ -2838,7 +2842,9 @@ function M:openBookForReading(book, quiet, options)
             if (type(catalog)~='table' or #catalog==0) and self.library_db then catalog=self.library_db:getChapters(book_id) end
             if type(catalog)~='table' or #catalog==0 then catalog=Content.load_catalog_cache(self.client,self.settings,book) end
             local uid=Reading.resume_uid(catalog,book,account)
-            if uid and not claims.usable(book,full_path,uid,claim_cache) then return false,'resume_not_cached',uid end
+            if uid and uid~=confirmed_missing_uid and not claims.usable(book,full_path,uid,claim_cache) then
+                return false,'resume_not_cached',uid
+            end
         end
         if not (options and options.check_only) then self:openFile(full_path,nil,book) end
         return true
@@ -2856,7 +2862,7 @@ function M:openBookForReading(book, quiet, options)
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
         local target=uid and ReadAccess.cached_chapter(book.cached_chapters,uid)
-        if uid and not usable(uid,target) then
+        if uid and uid~=confirmed_missing_uid and not usable(uid,target) then
             for _id,path in pairs(book.cached_chapters or {}) do
                 if usable(_id,path) then return false,'resume_not_cached',uid end
             end

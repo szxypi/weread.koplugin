@@ -35,10 +35,7 @@ function M.show(host,book_id,view,expected_uid)
             M.cancel(host)
             local latest=ReadAccess.load_cached_book(host.settings,book_id)
             if not latest then return end
-            local available,reason,uid=host:openBookForReading(latest,true,{prefer_exact=true,check_only=true})
-            if available or reason=='resume_not_cached' and uid==expected_uid then
-                host:openBookForReading(latest)
-            else
+            if not host:openBookForReading(latest,true,{prefer_exact=true,confirmed_missing_uid=expected_uid}) then
                 host:showInfo(_('Reading position or cache changed. Please try again.'))
             end
         end,

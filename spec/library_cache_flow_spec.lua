@@ -416,9 +416,11 @@ do
     cached.chapter_uid=2;opened_path=nil
     expect(host:readFromBookList(row,scope,current,true) and reads==3 and not opened_path,
         'a missing chapter skipped the fallback confirmation')
-    last_dialog.ok_callback()
-    expect(reads==4 and opened_path=='/cache/76-1.epub',
-        'fallback confirmation did not re-read and use the legacy record')
+    local before=path_probes['/cache/76-1.epub']
+    local consent=last_dialog.ok_callback
+    consent();consent()
+    expect(reads==4 and opened_path=='/cache/76-1.epub' and path_probes['/cache/76-1.epub']==before+1,
+        'fallback confirmation did not select the legacy cache with a single probe')
     cached.book_id='77';opened_path=nil
     expect(not host:readFromBookList(row,scope,current) and not opened_path and reads==5,
         'a conflicting cached record was opened from the shelf')
@@ -500,6 +502,11 @@ expect(not pending_hint and opened_path==partial.full_path,'restored catalog con
 partial.chapters=nil;existing_paths['/cache/4.epub']=nil;existing_paths[partial.full_path]=nil
 local available,reason,uid=host:openBookForReading(partial,true,{prefer_exact=true})
 expect(not available and reason=='resume_not_cached' and uid=='4','missing selected chapter was silently replaced')
+opened_path=nil
+expect(not host:openBookForReading(partial,true,{prefer_exact=true,confirmed_missing_uid='3'}) and not opened_path,
+    'consent for a different chapter let an unindexed hint fall back')
+expect(host:openBookForReading(partial,true,{prefer_exact=true,confirmed_missing_uid='4'}) and opened_path=='/cache/2.epub',
+    'the confirmed unindexed hint did not allow a cached alternative')
 existing_paths['/cache/4.epub']=true;existing_paths[partial.full_path]=true;partial.unindexed_resume=nil;partial.chapters=original_catalog
 partial.full_path=nil;current_owner='account-a';package.loaded['weread.ui.unindexed_resume']=nil
 
@@ -628,7 +635,12 @@ do
     expect(host:startBookReading(target,view),'warning was not shown before cache changed')
     target.cached_chapters['3']='/cache/3.epub';last_dialog.ok_callback()
     expect(opened_path=='/cache/3.epub','newly cached exact chapter was not preferred after warning')
-    target.cached_chapters['3']=nil
+    target.cached_chapters['3']=nil;opened_path=nil
+    expect(host:startBookReading(target,view) and not opened_path,'a missing chapter did not prompt again')
+    target.cached_chapters['2']='/cache/2.epub';target.pending_upload_position.chapter_uid=2
+    last_dialog.ok_callback()
+    expect(opened_path=='/cache/2.epub','confirmation ignored a newer, already cached resume chapter')
+    target.cached_chapters['2']=nil;target.pending_upload_position.chapter_uid=3
 
     local access=require('weread.lib.native_read_access')
     local capture=access.capture
@@ -858,6 +870,17 @@ navigated=nil;single_valid=false;proof.items={chapter_4=true};single_download_op
 host:openChapter(selected_book,selected_chapter)
 expect(not navigated and single_download_options and single_download_options.single_chapter,
     'combined book without the target bypassed the ambiguous-cache warning')
+do
+    local claims=package.loaded['weread.lib.chapter_cache_claim']
+    local inspect=claims.inspect
+    claims.inspect=function() return proof end
+    selected_book.chapter_uid=2;opened_path=nil
+    expect(not host:openBookForReading(selected_book,true,{prefer_exact=true,confirmed_missing_uid='3'})
+        and not opened_path,'consent for another chapter accepted an incomplete combined book')
+    expect(host:openBookForReading(selected_book,true,{prefer_exact=true,confirmed_missing_uid='2'})
+        and opened_path==selected_book.full_path,'consent did not allow the verified incomplete combined book')
+    claims.inspect=inspect
+end
 local old_info, unavailable = host.showInfo
 host.showInfo=function(_,text) unavailable=text end
 single_download_options=nil;opened_path=nil;promoted=nil
