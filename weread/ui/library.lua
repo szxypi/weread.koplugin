@@ -2307,10 +2307,17 @@ function M:showChapterList(book, on_close)
 end
 
 function M:showChapterDownloadSelection(book, chapters, on_downloaded)
+    local ChapterSearch = require("weread.ui.chapter_search")
+    local Popup = require("weread.ui.shelf_popup")
     local selected = {}
-    local menu
+    local menu, current_items
+    local search = ""
     local chapter_view=self._chapter_list_view
     local page_current=require('weread.ui.page_scope').capture(self,self.shelf_view)
+    local function current()
+        return menu and not menu._weread_closed and page_current()
+            and (not chapter_view or self._chapter_list_view == chapter_view and not chapter_view._catalog_closed)
+    end
     local function selectedChapters()
         local result = {}
         for _i, chapter in ipairs(chapters) do
@@ -2327,77 +2334,94 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         return count
     end
 
-    local items = {}
     local is_chapter_cached=chapter_cache_lookup(self,book)
     local perpage = list_items_per_page()
     local chapters_per_page = math.max(1, perpage - 1)
-    local function appendDownloadAction()
-        items[#items + 1] = {
-            text_func = function()
-                return T(_("[Download] Selected chapters (%1)"),
-                    tostring(selectedCount()))
-            end,
-            bold = true,
-            select_enabled_func = function() return selectedCount() > 0 end,
-            separator = true,
-            callback = self:safeCallback(_("Download selected chapters"), function()
-                local targets = selectedChapters()
-                if #targets == 0 then return end
-                self:confirmAndDownloadChapters(book, targets, "chapters", {
-                    separate_chapters = true,
-                    recovery_owner = menu,
-                    recovery_parent_owner = chapter_view,
-                    recovery_current = function()
-                        return page_current() and menu and not menu._weread_closed and (not chapter_view
-                            or self._chapter_list_view==chapter_view and not chapter_view._catalog_closed)
-                    end,
-                    on_complete = function(ok)
-                        if not ok then return end
-                        UIManager:scheduleIn(0.1, function()
-                            if not page_current() or not menu or menu._weread_closed or chapter_view
-                                and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return end
-                            UIManager:close(menu)
-                            if on_downloaded then on_downloaded() end
-                        end)
-                    end,
-                })
-            end),
-        }
+    local rows = {}
+    for index, chapter in ipairs(chapters) do
+        local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
+        rows[index] = { uid = uid, title = chapter.title or T(_("Chapter %1"), uid) }
     end
-    for page_start = 1, #chapters, chapters_per_page do
-        appendDownloadAction()
-        local page_end = math.min(#chapters, page_start + chapters_per_page - 1)
-        for chapter_index = page_start, page_end do
+    local download = self:safeCallback(_("Download selected chapters"), function()
+        if not current() then return end
+        local targets = selectedChapters()
+        if #targets == 0 then return end
+        self:confirmAndDownloadChapters(book, targets, "chapters", {
+            separate_chapters = true,
+            recovery_owner = menu,
+            recovery_parent_owner = chapter_view,
+            recovery_current = current,
+            on_complete = function(ok)
+                if not ok then return end
+                UIManager:scheduleIn(0.1, function()
+                    if not current() then return end
+                    UIManager:close(menu)
+                    if on_downloaded then on_downloaded() end
+                end)
+            end,
+        })
+    end)
+    local function buildItems()
+        local matches, counts = ChapterSearch.filter(rows, search)
+        local items = {}
+        current_items = items
+        local function appendDownloadAction()
+            items[#items + 1] = {
+                text_func = function()
+                    return T(_("[Download] Selected chapters (%1)"), tostring(selectedCount()))
+                end,
+                bold = true,
+                select_enabled_func = function() return selectedCount() > 0 end,
+                separator = true,
+                callback = download,
+            }
+        end
+        for number = 1, (matches and #matches or #rows) do
+            if (number - 1) % chapters_per_page == 0 then appendDownloadAction() end
+            local chapter_index = matches and matches[number] or number
             local chapter = chapters[chapter_index]
-            local uid = tostring(chapter.chapterUid or chapter.chapterId or chapter_index)
-            local is_cached = is_chapter_cached(uid)
+            local row = rows[chapter_index]
+            local uid = row.uid
+            local label = ChapterSearch.label(row.title, chapter_index, counts)
             items[#items + 1] = {
                 text_func = function()
                     local marker = selected[uid] and "[✓] " or "[  ] "
-                    return marker .. (chapter.title or T(_("Chapter %1"), uid))
+                    return marker .. label
                 end,
                 mandatory_func = function()
                     if selected[uid] then return _("Selected") end
-                    return is_cached and _("Cached")
+                    if row.cached == nil then row.cached = is_chapter_cached(uid) end
+                    return row.cached and _("Cached")
                         or T(_("%1 words"), tostring(chapter.wordCount or 0))
                 end,
                 callback = self:safeCallback(chapter.title or _("Chapter"), function()
-                    if selected[uid] then
-                        selected[uid] = nil
-                    else
-                        selected[uid] = true
-                    end
-                    if menu then menu:updateItems() end
+                    if items ~= current_items or not current() then return end
+                    selected[uid] = not selected[uid] or nil
+                    menu:updateItems()
                 end),
             }
         end
+        if matches and #matches == 0 then
+            appendDownloadAction()
+            items[#items + 1] = { text = _("No matching chapters."), select_enabled = false }
+        end
+        return items
     end
-    menu = self:showList(_("Select chapters to download"), items,
-        _("No chapters."), { items_per_page = perpage })
+    menu = self:showList(_("Select chapters to download"), buildItems(),
+        _("No chapters."), { items_per_page = perpage, left_icon = "appbar.search", subtitle = "" })
     if menu then
+        menu.onLeftButtonTap = function()
+            ChapterSearch.prompt(self, menu, search, current, function(query)
+                search = query
+                menu.subtitle = search ~= "" and T(_("Chapter filter: %1"), search) or ""
+                menu:switchItemTable(nil, buildItems(), nil, nil, menu.subtitle)
+            end)
+            return true
+        end
         local on_close_widget=menu.onCloseWidget
         menu.onCloseWidget=function(widget,...)
             widget._weread_closed=true
+            Popup.close(widget)
             require('weread.ui.download_recovery').cancel(self,false,widget)
             if on_close_widget then return on_close_widget(widget,...) end
         end

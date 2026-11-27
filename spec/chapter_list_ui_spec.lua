@@ -85,11 +85,8 @@ for index = 1, 7 do
 end
 
 local shown = {}
-local fake_menu = {
-    updateItems = function() end,
-    switchItemTable = function() end,
-}
-local downloaded_options
+local fake_menu
+local downloaded_options, downloaded_targets
 local returned_to_parent = false
 local opened_chapter
 local single_chapter_refresh
@@ -97,11 +94,19 @@ local host = {
     safeCallback = function(_self, _label, callback) return callback end,
     loadChapters = function(_self, _book, callback) callback(chapters) end,
     showList = function(_self, title, items, _empty, options)
-        shown[#shown + 1] = { title = title, items = items, options = options }
+        local state = { title = title, items = items, options = options }
+        shown[#shown + 1] = state
+        fake_menu = {
+            updateItems = function() end,
+            switchItemTable = function(_menu, _title, next_items, _number, _match, subtitle)
+                state.items, state.subtitle = next_items, subtitle
+            end,
+        }
         return fake_menu
     end,
-    confirmAndDownloadChapters = function(_self, _book, _targets, _suffix, options)
+    confirmAndDownloadChapters = function(_self, _book, targets, _suffix, options)
         downloaded_options = options
+        downloaded_targets = targets
     end,
     showTransientInfo = function() end,
     openChapter = function(_self, _book, chapter, on_downloaded)
@@ -267,6 +272,40 @@ host._chapter_list_view:onCloseWidget()
 old_query.input = "Alpha"
 old_query.buttons[1][2].callback()
 expect(not catalog_view_data.subtitle and #catalog_view_data.chapters == 7, "closed catalog rejects a queued search")
+
+host:showChapterList(book)
+catalog_view_callbacks.on_select_download()
+local filtered_selection = shown[#shown]
+expect(filtered_selection.options.left_icon == "appbar.search", "download selection has a search entry")
+filtered_selection.items[3].callback()
+local old_item = filtered_selection.items[4]
+local function filter_selection(query)
+    fake_menu:onLeftButtonTap()
+    input.input = query
+    input.buttons[1][2].callback()
+end
+filter_selection("　ALPHA chapter　")
+expect(#filtered_selection.items == 3 and filtered_selection.items[2].text_func() == "[  ] 1. Chapter Alpha"
+    and filtered_selection.items[3].text_func() == "[  ] 4. Chapter Alpha", "selection filter preserves duplicate positions")
+old_item.callback()
+filtered_selection.items[3].callback()
+expect(filtered_selection.items[1].text_func() == "[Download] Selected chapters (2)", "hidden selection counts toward download")
+filter_selection("not a chapter title")
+expect(#filtered_selection.items == 2 and not filtered_selection.items[2].select_enabled
+    and filtered_selection.items[2].text == "No matching chapters.", "empty selection filter has a visible message")
+filtered_selection.items[1].callback()
+expect(#downloaded_targets == 2 and downloaded_targets[1] == chapters[2] and downloaded_targets[2] == chapters[4],
+    "filter downloads all selected chapters in original catalog order")
+fake_menu:onLeftButtonTap()
+input.buttons[1][1].callback()
+expect(filtered_selection.subtitle == "" and filtered_selection.items[3].mandatory_func() == "Selected"
+    and filtered_selection.items[5].mandatory_func() == "Selected", "clearing filter keeps the selected chapters")
+fake_menu:onLeftButtonTap()
+local old_selection_query = input
+fake_menu:onCloseWidget()
+old_selection_query.input = "Alpha"
+old_selection_query.buttons[1][2].callback()
+expect(not fake_menu._shelf_popup and filtered_selection.subtitle == "", "closing selection dismisses and invalidates its search")
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))

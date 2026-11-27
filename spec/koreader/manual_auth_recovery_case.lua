@@ -45,16 +45,25 @@ return function(host,kind,pump,tick)
         record()
     end
     function M.selected(book,first)
+        local Util=require('weread.lib.plugin_util')
         host:showChapterList(book)
         local view=assert(host._chapter_list_view)
         view._toolbar_buttons[2].callback()
         local menu=assert(UI:getTopmostVisibleWidget())
-        local selected=0
-        for _,item in ipairs(menu.item_table or {}) do
-            local label=item.text_func and item.text_func() or ''
-            if label:find('第5章',1,true) or label:find('第6章',1,true) then item.callback();selected=selected+1 end
+        for _,title in ipairs({'第6章','第5章'}) do
+            UI:forceRePaint()
+            assert(menu.title_bar.left_button).callback()
+            local dialog=assert(menu._shelf_popup)
+            dialog:setInputText(title)
+            dialog.buttons[1][2].callback()
+            assert(menu.subtitle:find(title,1,true) and #menu.item_table==2,'download filter showed the wrong chapters')
+            local item=menu.item_table[2]
+            assert(item.text_func():find(title,1,true),'filtered download row did not retain the chapter title')
+            menu:onMenuSelect(item)
+            assert(item.mandatory_func()==Util.tr('Selected'))
         end
-        assert(selected==2,'selected chapter rows missing')
+        assert(menu.item_table[1].text_func()==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
+            'selection across two queries was lost')
         request('/__control',{match=shard,times=1,skip=1,status=401,web_renewal_mode='rotate'})
         menu.item_table[1].callback()
         pump(function()
