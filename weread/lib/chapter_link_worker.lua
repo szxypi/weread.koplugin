@@ -32,18 +32,20 @@ function M.prepare(input,reader)
         or not text(input.file,4096) or not hash(input.file_id) or not text(input.native_uri,8192)
         or type(input.chapters)~='table' or #input.chapters==0 or #input.chapters>M.MAX_CATALOG
         or type(input.cached_chapters)~='table' then return failure('input_invalid') end
-    local chapters,seen,current={},{},nil
+    local chapters=input.chapters
+    local seen,current={},nil
+    local length=#chapters
     local catalog_count=0
-    for key in pairs(input.chapters) do
-        if type(key)~='number' or key%1~=0 or key<1 or key>#input.chapters then return failure('catalog_invalid') end
+    for key in pairs(chapters) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>length then return failure('catalog_invalid') end
         catalog_count=catalog_count+1
     end
-    if catalog_count~=#input.chapters then return failure('catalog_invalid') end
-    for index,chapter in ipairs(input.chapters) do
+    if catalog_count~=length then return failure('catalog_invalid') end
+    for _i,chapter in ipairs(chapters) do
         local key=uid(chapter)
         if not text(key,256) or seen[key] then return failure('catalog_ambiguous') end
         if chapter.files~=nil and type(chapter.files)~='table' then return failure('catalog_invalid') end
-        seen[key]=true;chapters[index]=chapter
+        seen[key]=true
         if key==input.chapter_uid then current=chapter end
     end
     if not current or input.cached_chapters[input.chapter_uid]~=input.file then return failure('source_unavailable') end
@@ -51,25 +53,18 @@ function M.prepare(input,reader)
     if not source then return failure(reason) end
     local native=Links.native_uri_key(M.RENDER_PATH,input.native_uri)
     if not native then return failure('link_unsupported') end
-    local scans={}
-    for _i,chapter in ipairs(chapters) do
-        local key=uid(chapter)
-        scans[key]={chapter=chapter,anchors={},anchors_unknown=true}
-    end
     local scan=Footnotes.scan_links(source.html,current)
-    scans[input.chapter_uid]=scan
-    local index=Links.build(scans,chapters)
-    local planned,matched
+    local plan,planned
     for _i,href in ipairs(scan.link_hrefs) do
         if Links.rebased_href(M.RENDER_PATH,href)==native then
-            matched=true
-            local candidate=Links.plan(index,input.chapter_uid,href)
+            plan=plan or Links.catalog_planner(chapters,scan)
+            local candidate=plan(href)
             if not candidate or candidate.uid==input.chapter_uid then return failure('link_unavailable') end
             if planned and (planned.uid~=candidate.uid or planned.anchor~=candidate.anchor) then return failure('link_ambiguous') end
             planned=candidate
         end
     end
-    if not matched or not planned then return failure('link_unavailable') end
+    if not planned then return failure('link_unavailable') end
     local result={kind='needs_download',book_id=input.book_id,source_uid=input.chapter_uid,
         source_file_id=source.identity.file_id,source_sha256=source.sha256,
         target_uid=planned.uid,anchor=planned.anchor,anchor_verified=false}

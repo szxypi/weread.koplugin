@@ -87,7 +87,10 @@ expect(Worker.prepare(input,read).kind=='ready','a single real named anchor with
 input,read=fresh(nil,'<p id="note">甲</p><span id="n&#111;te"/>')
 expect(Worker.prepare(input,read).reason=='anchor_ambiguous','literal and entity-encoded IDs both count as matches')
 input,read=fresh();input.native_uri='OEBPS/text/forged.xhtml#note'
+local catalog_planner=Links.catalog_planner
+Links.catalog_planner=function() error('constructed a catalog index without a source link') end
 expect(Worker.prepare(input,read).reason=='link_unavailable','URI must occur in the actual source chapter')
+Links.catalog_planner=catalog_planner
 input,read=fresh();input.native_uri='https://example.org/notes.xhtml#note'
 expect(Worker.prepare(input,read).reason=='link_unsupported','external links not claimed')
 input,read=fresh();input.cached_chapters['191']='/different.epub'
@@ -112,6 +115,22 @@ input,read=fresh('<a href="#note">跨片段</a>','<p id="note">相同原文件�
 input.chapters={{chapterUid=191,files={'Text/shared.xhtml'}},{chapterUid=192,files={'Text/shared.xhtml'}}}
 input.native_uri='#_doc_fragment_0_ note'
 expect(Worker.prepare(input,read).kind=='ready','same original XHTML split into two independent EPUBs')
+input,read,reads=fresh('<a href="notes.xhtml#note">资料</a>')
+input.chapters={{chapterUid=191,files={'Text/body.xhtml','Other/body.xhtml'}},chapters[2]}
+expect(Worker.prepare(input,read).reason=='link_unavailable' and #reads==1,
+    'only one of two possible source directories resolved the link')
+input,read,reads=fresh('<a href="notes.xhtml#note">资料</a>')
+input.chapters={chapters[1],chapters[2],{chapterUid=193,files={'/Text/nested/../notes.xhtml'}}}
+expect(Worker.prepare(input,read).reason=='link_unavailable' and #reads==1,
+    'two catalog chapters normalize to the same target path')
+input,read=fresh('<a href="notes.xhtml#note">资料</a>')
+local synthetic_source={chapterUid=191,chapterIdx=1}
+input.chapters={synthetic_source,chapters[2]}
+expect(Worker.prepare(input,read).kind=='ready','a source without an original file can use a unique basename')
+input.chapters[3]={chapterUid=193,files={'Other/notes.xhtml'}}
+expect(Worker.prepare(input,read).reason=='link_unavailable','a source without an original file rejects a basename collision')
+input.chapters[2]={chapterUid=192,files={'notes.xhtml'}}
+expect(Worker.prepare(input,read).kind=='ready','the exact root path takes precedence over a basename match')
 input,read=fresh('<a href="notes.xhtml#note">甲</a><a href="/OEBPS/text/notes.xhtml#note">乙</a>')
 input.chapters={chapters[1],chapters[2],{chapterUid=193,files={'OEBPS/text/notes.xhtml'}}}
 expect(Worker.prepare(input,read).reason=='link_ambiguous','colliding native URIs cannot choose an arbitrary original href')

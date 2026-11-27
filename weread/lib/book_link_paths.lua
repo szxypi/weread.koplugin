@@ -27,6 +27,10 @@ local function external(value)
     return value:match('^[%a][%w+%.%-]*:') or value:sub(1,2)=='//'
 end
 local function normalize(value)
+    -- Ordinary paths already have a single separator and no dot segments.
+    local first=value:sub(1,1)
+    if first~='/' and first~='.' and value:sub(-1)~='/'
+        and not value:find('//',1,true) and not value:find('/.',1,true) then return value end
     local parts={}
     for part in value:gmatch('[^/]+') do
         if part=='..' then
@@ -56,6 +60,42 @@ local function fragment(value)
     return (value:gsub('[^%w%.~_%-]',function(char) return string.format('%%%02X',char:byte()) end))
 end
 
+local path_fields={'href','file','filename','fileName','path','chapterPath'}
+local function remember(paths,seen,value,uri)
+    local candidate=path(value,uri)
+    if candidate and candidate~='' and not seen[candidate] then
+        seen[candidate]=true;paths[#paths+1]=candidate
+    end
+end
+local function chapter_paths(chapter)
+    local paths,seen={},{}
+    for _i,value in ipairs(chapter.files or {}) do remember(paths,seen,value) end
+    if #paths==0 then
+        for _i,name in ipairs(path_fields) do remember(paths,seen,chapter[name],name=='href') end
+    end
+    if #paths>0 then return paths,true end
+    local number=tonumber(chapter.chapterIdx or chapter.index)
+    if number and number>0 and number%1==0 then
+        paths={string.format('chapter%d.xhtml',number),string.format('text/chapter%d.xhtml',number),
+            string.format('Text/chapter%d.xhtml',number)}
+    end
+    return paths,false
+end
+local function add_paths(index,key,paths)
+    for _i,value in ipairs(paths) do
+        add(index.files,value,key)
+        if index.basenames then add(index.basenames,value:match('[^/]+$'),value) end
+    end
+end
+local function anchors_from(scan)
+    local anchors={}
+    for anchor,count in pairs(scan.anchor_counts or scan.anchors or {}) do
+        local decoded=M.attribute(anchor)
+        anchors[decoded]=(anchors[decoded] or 0)+(type(count)=='number' and count or 1)
+    end
+    return anchors
+end
+
 function M.build(scans,chapters,chapter_hrefs)
     local index={entries={},files={},basenames={},outputs={},packaged=false}
     local metadata,duplicates={},{}
@@ -67,34 +107,10 @@ function M.build(scans,chapters,chapter_hrefs)
         local key=tostring(raw_uid)
         local chapter=scan.chapter or metadata[key]
         if not duplicates[key] and uid(chapter)==key then
-            local entry={anchors={},forward={},paths={},physical=false,anchors_known=scan.anchors_unknown~=true}
-            local seen={}
-            local function remember(value,uri)
-                local candidate=path(value,uri)
-                if candidate and candidate~='' and not seen[candidate] then
-                    seen[candidate]=true;entry.paths[#entry.paths+1]=candidate
-                end
-            end
-            for _i,value in ipairs(chapter.files or {}) do remember(value) end
-            if #entry.paths==0 then
-                for _i,name in ipairs({'href','file','filename','fileName','path','chapterPath'}) do remember(chapter[name],name=='href') end
-            end
-            entry.physical=#entry.paths>0
-            if not entry.physical then
-                local number=tonumber(chapter.chapterIdx or chapter.index)
-                if number and number>0 and number%1==0 then
-                    remember(string.format('chapter%d.xhtml',number))
-                    remember(string.format('text/chapter%d.xhtml',number))
-                    remember(string.format('Text/chapter%d.xhtml',number))
-                end
-            end
-            for _i,value in ipairs(entry.paths) do
-                add(index.files,value,key);add(index.basenames,value:match('[^/]+$'),value)
-            end
-            for anchor,count in pairs(scan.anchor_counts or scan.anchors or {}) do
-                local decoded=M.attribute(anchor)
-                entry.anchors[decoded]=(entry.anchors[decoded] or 0)+(type(count)=='number' and count or 1)
-            end
+            local paths,physical=chapter_paths(chapter)
+            local entry={anchors=anchors_from(scan),forward={},paths=paths,physical=physical,
+                anchors_known=scan.anchors_unknown~=true}
+            add_paths(index,key,paths)
             for anchor in pairs(scan.forward_ref_ids or {}) do entry.forward[M.attribute(anchor)]=true end
             local output=chapter_hrefs and chapter_hrefs[key]
             if type(output)=='string' and output:match('^chapter%-%d+%.xhtml$') then
@@ -184,6 +200,26 @@ function M.resolve(index,current_uid,raw_href) return resolve(index,current_uid,
 -- A catalog plan identifies a candidate only; it never asserts that an
 -- undownloaded chapter contains the requested anchor.
 function M.plan(index,current_uid,raw_href) return resolve(index,current_uid,raw_href,true) end
+
+-- A standalone chapter can only plan links from its scanned source.
+-- The caller validates the catalog's chapter identities before planning.
+function M.catalog_planner(chapters,scan)
+    local current_uid=scan.chapter_uid
+    local paths,physical=chapter_paths(scan.chapter)
+    local current={paths=paths,physical=physical,anchors=anchors_from(scan),anchors_known=true}
+    local index={entries={[current_uid]=current},files={},basenames=not physical and {} or nil}
+    local unscanned={anchors={},anchors_known=false}
+    add_paths(index,current_uid,paths)
+    for _i,chapter in ipairs(chapters) do
+        local key=uid(chapter)
+        if key~=current_uid then
+            local other_paths=chapter_paths(chapter)
+            add_paths(index,key,other_paths)
+            index.entries[key]=unscanned
+        end
+    end
+    return function(href) return resolve(index,current_uid,href,true) end
+end
 
 local function uri_parts(value)
     value=tostring(value or ''):gsub('\\','/')
