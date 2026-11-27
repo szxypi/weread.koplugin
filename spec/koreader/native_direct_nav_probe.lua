@@ -111,6 +111,19 @@ if input.mode=='gap' then
 else
     assert(host.opened and (input.mode=='online' or input.mode=='copies' or host.opened==input.second))
     local second=host.opened
+    if input.mode=='online' then
+        G_reader_settings:saveSetting('items_per_page',1)
+        G_reader_settings:saveSetting('items_font_size',20)
+        press('chapter_list')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+        local ctx=assert(host._native_direct_reading)
+        local menu=assert(ctx.menu)
+        local prefix=tr('Current chapter')..' · '
+        assert(not host.message and not ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
+            and not menu.item_table[1].text:find(prefix,1,true) and host.opened==second,
+            'online reader did not open the catalog at its current chapter')
+        UI:close(menu)
+    end
     if input.mode=='two' then
         host.opened=nil
         press('previous_chapter');wait(function() return host.opened or host.message end)

@@ -100,6 +100,38 @@ assert(next_button.enabled~=false);next_button:onTapSelectButton()
 pump(function() return Reader.instance and Reader.instance~=first and Reader.instance.document.file==input.second end)
 local second=Reader.instance;host=assert(second.weread)
 assert(not host:detectWeReadBook() and not host._current_weread_book_id)
+do
+    local perpage=G_reader_settings:readSetting('items_per_page')
+    local font_size=G_reader_settings:readSetting('items_font_size')
+    local connected=host.isNetworkConnected
+    G_reader_settings:saveSetting('items_per_page',1)
+    G_reader_settings:saveSetting('items_font_size',20)
+    host.isNetworkConnected=function() return false end
+    quick(host,'chapter_list')
+    pump(function()
+        return host._native_direct_reading and host._native_direct_reading.menu
+    end)
+    local ctx=host._native_direct_reading
+    local menu=ctx.menu
+    local prefix=util.tr('Current chapter')..' · '
+    assert(ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
+        and not menu.item_table[1].text:find(prefix,1,true) and second.document.file==input.second,
+        'offline reader did not open the catalog at its current chapter file')
+    menu:onLeftButtonTap()
+    local input_dialog=assert(menu._shelf_popup)
+    input_dialog:setInputText('no matching synthetic chapter')
+    input_dialog.buttons[1][2].callback()
+    assert(menu.page==1 and not menu.item_table[1].select_enabled)
+    menu:onLeftButtonTap()
+    assert(menu._shelf_popup).buttons[1][1].callback()
+    assert(menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1,
+        'clearing offline chapter search did not return to the current chapter')
+    UI:close(menu)
+    assert(host._book_detail_view):onClose()
+    host.isNetworkConnected=connected
+    G_reader_settings:saveSetting('items_per_page',perpage)
+    G_reader_settings:saveSetting('items_font_size',font_size)
+end
 quick(host,'reader_progress')
 pump(function() return host._weread_reader_progress~=nil end)
 progress=assert(host._weread_reader_progress)

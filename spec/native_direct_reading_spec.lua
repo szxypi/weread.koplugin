@@ -75,8 +75,8 @@ local function fixture()
         showInputDialog=function(_,dialog) state.input=dialog end,
         showList=function(_,title,items,_,options)
             local menu={item_table=items,getPageNumber=function(_,index) return index end,
-                onGotoPage=function(_,page) state.page=page end,switchItemTable=function(self,_,rows)
-                self.item_table=rows;state.items=rows
+                onGotoPage=function(_,page) state.page=page end,switchItemTable=function(self,_,rows,index)
+                self.item_table=rows;state.items=rows;state.page=index or 1
             end}
             state.title=title;state.items=items;state.subtitle=options.subtitle;state.icon=options.left_icon
             state.select=function(index) options.on_choice(menu.item_table[index]) end
@@ -123,6 +123,22 @@ host._native_direct_reading.menu:onLeftButtonTap();s.input.input='First';s.input
 expect(#s.items==2 and s.items[1].text=='1. First' and s.items[2].text=='2. First  ·  Unavailable'
     and not s.items[2].select_enabled,'duplicate titles lost the catalog position or access hint')
 sample.reading_chapters[2].title='Locked'
+local anchor={book_id='456',owner=require('weread.lib.crypto').sha256_hex('native-direct-account\0'..scope.vid),
+    chapter_uid='2',title='Locked',book_version=7,missing_images=0,text_digest=digest,source_sha256=digest,
+    key=fingerprint,copy=0}
+local function marked(item) return item.text:find('Current chapter · ',1,true)==1 end
+host,s=fixture();expect(UI.start(host,{book_id='456'},s.view,{anchor=anchor}),'current chapter catalog failed')
+s.finish(1)
+expect(s.page==2 and marked(s.items[2]) and not s.items[2].select_enabled
+    and not marked(s.items[1]),'catalog did not locate and mark the current chapter')
+menu=host._native_direct_reading.menu
+menu:onLeftButtonTap();s.input.input='First';s.input.buttons[1][2].callback()
+expect(s.page==1 and #s.items==1 and not marked(s.items[1]),'title search did not start at its first match')
+menu:onLeftButtonTap();s.input.buttons[1][1].callback()
+expect(s.page==2 and marked(s.items[2]) and #s.jobs==1,'clearing search did not return to the current chapter')
+anchor.book_version=6
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{anchor=anchor});s.finish(1)
+expect(not s.page and not marked(s.items[2]),'a different catalog version inherited a current chapter badge')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
 expect(s.opened==0 and host._native_direct_reading==nil,'stale account opened chapter')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='catalog_changed';s.finish(2)
@@ -184,7 +200,7 @@ UI.start(host,{book_id='456'},s.view,{target=stale_target});s.finish(1)
 expect(#s.jobs==1 and s.message=='The chapter list changed. Please open it again.','changed catalog was used for adjacent download')
 local cache=require('weread.lib.native_direct_cache');local pending=require('weread.lib.native_direct_pending')
 local old_list,old_valid,old_open,old_mark=cache.list,cache.valid_entry,cache.open,pending.mark
-local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0}
+local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0,source_sha256=digest}
 cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
 pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end
 host,s=fixture();host.isNetworkConnected=function() error('saved chapter menu probed network state') end
@@ -198,6 +214,13 @@ expect(#s.items==1 and s.items[1].text:find('Offline position to review',1,true)
 local other_copy={};for key,value in pairs(saved_entry) do other_copy[key]=value end
 other_copy.copy=1
 cache.list=function() return {saved_entry,other_copy} end
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true,anchor=other_copy});s.finish(1)
+expect(s.page==2 and marked(s.items[2]) and not marked(s.items[1]),
+    'saved catalog highlighted a different copy of the same chapter')
+local replaced={};for key,value in pairs(other_copy) do replaced[key]=value end
+replaced.source_sha256=fingerprint
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true,anchor=replaced});s.finish(1)
+expect(not s.page and not marked(s.items[2]),'a changed saved file inherited the current chapter badge')
 host,s=fixture();host.isNetworkConnected=function() error('alternative chooser probed network state') end
 expect(UI.start(host,{book_id='456'},s.view,{cached=true,failed_copy=saved_entry}),'alternative chooser did not start')
 s.finish(1)

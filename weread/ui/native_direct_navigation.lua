@@ -222,8 +222,9 @@ function M.start(host,direction,notes)
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
             enable_search_book=true,enable_search_cached=true}, {
             on_chapter_list=function()
+                local entry=ctx.entry
                 local book,view=details()
-                if book and view then require('weread.ui.native_direct_reading').start(host,book,view) end
+                if book and view then require('weread.ui.native_direct_reading').start(host,book,view,{anchor=entry}) end
             end,
             on_previous=function() step(-1) end,on_next=function() step(1) end,
             on_book_details=function() details() end,

@@ -53,6 +53,18 @@ local function project(model,id)
 end
 M.project=project
 
+local function current_row(rows,entry,catalog)
+    if not entry or catalog and entry.book_version~=catalog.version then return nil end
+    for index,row in ipairs(rows) do
+        if catalog then
+            if row.chapterUid==entry.chapter_uid then return index end
+        elseif row.chapter_uid==entry.chapter_uid and row.book_version==entry.book_version
+            and row.key==entry.key and row.copy==entry.copy and row.source_sha256==entry.source_sha256 then
+            return index
+        end
+    end
+end
+
 function M.cancel(host)
     local ctx=host._native_direct_reading
     if not ctx then return end
@@ -92,6 +104,8 @@ function M.start(host,book,view,options)
     end
     local failed_copy=type(options)=='table' and options.failed_copy or nil
     if failed_copy and (not cached or not require('weread.lib.native_direct_cache').valid_entry(failed_copy,id,scope.vid)) then return false end
+    local anchor=type(options)=='table' and options.anchor or nil
+    if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
     local selected=not offline and capture(host.settings) or nil
     if not offline and (not selected or selected.native.renewal_pending) then
         host:showInfo(_('E-Ink authorization is required to read these chapters.'))
@@ -157,6 +171,7 @@ function M.start(host,book,view,options)
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
+        local current_index=not picker and current_row(rows,anchor,ctx.catalog)
         local search=''
         local by_index,menu
         local function items()
@@ -171,6 +186,7 @@ function M.start(host,book,view,options)
                     or ChapterSearch.label(chapter_title,row.catalog_order,counts,saved_labels and saved_labels[index])
                 if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
+                if index==current_index then label=_('Current chapter')..' · '..label end
                 local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index}
                 result[number],by_index[index]=item,item
             end
@@ -218,11 +234,12 @@ function M.start(host,book,view,options)
             end,function(query)
                 search=query
                 menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
-                menu:switchItemTable(nil,items(),nil,nil,menu.subtitle)
+                menu:switchItemTable(nil,items(),search=='' and current_index or nil,nil,menu.subtitle)
             end)
             return true
         end
-        if picker and picker.start then menu:onGotoPage(menu:getPageNumber(picker.start)) end
+        local initial_index=picker and picker.start or current_index
+        if initial_index then menu:onGotoPage(menu:getPageNumber(initial_index)) end
     end
     local function start_batch(range)
         ctx.batch_range=range
