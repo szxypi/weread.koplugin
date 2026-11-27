@@ -50,6 +50,26 @@ plugin:closeWeReadUI()
 view.data.navigation[3].callback()
 expect(state.calls==0 and not plugin.shelf_view,'closed home navigation reopened a page')
 
+plugin,state=host();view=state.open();view.page=2
+view.getFocusedBookId=function() return '8' end
+view:onFlushSettings()
+expect(plugin._home_browse_position.anchor==7 and plugin._home_browse_position.focus=='8',
+    'leaving home did not remember the page and book')
+local restored
+plugin.library_db.getShelf=function() return {} end
+plugin.library_db.getShelfArchives=function() return {} end
+plugin.applyShelfSnapshot=function() end
+plugin.homePreferences=function() return {recent_limit=24} end
+plugin.homeShortcuts=function() return {} end
+plugin.showDiscoveryPage=function(_,_,_,options) restored=options end
+plugin.shelf_view=nil
+Discovery.showHome(plugin)
+expect(restored.rotation_anchor==7 and restored.focus_book_id=='8','home did not restore its own account position')
+state.account='account-b';view:onFlushSettings()
+expect(plugin._home_browse_position.account=='account-a','stale home saved a position for a different account')
+Discovery.showHome(plugin)
+expect(not restored.rotation_anchor and not restored.focus_book_id,'home opened using another account position')
+
 local events={closed=function(p) p:closeWeReadUI() end,replaced=function(_p,s) s.open() end,
     account=function(_p,s) s.account='account-b' end,epoch=function(p) p.discovery_epoch=1 end,
     session=function(p) p._reader_session_gen=1 end,document=function(p) p.ui.document={} end,

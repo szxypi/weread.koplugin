@@ -319,6 +319,7 @@ function M:onWeReadAccountChanged()
     if self.progress_sync and self.progress_sync.on_account_changed then self.progress_sync:on_account_changed() end
     self:closeWeReadUI()
     self.discovery_state = nil
+    self._home_browse_position = nil
     self.discovery_categories = nil
     self.shelf_progress_retry_at = nil
     self.shelf_regular = nil

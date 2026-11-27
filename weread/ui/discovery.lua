@@ -10,7 +10,7 @@ local VolatileShelf = require("weread.lib.volatile_shelf")
 local _ = PluginUtil.tr
 local M = {}
 
-local function bookstore_position(view)
+local function view_position(view)
     return {anchor=(view.page-1)*view.page_size+1,focus=view:getFocusedBookId()}
 end
 
@@ -69,8 +69,9 @@ function M:showDiscoveryPage(tab, books, options)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if previous then
-        if options.bookstore_state and previous._bookstore_state==options.bookstore_state then
-            previous._bookstore_redrawing=true
+        if (home and previous._discovery_tab=='home')
+            or options.bookstore_state and previous._bookstore_state==options.bookstore_state then
+            previous._discovery_redrawing=true
         end
         UIManager:close(previous)
     end
@@ -84,7 +85,9 @@ function M:showDiscoveryPage(tab, books, options)
         options.page = next_page
         Popup.redraw(view, function()
             if not current() or self._book_detail_view then return end
-            if options.bookstore_state and options.page==view.page then options.focus_book_id=view:getFocusedBookId() end
+            if (home or options.bookstore_state) and options.page==view.page then
+                options.focus_book_id=view:getFocusedBookId()
+            end
             self:showDiscoveryPage(tab, books, options)
         end)
     end
@@ -134,17 +137,25 @@ function M:showDiscoveryPage(tab, books, options)
     view._finish_dirty=carry_dirty
     view._discovery_tab = tab
     local state=options.bookstore_state
-    if state then
+    if home or state then
+        local account=self.library_db and self.library_db:accountKey()
         view._bookstore_state=state
+        view._browse_account=account
         local flush=view.onFlushSettings
         view.onFlushSettings=function(widget,...)
-            if not widget._shelf_closed and not widget._bookstore_redrawing and self.discovery_state==state
-                and self.library_db:accountKey()==state.account then
-                local position=bookstore_position(widget)
-                local prior=state._browse_position
-                if not state._browse_saved or not prior or prior.anchor~=position.anchor or prior.focus~=position.focus then
-                    state._browse_position=position
-                    state._browse_saved=require('weread.ui.discovery_cache').remember(self,state,position)
+            if not widget._shelf_closed and not widget._discovery_redrawing
+                and (self.library_db and self.library_db:accountKey())==account
+                and (home or self.discovery_state==state and state.account==account) then
+                local position=view_position(widget)
+                if home then
+                    position.account=account
+                    self._home_browse_position=position
+                else
+                    local prior=state._browse_position
+                    if not state._browse_saved or not prior or prior.anchor~=position.anchor or prior.focus~=position.focus then
+                        state._browse_position=position
+                        state._browse_saved=require('weread.ui.discovery_cache').remember(self,state,position)
+                    end
                 end
             end
             if flush then return flush(widget,...) end
@@ -226,6 +237,13 @@ end
 
 function M:showHome(refresh_progress, refreshed_shelf)
     if self._profile_view then self:closeWeReadUI() end
+    local account=self.library_db and self.library_db:accountKey()
+    local position=self._home_browse_position
+    if position and position.account~=account then position=nil end
+    local view=self.shelf_view
+    if view and view._discovery_tab=='home' and not view._shelf_closed and view._browse_account==account then
+        position=view_position(view)
+    end
     local cached, archives
     local volatile = VolatileShelf.get(self)
     if type(refreshed_shelf) == "table" and type(refreshed_shelf.books) == "table"
@@ -240,10 +258,10 @@ function M:showHome(refresh_progress, refreshed_shelf)
     self:applyShelfSnapshot(cached or {}, archives,
         volatile ~= nil and volatile.books == cached and volatile.archives == archives)
     local preferences = self:homePreferences()
-    self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}),
-        self.library_db and self.library_db:accountKey(), preferences.recent_limit), {
+    self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}), account, preferences.recent_limit), {
         title = _("WeRead home"),
         home = preferences,
+        rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,
         refresh_progress = refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
         actions = self:homeShortcuts(preferences),
@@ -451,7 +469,7 @@ function M:showBookstore()
     local position=state and state._browse_position
     local view=self.shelf_view
     if state and view and view._bookstore_state==state and not view._shelf_closed then
-        position=bookstore_position(view)
+        position=view_position(view)
     end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
