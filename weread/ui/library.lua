@@ -1647,6 +1647,9 @@ function M:showBookMenu(book, options)
     local direct_cached=options and options.read_saved_native
         or self.nativeChapterCachePresent and self:nativeChapterCachePresent(book_id)
     local native_book=require('weread.lib.native_position_protocol').id(book_id)~=nil
+    local native_resume=native_book and saved.native_home_resume and require('weread.ui.native_home_resume')
+    local can_resume_eink=native_resume and native_resume.can_resume(self,saved,book_id)
+    local native_primary=can_resume_eink or native_book and options and options.read_saved_native==true
     local native_only=native_book and not require('weread.lib.shelf_source').web_access(self.settings)
         and has_native_read_access(self.settings)
     if not direct_cached or any_cached_chapter or is_full_cached then statuses[#statuses + 1] = chapter_status end
@@ -1814,11 +1817,16 @@ function M:showBookMenu(book, options)
                 if not opened then original.disarm(path);error(err) end
             end)}
     end
-    if any_cached_chapter and not is_full_cached then
-        actions[#actions+1]={text=_('Read cached copy'),callback=self:safeCallback(_('Read cached copy'),function()
+    if any_cached_chapter and not is_full_cached or native_primary and is_full_cached then
+        local label=_(native_primary and 'Read standard download' or 'Read cached copy')
+        actions[#actions+1]={text=label,callback=self:safeCallback(label,function()
             if not cache_scope or not cache_scope() or self._book_detail_view~=view then return end
-            local latest=self.settings:get_book(book_id) or book
-            self:readCachedCopy(latest,view)
+            local latest,identity_error=ReadAccess.load_cached_book(self.settings,book_id)
+            if identity_error then
+                self:showInfo(_('Saved book information does not match. Check the local cache before opening.'));return
+            end
+            if native_primary and not latest then self:showInfo(_('No cached file.'));return end
+            self:readCachedCopy(latest or book,view)
         end)}
     end
     if any_cached_chapter or is_full_cached then
@@ -1830,15 +1838,14 @@ function M:showBookMenu(book, options)
     end
     local native_resume_action, download_native_action, native_batch_action
     if native_book then
-        local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
-        if resume and resume.can_resume(self,saved,book_id) then
+        if can_resume_eink then
             local resume_scope=self.settings:get_auth_scope()
             local resume_session=self._reader_session_gen
             native_resume_action=self:safeCallback(_('Continue saved E-Ink chapter'),function()
                 if self._book_detail_view~=view or self._reader_session_gen~=resume_session
                     or not self.settings:auth_scope_matches(resume_scope) then return end
                 local latest=self.settings:get_book(book_id)
-                if resume.can_resume(self,latest,book_id) then resume.open_detail(self,latest,book_id,view)
+                if native_resume.can_resume(self,latest,book_id) then native_resume.open_detail(self,latest,book_id,view)
                 else self:showInfo(_('The saved E-Ink chapter changed or could not be verified. Choose a saved chapter instead.')) end
             end)
         end

@@ -249,8 +249,9 @@ def run(runtime, read_entries_only=False):
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
                                  'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all',
-                                 'downloads_pending', 'downloads_discard', 'record_standard', 'standard_cancel',
-                                 'standard_home', 'standard_shelf', 'standard_downloads', 'switch'):
+                                 'downloads_pending', 'downloads_discard', 'record_standard', 'select_standard_detail',
+                                 'select_standard_downloads', 'select_native_downloads', 'select_removed_downloads',
+                                 'standard_cancel', 'standard_home', 'standard_shelf', 'standard_downloads', 'switch'):
                         standard = mode.startswith('standard_')
                         receipt = path.parent/'receipt.txt'
                         original = receipt.read_bytes() if standard or mode in ('damage', 'detail_damage', 'no_alternative') else None
@@ -272,7 +273,7 @@ def run(runtime, read_entries_only=False):
                                     alternative=str(alternative))
                         if mode == 'record_standard':
                             case['path'] = str(standard_path)
-                        if standard:
+                        if standard or mode.startswith('select_'):
                             case['standard'] = str(standard_path)
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),
                                                 str(REPO)], input=json.dumps(case), text=True,
@@ -305,6 +306,7 @@ def run(runtime, read_entries_only=False):
             print('PASS: normal KOReader close preserves the verified chapter chosen from the offline shelf at both sizes')
             print('PASS: quick offline turns save a reminder on close and preserve prior reminders at both sizes')
             print('PASS: missing E-Ink resume can open the standard downloaded page or cancel at both sizes')
+            print('PASS: choose either available download, keep its saved page and reject a removed copy at both sizes')
     finally:
         server.shutdown()
         server.server_close()

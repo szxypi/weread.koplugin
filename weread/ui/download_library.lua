@@ -74,11 +74,15 @@ local function collect(host, current)
     return rows,plans
 end
 
-local function show_detail(host, book)
+local function downloaded_copies(host,book)
     local record, conflict = ReadAccess.load_cached_book(host.settings, book.bookId)
-    local downloaded = not conflict and host:bookRecordHasDownload(record)
-    local native_cached = not conflict and (book._native_cached_hint or host:nativeChapterCachePresent(book.bookId))
-    if not (downloaded or native_cached) then
+    if conflict then return false,false end
+    return host:bookRecordHasDownload(record),book._native_cached_hint or host:nativeChapterCachePresent(book.bookId),record
+end
+
+local function show_detail(host, book, choose_native)
+    local downloaded,native_cached,record=downloaded_copies(host,book)
+    if not native_cached and (choose_native or not downloaded) then
         host:showInfo(_('No cached file.'))
         return
     end
@@ -87,7 +91,7 @@ local function show_detail(host, book)
         for key,value in pairs(record) do detail[key] = value end
     end
     for key,value in pairs(book) do if key~='_native_cached_hint' then detail[key] = value end end
-    return host:showBookMenu(detail,{read_saved_native=not downloaded and native_cached})
+    return host:showBookMenu(detail,{read_saved_native=native_cached and (choose_native or not downloaded)})
 end
 
 local function show_actions(host, book, view, current)
@@ -102,15 +106,25 @@ local function show_actions(host, book, view, current)
             end)
         end
     end
-    dialog = require('ui/widget/buttondialog'):new{
-        title = book.title, buttons = {
-            {{text = _('Read downloaded copy'), callback = action(function()
-                host:readFromBookList(Data.book(book), view, current, true, book._native_cached_hint)
-            end)}},
-            {{text = _('Book details'), callback = action(function() show_detail(host, book) end)}},
-            {{text = _('Cancel'), callback = action()}},
-        },
-    }
+    local standard,native=downloaded_copies(host,book)
+    local both=standard and native
+    local buttons={{{text=_(both and 'Continue reading' or 'Read downloaded copy'),callback=action(function()
+        host:readFromBookList(Data.book(book),view,current,true,book._native_cached_hint)
+    end)}}}
+    if both then
+        buttons[#buttons+1]={{text=_('Read standard download'),callback=action(function()
+            local latest,conflict=ReadAccess.load_cached_book(host.settings,book.bookId)
+            if not conflict and host:bookRecordHasDownload(latest) then host:readCachedCopy(latest)
+            else host:showInfo(_('No cached file.')) end
+        end)}}
+        buttons[#buttons+1]={{text=_('Read saved E-Ink chapter'),callback=action(function()
+            local detail=show_detail(host,book,true)
+            if detail then require('weread.ui.native_direct_reading').start(host,book,detail,{cached=true}) end
+        end)}}
+    end
+    buttons[#buttons+1]={{text=_('Book details'),callback=action(function() show_detail(host,book) end)}}
+    buttons[#buttons+1]={{text=_('Cancel'),callback=action()}}
+    dialog = require('ui/widget/buttondialog'):new{title=book.title,buttons=buttons}
     Popup.show(view, dialog)
 end
 

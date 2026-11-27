@@ -325,6 +325,55 @@ else
         assert(selected and type(saved.title)=='string' and saved.title~='' and selected.title==saved.title,
             'native search book not listed on home')
     else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
+    if input.mode:match('^select_') then
+        assert(standard_record)
+        require('ui/network/manager').isConnected=function() return false end
+        local tr=require('weread.lib.plugin_util').tr
+        local target=input.mode=='select_native_downloads' and input.path or input.standard
+        local anchor=standard_record.anchor
+        if input.mode=='select_standard_detail' then
+            local details=assert(host:showBookMenu(assert(host.settings:get_book(id))))
+            assert(details._footer_actions[3].text==tr('▤ Continue reading'))
+            local choose
+            for _,button in ipairs(details._action_buttons) do
+                if button.text==tr('Read standard download') then choose=button end
+            end
+            UI:forceRePaint();assert(choose,'ordinary copy is missing from the detail actions'):onTapSelectButton()
+        else
+            require('weread.ui.download_library').show(host)
+            pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+            view=host.shelf_view
+            assert(#view.books==1 and view.books[1].bookId==id)
+            view.on_hold(view.books[1])
+            local buttons=assert(view._shelf_popup).buttons
+            assert(buttons[1][1].text==tr('Continue reading'))
+            assert(buttons[2][1].text==tr('Read standard download')
+                and buttons[3][1].text==tr('Read saved E-Ink chapter'),'mixed downloads do not offer both formats')
+            if input.mode=='select_removed_downloads' then
+                local unavailable
+                host.showInfo=function(_,message) unavailable=message end
+                assert(os.rename(input.standard,input.standard..'.moved'))
+                buttons[2][1].callback()
+                pump(function() return unavailable end)
+                assert(os.rename(input.standard..'.moved',input.standard))
+                assert(unavailable==tr('No cached file.') and not Reader.instance and not host._native_direct_reading,
+                    'expired standard action opened a book or silently switched formats')
+                print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+                os.exit(0)
+            elseif input.mode=='select_native_downloads' then
+                buttons[3][1].callback()
+                pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+                local menu=host._native_direct_reading.menu
+                assert(not Reader.instance and #menu.item_table==2,'explicit E-Ink selection bypassed the saved chapters')
+                menu:onMenuSelect(menu.item_table[1])
+                local file=assert(io.open(home..'/anchor','rb'));anchor=assert(file:read('*a'));file:close()
+            else buttons[2][1].callback() end
+        end
+        pump(function() return Reader.instance and Reader.instance.document.file==target end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(anchor),'the selected copy did not restore its own page')
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        os.exit(0)
+    end
     local message
     local damage=standard_record or input.mode=='damage' or input.mode=='detail_damage'
         or input.mode=='shelf_damage' or input.mode=='no_alternative'
@@ -384,7 +433,9 @@ else
         else
             view.on_hold(cached)
             local button=assert(view._shelf_popup).buttons[1][1]
-            assert(button.text==require('weread.lib.plugin_util').tr(downloads and 'Read downloaded copy' or 'Read now'))
+            local tr=require('weread.lib.plugin_util').tr
+            assert(button.text==tr(downloads and 'Read downloaded copy' or 'Read now')
+                or downloads and button.text==tr('Continue reading'))
             button.callback()
         end
         pump(function() return rejected or Reader.instance or host._native_home_resume or host._native_direct_reading end)

@@ -522,6 +522,34 @@ Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Full book cached','full download with separate chapters displayed a partial count')
 expect(path_probes[detail_book.full_path]==1 and not path_probes['/cache/1.epub'],
     'detail probed individual cached chapters despite a recorded full download')
+do
+    local module='weread.ui.native_home_resume'
+    local previous=package.loaded[module]
+    local old_scope,old_matches=host.settings.get_auth_scope,host.settings.auth_scope_matches
+    local scope={vid='42',epoch=1}
+    host.settings.get_auth_scope=function() return scope end
+    host.settings.auth_scope_matches=function(_,value) return value==scope end
+    local native_opened
+    package.loaded[module]={can_resume=function(_,record) return record.native_home_resume~=nil end,
+        open_detail=function(_,record,id,owner_view)
+            native_opened=record==detail_book and id=='42' and owner_view==host._book_detail_view
+        end}
+    detail_book.native_home_resume={}
+    Library.showBookMenu(host,detail_book)
+    local standard
+    for _,action in ipairs(detail_data.actions) do if action.text=='Read standard download' then standard=action.callback end end
+    expect(standard and detail_data.bottom_actions[3].text=='▤ Continue reading',
+        'dual-copy detail cannot reach the ordinary EPUB without replacing native resume')
+    detail_data.bottom_actions[3].callback()
+    expect(native_opened,'primary footer stopped using native resume')
+    opened_path=nil;standard()
+    expect(opened_path==detail_book.full_path,'manual ordinary download opened a different source')
+    host._book_detail_view={};opened_path=nil;standard()
+    expect(not opened_path,'old ordinary download action opened after replacement')
+    detail_book.native_home_resume=nil
+    host.settings.get_auth_scope,host.settings.auth_scope_matches=old_scope,old_matches
+    package.loaded[module]=previous
+end
 detail_book.chapters=nil;Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Full book cached','full download without a catalog displayed a partial count')
 detail_book.full_path=nil;detail_book.cached_full_book=nil;detail_book.chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
