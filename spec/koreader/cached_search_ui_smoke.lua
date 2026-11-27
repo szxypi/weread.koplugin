@@ -1,5 +1,6 @@
 -- Offline search and cross-chapter navigation in a real synthetic reader.
 require('setupkoenv')
+io.stdout:setvbuf('no')
 local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
 local signed_out=os.getenv('WEREAD_TEST_CACHED_SIGNED_OUT')=='1'
 local no_catalog=os.getenv('WEREAD_TEST_CACHED_NO_CATALOG')=='1'
@@ -17,7 +18,8 @@ assert(not unicode_case or ignore_case)
 local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
 local limit_test=os.getenv('WEREAD_TEST_CACHED_LIMIT')=='1'
 local large_uid=os.getenv('WEREAD_TEST_CACHED_LARGE_UID')=='1'
-local long_catalog=tonumber(os.getenv('WEREAD_TEST_SEARCH_LONG_CATALOG'))
+local long_full=tonumber(os.getenv('WEREAD_TEST_CACHED_LONG_FULL'))
+local long_catalog=long_full or tonumber(os.getenv('WEREAD_TEST_SEARCH_LONG_CATALOG'))
 local second_uid=long_catalog and tostring(long_catalog) or large_uid and '9007199254740993' or '2'
 local target_uid=incomplete and '1' or second_uid
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
@@ -192,7 +194,13 @@ end
 if long_catalog then
     local last=chapters[2]
     for i=2,long_catalog-1 do
-        chapters[i]={chapterUid=tostring(i),chapterIdx=i,title='未下载章节 '..i,wordCount=1000}
+        local uid=tostring(i)
+        local chapter={chapterUid=uid,chapterIdx=i,title='合成章节 '..i,wordCount=1000}
+        chapters[i]=chapter
+        if long_full then
+            local raw='<html><body><p>Ordinary synthetic chapter '..uid..'</p></body></html>'
+            bodies[uid]=raw;sources[uid]=assert(Source.capture(book,chapter,raw,'web_xhtml'))
+        end
     end
     chapters[long_catalog]=last
 end
@@ -212,7 +220,8 @@ end
 book.cached_file=book.cached_chapters['1']
 if full then
     local full_sources=incomplete and {['1']=sources['1']} or sources
-    book.cached_full_book=assert(Content.save_book_epub(settings,book,{chapters[1],chapters[2]},bodies,
+    local full_chapters=long_full and chapters or {chapters[1],chapters[2]}
+    book.cached_full_book=assert(Content.save_book_epub(settings,book,full_chapters,bodies,
         'cached-search-full',{},nil,nil,Identity.capture(book),full_sources))
     book.cached_file=book.cached_full_book
     if not dual then book.cached_chapters={} end
@@ -230,11 +239,25 @@ settings:set('books',{[book_id]=book});settings:set('sync',{pull_on_open=false,u
 local cache=settings:get('cache',{});cache.auto_prefetch_next_chapter=false;settings:set('cache',cache)
 local report=settings:get('read_report',{});report.enabled=false;settings:set('read_report',report);settings:flush()
 if not no_catalog then assert(Content.save_catalog_cache(require('weread.lib.client'):new(settings),settings,book,chapters)) end
+if long_full then
+    for uid in pairs(bodies) do bodies[uid],sources[uid]=nil,nil end
+    chapters=nil
+    collectgarbage()
+end
 local Client=require('weread.lib.client')
 local ffi=require('ffi')
 pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
 local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
 local requests=ffi.cast('int *',memory);requests[0]=0
+if long_full then
+    requests[1]=0
+    local Archive=require('weread.lib.source_archive')
+    local read_batch=Archive.read_batch
+    function Archive.read_batch(...)
+        requests[1]=requests[1]+1
+        return read_batch(...)
+    end
+end
 local request=Client.request
 function Client:request(options)
     requests[0]=requests[0]+1
@@ -258,7 +281,7 @@ local reader=require('apps/reader/readerui'):new{dimen=Device.screen:getSize(),
     document=require('document/documentregistry'):openDocument(book.cached_file)}
 UI:show(reader);UI:shiftScheduledTasksBy(-1e9);UI:handleInput()
 local function wait(predicate)
-    local deadline=socket.gettime()+45
+    local deadline=socket.gettime()+(long_full and 160 or 45)
     while not predicate() do
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
         assert(socket.gettime()<deadline,'cached search UI timed out')
@@ -296,11 +319,14 @@ wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
 assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=original_discover
+local search_start=socket.gettime()
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
+local search_ms=math.floor((socket.gettime()-search_start)*1000+.5)
 local count=incomplete and 1 or 2
 local unavailable=no_catalog and 0 or #chapters-2
-assert(#owner.value==count and owner.checked==(limit_test and 1 or count) and owner.missing==unavailable)
+local checked=long_full or (limit_test and 1 or count)
+assert(#owner.value==count and owner.checked==checked and owner.missing==unavailable)
 if limit_test then
     local _=require('weread.lib.i18n').tr
     assert(owner.limit and not owner.finished and owner.menu.item_table[1].text==
@@ -366,7 +392,7 @@ if restore_catalog then
     os.exit(0)
 end
 if full then
-    assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[count].uid==target_uid)
+    assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[long_full or count].uid==target_uid)
     if incomplete then
         local found=false
         for _i,item in ipairs(owner.menu.item_table) do
@@ -409,6 +435,11 @@ if no_catalog then
         and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
 end
 assert(requests[0]==0,'offline cached search attempted a network request')
+if long_full then
+    assert(owner.total==long_full and owner.checked==long_full and requests[1]>0 and requests[1]<500)
+    print('\nWEREAD_CACHED_LONG_FULL='..require('json').encode({chapters=owner.checked,
+        batch_reads=tonumber(requests[1]),search_ms=search_ms}))
+end
 print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=unavailable,
     navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog,
     full=full,incomplete=incomplete,dual=dual,ignore_ascii_case=ignore_case}))

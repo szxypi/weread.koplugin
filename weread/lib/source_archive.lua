@@ -1,6 +1,9 @@
 -- Worker-only, bounded reads from a new archive descriptor. Never extract to
 -- disk, touch the reader's inherited native DOM/ZIP handles, or log content.
+local Catalog = require('weread.lib.chapter_catalog')
 local M = { MAX_ENTRIES = 1000000, MAX_MEMBERS = 8, MAX_MEMBER_BYTES = 8 * 1024 * 1024 }
+M.MAX_BATCH_MEMBERS = 1025
+M.MAX_BATCH_BYTES = 16 * 1024 * 1024
 local compare_bytes
 local function byte_comparator(ffi)
     if compare_bytes == nil then
@@ -14,17 +17,18 @@ local function byte_comparator(ffi)
     end
     return compare_bytes
 end
-function M.read(path, wanted)
+local function read_members(path, wanted, batch)
     if type(path) ~= 'string' or path == '' or #path > 4096 or path:find('%z') or type(wanted) ~= 'table' then
         return nil, 'source_archive/invalid'
     end
     local count = 0
     for name, maximum in pairs(wanted) do
         count = count + 1
+        local limit = name == 'OEBPS/content.opf' and Catalog.MAX_PACKAGE_BYTES or M.MAX_MEMBER_BYTES
         if type(name) ~= 'string' or #name > 1024 or type(maximum) ~= 'number' or maximum % 1 ~= 0
-            or maximum < 1 or maximum > M.MAX_MEMBER_BYTES then return nil, 'source_archive/invalid' end
+            or maximum < 1 or maximum > limit then return nil, 'source_archive/invalid' end
     end
-    if count == 0 or count > M.MAX_MEMBERS then return nil, 'source_archive/invalid' end
+    if count == 0 or count > (batch and M.MAX_BATCH_MEMBERS or M.MAX_MEMBERS) then return nil, 'source_archive/invalid' end
     local archive, entry, lib, ffi
     local ok, result = pcall(function()
         ffi = require('ffi')
@@ -35,10 +39,11 @@ function M.read(path, wanted)
         if lib.archive_read_support_format_all(archive) ~= lib.ARCHIVE_OK
             or lib.archive_read_support_filter_all(archive) ~= lib.ARCHIVE_OK
             or lib.archive_read_open_filename(archive, path, 10240) ~= lib.ARCHIVE_OK then return nil end
-        local members, found = {}, 0
+        local members, found, used = {}, 0, 0
+        local buffer = ffi.new('char[?]', 65536)
         for _i = 1, M.MAX_ENTRIES do
             local status = lib.archive_read_next_header2(archive, entry)
-            if status == lib.ARCHIVE_EOF then return found == count and members or nil end
+            if status == lib.ARCHIVE_EOF then return (batch or found == count) and members or nil end
             if status ~= lib.ARCHIVE_OK then return nil end
             local pointer = lib.archive_entry_pathname(entry)
             if pointer == nil then return nil end
@@ -48,8 +53,9 @@ function M.read(path, wanted)
                 if members[name] ~= nil or lib.archive_entry_filetype(entry) ~= lib.AE_IFREG then return nil end
                 local size = tonumber(lib.archive_entry_size(entry))
                 if not size or size < 0 or size > maximum or size % 1 ~= 0 then return nil end
+                used = used + size
+                if batch and used > M.MAX_BATCH_BYTES then return nil end
                 local chunks, total = {}, 0
-                local buffer = ffi.new('char[?]', 65536)
                 while true do
                     local read = tonumber(lib.archive_read_data(archive, buffer, 65536))
                     if not read or read < 0 then return nil end
@@ -70,6 +76,16 @@ function M.read(path, wanted)
     if entry ~= nil and lib then pcall(lib.archive_entry_free, entry) end
     if not ok or not result then return nil, 'source_archive/unavailable' end
     return result
+end
+
+function M.read(path, wanted)
+    return read_members(path, wanted, false)
+end
+
+-- Missing members are checked by each snapshot consumer. Ambiguous, invalid
+-- or oversized members stop the batch before any hits can be accepted.
+function M.read_batch(path, wanted)
+    return read_members(path, wanted, true)
 end
 -- Verify many known members in a single pass, retaining at most one member's
 -- bytes. This is for worker-side whole-book checks, not archive extraction.
@@ -138,16 +154,19 @@ function M.verify_members(path, wanted)
 end
 -- Discover only sealed per-chapter metadata; raw and rendered chapter bytes
 -- remain subject to the independent bounded read and hash verification above.
-function M.position_metadata(path)
-    if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]') then return nil end
+function M.position_metadata(path,visit)
+    if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]')
+        or visit~=nil and type(visit)~='function' then return nil end
     local archive,entry,lib,ffi
+    local max_count=visit and Catalog.MAX_CHAPTERS or 10000
+    local max_bytes=(visit and 16 or 8)*1024*1024
     local ok,result=pcall(function()
         ffi=require('ffi');require('ffi/libarchive_h');lib=ffi.loadlib('archive','13')
         archive,entry=lib.archive_read_new(),lib.archive_entry_new()
         if archive==nil or entry==nil or lib.archive_read_support_format_all(archive)~=lib.ARCHIVE_OK
             or lib.archive_read_support_filter_all(archive)~=lib.ARCHIVE_OK
             or lib.archive_read_open_filename(archive,path,10240)~=lib.ARCHIVE_OK then return nil end
-        local found,seen,total={},{},0
+        local found,seen,total,count=visit and true or {},{},0,0
         local buffer=ffi.new('char[?]',4096)
         for _i=1,M.MAX_ENTRIES do
             local status=lib.archive_read_next_header2(archive,entry)
@@ -159,18 +178,21 @@ function M.position_metadata(path)
             if digest and #digest==64 then
                 local size=tonumber(lib.archive_entry_size(entry))
                 if seen[name] or lib.archive_entry_filetype(entry)~=lib.AE_IFREG or not size or size%1~=0
-                    or size<1 or size>4096 or #found>=10000 or total+size>8*1024*1024 then return nil end
-                seen[name]=true;total=total+size
+                    or size<1 or size>4096 or count>=max_count or total+size>max_bytes then return nil end
+                seen[name]=true;total=total+size;count=count+1
                 local chunks,used={},0
                 while true do
-                    local count=tonumber(lib.archive_read_data(archive,buffer,4096))
-                    if not count or count<0 then return nil end
-                    if count==0 then break end
-                    used=used+count;if used>size then return nil end
-                    chunks[#chunks+1]=ffi.string(buffer,count)
+                    local bytes=tonumber(lib.archive_read_data(archive,buffer,4096))
+                    if not bytes or bytes<0 then return nil end
+                    if bytes==0 then break end
+                    used=used+bytes;if used>size then return nil end
+                    chunks[#chunks+1]=ffi.string(buffer,bytes)
                 end
                 if used~=size then return nil end
-                found[#found+1]={name=name,metadata=table.concat(chunks)}
+                local metadata=table.concat(chunks)
+                if visit then
+                    if visit(name,metadata)==false then return nil end
+                else found[count]={name=name,metadata=metadata} end
             end
         end
     end)

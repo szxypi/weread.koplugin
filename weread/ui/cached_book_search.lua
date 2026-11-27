@@ -187,11 +187,16 @@ render=function(host,owner)
     end)
 end
 
-local function scan_batch(requests,room)
+local function scan_batch(requests,room,archive)
+    local reader
+    if archive then
+        reader=Search.batch_reader(archive,requests)
+        if not reader then return {archive_unavailable=true} end
+    end
     local results={}
     local deadline=Time.now()+BATCH_TIME
     for index,request in ipairs(requests) do
-        local result=Search.scan(request)
+        local result=Search.scan(request,reader)
         results[index]=type(result)=='table' and result or {error='unavailable'}
         if type(result)~='table' or result.error or type(result.hits)~='table' then break end
         room=room-#result.hits
@@ -235,7 +240,7 @@ end
 start=function(host,owner)
     if not current(host,owner) or owner.job or owner.navigation or owner.download or owner.finished or owner.limit or owner.show_previous then return false end
     local ok,worker=pcall(function()
-        return owner.worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=1024*1024}
+        return owner.worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=4*1024*1024}
     end)
     if not ok or not worker then host:showInfo(_('Could not search downloaded chapters.'));return false end
     owner.worker=worker
@@ -259,22 +264,30 @@ start=function(host,owner)
                 if owner.job~=job then return end
                 if not current(host,owner) then M.cancel(host);return end
                 local valid=type(result)=='table' and not result.error and type(result.entries)=='table'
-                    and #result.entries<=10000 and type(result.incomplete)=='boolean'
+                    and #result.entries<=Catalog.MAX_CHAPTERS and type(result.incomplete)=='boolean'
                 local seen,last={},0
                 if valid then for _i,row in ipairs(result.entries) do
                     if type(row)~='table' or type(row.uid)~='string' or not Access.book_id(row.uid)
                         or type(row.index)~='number' or row.index%1~=0
-                        or row.index<=last or row.index>100000 or seen[row.uid] then valid=false;break end
+                        or row.index<=last or row.index>100000 or seen[row.uid]
+                        or type(row.raw_sha256)~='string' or #row.raw_sha256~=64 or row.raw_sha256:find('[^a-f0-9]')
+                        or type(row.render_path)~='string' or #row.render_path>35
+                        or not (row.index==1 and row.render_path=='OEBPS/text/chapter.xhtml'
+                            or tonumber(row.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$'))==row.index) then
+                        valid=false;break
+                    end
                     seen[row.uid]=true;last=row.index
                 end end
                 if valid then
                     local mapped,merged={},{}
+                    local full_path,chapter_label={owner.full},_('Downloaded chapter %1')
                     for _i,row in ipairs(owner.queue) do mapped[row.uid]=row end
                     for _i,row in ipairs(result.entries) do
                         local existing=mapped[row.uid]
-                        local title=T(_('Downloaded chapter %1'),row.index)
-                        merged[#merged+1]=existing or {uid=row.uid,paths={owner.full}}
-                        merged[#merged].title=title;owner.titles[row.uid]=title;mapped[row.uid]=nil
+                        local title=T(chapter_label,row.index)
+                        local chapter=existing or {uid=row.uid,paths=full_path}
+                        chapter.title,chapter.archive=title,row
+                        merged[#merged+1]=chapter;owner.titles[row.uid]=title;mapped[row.uid]=nil
                     end
                     for _i,row in ipairs(owner.queue) do if mapped[row.uid] then merged[#merged+1]=row end end
                     if #merged<=Catalog.MAX_CHAPTERS then
@@ -302,16 +315,25 @@ start=function(host,owner)
         end
         if not owner.queue[owner.index] then owner.finished=true;stop(host,owner);render(host,owner);return end
         local requests={}
-        local last=job.single_scan and owner.index or math.min(#owner.queue,owner.index+M.MAX_SCANS_PER_WORKER-1)
+        local archive=owner.queue[owner.index].archive and owner.full
+        local limit=job.single_scan and 1 or archive and (job.archive_batch_limit or Search.MAX_ARCHIVE_BATCH)
+            or M.MAX_SCANS_PER_WORKER
+        local last=math.min(#owner.queue,owner.index+limit-1)
         for index=owner.index,last do
             local chapter=owner.queue[index]
+            if archive and not chapter.archive then break end
             requests[#requests+1]={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,
-                from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case}
+                from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case,archive=chapter.archive}
         end
+        if #requests==1 then archive=nil end
         local room=M.MAX_RESULTS-#owner.value
-        local called,started=pcall(worker.start,worker,function() return scan_batch(requests,room) end,function(result)
+        local called,started=pcall(worker.start,worker,function() return scan_batch(requests,room,archive) end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
+            if archive and type(result)=='table' and result.archive_unavailable==true then
+                job.archive_batch_limit=math.floor(#requests/2)
+                later();return
+            end
             local results=type(result)=='table' and result.results
             if type(results)~='table' or #results==0 or #results>#requests then
                 if #requests>1 then job.single_scan=true;later();return end

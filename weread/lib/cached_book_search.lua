@@ -3,6 +3,7 @@
 -- source anchor before any reader movement, and never grants sync authority.
 local Access=require('weread.lib.read_access')
 local Archive=require('weread.lib.source_archive')
+local Catalog=require('weread.lib.chapter_catalog')
 local Coordinates=require('weread.lib.source_coordinates')
 local Dom=require('weread.lib.source_dom')
 local Identity=require('weread.lib.book_file_identity')
@@ -10,7 +11,7 @@ local Protocol=require('weread.lib.protocol')
 local Source=require('weread.lib.position_source')
 local Crypto=require('weread.lib.crypto')
 local UnicodeSearch=require('weread.lib.unicode_search')
-local M={MAX_HITS=30,MAX_EXAMINED=100}
+local M={MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=256}
 M.unicode_casefold_available=UnicodeSearch.available
 
 -- ASCII case folding preserves UTF-8 byte offsets; the original text remains
@@ -59,31 +60,68 @@ function M.discover(input,read_archive,list_metadata)
         local head=read(input.file,{[Identity.PATH]=Identity.MAX_BYTES})
         local identity=head and Identity.decode(head[Identity.PATH])
         if not identity or identity.book_id~=input.book then return {error='unavailable'} end
-        local members=(list_metadata or Archive.position_metadata)(input.file)
-        if type(members)~='table' or #members>10000 then return {error='unavailable'} end
         local entries,seen_uid,seen_index={}, {}, {}
-        local incomplete=false
-        for _i,member in ipairs(members) do
-            local record=type(member)=='table' and Source.decode_metadata(member.metadata)
+        local incomplete,ambiguous=false,false
+        local function visit(name,metadata)
+            local record=Source.decode_metadata(metadata)
             local uid=record and Access.book_id(record.chapter_uid)
             local index=record and record.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$')
             if not index and identity.chapter_count==1 and record and record.render_path=='OEBPS/text/chapter.xhtml' then index='1' end
             index=tonumber(index)
             if not record or not uid or record.book_id~=input.book
                 or record.file_id~=identity.file_id or record.book_version~=identity.book_version
-                or Source.meta_path(uid)~=member.name or not index or index<1 or index>identity.chapter_count then
+                or Source.meta_path(uid)~=name or not index or index<1 or index>identity.chapter_count then
                 incomplete=true
             elseif seen_uid[uid] or seen_index[index] then
-                return {error='ambiguous'}
+                ambiguous=true;return false
             else
                 seen_uid[uid],seen_index[index]=true,true
-                entries[#entries+1]={uid=uid,index=index}
+                entries[#entries+1]={uid=uid,index=index,raw_sha256=record.raw_sha256,render_path=record.render_path}
             end
         end
+        if list_metadata then
+            local members=list_metadata(input.file)
+            if type(members)~='table' or #members>Catalog.MAX_CHAPTERS then return {error='unavailable'} end
+            for _,member in ipairs(members) do
+                if type(member)~='table' then incomplete=true
+                elseif visit(member.name,member.metadata)==false then break end
+            end
+        elseif not Archive.position_metadata(input.file,visit) and not ambiguous then
+            return {error='unavailable'}
+        end
+        if ambiguous then return {error='ambiguous'} end
         table.sort(entries,function(a,b) return a.index<b.index end)
         return {entries=entries,incomplete=incomplete or #entries~=identity.chapter_count}
     end)
     return ok and result or {error='unavailable'}
+end
+
+-- Use one bounded archive pass for a range of discovered chapters. The
+-- regular snapshot checks still verify each requested member's identity and
+-- hashes, including when a range was built from an older version of the file.
+function M.batch_reader(file,requests)
+    local wanted={[Identity.PATH]=Identity.MAX_BYTES}
+    for _i,request in ipairs(requests) do
+        local entry=request.archive
+        local raw=Source.raw_path(entry.raw_sha256)
+        if not raw then return nil end
+        wanted[Source.meta_path(request.chapter)]=Source.MAX_META_BYTES
+        wanted[Source.path_meta_path(entry.render_path)]=Source.MAX_META_BYTES
+        wanted[entry.render_path]=Source.MAX_RENDERED_BYTES
+        wanted[raw]=Source.MAX_BYTES
+    end
+    local members=Archive.read_batch(file,wanted)
+    if not members then return nil end
+    return function(pathname,names)
+        if pathname~=file then return Archive.read(pathname,names) end
+        local found={}
+        for name,maximum in pairs(names) do
+            local data=members[name]
+            if not data or #data>maximum then return nil end
+            found[name]=data
+        end
+        return found
+    end
 end
 
 function M.scan(input,read_archive)

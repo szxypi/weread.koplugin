@@ -1,4 +1,5 @@
 -- Disambiguate old chapter mappings that point to the same EPUB.
+local Catalog=require('weread.lib.chapter_catalog')
 local Context=require('weread.lib.reader_context')
 local Identity=require('weread.lib.book_file_identity')
 local Protocol=require('weread.lib.protocol')
@@ -29,10 +30,10 @@ local function inspect(book,path)
     local ok,result=pcall(function()
         local id=Context.book_id(book)
         local Archive=require('weread.lib.source_archive')
-        local members=Archive.read(path,{['OEBPS/content.opf']=8*1024*1024,[Identity.PATH]=Identity.MAX_BYTES})
+        local members=Archive.read(path,{['OEBPS/content.opf']=Catalog.MAX_PACKAGE_BYTES,[Identity.PATH]=Identity.MAX_BYTES})
         local identity=members and Identity.decode(members[Identity.PATH])
         if members and not identity then return {kind='unknown'} end
-        if not members then members=Archive.read(path,{['OEBPS/content.opf']=8*1024*1024}) end
+        if not members then members=Archive.read(path,{['OEBPS/content.opf']=Catalog.MAX_PACKAGE_BYTES}) end
         local opf=members and members['OEBPS/content.opf']
         if type(opf)~='string' or identity and identity.book_id~=id then return {kind='unknown'} end
         local source,count=opf:match('<dc:source>([^<]+)</dc:source>'),0

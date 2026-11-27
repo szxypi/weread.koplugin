@@ -41,7 +41,7 @@ package.preload['weread.lib.source_dom']=function() return {normalize=function(v
     return type(value)=='string' and value:gsub('%s','') or nil
 end} end
 local scans,last_case,unicode_available=0,nil,false
-package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,
+package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=1,
     unicode_casefold_available=function() return unicode_available end,
     scan=function(input)
         scans=scans+1
@@ -320,7 +320,9 @@ Cached.cancel(host)
 local discovery_count=0
 require('weread.lib.cached_book_search').discover=function()
     discovery_count=discovery_count+1
-    return {entries={{uid='2',index=1},{uid='3',index=2}},incomplete=false}
+    local hash=string.rep('a',64)
+    return {entries={{uid='2',index=1,raw_sha256=hash,render_path='OEBPS/text/chapter-001.xhtml'},
+        {uid='3',index=2,raw_sha256=hash,render_path='OEBPS/text/chapter-002.xhtml'}},incomplete=false}
 end
 book.cached_chapters={};host.ui.document.file='/full.epub'
 host.getFullBookCachePath=function() return '/full.epub' end
@@ -336,8 +338,23 @@ task=scheduled;scheduled=nil;task()
 expect(owner.finished and #owner.value==2 and find_item(owner.menu,
     'Chapter list unavailable; only indexed downloads were searched.'),'discovered full-book results were incomplete or undisclosed')
 Cached.cancel(host)
+local backend=require('weread.lib.cached_book_search')
+backend.MAX_ARCHIVE_BATCH=2
+local rejected_batches=0
+backend.batch_reader=function()
+    rejected_batches=rejected_batches+1
+    return nil
+end
+owner=open(nil);worker:complete()
+task=scheduled;scheduled=nil;task();worker:complete()
+expect(rejected_batches==1 and owner.checked==0,'failed archive batch advanced the search')
+for _i=1,2 do task=scheduled;scheduled=nil;task();worker:complete() end
+task=scheduled;scheduled=nil;task()
+expect(owner.finished and owner.checked==2 and #owner.value==2,'fallback after archive batch failure lost chapters')
+Cached.cancel(host);backend.MAX_ARCHIVE_BATCH=1
 require('weread.lib.cached_book_search').discover=function()
-    return {entries={{uid='2',index=1}},incomplete=true}
+    return {entries={{uid='2',index=1,raw_sha256=string.rep('b',64),
+        render_path='OEBPS/text/chapter-001.xhtml'}},incomplete=true}
 end
 owner=open(nil);worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
 expect(owner.finished and owner.discovery_incomplete and find_item(owner.menu,

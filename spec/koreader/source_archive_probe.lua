@@ -14,6 +14,13 @@ local function descriptors()
 end
 local warm=assert(Archive.read(request.warm.path,request.warm.wanted))
 assert(warm['body.txt']=='safe synthetic body')
+local batch=assert(Archive.read_batch(request.warm.path,{['body.txt']=64,['absent']=64}))
+assert(batch['body.txt']==warm['body.txt'] and not batch.absent)
+for _,case in ipairs(request.cases) do
+    if case.path:match('/duplicate%.zip$') then
+        assert(not Archive.read_batch(case.path,{['body.txt']=64}),'batch accepted duplicate source bytes')
+    end
+end
 collectgarbage('collect')
 local before=descriptors()
 local passed=0
@@ -105,19 +112,27 @@ package.loaded.ffi=ffi
 assert(native_calls>2,'native comparator was not selected')
 local discovered=0
 for _,case in ipairs(request.metadata_cases or {}) do
-    local rows=Archive.position_metadata(case.path)
-    if case.success then
-        assert(type(rows)=='table' and #rows==case.count,'metadata discovery returned an invalid count')
-        for _i,row in ipairs(rows) do
-            assert(case.hashes[row.name]==Crypto.sha256_hex(row.metadata),'discovered metadata changed')
+    local count=0
+    local found=Archive.position_metadata(case.path,function(name,metadata)
+        count=count+1
+        if case.success then
+            local expected=case.uniform_hash~='' and case.uniform_hash or case.hashes[name]
+            assert(expected==Crypto.sha256_hex(metadata),'discovered metadata changed')
         end
-    else assert(not rows,'invalid metadata archive accepted') end
+    end)
+    if case.success then
+        assert(found==true and count==case.count,'metadata discovery returned an invalid count')
+    else assert(not found,'invalid metadata archive accepted') end
     discovered=discovered+1
 end
 for _i=1,20 do
     assert(Archive.read(request.warm.path,request.warm.wanted))
     assert(Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='safe synthetic body'}}))
 end
+local package_data=assert(Archive.read(request.package.path,{['OEBPS/content.opf']=32*1024*1024}))
+assert(Crypto.sha256_hex(package_data['OEBPS/content.opf'])==request.package.hash)
+assert(not Archive.read(request.package.path,{['OEBPS/text/other.xhtml']=32*1024*1024}),
+    'the larger package allowance was applied to a different member')
 collectgarbage('collect')
 local after=descriptors()
 assert(after==before,'archive descriptor leaked')

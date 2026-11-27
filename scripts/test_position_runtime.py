@@ -159,6 +159,7 @@ def main():
     parser.add_argument('--cached-signed-out', action='store_true')
     parser.add_argument('--cached-no-catalog', action='store_true')
     parser.add_argument('--cached-full', action='store_true')
+    parser.add_argument('--cached-long-full', action='store_true', help='Discover and search 20,000 chapters in one EPUB')
     parser.add_argument('--cached-incomplete', action='store_true')
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
@@ -217,6 +218,9 @@ def main():
         parser.error('--search-long-catalog uses the ordinary book-search or cached-search fixture')
     if args.cached_full and not args.cached_no_catalog:
         parser.error('--cached-full requires --cached-no-catalog')
+    if args.cached_long_full and (args.probe!='cached-search' or not args.cached_full or args.cached_incomplete
+            or args.cached_large_uid or args.cached_dual):
+        parser.error('--cached-long-full requires the complete cached-search EPUB fixture')
     if args.cached_incomplete and not args.cached_full:
         parser.error('--cached-incomplete requires --cached-full')
     if args.cached_dual and not args.cached_full:
@@ -310,6 +314,7 @@ def main():
                                         WEREAD_TEST_CACHED_SIGNED_OUT='1' if args.cached_signed_out else '0',
                                         WEREAD_TEST_CACHED_NO_CATALOG='1' if args.cached_no_catalog else '0',
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
+                                        WEREAD_TEST_CACHED_LONG_FULL=str(LONG_CATALOG_SIZE) if args.cached_long_full else '',
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
@@ -341,7 +346,8 @@ def main():
                          "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua",
                          "home-local-recent": "home_local_recent_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
-                                        cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
+                                        cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT,
+                                        timeout=240 if args.cached_long_full else 120)
             if result.returncode == 0 and args.search_local_restart:
                 initial=log.read_bytes();marker=b'\nWEREAD_SEARCH_DOWNLOAD_PAUSED='
                 assert initial.count(marker)==1 and json.loads(initial.split(marker,1)[1].splitlines()[0])=={'result':'PASS','checkpoint':True}
@@ -389,10 +395,11 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_CACHED_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline downloaded chapter reopen failed; inspect isolated runtime log'
-                with (root / 'evidence/stale.log').open('w') as out:
-                    stale=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
-                        env=environment | {'WEREAD_TEST_CACHED_STALE':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
-                assert stale.returncode==0, 'offline changed chapter fallback failed; inspect isolated runtime log'
+                if not args.cached_long_full:
+                    with (root / 'evidence/stale.log').open('w') as out:
+                        stale=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                            env=environment | {'WEREAD_TEST_CACHED_STALE':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                    assert stale.returncode==0, 'offline changed chapter fallback failed; inspect isolated runtime log'
         finally:
             if thread.is_alive():server.shutdown();thread.join()
         if result.returncode == 0:
@@ -506,11 +513,18 @@ def main():
                     assert reopened.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened
                     value=json.loads(reopened.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',file_position=True,pending_preserved=True), 'offline reopen result mismatch'
-                    stale=(root/'evidence/stale.log').read_bytes();marker=b'\nWEREAD_CACHED_SEARCH_STALE='
-                    assert stale.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in stale
-                    value=json.loads(stale.split(marker,1)[1].splitlines()[0])
-                    assert value==dict(result='PASS',cancel_preserved=True,explicit_fallback=True,
-                                       saved_picker=True), 'changed chapter result mismatch'
+                    if not args.cached_long_full:
+                        stale=(root/'evidence/stale.log').read_bytes();marker=b'\nWEREAD_CACHED_SEARCH_STALE='
+                        assert stale.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in stale
+                        value=json.loads(stale.split(marker,1)[1].splitlines()[0])
+                        assert value==dict(result='PASS',cancel_preserved=True,explicit_fallback=True,
+                                           saved_picker=True), 'changed chapter result mismatch'
+                if args.cached_long_full:
+                    marker=b'\nWEREAD_CACHED_LONG_FULL='
+                    assert raw.count(marker)==1
+                    metrics=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                    assert metrics['chapters']==LONG_CATALOG_SIZE and 0<metrics['batch_reads']<500
+                    print(json.dumps(metrics))
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
                 for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):

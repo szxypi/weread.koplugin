@@ -82,7 +82,7 @@ def main():
     byte_archive('byte-duplicate', 65537, duplicate=True)
     byte_archive('byte-crc', 65537, bad_crc=True)
     metadata_cases=[]
-    def metadata_archive(name,entries,success,truncate=False):
+    def metadata_archive(name,entries,success,truncate=False,uniform=None):
         path=root/(name+'.zip')
         with warnings.catch_warnings():
             warnings.simplefilter('ignore',UserWarning)
@@ -90,9 +90,12 @@ def main():
                 for member,data in entries:output.writestr(member,data)
         if truncate:
             data=path.read_bytes();path.write_bytes(data[:max(1,len(data)//3)])
-        hashes={member:hashlib.sha256(data).hexdigest() for member,data in entries if success and isinstance(member,str)
-                and member.startswith('OEBPS/weread-position/uid-') and len(member.rsplit('/',1)[1])==73}
-        metadata_cases.append(dict(path=str(path),success=success,count=len(hashes),hashes=hashes))
+        hashes={member:hashlib.sha256(data).hexdigest() for member,data in entries if uniform is None and success
+                and isinstance(member,str) and member.startswith('OEBPS/weread-position/uid-')
+                and len(member.rsplit('/',1)[1])==73}
+        metadata_cases.append(dict(path=str(path),success=success,
+            count=len(entries) if uniform is not None else len(hashes),hashes=hashes,
+            uniform_hash=hashlib.sha256(uniform).hexdigest() if uniform is not None else ""))
     meta=lambda index: 'OEBPS/weread-position/uid-'+format(index,'064x')+'.meta'
     metadata_archive('metadata-valid',[(meta(1),b'first'),(meta(2),b'second'),('other',b'ignored')],True)
     metadata_archive('metadata-empty',[('other',b'ignored')],True)
@@ -100,10 +103,17 @@ def main():
     metadata_archive('metadata-oversize',[(meta(1),b'x'*4097)],False)
     link=zipfile.ZipInfo(meta(1));link.create_system=3;link.external_attr=(stat.S_IFLNK|0o777)<<16
     metadata_archive('metadata-symlink',[(link,b'/never/follow/this')],False)
-    metadata_archive('metadata-many',[(meta(index),b'x') for index in range(10001)],False)
-    metadata_archive('metadata-total',[(meta(index),b'x'*4096) for index in range(2049)],False)
+    metadata_archive('metadata-long',[(meta(index),b'x'*600) for index in range(20000)],True,uniform=b'x'*600)
+    metadata_archive('metadata-many',[(meta(index),b'x') for index in range(20001)],False)
+    metadata_archive('metadata-total',[(meta(index),b'x'*4096) for index in range(4097)],False)
     metadata_archive('metadata-truncated',[(meta(1),bytes(range(256))*16)],False,truncate=True)
-    request = json.dumps(dict(cases=cases, warm=warm,metadata_cases=metadata_cases,byte_cases=byte_cases))
+    package_path=root/'large-package.epub'
+    package_bytes=b'x'*(8*1024*1024+1)
+    with zipfile.ZipFile(package_path,'w',compression=zipfile.ZIP_DEFLATED) as output:
+        output.writestr('OEBPS/content.opf',package_bytes)
+        output.writestr('OEBPS/text/other.xhtml',package_bytes)
+    request = json.dumps(dict(cases=cases, warm=warm, metadata_cases=metadata_cases, byte_cases=byte_cases,
+                              package=dict(path=str(package_path), hash=hashlib.sha256(package_bytes).hexdigest())))
     result = subprocess.run(['./luajit', str(REPO / 'spec/koreader/source_archive_probe.lua'), str(REPO)],
                             cwd=args.koreader.resolve(), input=request, text=True, capture_output=True, timeout=60)
     if result.returncode:

@@ -1,6 +1,7 @@
 -- Chapter-scoped source coordinates <-> native DOM anchors. No networking,
 -- navigation, whole-book search, mutable catalog mapping or settings writes.
 local Coordinates = require('weread.lib.source_coordinates')
+local Catalog = require('weread.lib.chapter_catalog')
 local Source = require('weread.lib.position_source')
 local Identity = require('weread.lib.book_file_identity')
 local TextEnd = require('weread.lib.document_text_end')
@@ -120,25 +121,37 @@ function Index:_extract(first,last)
     return text
 end
 
-local function spine(document, path)
-    local opf = document:getDocumentFileContent('OEBPS/content.opf')
-    if type(opf) ~= 'string' or #opf > M.MAX_TEXT_BYTES then fail('spine_unavailable') end
-    local manifest = opf:match('<manifest%s*>(.-)</manifest>')
+local function manifest_items(opf)
+    local _,start=opf:find('<manifest%s*>')
+    local finish=start and opf:find('</manifest>',start+1,true)
+    if not finish then fail('spine_unavailable') end
+    local next_at=start+1
+    return function()
+        local first,last,attrs=opf:find('<item%s+([^>]+)>',next_at)
+        if not first or last>=finish then return end
+        next_at=last+1
+        return attrs
+    end
+end
+
+local function spine(opf, path)
+    if type(opf) ~= 'string' or #opf > Catalog.MAX_PACKAGE_BYTES then fail('spine_unavailable') end
     local refs = opf:match('<spine[^>]*>(.-)</spine>')
-    if not manifest or not refs then fail('spine_unavailable') end
+    if not refs then fail('spine_unavailable') end
+    local href=path:match('^OEBPS/(.+)$')
     local items = {}
-    for attrs in manifest:gmatch('<item%s+([^>]+)>') do
+    for attrs in manifest_items(opf) do
         local item = attributes(attrs)
-        if not item.id or not item.href or items[item.id] then fail('spine_ambiguous') end
-        items[item.id] = 'OEBPS/' .. item.href
+        if not item.id or not item.href or items[item.id]~=nil then fail('spine_ambiguous') end
+        items[item.id] = item.href == href
     end
     local index,found,total = nil,0,0
     for attrs in refs:gmatch('<itemref%s+([^>]+)>') do
         local ref = attributes(attrs)
-        if not ref.idref or not items[ref.idref] then fail('spine_unavailable') end
+        if not ref.idref or items[ref.idref]==nil then fail('spine_unavailable') end
         total=total+1
         if total > 100001 then fail('spine_limit') end
-        if items[ref.idref] == path then index,found = total,found+1 end
+        if items[ref.idref] then index,found = total,found+1 end
     end
     if found ~= 1 then fail('spine_ambiguous') end
     return index,total
@@ -154,17 +167,15 @@ function M.chapter_start(document,book_id,uid,expected)
         local identity=Identity.read_document(document,book_id)
         if identity.version_source=='book_mismatch' then fail('book_mismatch') end
         local opf=document:getDocumentFileContent('OEBPS/content.opf')
-        if type(opf)~='string' or #opf>M.MAX_TEXT_BYTES then fail('spine_unavailable') end
+        if type(opf)~='string' or #opf>Catalog.MAX_PACKAGE_BYTES then fail('spine_unavailable') end
         if expected and (type(expected.opf_hash)~='string'
             or require('weread.lib.crypto').sha256_hex(opf)~=expected.opf_hash
             or expected.file_id and identity.file_id~=expected.file_id) then fail('file_changed') end
         local source,count=opf:match('<dc:source>([^<]+)</dc:source>'),0
         for _ in opf:gmatch('<dc:source>') do count=count+1 end
         if count~=1 or source~=require('weread.lib.protocol').reader_url(book_id) then fail('book_mismatch') end
-        local manifest=opf:match('<manifest%s*>(.-)</manifest>')
-        if not manifest then fail('spine_unavailable') end
         local href,found=nil,0
-        for raw in manifest:gmatch('<item%s+([^>]+)>') do
+        for raw in manifest_items(opf) do
             local item=attributes(raw)
             if item.id=='chapter_'..uid then href=item.href;found=found+1 end
         end
@@ -172,7 +183,7 @@ function M.chapter_start(document,book_id,uid,expected)
             fail('chapter_unavailable')
         end
         local path='OEBPS/'..href
-        local ordinal=spine(document,path)
+        local ordinal=spine(opf,path)
         local root=document:getNormalizedXPointer('/body/DocFragment['..ordinal..']')
         if type(root)~='string' or fragment(root)~=root then fail('chapter_unavailable') end
         local member=M.member(document,root..'.0')
@@ -207,7 +218,7 @@ local function open_index(document,book_id,uid,options,metadata,direct_source)
             self.map = Coordinates.build(source.raw,{format=source.format,allow_multiple_bodies=true})
             if not self.map then fail("source_unsupported") end
         end
-        local ordinal,total=spine(document,source.render_path)
+        local ordinal,total=spine(document:getDocumentFileContent('OEBPS/content.opf'),source.render_path)
         self.root=document:getNormalizedXPointer('/body/DocFragment[' .. ordinal .. ']')
         if type(self.root) ~= 'string' or fragment(self.root) ~= self.root then fail('chapter_unavailable') end
         -- Ordinal lookup is only a candidate. Verify CREngine's actual Source
