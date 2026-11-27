@@ -540,6 +540,12 @@ function M:refreshBookshelf(old_view, view_options)
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
         local snapshot_saved=not groups_incomplete and self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
+        local refreshed_progress
+        if snapshot_saved and type(result) == "table" and result._shelf_source == "native" and result._display_progress then
+            if self.cancelShelfProgress then self:cancelShelfProgress() end
+            local called, saved, ids = pcall(self.library_db.putShelfProgress, self.library_db, result._display_progress, true)
+            if called and saved then refreshed_progress = ids end
+        end
         if snapshot_saved then UIManager:nextTick(function()
             if still_current() then
                 require('weread.ui.finish_offline').pump(self,true)
@@ -554,7 +560,8 @@ function M:refreshBookshelf(old_view, view_options)
         end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
-        local snapshot = { books = all_books, archives = archives, groups_incomplete = groups_incomplete or nil }
+        local snapshot = { books = all_books, archives = archives, groups_incomplete = groups_incomplete or nil,
+            refreshed_progress = refreshed_progress }
         if not snapshot_saved then VolatileShelf.remember(self, snapshot, result) end
         if view_options and view_options.on_loaded then
             view_options.on_loaded(snapshot_saved, snapshot, groups_incomplete)
@@ -563,7 +570,7 @@ function M:refreshBookshelf(old_view, view_options)
         local next_options = {}
         for key, value in pairs(view_options or {}) do next_options[key] = value end
         next_options.prepared_shelf = nil
-        next_options.refresh_progress = true
+        next_options.refresh_progress = refreshed_progress or true
         if old_group_key ~= self.shelf_group_key then
             next_options.page, next_options.scroll_offset, next_options.browse_position = 1, nil, nil
         end

@@ -182,7 +182,7 @@ class MockServer(ThreadingHTTPServer):
         self.active_requests = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
-                            empty_shelf=False, empty_annotations=False, guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
+                            empty_shelf=False, shelf_progress=False, empty_annotations=False, guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
                             shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1)
         self.progress_confirmation_book = None
@@ -666,10 +666,20 @@ class MockServer(ThreadingHTTPServer):
                 books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
                          for book in ([] if control["empty_shelf"] else readable_books) if str(book['bookId']) not in self.shelf_removed]
                 if not control['empty_shelf']:books.extend(self.shelf_added.values())
+                summaries = []
+                if control["shelf_progress"]:
+                    with self.lock:
+                        progress = {book_id: point["progress"] for book_id, point in self.progress.items()}
+                    for book in books:
+                        if book["bookId"] == BOOKS[1]["bookId"]:
+                            continue
+                        book["readUpdateTime"] = 1700000000
+                        summaries.append(dict(bookId=book["bookId"], progress=progress.get(book["bookId"], 0),
+                                              updateTime=book["readUpdateTime"]))
                 return 200, dict(books=books, archive=[
                     dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
                     dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
-                    dict(archiveId=3, name="空分组", bookIds=[])], bookProgress=[], synckey=1)
+                    dict(archiveId=3, name="空分组", bookIds=[])], bookProgress=summaries, synckey=1)
         if path == "/api/agent/gateway" and method == "POST":
             if api == "/readdata/detail":
                 return 200, reading_statistics(data.get("mode", "monthly"), int(data.get("baseTime", 0)))
@@ -956,6 +966,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("delay must be 0..60 seconds")
             if type(candidate["times"]) is not int or candidate["times"] < -1:
                 raise ValueError("times must be -1 (always) or a non-negative integer")
+            if type(candidate["shelf_progress"]) is not bool:
+                raise ValueError("invalid shelf progress fixture")
             if type(candidate['skip']) is not int or not 0 <= candidate['skip'] <= 10000:
                 raise ValueError('skip must be a bounded non-negative integer')
             if type(candidate["status"]) is not int or not 400 <= candidate["status"] <= 599:

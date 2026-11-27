@@ -71,6 +71,28 @@ expect(request.sensitive and request.skip_cookie and request.persist_response_co
     and request.headers.Authorization == nil, "native request isolated and diagnostics redacted")
 local _, web = f.counts()
 expect(web == 0, "successful native source does not also fetch gateway")
+f = fixture("native")
+f.data.books[2] = { bookId = "CB_Imported", title = "Imported", readUpdateTime = 20 }
+f.data.books[3] = { bookId = 125, title = "Duplicate", readUpdateTime = 30 }
+f.data.books[4] = { bookId = 126, title = "Other revision", readUpdateTime = 41 }
+f.data.books[5] = { bookId = 127, title = "No progress", readUpdateTime = 50 }
+f.data.bookProgress = {
+    { bookId = "123", progress = 0.75, updateTime = 10, summary = "private response" },
+    { bookId = "CB_Imported", progress = 0, updateTime = 20 },
+    { bookId = "125", progress = 18, updateTime = 30 },
+    { bookId = 125, progress = 45, updateTime = 30 },
+    { bookId = "126", progress = 90, updateTime = 40 },
+    { bookId = "127", updateTime = 50 },
+    { bookId = "999", progress = 80, updateTime = 10 },
+}
+result = f.fetch()
+local progress = result._display_progress
+expect(#progress == 2 and progress[1].book_id == "123" and progress[1].exact_percent == 0.75
+    and progress[1].updated_at == 10 and progress[1].source == "native" and progress[1].summary == nil,
+    "native aggregate accepted an ambiguous entry or lost precision")
+expect(progress[2].book_id == "CB_Imported" and progress[2].exact_percent == 0,
+    "native aggregate lost the imported book or its explicit zero")
+expect(f.counts() == 1 and not result.bookProgress, "native aggregate used extra requests or returned the raw progress")
 f = fixture("gateway"); result = f.fetch()
 local native
 native, web = f.counts()

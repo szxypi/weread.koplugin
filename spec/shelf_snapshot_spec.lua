@@ -42,6 +42,24 @@ assert((not other_books or #other_books == 0) and db:getShelfArchives() == nil, 
 assert(not db:getShelfEntry('1'),'shelf state leaked into another account')
 account = { user_vid = user }
 assert(db:getShelfArchives()[1].archiveId == '5')
+assert(db:putShelfProgress({
+    {book_id='10',percent=57,exact_percent=57,fetched_at=200,updated_at=190,source='native'},
+    {book_id='11',percent=11,exact_percent=11,fetched_at=260,source='web'},
+    {book_id='12',percent=5,exact_percent=5,fetched_at=200,updated_at=170,source='web'},
+    {book_id='13',percent=61,exact_percent=61,fetched_at=200,source='web'},
+}))
+local function summary(id,value,updated)
+    return {book_id=id,percent=math.floor(value),exact_percent=value,fetched_at=250,updated_at=updated,source='native'}
+end
+local saved, refreshed = db:putShelfProgress({
+    summary('10',1,180), summary('11',12,240), summary('12',7.25,230),
+    summary('13',62,200), summary('CB_Imported',0,130),
+},true)
+assert(saved and refreshed['12'] and refreshed.CB_Imported and not refreshed['10']
+    and not refreshed['11'] and not refreshed['13'], 'summary did not report exactly the committed IDs')
+local display=db:getShelfProgress({'10','11','12','13','CB_Imported'})
+assert(display['10'].percent==57 and display['11'].percent==11 and display['12'].exact_percent==7.25
+    and display['13'].percent==61 and display.CB_Imported.exact_percent==0,'summary overwrote newer or conflicting progress')
 local numeric_book={bookId=100000000000001,title='Exact'}
 local numeric_archives={{archiveId=100000000000002,name='Exact group',bookIds={100000000000001}}}
 assert(db:cacheShelf({numeric_book},numeric_archives),'numeric shelf did not save')

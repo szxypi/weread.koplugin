@@ -146,6 +146,43 @@ return function(plugin,books,count,control,wait_progress,evidence,imported)
     plugin.shelf_progress_retry_at=nil;plugin.shelf_progress_retry_revision=nil
     assert(count('/web/book/getProgress')==web_before and count('/api/agent/gateway','/book/getprogress')==gateway_before
         and count('/web/book/read')==writes and count('/book/read')==native_writes,'native-only update contacted another route or wrote progress')
+    plugin:closeWeReadUI()
+    plugin.shelf_filters={}
+    plugin.shelf_group_key=nil
+    plugin.shelf_multi_groups={}
+    local function refresh_and_wait()
+        expire(books)
+        plugin:refreshBookshelf(nil)
+        pump(function() return not plugin.shelf_refreshing and plugin.shelf_view~=nil end);wait_progress()
+        return plugin.shelf_view:getVisibleBooks()
+    end
+    local baseline=count(native_path)
+    local before_summary=refresh_and_wait()
+    baseline=count(native_path)-baseline
+    assert(baseline==#before_summary,'baseline did not query each visible book')
+    plugin:closeWeReadUI()
+    control{shelf_progress=true}
+    local summary_gets,shelf_gets=count(native_path),count('/shelf/sync')
+    local summary_visible=refresh_and_wait()
+    local missing=sample[2].bookId
+    local visible_missing=false
+    for _,book in ipairs(summary_visible) do if book.bookId==missing then visible_missing=true end end
+    assert(visible_missing and #summary_visible==baseline and baseline>1 and count(native_path)-summary_gets==1
+        and count('/shelf/sync')-shelf_gets==1,'shelf refresh did not reuse its summary or fetch the missing visible book')
+    local summary_all=plugin.library_db:getShelfProgress({sample[1].bookId,missing,books[#books].bookId})
+    assert(summary_all[sample[1].bookId].updated_at==1700000000 and summary_all[missing].updated_at==nil
+        and summary_all[books[#books].bookId].updated_at==1700000000,'shelf summary was not persisted for nonvisible books')
+    plugin:closeWeReadUI();plugin:showHome();wait_progress();expire(books)
+    summary_gets,shelf_gets=count(native_path),count('/shelf/sync')
+    plugin:refreshHome()
+    pump(function() return not plugin.shelf_refreshing end);wait_progress()
+    local home_missing=0
+    for _,book in ipairs(plugin.shelf_view:getVisibleBooks()) do if book.bookId==missing then home_missing=1 end end
+    assert(count('/shelf/sync')-shelf_gets==1 and count(native_path)-summary_gets==home_missing
+        and plugin.shelf_view.books[1]._shelf_progress==83,'home refresh repeated a summary read or lost pending local progress')
+    assert(count('/book/read')==native_writes and count('/web/book/read')==writes,'shelf summary updated reading state')
+    print(('PASS: native shelf summary reused (%d -> 1 progress GETs); home refresh reused summary'):format(baseline))
+    control{shelf_progress=false}
     plugin.client.request=original_request
     local _,updated_revision=store:read()
     assert(store:clear(scope,updated_revision))

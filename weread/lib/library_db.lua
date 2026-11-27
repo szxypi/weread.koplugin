@@ -477,29 +477,53 @@ function LibraryDB:getShelfProgress(ids)
     return ok and result or {}
 end
 
-function LibraryDB:putShelfProgress(snapshots)
+local function prefer_summary(incoming, previous)
+    if not incoming.updated_at then return false end
+    if not previous or previous.book_id ~= incoming.book_id then return true end
+    local observed = tonumber(previous.fetched_at) or 0
+    if observed > incoming.fetched_at then return false end
+    local updated = tonumber(previous.updated_at)
+    local previous_percent = tonumber(previous.exact_percent) or tonumber(previous.percent)
+    if updated then
+        return incoming.updated_at > updated
+            or incoming.updated_at == updated and incoming.exact_percent == previous_percent
+    end
+    -- A legacy per-book observation may know more than an older summary.
+    return incoming.updated_at > observed or incoming.exact_percent == previous_percent
+end
+
+function LibraryDB:putShelfProgress(snapshots, merge_summary)
     if type(snapshots) ~= "table" or #snapshots == 0 then return false end
     local db = self:open()
     if not db then return false end
-    local stmt, transaction_open
+    local stmt, read, transaction_open
+    local stored = merge_summary and {} or nil
     local ok = pcall(function()
-        db:exec("BEGIN")
+        db:exec(merge_summary and "BEGIN IMMEDIATE" or "BEGIN")
         transaction_open = true
+        if merge_summary then read = db:prepare("SELECT payload FROM shelf_progress WHERE book_id=?") end
         stmt = db:prepare([[
             INSERT INTO shelf_progress (book_id, payload) VALUES (?, ?)
             ON CONFLICT(book_id) DO UPDATE SET payload=excluded.payload
         ]])
         for _, snapshot in ipairs(snapshots) do
-            local payload = assert(encode(snapshot))
-            stmt:reset():bind(tostring(assert(snapshot.book_id)), payload):step()
+            local id = tostring(assert(snapshot.book_id))
+            local previous = read and read:reset():bind(id):step()
+            if not merge_summary or prefer_summary(snapshot, previous and decode(previous[1])) then
+                local payload = assert(encode(snapshot))
+                stmt:reset():bind(id, payload):step()
+                if stored then stored[id] = true end
+            end
         end
+        close_statement(read); read = nil
         db:exec("COMMIT")
         transaction_open = false
     end)
+    close_statement(read)
     close_statement(stmt)
     if not ok and transaction_open then pcall(function() db:exec("ROLLBACK") end) end
     pcall(function() db:close() end)
-    return ok
+    return ok, ok and stored or nil
 end
 
 function LibraryDB:putBook(book)

@@ -69,10 +69,13 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     if self.shelf_progress_retry_at and self.shelf_progress_retry_revision == access.revision
         and os.time() < self.shelf_progress_retry_at then return end
     local needed = {}
+    local refreshed = type(options.force) == "table" and options.force
+    local now = os.time()
     for _, id in ipairs(ids) do
         local cached = snapshots[id]
+        local force = options.force and not (refreshed and refreshed[id])
         if Data.supports(id, access) and
-            (options.force or not cached or os.time() - (tonumber(cached.fetched_at) or 0) >= Data.TTL) then
+            (force or not cached or now - (tonumber(cached.fetched_at) or 0) >= Data.TTL) then
             needed[#needed + 1] = id
         end
     end

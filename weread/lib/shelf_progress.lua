@@ -2,6 +2,7 @@
 local M = { TTL = 120 }
 local Access = require("weread.lib.read_access")
 local NativeAccess = require("weread.lib.native_read_access")
+local Identity = require("weread.lib.shelf_snapshot")
 M.book_id = Access.display_book_id
 
 function M.selection(settings)
@@ -40,6 +41,50 @@ local function percent(value)
     if n then return math.floor(n) end
 end
 
+local function update_time(value)
+    local n = tonumber(value)
+    if n and n > 0 and n <= 4102444800 and n % 1 == 0 then return n end
+end
+
+local function display_snapshot(id, value, observed_at, updated_at)
+    local precise = exact_percent(value)
+    if precise then
+        return { book_id = id, percent = math.floor(precise), exact_percent = precise,
+            fetched_at = observed_at, updated_at = updated_at }
+    end
+end
+
+function M.from_native_shelf(rows, books, observed_at)
+    if type(rows) ~= "table" or #rows == 0 or #rows > Identity.MAX_BOOKS then return end
+    for index in pairs(rows) do
+        if type(index) ~= "number" or index < 1 or index > #rows or index % 1 ~= 0 then return end
+    end
+    local members, seen, projected, result = {}, {}, {}, {}
+    for _, book in ipairs(books) do
+        if M.book_id(book.bookId) then members[book.bookId] = update_time(book.readUpdateTime) end
+    end
+    for index = 1, #rows do
+        local row = rows[index]
+        local id = type(row) == "table" and Identity.id(row)
+        if id and members[id] then
+            if seen[id] then
+                projected[id] = nil
+            elseif update_time(row.updateTime) == members[id] then
+                projected[id] = display_snapshot(id, row.progress, observed_at, members[id])
+            end
+            seen[id] = true
+        end
+    end
+    for _, book in ipairs(books) do
+        local display = projected[book.bookId]
+        if display then
+            display.source = "native"
+            result[#result + 1] = display
+        end
+    end
+    if #result > 0 then return result end
+end
+
 -- A pending position belongs to this device; it must not look like a
 -- confirmed cloud percentage in the home or bookshelf views.
 function M.label(value, local_position, exact)
@@ -65,9 +110,7 @@ function M.parse(data, id, now)
         if data.recordReadingTime ~= nil then return nil, "unavailable" end
         return nil, "invalid"
     end
-    local precise = exact_percent(data.book.progress)
-    if not precise then return end
-    return { book_id = tostring(id), percent = math.floor(precise), exact_percent = precise, fetched_at = now or os.time() }
+    return display_snapshot(tostring(id), data.book.progress, now or os.time(), update_time(data.book.updateTime))
 end
 
 local function parse_native(data, id)

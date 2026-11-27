@@ -190,7 +190,15 @@ function M.fetch(client, options)
     end
     if selected.credentials then
         local auth = Auth:new(client, { expected_vid = selected.scope.vid, is_current = function() return current(true) end })
-        local ok, result = pcall(function() return M.normalize(auth:read_shelf(selected.credentials)) end)
+        local ok, result = pcall(function()
+            local requested_at = os.time()
+            local raw = auth:read_shelf(selected.credentials)
+            local shelf = M.normalize(raw)
+            if type(raw.bookProgress) == "table" and #raw.bookProgress > 0 then
+                shelf._display_progress = require("weread.lib.shelf_progress").from_native_shelf(raw.bookProgress, shelf.books, requested_at)
+            end
+            return shelf
+        end)
         auth:cancel()
         if not current(true) then fail("session_changed") end
         if ok then

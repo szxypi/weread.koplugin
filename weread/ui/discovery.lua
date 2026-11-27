@@ -276,7 +276,7 @@ function M:showHome(refresh_progress, refreshed_shelf)
         title = _("WeRead home"),
         home = preferences,
         rotation_anchor=anchor,focus_book_id=position and position.focus,
-        refresh_progress = refresh_progress,
+        refresh_progress = refresh_progress and type(refreshed_shelf) == "table" and refreshed_shelf.refreshed_progress or refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
         actions = self:homeShortcuts(preferences),
         on_refresh = function() self:refreshHome() end,
