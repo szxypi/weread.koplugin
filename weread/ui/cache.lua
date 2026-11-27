@@ -444,11 +444,11 @@ function M:nativeChapterCachePresent(book_id, repair_current)
     if not repair_current then
         return cache.present(self.settings,scope.vid,book_id,nil,authorized)
     end
-    -- Only the downloaded-books worker can scan for a replacement marker here.
-    if not authorized() then return false end
+    -- Check for a book directory before reading authorization. The worker still
+    -- checks authorization before reading a marker and during repair.
     return cache.present(self.settings,scope.vid,book_id,function()
         return repair_current() and authorized()
-    end)
+    end,authorized)
 end
 
 function M:isBookDownloaded(book, saved_books, downloaded_cache)

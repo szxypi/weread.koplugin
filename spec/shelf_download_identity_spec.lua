@@ -50,6 +50,10 @@ package.loaded['weread.lib.native_direct_cache']={
 }
 for id=100,131 do assert(not downloaded({bookId=tostring(id)},{})) end
 assert(checks==0,'missing native directories caused disk authorization reads')
+for id=100,131 do
+    assert(not host:nativeChapterCachePresent(tostring(id),function() error('absent cache started a repair') end))
+end
+assert(checks==0,'download worker reread authorization for books without native directories')
 assert(downloaded({bookId='42'},{}),'native cached chapter was not recognized')
 assert(checks==1,'existing native cache was not authorized exactly once')
 assert(not downloaded({bookId='43'},{}),'another book acquired native cache status')
@@ -67,6 +71,8 @@ assert(not downloaded({bookId='42'},{}),'different library account inherited nat
 host.library_db.accountKey=function() return owner end
 host.settings.auth_scope_matches=function() return false end
 assert(not downloaded({bookId='42'},{}),'stale authorization inherited native cache status')
+assert(not host:nativeChapterCachePresent('43',function() error('stale authorization started a repair') end))
+assert(repairs==2,'download worker read a marker or started repair with stale authorization')
 local loaded
 host.settings.book_lookup=function()
     return function(id)
