@@ -20,7 +20,7 @@ package.preload['weread.lib.plugin_util'] = function()
     return {tr = function(v) return v end, T = function(pattern) return pattern end}
 end
 package.preload['weread.lib.native_book_reviews_cache'] = function() return {new = function(_self, _library, _codec, owner, mode)
-    local key=owner..':'..mode
+    local key=owner..':'..(mode or 'native')
     return {write=function(_, id, page, now)
         assert(id=='42')
         if snapshots[key] and page.has_more and #snapshots[key].items>#page.items then return end
@@ -138,4 +138,86 @@ expect(views[#views].data.mode=='latest','only saved latest reviews could not op
 Gateway.cancel(host);snapshots['a:latest']=nil
 Gateway.open(host,book);tick()
 expect(native_fallbacks==1 and not host._gateway_reviews_owner,'offline cache miss did not hand off to native latest reviews')
+
+local original_fetch=source.fetch
+source.fetch=function(client,id,mode,previous,access)
+    if mode=='latest' then
+        requests[#requests+1]={mode=mode}
+        return {items={},has_more=false}
+    end
+    return original_fetch(client,id,mode,previous,access)
+end
+local native_requests,native_error={},nil
+local native_source=require('weread.lib.native_book_reviews_source')
+native_source.fetch=function(_,id,limit,previous,access,recover)
+    assert(id=='42' and access==selected)
+    native_requests[#native_requests+1]={limit=limit,previous=previous,recover=recover}
+    if native_error then error(native_error,0) end
+    local ids,items={},{}
+    for i=1,limit do
+        ids[i]='native-'..i
+        items[i]={review_id=ids[i],author='Reader',content='Native review',rating=5,create_time=1700000000-i}
+    end
+    return {items=items,ids=ids,limit=limit,has_more=limit<40}
+end
+local function begin_mixed()
+    expect(Gateway.open(host,book,selected),'combined review owner did not open')
+    schedule();tick()
+    local recommended=views[#views]
+    recommended.callbacks.on_switch('latest');schedule();tick()
+    expect(host._gateway_reviews_owner.view==recommended and #started==1,'empty Skill result replaced the visible tab')
+    return recommended
+end
+begin_mixed();tick()
+local mixed_latest=views[#views]
+expect(mixed_latest.data.mode=='latest' and #mixed_latest.result.items==20 and mixed_latest.result.items[1].review_id=='native-1',
+    'native latest did not replace the empty first page')
+local skill_calls=#requests
+mixed_latest.callbacks.on_load_more();schedule();tick()
+local mixed_more=views[#views]
+expect(#mixed_more.result.items==40 and not mixed_more.result.has_more and #requests==skill_calls
+    and native_requests[2].limit==40 and native_requests[2].previous==mixed_latest.result.ids,
+    'native continuation reused Skill pagination or lost its prefix')
+mixed_more.callbacks.on_switch('recommended')
+expect(views[#views].result.items[1].review_id=='recommended-1','native latest replaced the recommendation cache')
+views[#views].callbacks.on_switch('latest')
+expect(#views[#views].result.items==40 and #native_requests==2 and #requests==skill_calls,'tab switch fetched or lost the cached native list')
+Gateway.cancel(host)
+
+Gateway.open(host,book);tick();views[#views].callbacks.on_switch('latest');tick()
+expect(views[#views].data.mode=='latest' and #views[#views].result.items==40 and not views[#views].result.has_more
+    and #requests==skill_calls and #native_requests==2,'offline latest did not read the native cache')
+Gateway.cancel(host)
+
+snapshots['a:native']=nil
+native_error='native_reviews/unavailable'
+begin_mixed();tick();tick()
+expect(views[#views].data.mode=='latest' and #views[#views].result.items==0 and not host.busy_message,
+    'unavailable native fallback hid the valid empty response')
+views[#views].callbacks.on_switch('recommended')
+expect(views[#views].result.items[1].review_id=='recommended-1','failed fallback detached recommendations')
+Gateway.cancel(host)
+native_error=nil
+begin_mixed();host.cancel_busy();tick()
+expect(host._gateway_reviews_owner.view.data.mode=='recommended','cancelled native fallback switched the tab')
+Gateway.cancel(host)
+local renewal_callback
+selected.base_revision='same-skill-account'
+local scope=selected.native.scope
+host.settings.auth_scope_matches=function(_,candidate) return candidate==scope end
+source.capture=function() return selected end
+host.native_renewal={start=function(_,options,callback)
+    assert(options.expected_revision==1)
+    renewal_callback=callback
+    return true,{}
+end,cancel=function() end}
+native_error='native_reviews/native_expired'
+begin_mixed();tick()
+expect(renewal_callback and host._gateway_reviews_owner.context.renewing
+    and native_requests[#native_requests].recover,'native latest did not enter owned renewal')
+selected={api_key=selected.api_key,base_revision=selected.base_revision,native={scope=scope,revision=3}}
+native_error=nil;renewal_callback(true);tick()
+expect(views[#views].data.mode=='latest' and #views[#views].result.items==20
+    and native_requests[#native_requests].recover==false,'verified renewal lost or repeated the native latest request')
+Gateway.cancel(host)
 print('gateway_book_reviews_ui_spec: ' .. checks .. ' checks')

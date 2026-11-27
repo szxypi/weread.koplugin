@@ -1,7 +1,9 @@
 -- Owner-bound Skill review list. HTTPS and response projection stay in a worker.
 local Source = require('weread.lib.gateway_book_reviews_source')
+local NativeSource = require('weread.lib.native_book_reviews_source')
 local NativeData = require('weread.lib.native_book_reviews')
 local Cache = require('weread.lib.native_book_reviews_cache')
+local Recovery = require('weread.lib.native_read_recovery')
 local NetworkLink = require('weread.lib.network_link')
 local UI = require('ui/uimanager')
 local Util = require('weread.lib.plugin_util')
@@ -11,6 +13,7 @@ local M = {}
 local function stop(host, owner)
     local context = owner.context; owner.context = nil
     if not context then return end
+    Recovery.cancel(host, context)
     if owner.worker then owner.worker:cancel() end
     if context.busy and host.busy_message == context.busy then host:closeBusy() end
 end
@@ -49,7 +52,13 @@ function M.open(host, book, selected)
             and (host.ui and host.ui.document) == owner.document
             and (owner.auth_epoch==nil or host.settings:get('auth_epoch',0)==owner.auth_epoch)
     end
-    local function current() return current_view() and (not owner.selected or Source.matches(host.settings, owner.selected)) end
+    local function current()
+        if not current_view() then return false end
+        if owner.context and owner.context.renewing then
+            return Recovery.current(host.settings, owner.selected, Source.capture)
+        end
+        return not owner.selected or Source.matches(host.settings, owner.selected)
+    end
     local load
     local function render(mode, result, old_view, more)
         local offset, focus_row
@@ -125,6 +134,7 @@ function M.open(host, book, selected)
         if more and (not previous or not previous.has_more) then return end
         if not more and owner.cache[mode] then render(mode, owner.cache[mode], old_view, false); return end
         local context = {}; owner.context = context
+        local native_previous = more and mode == 'latest' and owner.latest_native and previous
         local function live()
             if owner.context ~= context then return false end
             if current() then return true end
@@ -142,12 +152,26 @@ function M.open(host, book, selected)
             host:showInfo(message or _('Could not load book reviews. Please try again.'))
             if not owner.view then M.cancel(host) end
         end
+        local function present(page, page_mode, native)
+            if not live() then return end
+            stop(host,owner)
+            owner.cache[page_mode] = page
+            if page_mode=='latest' then owner.latest_native=native end
+            render(page_mode,page,old_view,more)
+        end
         local function saved()
             if not live() then return end
-            if more or not owner.account then failed(false); return end
+            if more or not owner.account then
+                if context.empty_skill then present(context.empty_skill,mode,false) else failed(false) end
+                return
+            end
             local message = _('No saved book reviews. Connect and try again.')
             local running = start(function()
                 local page = Cache:new(host.library_db,host.client,owner.account,mode):read(id)
+                if mode=='latest' and NativeData.list_book_id(id) and (not page or #page.items==0) then
+                    local native = Cache:new(host.library_db,host.client,owner.account):read(id)
+                    if native then return {page=native,native=true} end
+                end
                 if not page and not old_view and mode=='recommended' then
                     page = Cache:new(host.library_db,host.client,owner.account,'latest'):read(id)
                 end
@@ -155,13 +179,53 @@ function M.open(host, book, selected)
             end,function(value)
                 if not live() then return end
                 local page = type(value)=='table' and value.page
-                if not page then failed(true,message);return end
-                stop(host,owner)
+                if not page then
+                    if context.empty_skill then present(context.empty_skill,mode,false) else failed(true,message) end
+                    return
+                end
                 page.has_more, page.limited = false, false
-                owner.cache[page.mode] = page
-                render(page.mode,page,old_view,false)
+                present(page,value.native and 'latest' or page.mode,value.native==true)
             end)
-            if not running then failed(true,message) end
+            if not running then
+                if context.empty_skill then present(context.empty_skill,mode,false) else failed(true,message) end
+            end
+        end
+        local function can_fetch_native()
+            local native=owner.selected and owner.selected.native
+            return owner.account and native and not native.renewal_pending and NativeData.list_book_id(id)
+        end
+        local launch_native
+        launch_native=function()
+            if not live() then return end
+            if not can_fetch_native() then saved();return end
+            local limit=native_previous and math.min(NativeData.MAX_ITEMS,native_previous.limit+NativeData.PAGE_SIZE) or NativeData.PAGE_SIZE
+            local running=start(function()
+                local ok,page=pcall(NativeSource.fetch,host.client,id,limit,native_previous and native_previous.ids or nil,
+                    owner.selected,host.native_renewal~=nil and not context.recovery_attempted)
+                if not ok then
+                    return {native_expired=page=='native_reviews/native_expired',changed=page=='native_reviews/changed'}
+                end
+                pcall(function() Cache:new(host.library_db,host.client,owner.account):write(id,page,os.time()) end)
+                return {page=page}
+            end,function(value)
+                if not live() then return end
+                if type(value)=='table' and value.native_expired then
+                    local renewing=Recovery.start(host,context,owner.selected,{
+                        capture=Source.capture,is_current=current_view,
+                        stale=function() if host._gateway_reviews_owner==owner then M.cancel(host) end end,
+                        complete=function(success,fresh)
+                            owner.selected=fresh
+                            if success then launch_native() else saved() end
+                        end,
+                    })
+                    if renewing then return end
+                end
+                if type(value)=='table' and value.page then present(value.page,mode,true)
+                elseif type(value)=='table' and value.changed then
+                    failed(false,_('Book reviews changed. Close and open them again.'))
+                else saved() end
+            end)
+            if not running then saved() end
         end
         local online = owner.selected and NetworkLink.available(host)
         host:showBusy(online and _('Loading book reviews...') or _('Loading saved book reviews...'), function()
@@ -177,18 +241,24 @@ function M.open(host, book, selected)
             if type(value) ~= 'table' or value.ok ~= true or type(value.page) ~= 'table' then
                 saved(); return
             end
-            stop(host, owner); owner.cache[mode] = value.page
-            render(mode, value.page, old_view, more)
+            if value.empty_latest then
+                context.empty_skill=value.page
+                if can_fetch_native() then launch_native() else saved() end
+                return
+            end
+            present(value.page,mode,false)
         end
         local scheduled = host:runOnlineTask(_('Book reviews'), function()
             if not live() then return end
+            if native_previous then launch_native();return end
             local running = start(function()
                 local valid, page = pcall(Source.fetch, host.client, id, mode, previous, owner.selected)
                 if not valid then return {ok=false} end
-                if owner.account then
+                local empty_latest=mode=='latest' and not previous and #page.items==0 and not page.has_more
+                if owner.account and (not empty_latest or not can_fetch_native()) then
                     pcall(function() Cache:new(host.library_db,host.client,owner.account,mode):write(id,page,os.time()) end)
                 end
-                return {ok=true,page=page}
+                return {ok=true,page=page,empty_latest=empty_latest}
             end, complete)
             if not running then saved() end
         end,nil,{link_only=true,silent_offline=true})
