@@ -73,11 +73,17 @@ return function(plugin,count,flush_tasks,home,pump_until)
         and count("/login","native_renewal")==posts+2,"rate limiting overwrote cache or renewed")
 
     -- Both statistics paths are real children; suspend cleans their owners.
-    plugin:closeWeReadUI();plugin:showProfile()
+    plugin:closeWeReadUI()
     local snapshot=plugin.library_db:getProfileState("statistics")
     snapshot.fetched_at=1000;assert(plugin.library_db:putProfileState("statistics",snapshot))
     control{match="/readdata/detail",times=0,delay=0.6}
-    plugin:refreshProfile(false);plugin:loadReadStats("monthly")
+    local online=plugin.isNetworkOnline
+    plugin.isNetworkOnline=function() error('cached profile attempted synchronous Internet check') end
+    local cached_profile=plugin:showProfile()
+    assert(cached_profile.data.has_data and cached_profile.data.cached and cached_profile.data.fetched_at==1000,
+        'cached statistics did not display before the background refresh')
+    plugin.isNetworkOnline=online
+    plugin:loadReadStats("monthly")
     pump_until(function() return plugin.profile_worker.job and plugin.statistics_worker.job end)
     local heartbeat=false;UIManager:scheduleIn(0.1,function() heartbeat=true end)
     pump_until(function() return heartbeat end)

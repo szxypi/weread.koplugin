@@ -3,6 +3,7 @@ local Source = require("weread.lib.statistics_source")
 local Recovery = require("weread.lib.native_read_recovery")
 local Request = require("weread.ui.statistics_request")
 local AccountName = require("weread.lib.profile_account")
+local NetworkLink = require("weread.lib.network_link")
 local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
 local _ = PluginUtil.tr
@@ -27,17 +28,17 @@ function M:showProfile()
     end
     local account = self.settings:get("account", {})
     local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
-    local cached_name = self.library_db:getProfileState("account_name")
+    local snapshot, goal, cached_name = self.library_db:getProfileOverview()
     local name = type(cached_name)=="table" and scope and cached_name.epoch==scope.epoch
         and AccountName.valid_name(cached_name.name) and cached_name.name or account.name
-    local snapshot = self.library_db:getProfileState("statistics")
-    local goal = self.library_db:getProfileState("goal") or {}
-    local data = Data.build(snapshot, goal.minutes)
+    local now = os.time()
+    local data = Data.build(snapshot, type(goal) == "table" and goal.minutes, now)
     data.account_name = not self.library_db:accountKey() and _("Not logged in")
         or AccountName.valid_name(name) and name or _("Unknown account")
     data.navigation = self:discoveryNavigation("profile")
-    data.cached = data.has_data and (not self:isNetworkOnline() or not data.fetched_at or os.time() - data.fetched_at >= Data.TTL
-        or os.time() < data.fetched_at)
+    local connected = NetworkLink.available(self)
+    data.cached = data.has_data and (not connected or not data.fetched_at
+        or now - data.fetched_at >= Data.TTL or now < data.fetched_at)
     if self._profile_view then
         local old = self._profile_view
         self._profile_view = nil
@@ -56,14 +57,14 @@ function M:showProfile()
         end,
     })
     self._profile_view = view
-    if not data.has_data or data.cached then self:refreshProfile(true) end
+    if connected and (not data.has_data or data.cached) then self:refreshProfile(true) end
     return view
 end
 
 -- Refreshing the displayed identity is independent of statistics access and
 -- never rewrites the login session or stores a worker's response credentials.
 function M:refreshProfileName()
-    if self.profile_name_request or not self:isNetworkOnline() then return end
+    if self.profile_name_request or not NetworkLink.available(self) then return end
     local account,epoch=self.library_db:accountKey(),self.discovery_epoch or 0
     local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
     local access=AccountName.capture(self.settings)
@@ -101,7 +102,7 @@ function M:refreshProfile(automatic)
         end
         return
     end
-    if not self:isNetworkOnline() then
+    if not NetworkLink.available(self) then
         if not automatic then self:showOffline(_("Reading statistics")) end
         return
     end

@@ -12,23 +12,29 @@ local db=require('weread.lib.library_db'):new(settings)
 local first=db:databasePath()
 assert(db:putProfileState('statistics',{fetched_at=123,months={}}))
 assert(db:putProfileState('goal',{minutes=35}))
+assert(db:putProfileState('account_name',{name='Reader',epoch=4}))
 local initial=opens
 local statistics,goal=db:getHomeProfileState()
 assert(opens==initial+1 and read_opens==1 and statistics.fetched_at==123 and goal.minutes==35,
     'home state was not read in one read-only connection')
+initial=opens
+local name
+statistics,goal,name=db:getProfileOverview()
+assert(opens==initial+1 and read_opens==2 and statistics.fetched_at==123 and goal.minutes==35
+    and name.name=='Reader' and name.epoch==4,'profile overview did not share one read-only connection')
 assert(db:putProfileState('goal',{minutes=47}))
 statistics,goal=db:getHomeProfileState()
 assert(statistics.fetched_at==123 and goal.minutes==47,'home state failed to observe an update')
 local connection=db:open()
 local statement=connection:prepare('UPDATE profile_state SET payload=? WHERE name=?')
 statement:bind('broken payload','statistics'):step();statement:close();connection:close()
-statistics,goal=db:getHomeProfileState()
-assert(statistics==nil and goal.minutes==47,'corrupt statistics hid the valid goal')
+statistics,goal,name=db:getProfileOverview()
+assert(statistics==nil and goal.minutes==47 and name.name=='Reader','corrupt statistics hid the valid fields')
 account={user_vid=account.user_vid..'-other'}
 local second=db:databasePath()
 assert(db:putProfileState('statistics',{fetched_at=456,months={}}))
-statistics,goal=db:getHomeProfileState()
-assert(statistics.fetched_at==456 and goal==nil,'home state leaked across accounts')
+statistics,goal,name=db:getProfileOverview()
+assert(statistics.fetched_at==456 and goal==nil and name==nil,'profile state leaked across accounts')
 account={}
 initial=opens;statistics,goal=db:getHomeProfileState()
 assert(opens==initial and statistics==nil and goal==nil,'signed-out state opened an account database')

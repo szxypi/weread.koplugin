@@ -40,6 +40,10 @@ local function fixture()
     local function worker() return {start=function(_self,task,callback) queue[#queue+1]={task=task,callback=callback};return true end,cancel=function() end} end
     local host={settings=settings,client=client,
         library_db={accountKey=function() return state.owner end,getProfileState=function(_self,key) return (state.cache[state.owner] or {})[key] end,
+            getProfileOverview=function()
+                local current=state.cache[state.owner] or {}
+                return current.statistics,current.goal,current.account_name
+            end,
             putProfileState=function(_self,key,value)
                 if not state.save_ok then return false end
                 state.cache[state.owner]=state.cache[state.owner] or {};state.cache[state.owner][key]=value;state.writes=state.writes+1;return true

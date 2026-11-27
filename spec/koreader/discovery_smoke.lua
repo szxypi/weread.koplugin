@@ -386,12 +386,13 @@ local function paint_profile(name)
     assert(plugin._profile_view[1]:getSize().h == Screen:getHeight(), "profile height exceeds screen")
     assert(plugin._profile_view[1]:getSize().w <= Screen:getWidth(), "profile width exceeds screen")
 end
-plugin.isNetworkOnline = function() return false end
+plugin.isNetworkConnected = function() return false end
+plugin.isNetworkOnline = function() error('profile display attempted a synchronous online probe') end
 plugin:showProfile()
 assert(not plugin._profile_view.data.has_data and not plugin.profile_request, "empty offline profile invented data")
 paint_profile("profile-empty")
 plugin:closeWeReadUI()
-plugin.isNetworkOnline = function() return true end
+plugin.isNetworkConnected = function() return true end
 plugin:showProfile()
 for _i = 1, 200 do
     flush_tasks()
@@ -411,6 +412,7 @@ assert(plugin.library_db:getProfileState("goal").minutes == 45
     and plugin._profile_view.data.goal_minutes == 45 and plugin._profile_goal_dialog == nil,
     "native goal input did not persist")
 paint_profile("profile-goal")
+plugin.isNetworkOnline = function() return true end
 plugin._profile_view._profile_buttons[2].callback()
 flush_tasks()
 assert(plugin._read_stats_view and plugin._read_stats_view.data.mode == "monthly", "detailed statistics did not open")
@@ -429,7 +431,8 @@ assert(plugin.library_db:getProfileState("statistics") == nil and plugin.library
     "profile cache/goal crossed accounts")
 plugin.settings:set("account", original_account)
 plugin.settings:flush()
-plugin.isNetworkOnline = function() return false end
+plugin.isNetworkConnected = function() return false end
+plugin.isNetworkOnline = function() error('cached profile attempted a synchronous online probe') end
 plugin:showProfile()
 assert(plugin._profile_view.data.has_data and plugin._profile_view.data.cached and plugin._profile_view.data.goal_minutes == 45 and not plugin.profile_request,
     "offline profile failed to reopen cached data")
@@ -437,6 +440,7 @@ paint_profile("profile-offline")
 plugin._profile_view:onClose()
 assert(plugin._profile_view == nil, "closing profile retained native window")
 plugin.isNetworkOnline = function() return true end
+plugin.isNetworkConnected = function() return true end
 plugin:loadReadStats("monthly")
 assert(plugin.busy_message and plugin._stats_busy_generation, "statistics request did not show its loading indicator")
 plugin:closeWeReadUI()

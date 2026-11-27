@@ -113,7 +113,8 @@ local ok,reason=pcall(function()
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
     assert(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home..'/books');plugin=assert(FM.instance.weread)
-    plugin.isNetworkOnline=function() return mode=='live' end
+    plugin.isNetworkConnected=function() return mode=='live' end
+    plugin.isNetworkOnline=function() error('profile used a synchronous Internet check') end
     if concurrent then
         plugin.native_renewal=nil -- Only read requests are permitted in this test.
         local refresh_name=plugin.refreshProfileName

@@ -30,6 +30,10 @@ local host = setmetatable({
     end },
     library_db = {
         accountKey = function() return account end,
+        getProfileOverview = function()
+            local current = states[account] or {}
+            return current.statistics, current.goal, current.account_name
+        end,
         getProfileState = function(_self, name) return (states[account] or {})[name] end,
         putProfileState = function(_self, name, value)
             if not persist_ok then return false end
@@ -42,7 +46,8 @@ local host = setmetatable({
     profile_worker = worker,
     client = { get_read_stats = function(_self, _mode, base) return { baseTime = base, readTimes = {} } end },
     discoveryNavigation = function() return { {}, {}, {}, {} } end,
-    isNetworkOnline = function() return online end,
+    isNetworkConnected = function() return online end,
+    isNetworkOnline = function() error("profile action probed the Internet on the UI thread") end,
     requireLogin = function() return configured end,
     showInfo = function(_self, text) info = text end,
     showOffline = function() offline = true end,

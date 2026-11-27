@@ -21,12 +21,14 @@ local host=setmetatable({
         if key=='account' then return {user_vid=scope().vid,name='QR name'} end
         return default
     end},
-    library_db={accountKey=function() return account end,getProfileState=function(_self,key)
-        return states[account] and states[account][key]
+    library_db={accountKey=function() return account end,getProfileOverview=function()
+        local current=states[account] or {}
+        return current.statistics,current.goal,current.account_name
     end,putProfileState=function(_self,key,value)
         if fail then return false end;states[account]=states[account] or {};states[account][key]=value;writes=writes+1;return true
     end},
-    profile_name_worker=worker,client={},isNetworkOnline=function() return online end,
+    profile_name_worker=worker,client={},isNetworkConnected=function() return online end,
+    isNetworkOnline=function() error('profile nickname refresh probed the Internet on the UI thread') end,
     discoveryNavigation=function() return {} end,refreshProfile=function() end,closeWeReadUI=function(self) self:cancelProfileRefresh() end,
 },{__index=Profile})
 host:showProfile();expect(shown.data.account_name=='QR name')

@@ -317,25 +317,36 @@ function LibraryDB:getProfileState(name)
     return ok and result or nil
 end
 
--- The home clock reads these together every minute. One read-only query keeps
--- the two values on the same account snapshot and avoids a second DB open.
-function LibraryDB:getHomeProfileState()
+-- Reading the overview together avoids multiple opens and keeps the values
+-- on the same account snapshot. The home clock has no use for the nickname.
+local function read_profile_overview(self, with_name)
     local db = self:openRead()
-    if not db then return nil, nil end
-    local stmt, statistics, goal
+    if not db then return nil, nil, nil end
+    local stmt, statistics, goal, account_name
     local ok = pcall(function()
-        stmt = db:prepare("SELECT name, payload FROM profile_state WHERE name IN ('statistics', 'goal')")
+        local keys = with_name and "('statistics', 'goal', 'account_name')" or "('statistics', 'goal')"
+        stmt = db:prepare("SELECT name, payload FROM profile_state WHERE name IN " .. keys)
         local row = stmt:reset():step()
         while row do
             if row[1] == 'statistics' then statistics = decode(row[2])
-            elseif row[1] == 'goal' then goal = decode(row[2]) end
+            elseif row[1] == 'goal' then goal = decode(row[2])
+            elseif row[1] == 'account_name' then account_name = decode(row[2]) end
             row = stmt:step()
         end
     end)
     close_statement(stmt)
     pcall(function() db:close() end)
-    if not ok then return nil, nil end
+    if not ok then return nil, nil, nil end
+    return statistics, goal, account_name
+end
+
+function LibraryDB:getHomeProfileState()
+    local statistics, goal = read_profile_overview(self, false)
     return statistics, goal
+end
+
+function LibraryDB:getProfileOverview()
+    return read_profile_overview(self, true)
 end
 
 function LibraryDB:putProfileState(name, value)
