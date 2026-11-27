@@ -113,6 +113,11 @@ function M.for_verified_open(path,entry,scope,after_open)
                 host._native_home_verified_open={reader=reader,document=document,path=path,scope=scope,owner=owner,
                     session=host._reader_session_gen or 0,entry=entry,
                     at=recording and recording.recording and recording.at or os.time()}
+                -- The copy is verified, but the prior reminder is only loaded
+                -- by the background job. A checkpoint must preserve any row
+                -- that the session has not read yet.
+                local reconnect=package.loaded['weread.ui.native_direct_reconnect']
+                if reconnect then reconnect.bind(host,entry) end
             end
         end
         if after_open then return after_open(reader) end

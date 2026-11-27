@@ -8,6 +8,10 @@ G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local live_cloud=input.live_cloud_resume==true
+if input.close_pending then
+    assert(input.mock_endpoint and input.read_entry=='catalog' and os.getenv('WEREAD_SYNTHETIC')=='1')
+    require('weread.ui.native_home_resume').record=function() return false end
+end
 if live_cloud then
     assert(not input.mock_endpoint and input.read_entry=='shelf')
     if input.exact_resume then
@@ -293,9 +297,19 @@ if input.store_search_keyword then
     assert(type(input.inline_style)=='string' and #input.inline_style>0 and css:find(input.inline_style,1,true),
         'inline stylesheet not present in rendered EPUB')
 end
-stage='home_record';pump(function() local book=reader.weread.settings:get_book(input.book_id)
-    return book and book.native_home_resume and book.native_home_resume.entry end)
-local entry=reader.weread.settings:get_book(input.book_id).native_home_resume.entry
+local active=reader.weread;local scope=active.settings:get_auth_scope()
+local entry,reads_before_close
+if input.close_pending then
+    stage='new_chapter_disconnect'
+    assert(not active.settings:get_book(input.book_id).native_home_resume)
+    entry=assert(require('weread.lib.native_direct_cache').identify(active.settings,scope.vid,path,function() return true end))
+    reads_before_close=count_reads('request-count')
+    offline=true;active:onNetworkDisconnected()
+else
+    stage='home_record';pump(function() local book=active.settings:get_book(input.book_id)
+        return book and book.native_home_resume and book.native_home_resume.entry end)
+    entry=active.settings:get_book(input.book_id).native_home_resume.entry
+end
 assert(entry.book_id==input.book_id and entry.chapter_uid==input.uid and entry.book_version==input.book_version
     and entry.source_sha256==input.source_sha256 and not reader.weread:detectWeReadBook())
 local anchor
@@ -308,7 +322,7 @@ else
     anchor=assert(reader.document:getXPointer());assert(anchor~=first)
 end
 if input.quick_search then
-    local active=reader.weread;active.settings.mock_endpoint=input.mock_endpoint
+    active.settings.mock_endpoint=input.mock_endpoint
     assert(active.settings:get('api_key','')=='' and not next(active.settings:get('cookies',{})),
         'quick search fixture unexpectedly contains a gateway key or Web cookies')
     active.fetchVisibleShelfCovers=function() end
@@ -363,6 +377,13 @@ end
 assert(not Reader.instance)
 local requests=count_reads('request-count') or 0
 assert(input.offline~=true or requests==0)
+if input.close_pending then
+    local reminders=require('weread.lib.native_direct_pending')
+    local reminder=assert(reminders.read(active.library_db,active.settings,scope,entry,function() return true end),
+        'closing a newly downloaded chapter lost the offline reminder')
+    assert(reminder.xpointer==anchor and active.settings:get_book(input.book_id).native_home_resume.entry.file_id==entry.file_id)
+    assert(requests==reads_before_close,'closing the new chapter made an offline request')
+end
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
     cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,

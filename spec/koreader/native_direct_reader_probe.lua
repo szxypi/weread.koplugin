@@ -131,6 +131,13 @@ local lfs=require('libs/libkoreader-lfs');local before=assert(lfs.attributes(fir
 local second=assert(build());assert(second.reused and second.path==first.path)
 assert(archive_checks==2,'reuse did not scan archive contents exactly once')
 archive.verify_members=verify
+local cached=require('weread.lib.native_direct_cache')
+for _,result in ipairs({first,second}) do
+    local pinned=assert(cached.identify(settings,scope.vid,result.path,function() return true end))
+    assert(result.file_id==pinned.file_id)
+    for key,value in pairs(pinned) do assert(result.saved_entry[key]==value,'published copy did not match saved metadata') end
+    for key,value in pairs(result.saved_entry) do assert(pinned[key]==value,'published copy included unchecked metadata') end
+end
 local after=assert(lfs.attributes(first.path));assert(before.ino==after.ino and before.size==after.size)
 local receipt=assert(io.open(first.path:match('^(.*)/[^/]+$')..'/receipt.txt','wb'))
 assert(receipt:write('invalid receipt'));assert(receipt:close())

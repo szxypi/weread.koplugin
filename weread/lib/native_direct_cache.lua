@@ -63,10 +63,14 @@ end
 local function archive_members(book,chapter,prepared,text_digest)
     local rendered=require('weread.lib.content').single_chapter_xhtml(book,chapter,prepared.xhtml)
     if #rendered>8*1024*1024 then return nil end
+    local identity_member={maximum=Identity.MAX_BYTES}
+    identity_member.validate=function(raw)
+        local identity=checked_identity(raw,book.book_id,prepared.book_version,text_digest)
+        identity_member.file_id=identity and identity.file_id
+        return identity~=nil
+    end
     local wanted={
-        [Identity.PATH]={maximum=Identity.MAX_BYTES,validate=function(raw)
-            return checked_identity(raw,book.book_id,prepared.book_version,text_digest)~=nil
-        end},
+        [Identity.PATH]=identity_member,
         ['OEBPS/content.opf']={maximum=1024*1024,validate=function(raw)
             return matches_source(raw,book.book_id,chapter.chapterUid)
         end},
@@ -78,7 +82,7 @@ local function archive_members(book,chapter,prepared,text_digest)
         if #asset.data>8*1024*1024 then return nil end
         wanted['OEBPS/'..asset.href]={maximum=8*1024*1024,bytes=asset.data}
     end
-    return wanted
+    return wanted,identity_member
 end
 local function verified(lfs,dir,path,key,wanted)
     local proof=dir..'/receipt.txt'
@@ -245,9 +249,10 @@ end
 local function publish_entry(lfs,dir,entry,account)
     local existing=read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)
     if existing then
-        return existing.chapter_uid==entry.chapter_uid and existing.book_version==entry.book_version
+        if existing.chapter_uid==entry.chapter_uid and existing.book_version==entry.book_version
             and existing.text_digest==entry.text_digest and existing.source_sha256==entry.source_sha256
-            and existing.title==entry.title and existing.missing_images==entry.missing_images
+            and existing.title==entry.title and existing.missing_images==entry.missing_images then return existing end
+        return nil
     end
     if mode(lfs,dir..'/entry.txt') or mode(lfs,dir..'/entry.txt.part') then return false end
     local payload=entry_payload(entry)
@@ -256,7 +261,14 @@ local function publish_entry(lfs,dir,entry,account)
     local closed=file:close()
     if not ok or not closed then os.remove(dir..'/entry.txt.part');return false end
     if not os.rename(dir..'/entry.txt.part',dir..'/entry.txt') then os.remove(dir..'/entry.txt.part');return false end
-    return read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)~=nil
+    local saved=read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)
+    return saved and entry_payload(saved)==payload and saved or nil
+end
+
+local function published_copy(path,reused,saved,reference,file_id)
+    saved.file_id=file_id
+    return {path=path,reused=reused,book_version=saved.book_version,source_sha256=saved.source_sha256,
+        missing_images=saved.missing_images,file_id=file_id,saved_entry=attach_ref(saved,reference)}
 end
 local function owned_book_dir(settings,root,owner,book_hash)
     local lfs=fs()
@@ -667,7 +679,7 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
     local ok,first,second=pcall(function()
     local chapter_file=filename(book.book_id,chapter.chapterUid)
     local text_digest=Crypto.sha256_hex(prepared.xhtml)
-    local wanted=archive_members(book,chapter,prepared,text_digest)
+    local wanted,identity_member=archive_members(book,chapter,prepared,text_digest)
     if not wanted then return nil,'storage' end
     for index=0,M.MAX_COPIES-1 do
         if not live() then return nil,'session_changed' end
@@ -694,12 +706,13 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
             entry.catalog_prev,entry.catalog_next=chapter.catalog_prev,chapter.catalog_next
         end
         if not created then
-            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and can_publish()
-                and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and can_publish() then
-                pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
-                save_presence(settings,account,book.book_id,entry,can_publish)
-                return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
-                    missing_images=prepared.missing_images}
+            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and can_publish() then
+                local saved=publish_entry(lfs,dir,entry,account)
+                if saved and publish_ref(lfs,dir,entry) and can_publish() then
+                    pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
+                    save_presence(settings,account,book.book_id,entry,can_publish)
+                    return published_copy(path,true,saved,entry,identity_member.file_id)
+                end
             end
         else
             local local_book={book_id=book.book_id,title=book.title,author=book.author,
@@ -720,15 +733,16 @@ function M.publish(settings,account,book,chapter,prepared,current,capacity)
             -- makes this copy available to the offline reader.
             local size,digest=digest_file(lfs,path)
             if not size or not can_publish() or not publish_receipt(dir,key,size,digest) or not can_publish()
-                or not verified(lfs,dir,path,key,wanted)
-                or not can_publish() or not publish_entry(lfs,dir,entry,account)
-                or not publish_ref(lfs,dir,entry) or not can_publish() then
+                or not verified(lfs,dir,path,key,wanted) or not can_publish() then
+                return nil,live() and 'storage' or 'session_changed'
+            end
+            local saved=publish_entry(lfs,dir,entry,account)
+            if not saved or not publish_ref(lfs,dir,entry) or not can_publish() then
                 return nil,live() and 'storage' or 'session_changed'
             end
             save_presence(settings,account,book.book_id,entry,can_publish)
             pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
-            return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
-                missing_images=prepared.missing_images}
+            return published_copy(path,false,saved,entry,identity_member.file_id)
         end
     end
     return nil,'storage'

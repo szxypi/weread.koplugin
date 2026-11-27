@@ -115,7 +115,7 @@ if record then
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
-    if input.mode=='shelf_close' then
+    if input.mode=='shelf_close' or input.mode=='shelf_close_prior' then
         require('ui/network/manager').isConnected=function() return false end
         require('weread.ui.native_home_resume').record=function() return false end
         assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
@@ -133,11 +133,32 @@ else
         ctx.menu:onMenuSelect(ctx.menu.item_table[1])
         pump(function() return Reader.instance and Reader.instance.document.file==input.path end)
         local reader=Reader.instance
-        assert(not reader.weread.settings:get_book(id).native_home_resume,'background verification was not suppressed')
+        local active=reader.weread;local scope=active.settings:get_auth_scope()
+        local opened=assert(active._native_home_verified_open)
+        local store=require('weread.lib.native_direct_pending')
+        local function read_reminder()
+            return store.read(active.library_db,active.settings,scope,opened.entry,function() return true end)
+        end
+        local previous=read_reminder()
+        if input.mode=='shelf_close' and previous then
+            assert(store.remove(active.library_db,active.settings,scope,opened.entry,previous,function() return true end))
+            previous=nil
+        end
+        assert((previous~=nil)==(input.mode=='shelf_close_prior'))
+        assert(not active.settings:get_book(id).native_home_resume,'background verification was not suppressed')
+        local current_page=reader:getCurrentPage()
+        assert(reader.document:getPageCount()>=2)
+        reader.rolling:onGotoPage(current_page==2 and 1 or 2);UI:forceRePaint()
+        assert(reader:getCurrentPage()~=current_page and active._native_direct_reconnect.dirty)
+        local anchor=assert(require('weread.lib.source_context').location(reader.document,'page')).xpointer
         reader:onHome()
         assert(not Reader.instance and FM.instance and FM.instance.weread)
         local recent=assert(FM.instance.weread.settings:get_book(id).native_home_resume,'normal close lost the selected chapter')
         assert(recent.entry.chapter_uid=='37')
+        local reminder=assert(read_reminder(),'normal close lost the offline position reminder')
+        if previous then assert(reminder.xpointer==previous.xpointer and reminder.xpointer~=anchor,'closing replaced an unread reminder')
+        else assert(reminder.xpointer==anchor,'reminder did not contain the last page') end
+        local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));file:close()
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         return
     end

@@ -103,6 +103,8 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             payload['exact_resume'] = True
         if unread:
             payload['start_unread'] = True
+        if entry == 'catalog_pending':
+            payload['close_pending'] = True
         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
                                input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
         result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
@@ -116,7 +118,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         expected_reads = 3 if server.exact_resume else 2 if unread else int(server.cloud_chapter is not None)
         assert server.progress_requests == expected_reads
         if payload['read_entry'] in ('details', 'catalog'):
-            mode = 'detail_catalog_saved' if entry == 'catalog' else 'detail_read_saved'
+            mode = 'detail_catalog_saved' if payload['read_entry'] == 'catalog' else 'detail_read_saved'
             offline = dict(mode=mode, path=result['path'])
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
                                    input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
@@ -137,7 +139,7 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details', 'details_exact', 'details_new', 'catalog',
+                for entry in ('details', 'details_exact', 'details_new', 'catalog', 'catalog_pending',
                               'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline', 'shelf_legacy'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 server.cloud_chapter = None
@@ -167,7 +169,7 @@ def run(runtime, read_entries_only=False):
                     prepared = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')
                     path, alternative = Path(prepared['37']), Path(prepared['38'])
                     for mode in ('record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
-                                 'shelf_close', 'reopen', 'detail', 'shelf_detail',
+                                 'shelf_close', 'shelf_close_prior', 'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
                                  'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all',
@@ -211,10 +213,12 @@ def run(runtime, read_entries_only=False):
         print('PASS: one-tap read from details and bookshelf to a verified cloud location at both sizes')
         print('PASS: one-tap read opens the first chapter of a confirmed unread book at both sizes')
         print('PASS: precise cloud continuation reuses the saved EPUB without its original at both sizes')
+        print('PASS: a newly downloaded chapter saves the last offline page and reminder on close at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
             print('PASS: quick menu closes to WeRead home and reopens the same offline page at both sizes')
             print('PASS: normal KOReader close preserves the verified chapter chosen from the offline shelf at both sizes')
+            print('PASS: quick offline turns save a reminder on close and preserve prior reminders at both sizes')
     finally:
         server.shutdown()
         server.server_close()
