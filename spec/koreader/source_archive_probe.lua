@@ -16,6 +16,18 @@ local warm=assert(Archive.read(request.warm.path,request.warm.wanted))
 assert(warm['body.txt']=='safe synthetic body')
 local batch=assert(Archive.read_batch(request.warm.path,{['body.txt']=64,['absent']=64}))
 assert(batch['body.txt']==warm['body.txt'] and not batch.absent)
+do
+    local sized_batch={['a.bin']=8*1024*1024,['b.bin']=8*1024*1024}
+    local at_budget=assert(Archive.read_batch(request.batch_path,sized_batch))
+    assert(#at_budget['a.bin']+#at_budget['b.bin']==16*1024*1024)
+    sized_batch['c.bin']=1
+    assert(not Archive.read_batch(request.batch_path,sized_batch),'batch exceeded the decompressed byte budget')
+    local many_members={['body.txt']=64}
+    for index=1,4096 do many_members['absent/'..index]=64 end
+    assert(Archive.read_batch(request.warm.path,many_members)['body.txt']==warm['body.txt'])
+    many_members.extra=64
+    assert(not Archive.read_batch(request.warm.path,many_members),'batch exceeded the requested member limit')
+end
 for _,case in ipairs(request.cases) do
     if case.path:match('/duplicate%.zip$') then
         assert(not Archive.read_batch(case.path,{['body.txt']=64}),'batch accepted duplicate source bytes')

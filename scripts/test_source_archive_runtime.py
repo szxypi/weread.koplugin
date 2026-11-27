@@ -112,8 +112,15 @@ def main():
     with zipfile.ZipFile(package_path,'w',compression=zipfile.ZIP_DEFLATED) as output:
         output.writestr('OEBPS/content.opf',package_bytes)
         output.writestr('OEBPS/text/other.xhtml',package_bytes)
+    batch_path=root/'batch-budget.epub'
+    batch_bytes=b'x'*(8*1024*1024)
+    with zipfile.ZipFile(batch_path,'w',compression=zipfile.ZIP_DEFLATED) as output:
+        output.writestr('a.bin',batch_bytes)
+        output.writestr('b.bin',batch_bytes)
+        output.writestr('c.bin',b'x')
     request = json.dumps(dict(cases=cases, warm=warm, metadata_cases=metadata_cases, byte_cases=byte_cases,
-                              package=dict(path=str(package_path), hash=hashlib.sha256(package_bytes).hexdigest())))
+                              package=dict(path=str(package_path), hash=hashlib.sha256(package_bytes).hexdigest()),
+                              batch_path=str(batch_path)))
     result = subprocess.run(['./luajit', str(REPO / 'spec/koreader/source_archive_probe.lua'), str(REPO)],
                             cwd=args.koreader.resolve(), input=request, text=True, capture_output=True, timeout=60)
     if result.returncode:

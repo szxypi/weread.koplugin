@@ -43,6 +43,7 @@ end} end
 local scans,last_case,unicode_available=0,nil,false
 package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=1,
     unicode_casefold_available=function() return unicode_available end,
+    discover=function() return {error='unavailable'} end,
     scan=function(input)
         scans=scans+1
         last_case=input.ignore_ascii_case
@@ -256,6 +257,8 @@ book.cached_full_book=output_path;options.on_complete(true,output_path)
 task=scheduled;scheduled=nil;task()
 expect(owner.job and owner.keyword=='needle' and owner.ignore_ascii_case and owner.total==3 and owner.missing==0,
     'completed download did not restart the same search over all chapters')
+expect(owner.discovery_pending,'new full download did not try the bounded archive index')
+worker:complete();task=scheduled;scheduled=nil;task()
 worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
 worker:complete();task=scheduled;scheduled=nil;task()
 expect(owner.finished and #owner.value==3 and last_case==true,'full-book search missed chapters or case mode')
@@ -340,6 +343,23 @@ expect(owner.finished and #owner.value==2 and find_item(owner.menu,
 Cached.cancel(host)
 local backend=require('weread.lib.cached_book_search')
 backend.MAX_ARCHIVE_BATCH=2
+local indexed_batches=0
+backend.batch_reader=function(file,requests)
+    assert(file=='/full.epub' and #requests==2 and requests[1].chapter=='3' and requests[2].chapter=='2')
+    indexed_batches=indexed_batches+1
+    return function() end
+end
+book.cached_chapters={['1']='/one.epub'}
+owner=open({chapters[1],chapters[3],chapters[2]});worker:complete()
+expect(owner.queue[1].uid=='1' and not owner.queue[1].archive and owner.queue[2].uid=='3' and owner.queue[2].archive
+    and owner.queue[3].uid=='2' and owner.titles['2']=='Second','archive index replaced known catalog order, titles or fallback')
+task=scheduled;scheduled=nil;task();worker:complete()
+task=scheduled;scheduled=nil;task();worker:complete()
+task=scheduled;scheduled=nil;task()
+expect(owner.finished and owner.checked==3 and #owner.value==3 and owner.value[3].chapter_uid=='2' and indexed_batches==1,
+    'known catalog did not share grouped reads across its indexed chapters')
+Cached.cancel(host)
+book.cached_chapters={}
 local rejected_batches=0
 backend.batch_reader=function()
     rejected_batches=rejected_batches+1
@@ -428,4 +448,30 @@ owner=open(many);worker:complete()
 expect(owner.limit and owner.index==4 and scans-initial_scans==3 and #owner.value==3,
     'worker scanned beyond the current result batch capacity')
 Cached.cancel(host);Cached.MAX_RESULTS=1000
+
+local long_catalog,indexed,widths={},{},{}
+for index=1,260 do
+    local uid=tostring(index)
+    long_catalog[index]={chapterUid=uid,title='Chapter '..uid}
+    indexed[index]={uid=uid,index=index,raw_sha256=string.rep('a',64),
+        render_path=('OEBPS/text/chapter-%03d.xhtml'):format(index)}
+end
+host.getFullBookCachePath=function() return '/full.epub' end
+backend.MAX_ARCHIVE_BATCH=258
+backend.discover=function() return {entries=indexed,incomplete=false} end
+backend.batch_reader=function(_file,requests)
+    widths[#widths+1]=#requests
+    return function() end
+end
+backend.scan=function(request) now=now+360;return original_scan(request) end
+owner=open(long_catalog);worker:complete()
+next_task();worker:complete()
+expect(owner.checked==1 and widths[1]==258,'long archive batch did not respect its time budget')
+backend.scan=original_scan
+next_task();worker:complete()
+expect(owner.checked==257 and widths[2]==256 and owner.value[2].chapter_uid=='2',
+    'slow archive did not shrink the next batch or resume at the right chapter')
+next_task();worker:complete();next_task()
+expect(owner.finished and owner.checked==260 and owner.value[260].chapter_uid=='260','adapted batch lost the last chapter')
+Cached.cancel(host)
 print(('cached_book_search_ui_spec: %d checks'):format(checks))

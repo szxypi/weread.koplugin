@@ -200,7 +200,10 @@ local function scan_batch(requests,room,archive)
         results[index]=type(result)=='table' and result or {error='unavailable'}
         if type(result)~='table' or result.error or type(result.hits)~='table' then break end
         room=room-#result.hits
-        if room<=0 or not (result.missing==true or result.complete==true) or Time.now()>=deadline then break end
+        if room<=0 or not (result.missing==true or result.complete==true) then break end
+        if index<#requests and Time.now()>=deadline then
+            return {results=results,time_limited=true}
+        end
     end
     return {results=results}
 end
@@ -278,7 +281,11 @@ start=function(host,owner)
                     end
                     seen[row.uid]=true;last=row.index
                 end end
-                if valid then
+                if valid and owner.catalog then
+                    local indexed={}
+                    for _i,row in ipairs(result.entries) do indexed[row.uid]=row end
+                    for _i,chapter in ipairs(owner.queue) do chapter.archive=indexed[chapter.uid] end
+                elseif valid then
                     local mapped,merged={},{}
                     local full_path,chapter_label={owner.full},_('Downloaded chapter %1')
                     for _i,row in ipairs(owner.queue) do mapped[row.uid]=row end
@@ -294,7 +301,7 @@ start=function(host,owner)
                         owner.queue=merged;owner.total=#merged;owner.discovered=#result.entries>0
                         owner.discovery_incomplete=result.incomplete
                     else owner.discovery_incomplete=true end
-                else owner.discovery_incomplete=true end
+                elseif owner.catalog_missing then owner.discovery_incomplete=true end
                 owner.discovery_pending=false
                 render(host,owner);later()
             end)
@@ -315,13 +322,14 @@ start=function(host,owner)
         end
         if not owner.queue[owner.index] then owner.finished=true;stop(host,owner);render(host,owner);return end
         local requests={}
-        local archive=owner.queue[owner.index].archive and owner.full
+        local grouped=owner.queue[owner.index].archive~=nil
+        local archive=grouped and owner.full
         local limit=job.single_scan and 1 or archive and (job.archive_batch_limit or Search.MAX_ARCHIVE_BATCH)
             or M.MAX_SCANS_PER_WORKER
         local last=math.min(#owner.queue,owner.index+limit-1)
         for index=owner.index,last do
             local chapter=owner.queue[index]
-            if archive and not chapter.archive then break end
+            if (chapter.archive~=nil)~=grouped then break end
             requests[#requests+1]={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,
                 from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case,archive=chapter.archive}
         end
@@ -343,6 +351,12 @@ start=function(host,owner)
                 if #owner.value>=M.MAX_RESULTS or not accept_scan(owner,scan,requests[index]) then
                     stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return
                 end
+            end
+            if archive and result.time_limited==true and #results < #requests then
+                -- Avoid reading the same unused members on slow devices. Keep
+                -- the original 256-chapter window for short-lived slowdowns.
+                local smaller=math.max(256,#results)
+                if smaller<limit then job.archive_batch_limit=smaller end
             end
             if #owner.value>=M.MAX_RESULTS then
                 owner.finished=not owner.overflow and not owner.queue[owner.index]
@@ -401,7 +415,8 @@ fetch_catalog=function(host,owner)
             stop(host,owner);render(host,owner);host:showInfo(_("Could not load this book's chapter list."));return
         end
         stop(host,owner)
-        owner.catalog,owner.catalog_missing,owner.discovery_pending=chapters,false,false
+        owner.catalog,owner.catalog_missing=chapters,false
+        owner.discovery_pending=owner.full~=nil and #entries>M.MAX_SCANS_PER_WORKER
         owner.discovery_incomplete,owner.discovered=false,false
         owner.queue,owner.missing,owner.total=entries,missing,total
         owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
@@ -465,6 +480,7 @@ download_missing=function(host,owner)
                     if type(latest)=='table' then entries,missing,total=queue(latest,owner.catalog,path,path) end
                     if not entries then host:showInfo(_('Could not search downloaded chapters.'));return end
                     owner.queue,owner.missing,owner.total=entries,missing,total
+                    owner.discovery_pending=#entries>M.MAX_SCANS_PER_WORKER
                     owner.full=path;owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
                     owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
                     owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
@@ -505,6 +521,7 @@ function M.open(host,id,chapters,initial_keyword)
     if type(host.getFullBookCachePath)=='function' then
         local ok,value=pcall(host.getFullBookCachePath,host,book);if ok then full=value end
     end
+    full=nonempty_path(full)
     chapters=Reading.catalog(chapters)
     local entries,missing,total,catalog_missing=queue(book,chapters,document.file,full)
     if not entries then host:showInfo(_('Could not search downloaded chapters.'));return false end
@@ -512,7 +529,7 @@ function M.open(host,id,chapters,initial_keyword)
     local owner={id=id,scope=scope,auth_epoch=host.settings:get('auth_epoch',0),account=host.library_db:accountKey(),
         document=document,file=document.file,session=host._reader_session_gen or 0,local_search=true,search_results=true,
         queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,catalog=chapters,
-        full=full,discovery_pending=catalog_missing and type(full)=='string' and full~='',
+        full=full,discovery_pending=full~=nil and (catalog_missing or #entries>M.MAX_SCANS_PER_WORKER),
         checked=0,index=1,from=1,unresolved=0,value={},titles={},page=1}
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
     host._cached_book_search_owner=owner

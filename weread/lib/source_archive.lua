@@ -2,7 +2,7 @@
 -- disk, touch the reader's inherited native DOM/ZIP handles, or log content.
 local Catalog = require('weread.lib.chapter_catalog')
 local M = { MAX_ENTRIES = 1000000, MAX_MEMBERS = 8, MAX_MEMBER_BYTES = 8 * 1024 * 1024 }
-M.MAX_BATCH_MEMBERS = 1025
+M.MAX_BATCH_MEMBERS = 4097
 M.MAX_BATCH_BYTES = 16 * 1024 * 1024
 local compare_bytes
 local function byte_comparator(ffi)

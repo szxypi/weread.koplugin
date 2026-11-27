@@ -216,8 +216,8 @@ def main():
             or args.search_large_uid or args.cached_large_uid or args.cached_full or args.cached_limit
             or args.search_current_fallback or args.search_select_chapter or args.search_local_download):
         parser.error('--search-long-catalog uses the ordinary book-search or cached-search fixture')
-    if args.cached_full and not args.cached_no_catalog:
-        parser.error('--cached-full requires --cached-no-catalog')
+    if args.cached_full and not (args.cached_no_catalog or args.cached_long_full):
+        parser.error('--cached-full requires --cached-no-catalog or --cached-long-full')
     if args.cached_long_full and (args.probe!='cached-search' or not args.cached_full or args.cached_incomplete
             or args.cached_large_uid or args.cached_dual):
         parser.error('--cached-long-full requires the complete cached-search EPUB fixture')
@@ -499,7 +499,7 @@ def main():
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
-                unavailable = 0 if args.cached_no_catalog else LONG_CATALOG_SIZE-2 if args.search_long_catalog else 1
+                unavailable = 0 if args.cached_no_catalog or args.cached_long_full else LONG_CATALOG_SIZE-2 if args.search_long_catalog else 1
                 assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=unavailable,
                                    navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
                                    imported=args.search_cb,no_catalog=args.cached_no_catalog,full=args.cached_full,

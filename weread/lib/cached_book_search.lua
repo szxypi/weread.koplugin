@@ -11,7 +11,7 @@ local Protocol=require('weread.lib.protocol')
 local Source=require('weread.lib.position_source')
 local Crypto=require('weread.lib.crypto')
 local UnicodeSearch=require('weread.lib.unicode_search')
-local M={MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=256}
+local M={MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=math.floor((Archive.MAX_BATCH_MEMBERS-1)/4)}
 M.unicode_casefold_available=UnicodeSearch.available
 
 -- ASCII case folding preserves UTF-8 byte offsets; the original text remains

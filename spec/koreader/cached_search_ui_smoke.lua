@@ -324,7 +324,7 @@ owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
 local search_ms=math.floor((socket.gettime()-search_start)*1000+.5)
 local count=incomplete and 1 or 2
-local unavailable=no_catalog and 0 or #chapters-2
+local unavailable=(no_catalog or long_full) and 0 or #chapters-2
 local checked=long_full or (limit_test and 1 or count)
 assert(#owner.value==count and owner.checked==checked and owner.missing==unavailable)
 if limit_test then
@@ -391,7 +391,7 @@ if restore_catalog then
         rescan=true,cancel_safe=true,missing=total-2,pending_preserved=true}))
     os.exit(0)
 end
-if full then
+if full and no_catalog then
     assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[long_full or count].uid==target_uid)
     if incomplete then
         local found=false
@@ -437,6 +437,9 @@ end
 assert(requests[0]==0,'offline cached search attempted a network request')
 if long_full then
     assert(owner.total==long_full and owner.checked==long_full and requests[1]>0 and requests[1]<500)
+    if not no_catalog then
+        assert(owner.catalog and owner.titles[target_uid]=='合成第二章','whole-book batch replaced the catalog title')
+    end
     print('\nWEREAD_CACHED_LONG_FULL='..require('json').encode({chapters=owner.checked,
         batch_reads=tonumber(requests[1]),search_ms=search_ms}))
 end
