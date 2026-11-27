@@ -100,7 +100,7 @@ function M.prepare_destination(client,settings,entry,file,native,current,wanted)
     if not quote then return nil,reason end
     local raw,format=chapter_source(client,settings,pinned,file,native,active)
     if not raw then return nil,format end
-    local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
+    local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true,omit_initial_bom=true})
     if not map then return nil,'unavailable' end
     local point=map:locate_point(quote,0)
     if not point or point.co~=wanted.chapter_offset or not active() then return nil,'unavailable' end

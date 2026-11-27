@@ -38,7 +38,7 @@ function M.resolve(client,settings,entry,file,context,native,web,current,wanted,
         if not chapter.downloadable then return {error='not_entitled'} end
         local source,source_error=Source.fetch(client,settings,native,entry.book_id,wanted.chapter_uid,{is_current=active})
         if not source then return {error=source_error or 'unavailable'} end
-        if source.is_text~=false or source.book_version~=catalog.version or source.reading_catalog_sha256~=catalog.reading_digest
+        if type(source.is_text)~='boolean' or source.book_version~=catalog.version or source.reading_catalog_sha256~=catalog.reading_digest
             or type(source.body)~='string' or source.body=='' then return {error='source_changed'} end
         local digest=Crypto.sha256_hex(source.body)
         local rows=Cache.list(settings,native.scope.vid,entry.book_id,active,wanted.chapter_uid)

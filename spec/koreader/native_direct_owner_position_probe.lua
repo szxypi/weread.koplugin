@@ -6,6 +6,7 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
+local basis=input.plain_text and 'raw_txt_utf16' or 'filtered_xhtml_utf16'
 local scope={vid=input.credentials.vid,epoch=1}
 local settings={data_dir=home,cache_dir=home,mock_endpoint=type(input.mock_endpoint)=='string' and input.mock_endpoint or nil,get=function(_,key,default)
     if key=='cookies' then return input.web_cookies end
@@ -29,6 +30,15 @@ client.request=function(self,options)
         local body=json.decode(options.body)
         assert(body.bookId==input.book_id and body.chapterUid==tonumber(input.uid) and body.readingTime==0
             and type(body.summary)=='string' and #body.summary>0)
+        if input.plain_text then
+            local file=assert(io.open(assert(input.path:match('^(.*)/[^/]+$'))..'/native-plain-source.txt','rb'))
+            local raw=assert(file:read('*a'));file:close()
+            local map=assert(require('weread.lib.source_coordinates').build(raw,{format='web_txt'}))
+            assert(assert(map:literal_excerpt(body.chapterOffset)).text==body.summary)
+        end
+        local marker=home..'/upload-blocked'
+        assert(not require('libs/libkoreader-lfs').attributes(marker))
+        local file=assert(io.open(marker,'wb'));assert(file:write('1'));assert(file:close())
         error('owner_dry_run/blocked',0) -- Never forward a progress write to the network.
     elseif input.annotation_preview and (url==native..'/book/bookmarklist?bookId='..input.book_id..'&synckey=0'
         or url==native..'/review/list?bookId='..input.book_id..'&listType=11&listMode=0&mine=1&synckey=0&count=20') then
@@ -38,8 +48,10 @@ client.request=function(self,options)
         local body=json.decode(options.body);assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
             and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(native..'/book/chapterdownload?',1,true)==1 then
+        local chapter=input.plain_text and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&'
+            or 'chapters=0%2C'..input.uid..'&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and (url:find('chapters=0%2C'..input.uid..'&',1,true)
+            and (url:find(chapter,1,true)
                 or input.cloud_cross and url:find('chapters=0%2C'..input.target_uid..'&',1,true))
             and url:find('stopAutoPayWhenBNE=1',1,true)
             and url:find('preview=0',1,true))
@@ -51,7 +63,8 @@ client.request=function(self,options)
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true))
     elseif url==require('weread.lib.protocol').reader_url(input.book_id,input.uid)
         or input.cloud_cross and url==require('weread.lib.protocol').reader_url(input.book_id,input.target_uid) then assert(options.method=='GET')
-    elseif url==web..'/web/book/chapter/e_0' or url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3' then
+    elseif url==web..'/web/book/chapter/e_0' or url==web..'/web/book/chapter/e_1' or url==web..'/web/book/chapter/e_3'
+        or input.plain_text and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1') then
         local body=json.decode(options.body);local p=require('weread.lib.protocol')
         assert(options.method=='POST' and body.b==p.e(input.book_id)
             and (body.c==p.e(input.uid) or input.cloud_cross and body.c==p.e(input.target_uid))
@@ -209,12 +222,18 @@ wait(function() return host.checked_message~=nil or not host._native_direct_posi
 local tr=require('weread.lib.plugin_util').tr
 local opened,denied,cancelled=false,false,false
 if input.upload_dry_run then
-    assert(host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
+    if not (host._native_direct_position and host._native_direct_position.confirm) then
+        local allowed={invalid=true,unavailable=true,source_changed=true,file_changed=true,session_changed=true,
+            auth_expired=true,web_expired=true,rate_limited=true,cloud_changed=true,baseline_unavailable=true,
+            anchor_unavailable=true,summary_unavailable=true}
+        print('WEREAD_DIRECT_OWNER_POSITION='..json.encode{ok=false,reason=allowed[reason] and reason or 'unavailable'});return
+    end
     host._native_direct_position.confirm.ok_callback()
     wait(function() return host.checked_message~=nil or not host._native_direct_position end)
     assert(host.checked_message==tr('The sync result could not be confirmed. Choose sync again to review it.'))
     local pending=assert(require('weread.lib.native_position_store'):new(library,client):read())
-    assert(pending.phase=='pending' and pending.metadata.basis=='filtered_xhtml_utf16')
+    assert(pending.phase=='pending' and pending.metadata.basis==basis)
+    local marker=assert(io.open(home..'/upload-blocked','rb'));assert(marker:read('*a')=='1');marker:close()
 end
 if input.cloud and not input.upload_preview and not input.upload_dry_run and host._native_direct_position and host._native_direct_position.confirm then
     assert(comparison and (comparison.relation=='different' or comparison.relation=='other_chapter'))
@@ -245,7 +264,7 @@ if not input.upload_dry_run and not cancelled and not denied and not opened and 
         baseline_unavailable=true,summary_unavailable=true}
     print('WEREAD_DIRECT_OWNER_POSITION='..json.encode{ok=false,reason=allowed[reason] and reason or 'unavailable'});return
 end
-assert(point and point.upload_verified==false and point.source_current and point.basis=='filtered_xhtml_utf16')
+assert(point and point.upload_verified==false and point.source_current and point.basis==basis)
 local report={ok=true,text=anchor.text,point_offset=anchor.point_offset,offset=point.chapter_offset}
 if input.upload_dry_run then report.upload_dry_run=true
 elseif input.upload_preview then report.upload_preview=true

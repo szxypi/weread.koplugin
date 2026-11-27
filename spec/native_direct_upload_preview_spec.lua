@@ -42,7 +42,7 @@ package.preload['weread.lib.native_direct_position']=function() return {prepare=
     for _i=1,mode=='one_web' and 1 or 2 do
         checks=checks+1;if not options.verify_progress(p) then return nil,'cloud_changed' end
     end
-    return {chapter_offset=30},nil,nil,'new source summary'
+    return {chapter_offset=30,basis=mode=='txt' and 'raw_txt_utf16' or 'filtered_xhtml_utf16'},nil,nil,'new source summary'
 end} end
 local Preview=require('weread.lib.native_direct_upload_preview')
 local function prepare(which)
@@ -58,6 +58,8 @@ bound.book_id=entry.book_id
 local Contract=require('weread.lib.native_position_contract')
 expect(Contract.valid(bound) and value.dispatch_authorized==false,'preview did not preserve its explicit read-only boundary')
 bound.basis='raw_txt_utf16';expect(Contract.valid(bound),'dispatch test fixture was invalid independently of its basis')
+value=prepare('txt');expect(value and value.position.basis=='raw_txt_utf16' and value.basis==value.position.basis,
+    'TXT proof was relabeled as XHTML')
 value=prepare('initial');expect(value and value.before.kind=='no_chapter' and value.desired.raw_percent==0,
     'explicit empty cloud position with zero counters was rejected')
 value=prepare('initial_counts');expect(value and value.before.kind=='no_chapter' and value.counts.readingTime==2,

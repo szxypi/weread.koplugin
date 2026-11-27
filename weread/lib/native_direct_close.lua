@@ -70,13 +70,10 @@ function M.freeze(host)
 end
 local function metadata(entry,value)
     local p=type(value)=='table' and value.position;local e=entry.entry;local b=entry.baseline
-    if type(p)~='table' or p.book_id~=e.book_id or p.chapter_uid~=e.chapter_uid or p.chapter_idx~=e.chapter_idx
-        or p.file_id~=e.file_id or p.book_version~=e.book_version or p.raw_sha256~=e.source_sha256
-        or p.basis~='filtered_xhtml_utf16' or p.source_current~=true or p.upload_verified~=false
-        or not P.integer(p.chapter_offset,0,2147483647) or value.dispatch_authorized~=false then return nil end
+    if not require('weread.lib.native_direct_position').matches_point(e,p) or value.dispatch_authorized~=false then return nil end
     local m={book_id=e.book_id,before=value.before,desired=value.desired,counts=value.counts,version=value.version,
         shelf_sha256=value.shelf_sha256,source_sha256=value.source_sha256,file_id=value.file_id,basis=value.basis}
-    if not Contract.valid(m) or m.basis~='filtered_xhtml_utf16' or not State.equal(m.before,b.position)
+    if not Contract.valid(m) or m.basis~=p.basis or m.basis~=b.basis or not State.equal(m.before,b.position)
         or not P.same_counts(m.counts,b.counts) or m.version~=b.version or m.shelf_sha256~=b.shelf_sha256
         or m.source_sha256~=b.source_sha256 or m.file_id~=b.file_id
         or m.desired.book_id~=p.book_id or m.desired.chapter_uid~=p.chapter_uid

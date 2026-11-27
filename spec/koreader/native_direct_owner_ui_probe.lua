@@ -27,8 +27,10 @@ client.request=function(self,options)
         assert(#body.bookIds==1 and body.bookIds[1]==input.book_id and body.synckeys[1]==0
             and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(base..'/book/chapterdownload?',1,true)==1 then
+        local chapter=input.plain_text and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&'
+            or 'chapters=0%2C'..input.uid..'&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)
-            and (url:find('chapters=0%2C'..input.uid..'&',1,true)
+            and (url:find(chapter,1,true)
                 or input.neighbor and url:find('chapters=0%2C'..input.neighbor.uid..'&',1,true))
             and url:find('stopAutoPayWhenBNE=1',1,true) and url:find('preview=0',1,true))
     else

@@ -78,6 +78,7 @@ def main(argv=None):
                 web_cookies=payload['web_cookies'],cloud=payload.get('cloud') is True,
                 upload_preview=payload.get('upload_preview') is True,
                 upload_dry_run=payload.get('upload_dry_run') is True,
+                plain_text=payload.get('plain_text') is True,
                 cloud_denied=payload.get('cloud_denied') is True,cloud_cross=payload.get('cloud_cross') is True,
                 target_uid=payload.get('target_uid'),start_page=payload.get('start_page',1),
                 selection=payload.get('selection') is True,selection_text=payload.get('search_token'),

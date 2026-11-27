@@ -194,6 +194,7 @@ function Map:_token(text, at)
         return clean, ending + 1, ending - at + 1
     end
     local cp, width, n = scalar(text, at)
+    if self.omit_initial_bom and at==1 and cp==65279 then return '',at+width,n end
     if self.literal and cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail('invalid_xml_control') end
     return whitespace(cp) and "" or text:sub(at, at + width - 1), at + width, n
 end
@@ -501,7 +502,7 @@ function M.build(raw, options)
         local map
         if format == 'web_txt' then
             if type(raw) ~= 'string' or #raw == 0 or #raw > M.MAX_BYTES then fail('invalid_source') end
-            map = setmetatable({segments={{0,raw}}, literal=true}, Map)
+            map = setmetatable({segments={{0,raw}},literal=true,omit_initial_bom=options and options.omit_initial_bom==true},Map)
         else map = parse(raw, options) end
         map.basis = basis
         map:_index()

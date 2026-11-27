@@ -106,7 +106,7 @@ function M.start(host,entry,wanted,native,web,native_resume)
             if confirm_native then callback();return end
             local anchor=value.anchor
             if type(anchor)~='table' or anchor.co~=wanted.chapter_offset
-                or (anchor.basis~='filtered_xhtml_utf16' and (not native_resume or anchor.basis~='raw_txt_utf16'))
+                or (anchor.basis~='filtered_xhtml_utf16' and anchor.basis~='raw_txt_utf16')
                 or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12 or #anchor.text>8192
                 or not P.integer(anchor.point_offset,0,8192) then
                 fail(type(result)=='table' and result.error);return

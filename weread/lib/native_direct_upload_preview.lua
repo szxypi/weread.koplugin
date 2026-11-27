@@ -60,6 +60,8 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
             end,
         })
         if not position then return {error=why or 'unavailable'} end
+        if position.basis=='raw_txt_utf16' and (State.missing_summary(before.position)
+            or State.none(before.position) and not State.zero(before.counts)) then return {error='baseline_unavailable'} end
         local after=snapshot()
         local shelf_after=Shelf.state_hash(auth:read_shelf(native.credentials))
         if progress_checks~=2 or not State.equal(before.position,after.position)
@@ -69,7 +71,7 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         local desired=P.point{book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=entry.chapter_idx,
             chapter_offset=position.chapter_offset,raw_percent=before.position.raw_percent,summary=summary}
         return {position=position,before=before.position,desired=desired,counts=before.counts,version=version,
-            shelf_sha256=shelf,source_sha256=entry.source_sha256,file_id=entry.file_id,basis='filtered_xhtml_utf16',
+            shelf_sha256=shelf,source_sha256=entry.source_sha256,file_id=entry.file_id,basis=position.basis,
             dispatch_authorized=false}
     end)
     auth:cancel()

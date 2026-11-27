@@ -37,13 +37,13 @@ local why
 local cloud_relation='different';local cloud_error;local cloud_offset=200;local cloud_stamp=string.rep('e',64);local target_error
 local upload_offset,upload_pending,upload_started,upload_accepted,upload_cancelled,review_archived
 local upload_callback,upload_guard,review_pending
-package.preload['weread.lib.native_direct_position']=function() return {prepare=function(_,_,e,file,context,n,w,active)
+local function prepare_point(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if why then return nil,why end
     return {book_id=e.book_id,chapter_uid=e.chapter_uid,chapter_idx=e.chapter_idx,chapter_offset=123,
         file_id=e.file_id,book_version=e.book_version,raw_sha256=e.source_sha256,basis='filtered_xhtml_utf16',
         source_current=true,upload_verified=false}
-end} end
+end
 package.preload['weread.lib.native_direct_upload_preview']=function() return {prepare=function(_,_,e,file,context,n,w,active)
     assert(in_worker and e==entry and file==context.file and n==native and w==web and active())
     if why then return nil,why end
@@ -106,6 +106,7 @@ package.preload['weread.lib.reader_position']=function() return {
     goto_xpointer=function(_,xp) assert(xp=='/cloud');page=2;return true end,
     snapshot=function() return {} end,contains_anchor=function(_,_,xp) return xp=='/cloud' end,
 } end
+require('weread.lib.native_direct_position').prepare=prepare_point
 local Position=require('weread.ui.native_direct_position')
 local function fixture()
     scheduled={};shown=nil;page=1;current=true;why=nil;account='owner';cloud_relation='different';cloud_error=nil;cloud_offset=200
@@ -233,7 +234,7 @@ local function automatic()
         value.status,value.metadata,value.location=status,metadata,location
     end,baseline={position={book_id='42',chapter_uid='37',chapter_idx=2,chapter_offset=200,raw_percent=10,summary='previous summary'},
         counts={readingTime=1,recordReadingTime=2,ttsTime=0},version=7,shelf_sha256=string.rep('d',64),
-        source_sha256=entry.source_sha256,file_id=entry.file_id}}
+        source_sha256=entry.source_sha256,file_id=entry.file_id,basis='filtered_xhtml_utf16'}}
     return value
 end
 host,s=fixture();local auto=automatic();expect(Position.start(host,entry,{upload=true,automatic=auto}),'automatic check did not start')

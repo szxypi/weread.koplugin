@@ -48,7 +48,7 @@ function M:stop()
 end
 function M:arm(entry,ctx,metadata,which)
     if type(entry)~='table' or type(ctx)~='table' or not Contract.valid(metadata)
-        or metadata.basis~='filtered_xhtml_utf16' or metadata.book_id~=entry.book_id
+        or metadata.book_id~=entry.book_id
         or metadata.file_id~=entry.file_id or metadata.source_sha256~=entry.source_sha256
         or metadata.version~=entry.book_version or which~='before' and which~='desired'
         or type(ctx.location)~='table' or type(ctx.scope)~='table' or not ctx.reader or not ctx.document
@@ -58,7 +58,7 @@ function M:arm(entry,ctx,metadata,which)
     self.context={entry=copy(entry),reader=ctx.reader,document=ctx.document,file=ctx.file,scope=ctx.scope,
         session=ctx.session,account=ctx.account,native=ctx.native,web=ctx.web,location=copy(ctx.location),
         baseline={position=copy(metadata[which]),counts=copy(metadata.counts),version=metadata.version,
-            shelf_sha256=metadata.shelf_sha256,source_sha256=metadata.source_sha256,file_id=metadata.file_id}}
+            shelf_sha256=metadata.shelf_sha256,source_sha256=metadata.source_sha256,file_id=metadata.file_id,basis=metadata.basis}}
     self.host._native_direct_interval=self
     if not self:current() then self:stop();return false end
     return true
@@ -80,11 +80,11 @@ function M:finish(attempt,status,metadata,location)
         if not Contract.valid(metadata) or not State.valid(metadata[status=='same' and 'before' or 'desired'])
             or not State.equal(metadata.before,b.position) or not P.same_counts(metadata.counts,b.counts)
             or metadata.version~=b.version or metadata.shelf_sha256~=b.shelf_sha256
-            or metadata.source_sha256~=b.source_sha256 or metadata.file_id~=b.file_id
+            or metadata.source_sha256~=b.source_sha256 or metadata.file_id~=b.file_id or metadata.basis~=b.basis
             or type(location)~='table' then self:stop();return end
         local selected=status=='same' and metadata.before or metadata.desired
         self.context.baseline={position=copy(selected),counts=copy(metadata.counts),version=metadata.version,
-            shelf_sha256=metadata.shelf_sha256,source_sha256=metadata.source_sha256,file_id=metadata.file_id}
+            shelf_sha256=metadata.shelf_sha256,source_sha256=metadata.source_sha256,file_id=metadata.file_id,basis=metadata.basis}
         self.context.location=copy(location);self:changed();return
     end
     if status=='cancelled' then self:changed();return end

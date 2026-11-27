@@ -50,7 +50,7 @@ local function fixture()
         showTransientInfo=function(_,message) f.messages[#f.messages+1]=message end}
     local context={entry=entry,reader=reader,document=doc,file=doc.file,scope=scope,account='owner',native={},web={},location={page=1},
         baseline={position=before,counts=f.preview.counts,version=7,shelf_sha256=f.preview.shelf_sha256,
-            source_sha256=entry.source_sha256,file_id=entry.file_id}}
+            source_sha256=entry.source_sha256,file_id=entry.file_id,basis=f.preview.basis}}
     host._native_direct_interval={context=context,access_current=function() return f.access end}
     f.host,f.doc=host,doc
     function f.freeze() return Close.freeze(host) end

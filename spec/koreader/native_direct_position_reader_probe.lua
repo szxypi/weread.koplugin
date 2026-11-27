@@ -59,6 +59,7 @@ active.client.request=function(self,options)
         or (input.mode:find('^preview') or input.mode:find('^upload') or input.mode:find('^interval'))
             and url:find('https://weread.qq.com/web/book/getProgress?',1,true)==1
         or url:find('https://weread.qq.com/web/reader/',1,true)==1
+        or input.plain_text and (url=='https://weread.qq.com/web/book/chapter/t_0' or url=='https://weread.qq.com/web/book/chapter/t_1')
         or url:find('https://weread.qq.com/web/book/chapter/e_',1,true)==1)
     if url:find('https://weread.qq.com/web/',1,true)==1 then
         assert(options.headers.Cookie:find('synthetic-refreshed-cookie',1,true),'account cookie rotation was not used')
@@ -77,7 +78,7 @@ host.openFile=function(self,path,callback,...)
     end,...)
 end
 local native_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=65536,timeout=180}
-local captured,point
+local captured,point,point_error
 host._native_direct_position_worker={cancel=function() native_worker:cancel() end,start=function(_,task,callback)
     local ctx=assert(host._native_direct_position);captured={text=ctx.input.text,offset=ctx.input.point_offset}
     if input.mode:find('^preview') then
@@ -92,7 +93,8 @@ host._native_direct_position_worker={cancel=function() native_worker:cancel() en
         end
     end
     return native_worker:start(task,function(value)
-        point=value.position or value.comparison and value.comparison.position or value.preview and value.preview.position;callback(value)
+        point=value.position or value.comparison and value.comparison.position or value.preview and value.preview.position;point_error=value.error
+        callback(value)
     end)
 end}
 local function open_menu()
@@ -276,7 +278,8 @@ if input.mode=='upload_initial_recorded' or input.mode=='upload_initial_tts' the
 end
 if input.mode:find('^upload') or input.mode:find('^interval') then
     wait(function() return host.checked_message~=nil or host._native_direct_position and host._native_direct_position.confirm end)
-    assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm,'upload confirmation missing')
+    assert(not host.checked_message and host._native_direct_position and host._native_direct_position.confirm,
+        (host.checked_message or 'upload confirmation missing')..' ('..tostring(point_error)..')')
     local confirm=host._native_direct_position.confirm
     if input.mode:find('^upload_initial') then
         assert(confirm.text==require('weread.lib.plugin_util').tr('WeRead has no cloud position for this book. Set this page as its first position? Existing reading time will be kept.'),
@@ -430,8 +433,9 @@ else
     elseif input.mode=='preview_changed' or input.mode=='preview_web_changed' then
         assert(host.checked_message==tr('The cloud position changed during the check. Your current page is kept.') and not point)
     else
-        assert(host.checked_message==tr('The local reading position was checked against the chapter source.'))
-        assert(point and point.upload_verified==false and point.source_current and point.basis=='filtered_xhtml_utf16')
+        assert(host.checked_message==tr('The local reading position was checked against the chapter source.'),tostring(point_error))
+        local basis=input.plain_text and 'raw_txt_utf16' or 'filtered_xhtml_utf16'
+        assert(point and point.upload_verified==false and point.source_current and point.basis==basis)
     end
 end
 print('WEREAD_POSITION_READER='..json.encode{ok=true,mode=input.mode,text=captured and captured.text or '',

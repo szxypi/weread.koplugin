@@ -79,7 +79,7 @@ function M.prepare(client,settings,entry,file,context,native,web,current)
         local same_chapter=not before.none and cloud.chapter_uid==entry.chapter_uid
         if same_chapter and cloud.chapter_idx~=entry.chapter_idx then return {error='cloud_changed'} end
         local point,why,anchor=Position.prepare(client,settings,entry,file,context,native,web,active,
-            same_chapter and cloud.chapter_offset or nil)
+            same_chapter and cloud.chapter_offset or nil,{target_summary=cloud.summary_present and cloud.summary or nil})
         if not point then return {error=why or 'unavailable'} end
         local after=snapshot()
         if not same(before,after) or not active() then return {error='cloud_changed'} end
@@ -117,7 +117,8 @@ function M.prepare_destination(client,settings,entry,file,native,web,current,wan
         end
         local before=snapshot()
         if not M.same_target(wanted,target(before)) then return {error='cloud_changed'} end
-        local anchor,why=Position.prepare_target(client,settings,entry,file,native,web,active,wanted.chapter_offset)
+        local anchor,why=Position.prepare_target(client,settings,entry,file,native,web,active,wanted.chapter_offset,
+            before.position.summary_present and before.position.summary or nil)
         if not anchor then return {error=why or 'target_unavailable'} end
         local after=snapshot()
         if not same(before,after) or not M.same_target(wanted,target(after)) or not active() then return {error='cloud_changed'} end

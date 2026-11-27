@@ -219,10 +219,7 @@ function M.start(host,entry,options)
             if ctx.upload then p=type(result)=='table' and type(result.preview)=='table' and result.preview.position
             elseif ctx.compare then p=type(comparison)=='table' and comparison.position
             else p=type(result)=='table' and result.position end
-            if type(p)~='table' or p.book_id~=entry.book_id or p.chapter_uid~=entry.chapter_uid
-                or p.chapter_idx~=entry.chapter_idx or p.file_id~=entry.file_id or p.book_version~=entry.book_version
-                or p.raw_sha256~=entry.source_sha256 or p.basis~='filtered_xhtml_utf16'
-                or p.source_current~=true or p.upload_verified~=false or not Protocol.integer(p.chapter_offset,0,2147483647) then
+            if not require('weread.lib.native_direct_position').matches_point(entry,p) then
                 local message=type(result)=='table' and result.error=='source_changed'
                     and 'The chapter source changed, so the reading position could not be checked.'
                     or type(result)=='table' and result.error=='cloud_changed'
@@ -240,7 +237,7 @@ function M.start(host,entry,options)
                     version=preview.version,shelf_sha256=preview.shelf_sha256,source_sha256=preview.source_sha256,
                     file_id=preview.file_id,basis=preview.basis}
                 if preview.dispatch_authorized~=false or not Contract.valid(metadata)
-                    or metadata.basis~='filtered_xhtml_utf16' or metadata.source_sha256~=entry.source_sha256
+                    or metadata.basis~=p.basis or metadata.source_sha256~=entry.source_sha256
                     or metadata.file_id~=entry.file_id or metadata.version~=entry.book_version
                     or metadata.desired.book_id~=p.book_id or metadata.desired.chapter_uid~=p.chapter_uid
                     or metadata.desired.chapter_idx~=p.chapter_idx or metadata.desired.chapter_offset~=p.chapter_offset
@@ -249,7 +246,7 @@ function M.start(host,entry,options)
                     local b=automatic.baseline
                     if not State.equal(metadata.before,b.position) or not Protocol.same_counts(metadata.counts,b.counts)
                         or metadata.version~=b.version or metadata.shelf_sha256~=b.shelf_sha256
-                        or metadata.source_sha256~=b.source_sha256 or metadata.file_id~=b.file_id then
+                        or metadata.source_sha256~=b.source_sha256 or metadata.file_id~=b.file_id or metadata.basis~=b.basis then
                         fail('The cloud position changed during the check. Your current page is kept.');return
                     end
                 end
@@ -387,7 +384,7 @@ function M.start(host,entry,options)
                     or not cloud.valid_target(comparison.target) or comparison.target.book_id~=entry.book_id
                     or comparison.target.chapter_uid~=entry.chapter_uid or comparison.target.chapter_idx~=entry.chapter_idx
                     or comparison.target.chapter_offset~=comparison.cloud_offset
-                    or not Protocol.integer(anchor.co,0,2147483647) or anchor.basis~='filtered_xhtml_utf16'
+                    or not Protocol.integer(anchor.co,0,2147483647) or anchor.basis~=p.basis
                     or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12
                     or #anchor.text>8192 or not Protocol.integer(anchor.point_offset,0,8192) then fail();return end
                 if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end;ctx.busy=nil
@@ -408,6 +405,7 @@ function M.start(host,entry,options)
                         ctx.thread=coroutine.create(function()
                             local first,last=true,os.clock()
                             local index=require('weread.lib.source_dom').open_direct_prepared(doc,entry.book_id,entry.chapter_uid,identity,{
+                                source_format=anchor.basis=='raw_txt_utf16' and 'web_txt' or nil,
                                 is_current=function() return page_current() and access_current() end,
                                 yield=function()
                                     if first or os.clock()-last>=0.02 then first=false;coroutine.yield();last=os.clock() end

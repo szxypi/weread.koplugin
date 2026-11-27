@@ -9,6 +9,7 @@ local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_s
 local scope={vid='123',epoch=1};local native={scope=scope};local web={web={cookies={wr_vid='123'}}}
 local live=true;local source_changed=false;local file_changed=false;local change_file_during_fetch=false;local web_error;local anchor_ok=true
 local target_reversible=true;local source_requests=0;local web_requests=0
+local txt,wrong_basis
 local anchor_text='valid target anchor';local anchor_offset=2
 package.preload['weread.lib.source_dom']=function() return {normalize=function(s) return s end} end
 package.preload['weread.lib.native_direct_cache']=function() return {
@@ -19,14 +20,19 @@ package.preload['weread.lib.native_read_access']=function() return {matches=func
 package.preload['weread.lib.native_chapter_source']=function() return {fetch=function()
     source_requests=source_requests+1
     if change_file_during_fetch then file_changed=true end
-    return {is_text=false,book_version=7,reading_catalog_sha256=entry.catalog_sha256,body=source_changed and body..'x' or body}
+    return {is_text=txt==true,book_version=7,reading_catalog_sha256=entry.catalog_sha256,body=source_changed and body..'x' or body}
 end} end
 package.preload['weread.lib.source_currentness']=function() return {
     matches=function() return live end,
     expected=function(value) return value end,
-    fetch=function(_,expected,_selected,_format,options)
+    fetch=function(_,expected,_selected,format,options)
         web_requests=web_requests+1;if web_error then error(web_error,0) end
         if options and options.verify_catalog then options.verify_catalog({version=7});options.verify_catalog({version=7}) end
+        assert(format==(txt and 'web_txt' or 'web_xhtml'))
+        if txt and not wrong_basis then
+            local result={};for key,value in pairs(expected) do result[key]=value end
+            result.basis='raw_txt_utf16';return result
+        end
         return expected
     end,
     fetch_resolving_index=function(_,expected,_selected,options)
@@ -40,10 +46,15 @@ package.preload['weread.lib.source_currentness']=function() return {
         for key,value in pairs(expected) do if actual[key]~=value then return nil end end
         return actual
     end,
+    packet_txt=function(actual,expected)
+        if actual and actual.basis=='raw_txt_utf16' and actual.raw_sha256==expected.raw_sha256 then return actual end
+    end,
 } end
-package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {
+package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function(_,options) return {
+    basis=options.format=='web_txt' and 'raw_txt_utf16' or 'filtered_xhtml_utf16',
     anchor=function(_,co) return {co=co,text=anchor_text,point_offset=anchor_offset} end,
-    locate_point=function() return target_reversible and {co=2000} or nil end,
+    locate_point=function(_,text) return target_reversible and {co=text=='different TXT summary' and 2001 or 2000} or nil end,
+    literal_excerpt=function(_,co) assert(co==1234);return {text='原文😀\r\n\t字面 <tag>'} end,
 } end} end
 package.preload['weread.lib.source_position_worker']=function() return {MAX_CONTEXT_BYTES=8192,
     locate_verified_map=function() return anchor_ok and 1234 or nil end} end
@@ -102,5 +113,17 @@ expect(not verified and reason=='file_changed','selection proof exposed an unver
 change_file_during_fetch=true;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
 expect(not verified and reason=='file_changed','selection proof missed a cache replaced during source read')
 file_changed=false;change_file_during_fetch=false
+txt=true
+value,_,_,summary=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,nil,{prepare_summary=true})
+expect(Position.matches_point(entry,value) and value.basis=='raw_txt_utf16' and summary=='原文😀\r\n\t字面 <tag>',
+    'TXT position lost the literal summary or raw coordinate basis')
+local function txt_target(quote)
+    return Position.prepare_target({}, {},entry,context.file,native,web,function() return live end,2000,quote)
+end
+expect(txt_target('verified TXT summary') and not txt_target('different TXT summary') and not txt_target(),
+    'TXT navigation used an offset without a matching cloud summary')
+wrong_basis=true;value,reason=check();expect(not value and reason=='source_changed','XHTML packet passed TXT proof')
+wrong_basis=false;verified,reason=Position.verified_source({}, {},entry,context.file,native,web,function() return live end)
+expect(not verified and reason=='source_changed','TXT was exposed to XHTML-only reference capture')
 live=false;expect(not Position.verified_source({}, {},entry,context.file,native,web,function() return live end),'stale selection exposed source')
 print('PASS: native reader source proof stays read-only and identity-bound ('..checks..' checks)')
