@@ -258,17 +258,23 @@ local function publish_entry(lfs,dir,entry,account)
     if not os.rename(dir..'/entry.txt.part',dir..'/entry.txt') then os.remove(dir..'/entry.txt.part');return false end
     return read_entry(lfs,dir,entry.key,entry.copy,entry.book_id,account)~=nil
 end
-local function existing_book_dir(settings,account,book_id)
-    local lfs=fs();local root=Path.root(settings)
-    if not lfs or not root or type(account)~='string' or NativeProtocol.id(account)~=account
-        or type(book_id)~='string' or NativeProtocol.id(book_id)~=book_id then return nil end
-    local account_dir=root..'/'..Crypto.sha256_hex('native-direct-account\0'..account)
-    local book_dir=account_dir..'/'..Crypto.sha256_hex('native-direct-book\0'..book_id)
+local function owned_book_dir(settings,root,owner,book_hash)
+    local lfs=fs()
+    if not lfs then return nil end
+    local account_dir=root..'/'..owner
+    local book_dir=account_dir..'/'..book_hash
     for _,path in ipairs({settings.data_dir,root,account_dir,book_dir}) do
         local attr=mode(lfs,path)
         if not attr or attr.mode~='directory' then return nil end
     end
     return lfs,book_dir
+end
+local function existing_book_dir(settings,account,book_id)
+    local root=Path.root(settings)
+    if not root or type(account)~='string' or NativeProtocol.id(account)~=account
+        or type(book_id)~='string' or NativeProtocol.id(book_id)~=book_id then return nil end
+    return owned_book_dir(settings,root,Crypto.sha256_hex('native-direct-account\0'..account),
+        Crypto.sha256_hex('native-direct-book\0'..book_id))
 end
 function M.book_directory(settings,account,book_id)
     local _,path=existing_book_dir(settings,account,book_id)
@@ -307,9 +313,7 @@ local function candidate_present(lfs,book_dir,entry)
     return is_chapter_file(file)
         and key==entry.key and size==tostring(file.size) and hash(digest) or false
 end
-function M.present(settings,account,book_id)
-    local lfs,book_dir=existing_book_dir(settings,account,book_id)
-    if not lfs then return false end
+local function marker_present(lfs,book_dir,book_id,account,verified_entry)
     local marker=presence_path(book_dir)
     local raw=marker and read_file(lfs,marker,256)
     local key,copy
@@ -317,10 +321,15 @@ function M.present(settings,account,book_id)
     local numeric=copy and tonumber(copy)
     if not hash(key) or not NativeProtocol.integer(numeric,0,M.MAX_COPIES-1) or tostring(numeric)~=copy then return false end
     copy=numeric
+    if verified_entry and key==verified_entry.key and copy==verified_entry.copy then return true end
     local dir=book_dir..'/'..key..(copy==0 and '' or '-'..tostring(copy))
     local attr=mode(lfs,dir)
     local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
     return entry and candidate_present(lfs,book_dir,entry) or false
+end
+function M.present(settings,account,book_id)
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    return lfs and marker_present(lfs,book_dir,book_id,account) or false
 end
 local function save_presence_unsafe(settings,account,book_id,entry,current)
     if type(current)~='function' or current()~=true or not valid_entry(entry,book_id,account) then return false end
@@ -467,6 +476,24 @@ function M.begin_capacity(settings,account,book_id,current)
     return nil,'unavailable'
 end
 
+-- The caller supplies the entry read from this exact account directory.
+local function verify_open(settings,account,lfs,book_dir,dir,entry,current)
+    local path=dir..'/'..filename(entry.book_id,entry.chapter_uid)
+    local receipt=read_file(lfs,dir..'/receipt.txt',256)
+    local key,size,digest
+    if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
+    if key~=entry.key or not size or not hash(digest) then return nil end
+    local actual_size,actual_digest=digest_file(lfs,path)
+    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest then return nil end
+    local identity=archive_identity(path,entry.book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
+    if not identity or current()~=true or mode(lfs,dir..'/'..RETIRING) then return nil end
+    if not marker_present(lfs,book_dir,entry.book_id,account,entry) then
+        save_presence(settings,account,entry.book_id,entry,current)
+    end
+    return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
+        missing_images=entry.missing_images,file_id=identity.file_id}
+end
+
 -- Callers that also need the chapter identity can take the verified entry
 -- from this same check, including the catalog reference it compared.
 function M.open(settings,account,book_id,entry,current,with_entry)
@@ -482,20 +509,10 @@ function M.open(settings,account,book_id,entry,current,with_entry)
         ref=read_ref(lfs,dir,actual)
         if not ref or ref_payload(ref)~=ref_payload(entry) then return nil end
     end
-    local path=dir..'/'..filename(book_id,entry.chapter_uid)
-    local receipt=read_file(lfs,dir..'/receipt.txt',256)
-    local key,size,digest
-    if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
-    if key~=entry.key or not size or not hash(digest) then return nil end
-    local actual_size,actual_digest=digest_file(lfs,path)
-    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest then return nil end
-    local identity=archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
-    if not identity or current()~=true then return nil end
-    if not M.present(settings,account,book_id) then save_presence(settings,account,book_id,entry,current) end
-    local opened={path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
-        missing_images=entry.missing_images,file_id=identity.file_id}
+    local opened=verify_open(settings,account,lfs,book_dir,dir,actual,current)
+    if not opened then return nil end
     if with_entry then
-        actual.file_id=identity.file_id
+        actual.file_id=opened.file_id
         return opened,attach_ref(actual,ref)
     end
     return opened
@@ -506,22 +523,28 @@ end
 function M.identify(settings,account,path,current)
     local root=Path.root(settings)
     if not root or type(path)~='string' or path:sub(1,#root+1)~=root..'/'
-        or type(account)~='string' or NativeProtocol.id(account)~=account then return nil end
+        or type(account)~='string' or NativeProtocol.id(account)~=account
+        or type(current)~='function' or current()~=true then return nil end
     local owner,book_hash,name,file=path:sub(#root+2):match('^([^/]+)/([^/]+)/([^/]+)/([^/]+)$')
     if owner~=Crypto.sha256_hex('native-direct-account\0'..account) or not hash(book_hash) then return nil end
     local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
     if not key then key=name;suffix='0' end
     local copy=tonumber(suffix)
-    if not hash(key) or not copy or tostring(copy)~=suffix or copy>=M.MAX_COPIES then return nil end
-    local lfs=fs();local dir=root..'/'..owner..'/'..book_hash..'/'..name
-    local attr=lfs and mode(lfs,dir)
-    if not attr or attr.mode~='directory' then return nil end
+    if not hash(key) or not copy or tostring(copy)~=suffix or copy>=M.MAX_COPIES
+        or copy==0 and name~=key then return nil end
+    local lfs,book_dir=owned_book_dir(settings,root,owner,book_hash)
+    if not lfs then return nil end
+    local dir=book_dir..'/'..name
+    local attr=mode(lfs,dir)
+    if not attr or attr.mode~='directory' or mode(lfs,dir..'/'..RETIRING) then return nil end
     local entry=read_entry(lfs,dir,key,copy,nil,account)
     if not entry or book_hash~=Crypto.sha256_hex('native-direct-book\0'..entry.book_id)
         or file~=filename(entry.book_id,entry.chapter_uid) then return nil end
-    attach_ref(entry,read_ref(lfs,dir,entry))
-    local _,checked=M.open(settings,account,entry.book_id,entry,current,true)
-    return checked
+    local ref=read_ref(lfs,dir,entry)
+    local opened=verify_open(settings,account,lfs,book_dir,dir,entry,current)
+    if not opened then return nil end
+    entry.file_id=opened.file_id
+    return attach_ref(entry,ref)
 end
 local function content_key(account,book,chapter,prepared)
     local parts={'native-direct-content-v1',account,prepared.book_id,prepared.chapter_uid,

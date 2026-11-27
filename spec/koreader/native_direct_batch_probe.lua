@@ -283,6 +283,36 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     if input.mode=='offline_range' then
         assert(seen['38'] and rows[1].catalog_order==2 and rows[1].catalog_count==3
             and rows[1].catalog_prev=='37' and rows[1].catalog_next=='39','range lost its full catalog position')
+        local function current() return true end
+        local opened=assert(cache.open(settings,scope.vid,'42',rows[1],current))
+        local dir=assert(opened.path:match('^(.*)/[^/]+$'))
+        local reads={[dir..'/entry.txt']=0,[dir..'/catalog.txt']=0,[dir..'/receipt.txt']=0,[opened.path]=0}
+        local open=io.open
+        rawset(io,'open',function(path,operation)
+            if operation=='rb' and reads[path]~=nil then reads[path]=reads[path]+1 end
+            return open(path,operation)
+        end)
+        local entry=cache.identify(settings,scope.vid,opened.path,current)
+        rawset(io,'open',open)
+        assert(entry and entry.file_id==opened.file_id and entry.catalog_prev=='37' and entry.catalog_next=='39')
+        for _,count in pairs(reads) do assert(count==1,'identification repeated a file read') end
+        assert(not cache.identify(settings,'87654321',opened.path,current),'identification crossed accounts')
+
+        local ref=dir..'/catalog.txt'
+        assert(os.rename(ref,ref..'.fixture'))
+        assert(not cache.open(settings,scope.vid,'42',entry,current),'open accepted an absent catalog reference')
+        local legacy=assert(cache.identify(settings,scope.vid,opened.path,current))
+        assert(legacy.file_id==opened.file_id and not legacy.catalog_sha256,'older cache lost its local reading identity')
+        assert(os.rename(ref..'.fixture',ref))
+
+        -- Change a ZIP header timestamp without changing the archive size.
+        local epub=assert(io.open(opened.path,'r+b'))
+        assert(epub:seek('set',10));local original=assert(epub:read(1))
+        assert(epub:seek('set',10) and epub:write(string.char(require('bit').bxor(original:byte(),1))) and epub:close())
+        assert(not cache.identify(settings,scope.vid,opened.path,current),'same-size modified EPUB passed identification')
+        epub=assert(io.open(opened.path,'r+b'))
+        assert(epub:seek('set',10) and epub:write(original) and epub:close())
+        assert(cache.identify(settings,scope.vid,opened.path,current),'restored EPUB failed verification')
     else
         assert(seen['37'] and (seen['38']~=nil)==(input.mode~='offline_partial')
             and (seen['39']~=nil)==(input.mode=='offline'))
