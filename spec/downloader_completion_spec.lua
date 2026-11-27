@@ -69,6 +69,7 @@ package.preload["weread.lib.thoughts"] = function()
     return { is_download_enabled = function() return false end }
 end
 local Protocol = require("weread.lib.protocol")
+local BookStore = require("weread.lib.book_store")
 
 local Downloader = require("weread.lib.downloader")
 
@@ -96,15 +97,17 @@ local info_messages = {}
 local completion_count = 0
 local completion_ok
 local completion_path
+local store_failure
 local settings = {
     get = function(_self, key)
-        return key == "books" and live_books or nil
+        assert(key ~= "books", "download completion read the entire library")
     end,
-    set = function(_self, key, value)
-        if key == "books" then
-            stored_books = value
-            live_books = value
-        end
+    record_download = function(_self, id, _, change)
+        if store_failure then return false, "injected metadata failure" end
+        local record = assert(live_books[id])
+        BookStore.apply_download(record, change)
+        stored_books = live_books
+        return true, record
     end,
     flush = function() end,
 }
@@ -161,6 +164,24 @@ eq(stored_books.book.annotation_documents["/cache/book/stale.epub"], nil,
     "background snapshot did not replace current document mappings")
 eq(stored_books.book.annotation_documents["/cache/book/chapter-22.epub"].chapters[1].chapterUid,
     22, "parent registered only the completed document")
+
+do
+    local job = {}
+    for key, value in pairs(download) do job[key] = value end
+    job.completion_notified = nil
+    job.book = { book_id = "book", title = "Book" }
+    opened = nil
+    store_failure = true
+    downloader._active_job = job
+    downloader:_step(job)
+    eq(completion_ok, false, "failed metadata commit reports failure")
+    eq(completion_path, "download_cache_unavailable", "failed metadata commit has a stable reason")
+    eq(opened, nil, "unregistered EPUB was not opened")
+    eq(job.book.cached_chapters, nil, "failed commit did not publish cache paths in memory")
+    eq(downloader._active_job, nil, "failed metadata commit released the active job")
+    table.remove(info_messages)
+    store_failure = nil
+end
 
 local chapter_33 = { chapterUid = 33, title = "Other" }
 live_books.book.cached_file = "/cache/book/full.epub"

@@ -124,10 +124,13 @@ local function make_downloader()
     return Downloader:new{
         settings = {
             get = function(_self, key)
-                return key == "books" and live_books or nil
+                assert(key ~= "books", "download completion read the entire library")
             end,
-            set = function(_self, key, value)
-                if key == "books" then live_books = value end
+            record_download = function(_self, id, book, change)
+                local record = live_books[id] or book
+                require("weread.lib.book_store").apply_download(record, change)
+                live_books[id] = record
+                return true, record
             end,
             flush = function() end,
         },
@@ -285,6 +288,7 @@ rawset(os, "execute", function() return 0 end)
 package.loaded["weread.ui.cache"] = nil
 package.loaded["weread.lib.content"] = nil
 package.loaded["weread.lib.protocol"] = nil
+package.loaded["weread.lib.book_store"] = nil
 local Cache = require("weread.ui.cache")
 
 local function make_cache_host(books)

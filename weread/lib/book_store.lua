@@ -504,6 +504,69 @@ function BookStore.save(settings, book_id, book)
     return true, { cache_dir = dir }
 end
 
+local download_metadata_fields = { "cached_file", "cached_full_book", "cached_chapters", "annotation_documents" }
+
+function BookStore.apply_download(record, change)
+    local chapters, documents = {}, {}
+    merge(chapters, record.cached_chapters)
+    merge(documents, record.annotation_documents)
+    local full = change.cached_full_book
+    if full then
+        local previous = record.cached_full_book or record.cached_file
+        for uid, path in pairs(chapters) do
+            if path == previous or path == full then chapters[uid] = nil end
+        end
+        record.cached_full_book, record.cached_file = full, full
+    end
+    for uid, path in pairs(change.cached_chapters or {}) do
+        local legacy = tonumber(uid)
+        if type(uid) == "string" and legacy and legacy >= 0 and legacy <= 9007199254740991
+            and string.format("%.0f", legacy) == uid then
+            chapters[legacy] = nil
+        end
+        chapters[uid] = path
+    end
+    merge(documents, change.annotation_documents)
+    record.cached_chapters, record.annotation_documents = chapters, documents
+end
+
+-- Existing downloads only change metadata. The account checkpoint can be
+-- written independently by an active reader or a just-closed reader worker.
+function BookStore.record_download(settings, book_id, index, book, change)
+    local record = {}
+    if not index then
+        merge(record, book)
+        record.cache_dir = change.cache_dir or record.cache_dir
+        record.reader_url = record.reader_url or change.reader_url
+        BookStore.apply_download(record, change)
+        local ok, value = BookStore.save(settings, book_id, record)
+        if not ok then return false, value end
+        record.cache_dir = value.cache_dir
+        return true, record, value
+    end
+
+    local dir = resolved_dir(settings, book_id, index)
+    local path = dir.."/metadata.json"
+    local metadata = read_json(path)
+    if not metadata and exists(path) then return false, "invalid book metadata" end
+    metadata = metadata or { book_id = book_id }
+    if not require("weread.lib.read_access").cached_book({ [book_id] = metadata }, book_id) then
+        return false, "book_identity_conflict"
+    end
+    merge_fields(record, index, download_metadata_fields)
+    merge_fields(record, metadata, download_metadata_fields)
+    if record.cached_chapters ~= nil and type(record.cached_chapters) ~= "table"
+        or record.annotation_documents ~= nil and type(record.annotation_documents) ~= "table" then
+        return false, "invalid download metadata"
+    end
+    BookStore.apply_download(record, change)
+    merge_fields(metadata, record, download_metadata_fields)
+    local ok, err = write_json(path, metadata)
+    if not ok then return false, err end
+    record.cache_dir = dir
+    return true, record
+end
+
 -- Cache removal must not round-trip a stale reading_state.json snapshot. A
 -- closed-reader report may still be patching its journal independently.
 function BookStore.clear_downloads(settings, book_id, index, expected, removed_path)

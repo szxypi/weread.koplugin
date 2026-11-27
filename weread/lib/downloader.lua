@@ -428,6 +428,23 @@ local function prefetch_current(settings,dl)
             or require('weread.lib.native_read_access').matches(settings,dl.native_selected))
 end
 
+function Downloader:_recordDownload(dl, book_id, change, first_record)
+    local called, ok, record = pcall(self.settings.record_download, self.settings, book_id, first_record or dl.book, change)
+    if not called or not ok then
+        local reason = called and record or ok
+        logger.warn("save download metadata failed:", log_error(reason))
+        return false, reason == "book_identity_conflict" and reason or "download_cache_unavailable"
+    end
+    local book = dl.book
+    book.cache_dir = record.cache_dir
+    book.cached_chapters = record.cached_chapters
+    book.cached_file = record.cached_file
+    book.cached_full_book = record.cached_full_book
+    book.annotation_documents = record.annotation_documents
+    book.reader_url = book.reader_url or change.reader_url
+    return true
+end
+
 function Downloader:_applyPrefetchResult(dl, result)
     self:_releaseStandby(dl)
     dl.worker_handle = nil
@@ -477,34 +494,21 @@ function Downloader:_applyPrefetchResult(dl, result)
         self:_finishJob(dl)
         return
     end
-    local books = self.settings:get("books", {})
-    local record,identity_error = ReadAccess.cached_book(books,book_id)
-    if identity_error then
-        self:_notifyCompletion(dl,false,'book_identity_conflict')
+    local saved, reason = self:_recordDownload(dl, book_id, {
+        cached_chapters = { [uid] = value.path },
+        annotation_documents = value.annotation_document and { [value.path] = value.annotation_document },
+        cache_dir = value.cache_dir,
+        reader_url = value.reader_url,
+    }, { book_id = book_id })
+    if not saved then
+        self:_notifyCompletion(dl, false, reason)
         self:_finishJob(dl)
         return
     end
-    record = record or {}
     if value.auth and not WorkerSettings.merge(self.settings,
         dl.auth_fingerprint, value.auth) then
         logger.info("skip worker auth write-back: parent auth changed")
     end
-    local function apply(target)
-        target.cached_chapters = target.cached_chapters or {}
-        target.cached_chapters[uid] = value.path
-        target.cache_dir = value.cache_dir or target.cache_dir
-        target.reader_url = target.reader_url or value.reader_url
-        if value.annotation_document then
-            target.annotation_documents = target.annotation_documents or {}
-            target.annotation_documents[value.path] = value.annotation_document
-        end
-    end
-    apply(dl.book)
-    if record ~= dl.book then apply(record) end
-    record.book_id = record.book_id or dl.book.book_id or dl.book.bookId
-    books[book_id] = record
-    self.settings:set("books", books)
-    self.settings:flush()
     self.refresh_shelf()
     logger.info("prefetch worker completed:", "book_id=", book_id,
         "chapter_uid=", uid, "path=", value.path)
@@ -1388,6 +1392,10 @@ function Downloader:_step(dl)
         local save_started = time.now()
         local ok, package = pcall(function()
             return self:_runInterruptible(dl, function()
+                local packaging_book = {}
+                for key, value in pairs(dl.book) do
+                    if key ~= "annotation_documents" then packaging_book[key] = value end
+                end
                 local function native_guard()
                     if not full_scope_current(self.settings,dl) or dl.native_chapter_resources
                         and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
@@ -1404,7 +1412,7 @@ function Downloader:_step(dl)
                     local chapter = dl.selected[1]
                     local uid = tostring(chapter.chapterUid or 1)
                     path = Content.save_chapter_epub(
-                        self.settings, dl.book, chapter, dl.bodies[uid],
+                        self.settings, packaging_book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
                         dl.state.css, dl.source_identity, source_for(uid), nil,
                         (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
@@ -1414,7 +1422,7 @@ function Downloader:_step(dl)
                     for chapter_index, chapter in ipairs(dl.selected) do
                         local uid = tostring(chapter.chapterUid or chapter_index)
                         paths[uid] = Content.save_chapter_epub(
-                            self.settings, dl.book, chapter, dl.bodies[uid],
+                            self.settings, packaging_book, chapter, dl.bodies[uid],
                             (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
                             dl.state.css, dl.source_identity, source_for(uid)
                         )
@@ -1438,7 +1446,7 @@ function Downloader:_step(dl)
                         end
                     end
                     path = Content.save_book_epub(
-                        self.settings, dl.book,
+                        self.settings, packaging_book,
                         dl.resumable and dl.chapters or dl.selected,
                         dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
                             __source_workspace = dl.workspace } or dl.bodies,
@@ -1449,19 +1457,15 @@ function Downloader:_step(dl)
                         (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
                     )
                 end
-                return { path = path, chapter_paths = chapter_paths, cache_dir = dl.book.cache_dir }
+                return { path = path, chapter_paths = chapter_paths, cache_dir = packaging_book.cache_dir }
             end)
         end)
         local path = ok and package and package.path or package
         local chapter_paths = ok and package and package.chapter_paths
-        if ok and package then dl.book.cache_dir = package.cache_dir or dl.book.cache_dir end
         if dl.cancelled then self:_step(dl); return end
         if dl.resumable and not full_scope_current(self.settings,dl) then self:_step(dl);return end
         if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
             self:_step(dl); return
-        end
-        if ok then
-            self:_cleanupWorkspace(dl)
         end
         self:_perf(dl, "save_epub", save_started, "ok=", tostring(ok),
             "single=", tostring(dl.single_chapter))
@@ -1470,63 +1474,39 @@ function Downloader:_step(dl)
             dl.progress_dialog = nil
         end
         self:_releaseStandby(dl)
-        local books = self.settings:get("books", {})
-        local book_id = dl.book.book_id or dl.book.bookId
-        if book_id then
-            local record = books[book_id]
-            if not record then
-                record = {}
-                for key, value in pairs(dl.book) do record[key] = value end
-            end
-            local function apply_cache_result(target)
-                target.cached_chapters = target.cached_chapters or {}
-                if not ok then return end
+        if ok then
+            local book_id = tostring(dl.book.book_id or dl.book.bookId or "")
+            local change = { cached_chapters = {}, cache_dir = package.cache_dir,
+                reader_url = dl.book.reader_url or WeRead.reader_url(book_id) }
+            local function add_chapter(chapter, uid, filename)
+                change.cached_chapters[uid] = filename
                 if Content.register_annotation_document then
-                    if dl.single_chapter then
-                        Content.register_annotation_document(target, path, { dl.selected[1] })
-                    elseif dl.separate_chapters then
-                        for index, chapter in ipairs(dl.selected) do
-                            Content.register_annotation_document(target, chapter_paths[tostring(chapter.chapterUid or index)], { chapter })
-                        end
-                    else
-                        Content.register_annotation_document(target, path, dl.resumable and dl.chapters or dl.selected)
-                    end
-                end
-                if dl.single_chapter then
-                    local chapter = dl.selected[1]
-                    target.cached_chapters[tostring(chapter.chapterUid or 1)] = path
-                elseif dl.separate_chapters then
-                    for chapter_index, chapter in ipairs(dl.selected) do
-                        local uid = tostring(chapter.chapterUid or chapter_index)
-                        target.cached_chapters[uid] = chapter_paths[uid]
-                    end
-                else
-                    local previous_full = target.cached_full_book
-                        or target.cached_file
-                    for uid, cached_path in pairs(target.cached_chapters) do
-                        if cached_path == previous_full or cached_path == path then
-                            target.cached_chapters[uid] = nil
-                        end
-                    end
-                    target.cached_full_book = path
-                    -- Keep cached_file as a compatibility alias for existing
-                    -- installs and cache-management code. Single/partial
-                    -- downloads must never overwrite it.
-                    target.cached_file = path
+                    Content.register_annotation_document(change, filename, { chapter })
                 end
             end
-
-            apply_cache_result(dl.book)
-            if record ~= dl.book then apply_cache_result(record) end
-            record.cache_dir = dl.book.cache_dir or record.cache_dir
-            record.reader_url = record.reader_url
-                or dl.book.reader_url or WeRead.reader_url(book_id)
-            dl.book.reader_url = dl.book.reader_url or record.reader_url
-            books[book_id] = record
-            self.settings:set("books", books)
-            self.settings:flush()
+            if dl.single_chapter then
+                local chapter = dl.selected[1]
+                add_chapter(chapter, tostring(chapter.chapterUid or 1), path)
+            elseif dl.separate_chapters then
+                for index, chapter in ipairs(dl.selected) do
+                    local uid = tostring(chapter.chapterUid or index)
+                    add_chapter(chapter, uid, chapter_paths[uid])
+                end
+            else
+                change.cached_full_book = path
+                if Content.register_annotation_document then
+                    Content.register_annotation_document(change, path, dl.resumable and dl.chapters or dl.selected)
+                end
+            end
+            local recorded, reason = self:_recordDownload(dl, book_id, change)
+            if not recorded then
+                if dl.resumable then self:_preserveWorkspace(dl, reason)
+                else self:_notifyCompletion(dl, false, reason);self:_finishJob(dl) end
+                if not dl.prefetch then self.show_info(_("Could not save book information. Check storage and try again.")) end
+                return
+            end
+            self:_cleanupWorkspace(dl)
         end
-        self.refresh_shelf()
         if not ok then
             logger.err("save downloaded book failed:", log_error(path))
             self:_notifyCompletion(dl, false, path)
@@ -1536,6 +1516,7 @@ function Downloader:_step(dl)
             end
             return
         end
+        self.refresh_shelf()
         -- Add only a combined full-book EPUB to the local collection. In
         -- separate-chapter mode `path` is an individual chapter EPUB.
         if not dl.single_chapter and not dl.separate_chapters then

@@ -82,6 +82,17 @@ return function(reader,host,book,id,evidence)
         for key,value in pairs(original) do records[key]=value end
         local foreign={};for key,value in pairs(assert(original[id])) do foreign[key]=value end
         foreign.book_id='900002';records[id]=foreign
+        local get_book,get_indexes=settings.get_book,settings.get_book_indexes
+        settings.get_book=function(self,requested,...)
+            if requested==id then return foreign end
+            return get_book(self,requested,...)
+        end
+        settings.get_book_indexes=function(self)
+            local indexes={}
+            for key,value in pairs(get_indexes(self)) do indexes[key]=value end
+            indexes[id]={cache_dir=foreign.cache_dir,book_id=foreign.book_id}
+            return indexes
+        end
         settings.get=function(self,key,default)
             if key=='books' then return records end
             return get(self,key,default)
@@ -105,6 +116,7 @@ return function(reader,host,book,id,evidence)
         host.external_annotations_db.getDocument=old_document
         pump(function() return not host.downloader._active_job end)
         settings.get=get
+        settings.get_book,settings.get_book_indexes=get_book,get_indexes
         assert(notice==tr('Saved book information does not match. The chapter was not linked; refresh the book and check its cache.'),
             'conflicting identity did not show the protected-cache notice')
         local saved=assert(settings:get_book(id))
@@ -296,10 +308,13 @@ return function(reader,host,book,id,evidence)
         assert(id=='9007199254740993')
         local foreign={title='adjacent legacy record',annotation_documents={[reader.document.file]={clean=true,chapters={}}}}
         local records={[9007199254740992]=foreign}
-        local get=settings.get
+        local get,get_book=settings.get,settings.get_book
         settings.get=function(self,key,default)
             if key=='books' then return records end
             return get(self,key,default)
+        end
+        settings.get_book=function(_,requested)
+            return require('weread.lib.read_access').cached_key(records,requested)
         end
         local binding,context,active=host._annotationBinding,host._annotation_context,host._unified_annotations_active
         host._annotationBinding=function() return {book_id=id,automatic=true} end
@@ -308,7 +323,7 @@ return function(reader,host,book,id,evidence)
         local annotation=assert(host:_prepareAnnotationContext(false))
         assert(annotation.book==nil and annotation.descriptor==nil,'reader associated adjacent legacy annotation')
         host._annotationBinding=binding;host._annotation_context=context;host._unified_annotations_active=active
-        settings.get=get;annotation_checked=true
+        settings.get,settings.get_book=get,get_book;annotation_checked=true
         local apply=host.downloader._applyPrefetchResult
         host.downloader._applyPrefetchResult=function(self,job,result)
             self._applyPrefetchResult=apply
@@ -316,7 +331,14 @@ return function(reader,host,book,id,evidence)
                 'worker did not preserve exact large book identity')
             local shadow_books={[9007199254740992]=foreign}
             local shadow_settings={get=function(_,key,default) if key=='books' then return shadow_books end return default end,
-                set=function(_,key,value) if key=='books' then shadow_books=value end end,flush=function() end}
+                record_download=function(_,requested,synthetic,change)
+                    local record,conflict=require('weread.lib.read_access').cached_book_for_update(shadow_books,requested)
+                    if conflict then return false,'book_identity_conflict' end
+                    record=record or {book_id=synthetic.book_id}
+                    require('weread.lib.book_store').apply_download(record,change)
+                    shadow_books[requested]=record
+                    return true,record
+                end}
             local shadow=require('weread.lib.downloader'):new{settings=shadow_settings,refresh_shelf=function() end}
             local shadow_job={book={book_id=id},chapters={{chapterUid='3'}},prefetch=true,
                 prefetch_book_id=id,prefetch_chapter_uid='3'}

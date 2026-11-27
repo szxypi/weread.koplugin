@@ -56,6 +56,8 @@ package.preload["weread.lib.thoughts"] = function() return {} end
 package.preload["weread.lib.protocol"] = function() return {} end
 
 local Downloader = require("weread.lib.downloader")
+local BookStore = require("weread.lib.book_store")
+local Access = require("weread.lib.read_access")
 
 local checks, failures = 0, 0
 local function expect(value, label)
@@ -75,6 +77,15 @@ local function fake_settings()
             return values[key] == nil and default or values[key]
         end,
         set = function(_self, key, value) values[key] = value end,
+        record_download = function(_self, id, book, change)
+            local record, conflict, legacy = Access.cached_book_for_update(values.books, id)
+            if conflict then return false, "book_identity_conflict" end
+            record = record or { book_id = book.book_id or book.bookId }
+            BookStore.apply_download(record, change)
+            if legacy then values.books[legacy] = nil end
+            values.books[id] = record
+            return true, record
+        end,
         flush = function() end,
     }
 end
@@ -259,7 +270,7 @@ do
     local instance=Downloader:new{settings=settings,refresh_shelf=function() end}
     local job={book={book_id='42'},chapters={chapter_2},prefetch=true,prefetch_book_id='42',prefetch_chapter_uid='2'};instance._active_job=job
     instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,book_id='42',chapter_uid='2'}})
-    expect(books['42']==legacy and legacy.cached_chapters['2']==temp_path,
+    expect(books['42']==legacy and books[42]==nil and legacy.cached_chapters['2']==temp_path,
         'prefetch lost a safe legacy numeric book key')
 end
 do

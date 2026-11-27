@@ -542,6 +542,26 @@ do
     expect(not updated_metadata.chapters and updated_metadata.cached_chapters['7']==chapter_path
         and updated_metadata.book_id=='52',
         'retiring an inline catalog changed cache paths or kept the old chapters')
+    local incoming = root..'/external/new-chapter.epub'
+    local change = {cache_dir=root..'/external',cached_chapters={['8']=incoming},
+        annotation_documents={[incoming]={chapters={{chapterUid=8}}}}}
+    local recorded, record = BookStore.record_download(scoped,'52',current_home,{book_id='52'},change)
+    expect(recorded and record.cache_dir==current_home.cache_dir and record.cached_chapters['7']==chapter_path
+        and record.cached_chapters['8']==incoming and bytes(account_path)==checkpoint,
+        'adding a download moved the existing record, lost a mapping, or rewrote the checkpoint')
+    local before_failure = bytes(path)
+    local original_rename = os.rename
+    rawset(os, "rename", function() return nil, 'synthetic commit failure' end)
+    local failed = BookStore.record_download(scoped,'52',current_home,{book_id='52'},
+        {cached_full_book=root..'/full.epub'})
+    rawset(os, "rename", original_rename)
+    expect(not failed and bytes(path)==before_failure and bytes(account_path)==checkpoint,
+        'failed download commit modified the cached record or the reading checkpoint')
+    local legacy_download = {cached_chapters={[8]='legacy path',['9007199254740992']='other chapter'}}
+    BookStore.apply_download(legacy_download,{cached_chapters={['8']=incoming,['9007199254740993']='new chapter'}})
+    expect(not legacy_download.cached_chapters[8] and legacy_download.cached_chapters['8']==incoming
+        and legacy_download.cached_chapters['9007199254740992']=='other chapter',
+        'download left an obsolete numeric chapter alias or changed a different large chapter ID')
 end
 for _,record in pairs(indexes) do
     local directory=record.cache_dir

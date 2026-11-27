@@ -98,6 +98,10 @@ package.preload["weread.lib.book_store"] = function()
             retired_catalog_id = id
             return true
         end,
+        record_download = function(_settings, id, index, _book, _change)
+            return true, { cache_dir = index and index.cache_dir or "/saved/"..id },
+                not index and {cache_dir="/saved/"..id} or nil
+        end,
     }
 end
 
@@ -196,6 +200,14 @@ do
     retired_catalog_id=nil
     expect(not settings:remember_catalog_book("53", {book_id="53"}) and not retired_catalog_id
         and flush_count==before_flush+2, "ambiguous catalog target was updated")
+    values.books["53"]=nil
+    local indexed=values.books[53]
+    local recorded, record=settings:record_download("53",{book_id="53"},{})
+    expect(recorded and record.cache_dir=="/old/53" and values.books["53"]==indexed and not values.books[53]
+        and flush_count==before_flush+3, "download did not retain and canonicalize the legacy index")
+    local current_indexes=values.books
+    expect(settings:record_download("53",{book_id="53"},{}) and values.books==current_indexes
+        and flush_count==before_flush+3, "existing download unnecessarily rewrote the global index")
     values.books=stored_books
 end
 

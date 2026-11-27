@@ -152,11 +152,16 @@ local Downloader = require("weread.lib.downloader")
 local books = {}
 local settings = {
     get = function(_self, key, default)
-        if key == "books" then return books end
+        assert(key ~= "books", "download completion read the entire library")
         if key == "cache" then return { download_book_images = false } end
         return default
     end,
-    set = function(_self, key, value) if key == "books" then books = value end end,
+    record_download = function(_self, id, book, change)
+        local record = books[id] or {book_id=book.book_id}
+        require("weread.lib.book_store").apply_download(record, change)
+        books[id] = record
+        return true, record
+    end,
     flush = function() end,
 }
 local downloader = Downloader:new{

@@ -1492,7 +1492,6 @@ function M:showShelfPage()
 end
 
 function M:refreshShelfCacheIndicators()
-    self._shelf_saved_books = self.settings:get("books", {})
     if self.shelf_menu and self._shelf_refresh then
         local ok, err = pcall(self._shelf_refresh)
         if not ok then
