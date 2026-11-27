@@ -102,6 +102,7 @@ local defaults = {
         sort_order = "time_desc",
         paginated = true,
         view_mode = "cover",
+        tap_to_read = false,
     },
     home = {
         view_mode = "cover", density = "comfortable", recent_limit = 12,

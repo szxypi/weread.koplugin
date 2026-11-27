@@ -440,6 +440,20 @@ function M:getSettingsMenuItems()
                             }
                         end,
                     },
+                    {
+                        text = _("Tap to read on bookshelf"),
+                        checked_func = function()
+                            return self.settings:get("shelf").tap_to_read == true
+                        end,
+                        keep_menu_open = true,
+                        callback = self:safeCallback(_("Tap to read on bookshelf"), function(touchmenu_instance)
+                            local shelf = self.settings:get("shelf")
+                            shelf.tap_to_read = shelf.tap_to_read ~= true
+                            self.settings:set("shelf", shelf)
+                            self.settings:flush()
+                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                        end),
+                    },
                 }
             end,
         },

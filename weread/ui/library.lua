@@ -1202,6 +1202,9 @@ function M:showShelfView(mode, keyword, old_view, options)
                 options.on_select(book, selected_mode, view)
             elseif selected_mode == "public_account" then
                 self:showMPAccount(book)
+            elseif selected_mode == "books" and self.settings:get("shelf").tap_to_read == true
+                and not WeRead.is_mp_book(book.book_id or book.bookId) then
+                self:readFromBookList(book, view, current)
             else
                 self:showBookRecord(book)
             end
@@ -2857,7 +2860,7 @@ function M:readFromBookList(book, view, current, cached_only, native_cached)
         local detail = self:showBookMenu(book,{read_saved_native=cached_only==true})
         return detail and require('weread.ui.native_direct_reading').start(self, book, detail, {cached=true}) or false
     end
-    if not cached_only then return self:startBookReading(book, nil, {current=current}) end
+    if not cached_only then return self:startBookReading(book, nil, {current=current,owner=view}) end
     if cached then return self:readCachedCopy(record) end
     self:showInfo(_('No cached file.'))
     return false

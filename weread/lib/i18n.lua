@@ -1464,6 +1464,7 @@ local zh = {
     ["Last page"] = "最后一页",
     ["Enter a whole page number from 1 to %1."] = "请输入 1 到 %1 之间的整数页码。",
     ["Bookshelf view"] = "书架视图",
+    ["Tap to read on bookshelf"] = "点按书架书籍直接阅读",
     ["Books · %1"] = "书籍 · %1",
     ["All books"] = "全部书籍",
     ["Unnamed group"] = "未命名分组",

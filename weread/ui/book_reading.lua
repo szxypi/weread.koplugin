@@ -111,6 +111,7 @@ function M.cancel(host)
     if context.recovery_schedule and UIManager.unschedule then UIManager:unschedule(context.recovery_schedule) end
     if context.complete then host.downloader:cancelRequest(context.complete, "reading_cancelled") end
     close_busy(host, context)
+    if context.pending_shelf_redraw then require('weread.ui.shelf_popup').resumeMetadata(host,context) end
 end
 
 function M.start(host, book, view, origin)
@@ -152,7 +153,7 @@ function M.start(host, book, view, origin)
     if not access then return false end
     M.cancel(host)
     local document=host.ui and host.ui.document
-    local context = { epoch = host.discovery_epoch or 0, view = view,
+    local context = { epoch = host.discovery_epoch or 0, view = view, shelf_owner = origin and origin.owner,
         scope = host.settings:get_auth_scope(), account = host.library_db and host.library_db:accountKey(),
         fingerprint = WorkerSettings.fingerprint(host.settings), api_key=host.settings:get('api_key',''),
         document=document, file=document and document.file, session=host._reader_session_gen }

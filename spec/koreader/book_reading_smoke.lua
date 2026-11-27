@@ -44,6 +44,17 @@ end
 local function clean_popups(base)
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget() ~= base do UI:close(UI:getTopmostVisibleWidget()) end
 end
+local function shelf_row(view,id)
+    for _,row in ipairs(view._item_rows) do
+        if row.book and tostring(row.book.book_id or row.book.bookId)==id then return row end
+    end
+    error('selected book has no visible bookshelf row')
+end
+local function shelf_gesture(row,gesture)
+    UI:forceRePaint()
+    local position=require('ui/geometry'):new{x=row.dimen.x+math.floor(row.dimen.w/2),y=row.dimen.y+math.floor(row.dimen.h/2)}
+    assert(row:handleEvent(require('ui/event'):new('Gesture',{ges=gesture,pos=position})))
+end
 FM:showFiles(home)
 local fm = assert(FM.instance)
 local plugin = assert(fm.weread)
@@ -54,6 +65,7 @@ end
 local reopen = os.getenv("WEREAD_READING_REOPEN") == "1"
 local reconnect = os.getenv("WEREAD_READING_RECONNECT") == "1"
 local offline_progress = os.getenv("WEREAD_TEST_OFFLINE_PROGRESS") == "1"
+local shelf_tap_layout=os.getenv('WEREAD_TEST_SHELF_TAP_READ')
 local offline = reopen or reconnect
 plugin.isNetworkOnline = function() return not offline end
 plugin.isNetworkConnected = function() return not offline end
@@ -61,7 +73,10 @@ if offline then
     local checkpoint_path = evidence .. (reconnect and "/offline-progress-checkpoint.json" or "/reading-checkpoint.json")
     local file = assert(io.open(checkpoint_path, "rb"))
     local expected = json.decode(file:read("*a")); file:close()
-    plugin:showHome()
+    if shelf_tap_layout then
+        assert(plugin.settings:get('shelf').tap_to_read==true,'tap-to-read setting did not persist')
+        plugin:showBookshelf()
+    else plugin:showHome() end
     local view = assert(plugin.shelf_view)
     local books = view.books
     local book
@@ -72,7 +87,8 @@ if offline then
         config.pull_on_open, config.upload_on_close, config.ask_on_conflict = reconnect, reconnect, true
         plugin.settings:set("sync", config); plugin.settings:flush()
     end
-    view.on_select(book)
+    if shelf_tap_layout then shelf_gesture(shelf_row(view,expected.book_id),'tap')
+    else view.on_select(book) end
     pump(function() return Reader.instance and Reader.instance.document.file == expected.path end)
     local reader = Reader.instance
     local current = reader.weread
@@ -202,6 +218,7 @@ if offline then
     end
     clean_popups(reader); reader:onClose(false)
     if reconnect then print("PASS: fresh process -> restored offline intent -> reconnect read-only comparison -> explicit local choice -> one upload sequence and mock readback")
+    elseif shelf_tap_layout then print('PASS: fresh process -> bookshelf tap -> native reader restored position; zero HTTP')
     else print("PASS: fresh process -> plugin Home cached selection -> native reader restored position; zero HTTP") end
     os.exit(0)
 end
@@ -263,7 +280,49 @@ if os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY') then
     local run_auth=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'book_reading_renewal_case.lua')
     auth_case,auth_reset=run_auth(plugin,os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY'))
 end
-if os.getenv('WEREAD_TEST_QUICK_READ')=='1' then
+if shelf_tap_layout then
+    local tr=require('weread.lib.plugin_util').tr
+    local function find(items,label)
+        for _,item in ipairs(items) do if item.text==tr(label) then return item end end
+        error('missing menu item: '..label)
+    end
+    local settings=find(plugin:getSettingsMenuItems(),'Bookshelf view').sub_item_table_func()
+    local tap=find(settings,'Tap to read on bookshelf')
+    assert(not tap.checked_func(),'existing tap behavior changed by default')
+    find(settings,shelf_tap_layout=='cover' and 'Cover view' or 'List view').callback()
+    local function show_shelf()
+        plugin:closeWeReadUI();plugin:showBookshelf()
+        local view=assert(plugin.shelf_view)
+        assert(view.cover_mode==(shelf_tap_layout=='cover'),'selected shelf layout did not open')
+        return view,shelf_row(view,'900001')
+    end
+    local _,old_row=show_shelf()
+    shelf_gesture(old_row,'tap')
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    assert(not Reader.instance and not plugin.book_reading_context,'default tap read the book instead of showing details')
+    local view,row=show_shelf()
+    tap.callback()
+    assert(tap.checked_func(),'tap-to-read setting was not enabled')
+    old_row.callback()
+    assert(not plugin._book_detail_view and not plugin.book_reading_context,'stale shelf row opened a book')
+    shelf_gesture(row,'hold')
+    local quick=assert(view._shelf_popup)
+    shelf_gesture(row,'hold_release')
+    local details
+    for _,buttons in ipairs(quick.buttons) do
+        for _,button in ipairs(buttons) do if button.text==tr('Book details') then details=button end end
+    end
+    assert(details).callback()
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    assert(not Reader.instance and not plugin.book_reading_context,'hold no longer offered details')
+    local selected_view,selected_row=show_shelf()
+    shelf_gesture(selected_row,'tap')
+    assert(not plugin._book_detail_view,'direct shelf reading opened book details')
+    assert(plugin.book_reading_context,'shelf tap did not start uncached reading')
+    require('weread.ui.shelf_popup').redrawForMetadata(plugin,selected_view,function()
+        error('automatic shelf refresh interrupted direct reading')
+    end)
+elseif os.getenv('WEREAD_TEST_QUICK_READ')=='1' then
     local view=plugin.shelf_view
     local cell
     for _,item in ipairs(view._item_rows) do if item.book==store_book then cell=item end end

@@ -38,6 +38,7 @@ function M.cancel(host)
     host._native_home_resume=nil
     if host._native_home_resume_worker then host._native_home_resume_worker:cancel() end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+    if ctx.pending_shelf_redraw then require('weread.ui.shelf_popup').resumeMetadata(host,ctx) end
 end
 
 local function worker(host)
@@ -129,7 +130,8 @@ local function open(host,book,id,view,view_current,detail)
     local scope=host.settings:get_auth_scope();local owner=account(host,scope)
     local pointer=book.native_home_resume
     M.cancel(host)
-    local ctx={scope=scope,owner=owner,view=view,session=host._reader_session_gen or 0,pointer=pointer}
+    local ctx={scope=scope,owner=owner,view=view,shelf_owner=not detail and view or nil,
+        session=host._reader_session_gen or 0,pointer=pointer}
     host._native_home_resume=ctx
     local function current()
         return host._native_home_resume==ctx and not host._weread_suspended

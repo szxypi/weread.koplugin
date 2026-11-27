@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     parser.add_argument('--quick-read',action='store_true',help='Finish the signed-in reading flow via the book hold menu')
+    parser.add_argument('--shelf-tap-read',choices=('cover','list'),help='Open a shelf book by tapping its cover or list row')
     parser.add_argument('--reading-auth-recovery',choices=('reader','catalog','chapter','repeat401','forbidden','limited'),help='Recover once from a synthetic 401 while opening a book')
     parser.add_argument('--guest-login-read',action='store_true',help='Exercise guest public search through synthetic QR login into the native reader')
     parser.add_argument('--guest-hold-login-read',action='store_true',help='Exercise guest book hold through synthetic QR login into the native reader')
@@ -89,6 +90,8 @@ def main():
         parser.error('--chapter-link-preflight uses a separate fixture')
     if args.quick_read and not args.reading_flow:
         parser.error('--quick-read requires --reading-flow')
+    if args.shelf_tap_read and (not args.reading_flow or args.quick_read or args.reading_auth_recovery or args.process_loss):
+        parser.error('--shelf-tap-read requires the regular --reading-flow')
     if args.reading_auth_recovery and not args.reading_flow:parser.error('--reading-auth-recovery requires --reading-flow')
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
@@ -218,6 +221,7 @@ def main():
     if args.offline_progress:
         environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
     if args.quick_read:environment['WEREAD_TEST_QUICK_READ']='1'
+    if args.shelf_tap_read:environment['WEREAD_TEST_SHELF_TAP_READ']=args.shelf_tap_read
     if args.reading_auth_recovery:environment['WEREAD_TEST_READING_AUTH_RECOVERY']=args.reading_auth_recovery
     if args.progress_response:
         environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"

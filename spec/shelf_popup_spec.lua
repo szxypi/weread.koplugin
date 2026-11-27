@@ -156,4 +156,18 @@ do
     host.book_metadata_context=nil;Popup.resumeMetadata(host,context);flush()
     expect(value==7,'metadata cancellation lost popup-deferred redraw')
 end
+for _,key in ipairs({'book_reading_context','_native_home_resume'}) do
+    local view={}
+    local context={shelf_owner=view}
+    local host={shelf_view=view,[key]=context}
+    local redraws=0
+    local function redraw() redraws=redraws+1 end
+    Popup.redrawForMetadata(host,view,redraw)
+    expect(redraws==0 and context.pending_shelf_redraw,'shelf changed during selected book preparation')
+    host[key]=nil;Popup.resumeMetadata(host,context);flush()
+    expect(redraws==1,'cancelling shelf reading did not restore the deferred redraw')
+    host[key]=context;host.shelf_view={}
+    Popup.redrawForMetadata(host,host.shelf_view,redraw)
+    expect(redraws==2 and not context.pending_shelf_redraw,'reading blocked an unrelated shelf redraw')
+end
 print(('shelf_popup_spec: %d checks'):format(checks))
