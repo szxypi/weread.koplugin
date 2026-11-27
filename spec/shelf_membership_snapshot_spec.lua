@@ -49,6 +49,45 @@ expect(db:getShelfStatus('42').present==nil,'detail row was treated as membershi
 expect(db:cacheShelf({{bookId='42',title='Saved shelf',finishReading=0}},{}),'complete snapshot setup')
 expect(db:getShelfStatus('42').present==true and db:getShelfStatus('99').present==false,'SQL did not distinguish present and absent')
 expect(DB:new(settings):getShelfStatus('99').present==false,'negative evidence did not persist')
+do
+    local old_books={{bookId='42',title='Old list'}}
+    local old_groups={{archiveId='1',name='Old group',bookIds={'42'}}}
+    local new_books={{bookId='43',title='New list'}}
+    local new_groups={{archiveId='2',name='New group',bookIds={'43'}}}
+    expect(db:cacheShelf(old_books,old_groups),'combined read setup')
+    local writer=DB:new(settings)
+    local open_read,reads,committed=db.openRead,0,false
+    function db:openRead()
+        reads=reads+1
+        local connection=assert(open_read(self))
+        local prepare=connection.prepare
+        function connection.prepare(reader,query)
+            if not committed and query:find("name='archives'",1,true) then
+                committed=writer:cacheShelf(new_books,new_groups)
+                assert(committed,'other connection could not commit during the read')
+            end
+            return prepare(reader,query)
+        end
+        return connection
+    end
+    local books,groups=db:getShelfSnapshot()
+    expect(committed and reads==1,'snapshot read did not share one connection with a concurrent commit')
+    expect(#books==1 and books[1].bookId=='42' and groups[1].bookIds[1]=='42',
+        'snapshot mixed old books with newly committed groups')
+    books,groups=db:getShelfSnapshot()
+    expect(reads==2 and books[1].bookId=='43' and groups[1].bookIds[1]=='43',
+        'reopening did not read both parts of the new snapshot')
+    db.openRead=open_read
+    local legacy=db:open()
+    legacy:exec("DELETE FROM shelf_state WHERE name='archives'");legacy:close()
+    books,groups=db:getShelfSnapshot()
+    expect(books[1].bookId=='43' and groups==nil,'legacy shelf with missing groups lost its books')
+    expect(db:cacheShelf({},{}),'empty snapshot setup')
+    books,groups=db:getShelfSnapshot()
+    expect(type(books)=='table' and #books==0 and type(groups)=='table' and #groups==0,
+        'verified empty shelf looked like a missing shelf')
+    expect(db:cacheShelf(old_books,{}),'restore fixture after combined read')
+end
 expect(db:putBook({bookId='99',finishReading=1}) and db:getShelfStatus('99').present==false,'details overrode absence')
 local connection=db:open()
 connection:exec([[CREATE TRIGGER stop_membership BEFORE INSERT ON shelf_state

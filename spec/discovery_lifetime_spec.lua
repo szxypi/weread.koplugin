@@ -56,8 +56,7 @@ view:onFlushSettings()
 expect(plugin._home_browse_position.anchor==7 and plugin._home_browse_position.focus=='8',
     'leaving home did not remember the page and book')
 local restored
-plugin.library_db.getShelf=function() return {} end
-plugin.library_db.getShelfArchives=function() return {} end
+plugin.library_db.getShelfSnapshot=function() return {},{} end
 plugin.applyShelfSnapshot=function() end
 plugin.homePreferences=function() return {recent_limit=24} end
 plugin.homeShortcuts=function() return {} end

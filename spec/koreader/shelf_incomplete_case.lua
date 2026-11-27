@@ -3,7 +3,7 @@ return function(host)
     local db=host.library_db
     local saved={fetch=host.client.get_shelf,login=host.requireShelfLogin,connected=host.isNetworkConnected,
         worker=host.shelf_refresh_worker,info=host.showInfo,notice=host.showTransientInfo,
-        cache=db.cacheShelf,books=db.getShelf,archives=db.getShelfArchives,progress=host.prepareShelfProgress}
+        cache=db.cacheShelf,snapshot=db.getShelfSnapshot,progress=host.prepareShelfProgress}
     local old_books=assert(db:getShelf());local old_groups=assert(db:getShelfArchives())
     local wire=require('weread.lib.shelf_wire')
     assert(wire.valid(host.client,host.client:json_decode('{"books":[],"archive":[]}')))
@@ -61,8 +61,7 @@ return function(host)
     assert(observed and observed[1]==false and observed[2]==transient and observed[3] and writes==0,
         'an unsaved complete shelf was mistaken for a persisted snapshot')
     require('weread.lib.volatile_shelf').clear(host)
-    db.getShelfArchives=function() return nil end
-    db.getShelf=function() return {} end
+    db.getShelfSnapshot=function() return {},nil end
     local first
     host:refreshBookshelf(nil,{on_loaded=function(ok,snapshot,incomplete) first={ok,snapshot,incomplete} end})
     assert(first and first[1]==false and first[3] and first[2].groups_incomplete
@@ -72,7 +71,7 @@ return function(host)
     assert(host.shelf_view.books[1].bookId=='SYN-INCOMPLETE' and notice,
         'temporary shelf was not available with an incomplete-data notice')
     host:closeWeReadUI();require('weread.lib.volatile_shelf').clear(host)
-    db.cacheShelf,db.getShelf,db.getShelfArchives=saved.cache,saved.books,saved.archives
+    db.cacheShelf,db.getShelfSnapshot=saved.cache,saved.snapshot
     host.client.get_shelf,host.requireShelfLogin,host.isNetworkConnected=saved.fetch,saved.login,saved.connected
     host.shelf_refresh_worker,host.showInfo,host.showTransientInfo=saved.worker,saved.info,saved.notice
     host.prepareShelfProgress=saved.progress

@@ -281,7 +281,7 @@ if mode=='live' then
 end
 -- Legacy numeric table keys must not alias adjacent large string book IDs.
 local account_key=plugin.library_db.accountKey
-local shelf_read,archives_read=plugin.library_db.getShelf,plugin.library_db.getShelfArchives
+local shelf_snapshot_read=plugin.library_db.getShelfSnapshot
 local settings_read,settings_lookup=plugin.settings.get,plugin.settings.book_lookup
 local settings_indexes,settings_book=plugin.settings.get_book_indexes,plugin.settings.get_book
 local state_scope=plugin.settings.account_state_scope
@@ -293,8 +293,7 @@ local recent_saved={
 local recent_shelf={{bookId='9007199254740993',title='大编号',readUpdateTime=1},
                     {bookId='43',title='另一本',readUpdateTime=2},{bookId='42',title='旧缓存',readUpdateTime=0}}
 plugin.library_db.accountKey=function() return recent_owner end
-plugin.library_db.getShelf=function() return recent_shelf end
-plugin.library_db.getShelfArchives=function() return {} end
+plugin.library_db.getShelfSnapshot=function() return recent_shelf,{} end
 plugin.settings.get_book_indexes=function() return recent_saved end
 plugin.settings.account_state_scope=function() return recent_owner end
 plugin:showHome()
@@ -307,7 +306,7 @@ plugin:showHome();recent_view=assert(plugin.shelf_view)
 assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1]._recent_time==90,
     'exact large string book key was not used on home')
 plugin:closeWeReadUI()
-plugin.library_db.accountKey=account_key;plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read
+plugin.library_db.accountKey=account_key;plugin.library_db.getShelfSnapshot=shelf_snapshot_read
 plugin.settings.get_book_indexes=settings_indexes;plugin.settings.account_state_scope=state_scope
 -- Persist an offline reading event in the real per-account book store, then
 -- verify the native shelf and a fresh process use it without leaking accounts.
@@ -364,7 +363,7 @@ local cache_shelf={{bookId='42',title='旧格式书籍',readUpdateTime=1},
     {bookId='43',title='错误归属',readUpdateTime=2},{bookId='9007199254740993',title='大编号',readUpdateTime=3}}
 local old_filters=plugin.shelf_filters
 plugin.library_db.accountKey=function() return cache_owner end
-plugin.library_db.getShelf=function() return cache_shelf end;plugin.library_db.getShelfArchives=function() return {} end
+plugin.library_db.getShelfSnapshot=function() return cache_shelf,{} end
 plugin.settings.get=function(self,key,default) if key=='books' then return cached_records end return settings_read(self,key,default) end
 plugin.settings.book_lookup=function() return cached_records end
 plugin.settings.get_book_indexes=function() return cached_records end
@@ -457,7 +456,7 @@ do
     options.view_mode,options.sort_order=old_mode,old_order;plugin.settings:set('shelf',options)
 end
 plugin.settings.get=settings_read;plugin.library_db.accountKey=account_key
-plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read;plugin.shelf_filters=old_filters
+plugin.library_db.getShelfSnapshot=shelf_snapshot_read;plugin.shelf_filters=old_filters
 -- The same safe book identity rule protects prefetch and annotation lookup.
 local cache_path=evidence..'/synthetic-prefetch.epub'
 local cache_file=assert(io.open(cache_path,'wb'));assert(cache_file:write('synthetic'));cache_file:close()

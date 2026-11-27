@@ -265,9 +265,7 @@ function LibraryDB:cacheShelf(books, archives)
     return ok
 end
 
-function LibraryDB:getShelfArchives()
-    local db = self:openRead()
-    if not db then return nil end
+local function read_shelf_archives(db)
     local stmt, archives
     local ok = pcall(function()
         stmt = db:prepare("SELECT payload FROM shelf_state WHERE name='archives'")
@@ -275,13 +273,10 @@ function LibraryDB:getShelfArchives()
         archives = row and decode(row[1]) or nil
     end)
     close_statement(stmt)
-    pcall(function() db:close() end)
     return ok and archives or nil
 end
 
-function LibraryDB:getShelf()
-    local db = self:openRead()
-    if not db then return nil end
+local function read_shelf_books(db)
     local books = {}
     local stmt
     local ok = pcall(function()
@@ -299,8 +294,39 @@ function LibraryDB:getShelf()
         end
     end)
     close_statement(stmt)
-    pcall(function() db:close() end)
     return ok and books or nil
+end
+
+function LibraryDB:getShelfArchives()
+    local db = self:openRead()
+    if not db then return nil end
+    local archives = read_shelf_archives(db)
+    pcall(function() db:close() end)
+    return archives
+end
+
+function LibraryDB:getShelf()
+    local db = self:openRead()
+    if not db then return nil end
+    local books = read_shelf_books(db)
+    pcall(function() db:close() end)
+    return books
+end
+
+function LibraryDB:getShelfSnapshot()
+    local db = self:openRead()
+    if not db then return nil, nil end
+    local ok, books, archives = pcall(function()
+        -- Retain the same read generation if a sync commits between queries.
+        db:exec('BEGIN')
+        local rows = read_shelf_books(db)
+        local groups = read_shelf_archives(db)
+        db:exec('COMMIT')
+        return rows, groups
+    end)
+    pcall(function() db:close() end)
+    if ok then return books, archives end
+    return nil, nil
 end
 
 function LibraryDB:getProfileState(name)

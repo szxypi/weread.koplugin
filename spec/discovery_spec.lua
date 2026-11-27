@@ -251,8 +251,7 @@ local fresh={{bookId='new',title='Fresh',readUpdateTime=20}}
 local refresh_saved=false
 local home_render,home_notice
 local home=setmetatable({
-    library_db={accountKey=function() return 'home-account' end,getShelf=function() return cached end,
-        getShelfArchives=function() return {} end},
+    library_db={accountKey=function() return 'home-account' end,getShelfSnapshot=function() return cached,{} end},
     settings={get=function(_self,key) if key=='books' then return {} end end},
     homePreferences=function() return {recent_limit=12} end,
     homeShortcuts=function() return {} end,

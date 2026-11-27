@@ -429,8 +429,7 @@ local original_info=host.showInfo
 local incomplete_info
 host.showInfo=function(_self,message) incomplete_info=message end
 local before_incomplete=shown[#shown]
-host.library_db.getShelf=function() return grouped_books end
-host.library_db.getShelfArchives=function() return archives end
+host.library_db.getShelfSnapshot=function() return grouped_books,archives end
 host.client.get_shelf=function() return {books={{bookId='new',title='Incomplete'}}} end
 local previous_write=written_archives
 before_incomplete.callbacks.on_refresh();pending()
@@ -442,7 +441,7 @@ host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incompl
 expect(incomplete_home and incomplete_home[1] and incomplete_home[2].books==grouped_books
     and incomplete_home[2].archives==archives and incomplete_home[3],
     'home did not retain the complete snapshot on missing groups')
-host.library_db.getShelfArchives=function() return nil end
+host.library_db.getShelfSnapshot=function() return grouped_books,nil end
 local incomplete_new
 host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incomplete_new={saved,snapshot,incomplete} end});pending()
 expect(incomplete_new and not incomplete_new[1] and incomplete_new[2].groups_incomplete and incomplete_new[3]
@@ -465,15 +464,14 @@ host.client.get_shelf = function() error("fixture") end
 local before_failure = #shown
 shown[#shown].callbacks.on_refresh()
 expect(#shown == before_failure and not host.shelf_refreshing, "failed refresh replaced the shelf or stayed locked")
-host.library_db.getShelf = function() return grouped_books end
-host.library_db.getShelfArchives = function() return archives end
+host.library_db.getShelfSnapshot = function() return grouped_books,archives end
 host:showBookshelf()
 expect(#host.shelf_groups == 3, "cached opening lost archive data")
 expect(#dialogs == 0, "current group cache triggered the upgrade hint")
-host.library_db.getShelfArchives = function() return {} end
+host.library_db.getShelfSnapshot = function() return grouped_books,{} end
 host:showBookshelf()
 expect(#dialogs == 0, "synced shelf without groups triggered the upgrade hint")
-host.library_db.getShelfArchives = function() return nil end
+host.library_db.getShelfSnapshot = function() return grouped_books,nil end
 host:showBookshelf()
 expect(#dialogs == 1 and shelf_settings.groups_refresh_hint_shown,
     "old shelf cache did not show and remember the one-time upgrade hint")

@@ -262,9 +262,8 @@ function M:showHome(refresh_progress, refreshed_shelf)
         cached, archives = refreshed_shelf.books, refreshed_shelf.archives
     elseif volatile then
         cached, archives = volatile.books, volatile.archives
-    else
-        cached = self.library_db and self.library_db:getShelf() or {}
-        archives = self.library_db and self.library_db:getShelfArchives() or {}
+    elseif self.library_db then
+        cached, archives = self.library_db:getShelfSnapshot()
     end
     self:applyShelfSnapshot(cached or {}, archives,
         volatile ~= nil and volatile.books == cached and volatile.archives == archives)

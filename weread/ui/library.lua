@@ -159,8 +159,9 @@ end
 function M:showBookshelf(restore_browse_position)
     if self._profile_view then self:closeWeReadUI() end
     local volatile = VolatileShelf.get(self)
-    local cached = volatile and volatile.books or self.library_db and self.library_db:getShelf() or nil
-    local archives = volatile and volatile.archives or self.library_db and self.library_db:getShelfArchives() or nil
+    local cached, archives
+    if volatile then cached, archives = volatile.books, volatile.archives
+    elseif self.library_db then cached, archives = self.library_db:getShelfSnapshot() end
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil)
         local position = restore_browse_position == true and self._shelf_browse_position
@@ -514,10 +515,8 @@ function M:refreshBookshelf(old_view, view_options)
             local previous=VolatileShelf.get(self)
             local previous_saved=false
             if previous and previous.groups_incomplete then previous=nil end
-            if not previous and self.library_db and type(self.library_db.getShelfArchives)=='function'
-                and type(self.library_db.getShelf)=='function' then
-                local archives=self.library_db:getShelfArchives()
-                local books=archives~=nil and self.library_db:getShelf() or nil
+            if not previous and self.library_db and type(self.library_db.getShelfSnapshot)=='function' then
+                local books,archives=self.library_db:getShelfSnapshot()
                 if type(archives)=='table' and type(books)=='table' then previous={books=books,archives=archives};previous_saved=true end
             end
             if previous then
