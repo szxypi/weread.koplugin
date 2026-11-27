@@ -33,9 +33,24 @@ if mode=='live' then
         UI:sendEvent(Event:new('KeyPress',Key:new(name,{})))
         UI:forceRePaint()
     end
+    local function refresh_shelf()
+        local previous=assert(plugin.shelf_view)
+        local connected,get_shelf,progress=plugin.isNetworkConnected,plugin.client.get_shelf,plugin.refreshVisibleShelfProgress
+        plugin.isNetworkConnected=function() return true end
+        plugin.client.get_shelf=function() return {books=books,archive=archives} end
+        plugin.refreshVisibleShelfProgress=function() end
+        previous.on_refresh()
+        local deadline=socket.gettime()+5
+        while plugin.shelf_view==previous do
+            assert(socket.gettime()<deadline,'synthetic bookshelf refresh did not complete')
+            UI:handleInput();socket.sleep(.01)
+        end
+        plugin.isNetworkConnected,plugin.client.get_shelf,plugin.refreshVisibleShelfProgress=connected,get_shelf,progress
+        return assert(plugin.shelf_view)
+    end
     local prefs=plugin.settings:get('shelf')
     local saved_mode,saved_paginated,saved_sort=prefs.view_mode,prefs.paginated,prefs.sort_order
-    prefs.view_mode,prefs.paginated='list',false
+    prefs.view_mode,prefs.paginated,prefs.sort_order='list',false,'default'
     plugin.settings:set('shelf',prefs)
     plugin:applyShelfSnapshot(books,archives)
     plugin:showShelfView('books')
@@ -51,6 +66,30 @@ if mode=='live' then
     assert(plugin._book_detail_view):onClose()
     assert(plugin.shelf_view~=shelf_view and plugin.shelf_view:getScrollOffset().y==offset
         and plugin.shelf_view:getVisibleBooks()[1]==visible,'book detail return reset continuous bookshelf scroll')
+    do
+        local reordered={{bookId='899998',title='合成书籍 先插入'}}
+        for _,book in ipairs(books) do reordered[#reordered+1]=book end
+        local before=plugin.shelf_view
+        local anchor=assert(before:getVisibleBooks()[1])
+        local focused=assert(before:getVisibleBooks()[2])
+        for y,row in ipairs(before.layout) do
+            if row[1].book==focused then
+                before:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break
+            end
+        end
+        plugin:showBookMenu(anchor)
+        plugin:applyShelfSnapshot(reordered,archives)
+        assert(plugin._book_detail_view):onClose()
+        local after=plugin.shelf_view
+        assert(after.books[1].bookId=='899998' and after:getVisibleBooks()[1].bookId==anchor.bookId
+            and after:getFocusedBookId()==focused.bookId,
+            'return after a bookshelf update lost the visible book or directional focus')
+
+        local refreshed=refresh_shelf()
+        assert(refreshed:getVisibleBooks()[1].bookId==anchor.bookId and refreshed:getFocusedBookId()==focused.bookId
+            and refreshed:getScrollOffset().y==offset,
+            'explicit refresh did not preserve the visible book, focus and in-row offset')
+    end
     if Device:hasKeys() then
         local scrolled=plugin.shelf_view
         UI:forceRePaint()
@@ -131,6 +170,9 @@ if mode=='live' then
     assert(plugin.shelf_view.page==1 and plugin.shelf_view:getFocusItem().book.bookId==id
         and plugin.shelf_view:getFocusItem().book.title=='000 合成新书名',
         'bookshelf return restored the old grid slot after a same-account reorder')
+    local refreshed=refresh_shelf()
+    assert(refreshed.page==2 and refreshed:getFocusedBookId()==id,
+        'explicit refresh retained the old page number after the focused book moved')
     local function navigate(label)
         local prior=assert(plugin.shelf_view)
         local tr=require('weread.lib.i18n').tr

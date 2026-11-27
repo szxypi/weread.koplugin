@@ -98,6 +98,11 @@ package.preload["weread.ui.library_view"] = function()
             end
             return { page_size = 10 }
         end,
+        bookIndex = function(books, id)
+            for index, book in ipairs(books) do
+                if (book.bookId or book.book_id) == id then return index end
+            end
+        end,
         show = function(data, callbacks)
             shown[#shown + 1] = { data = data, callbacks = callbacks }
             local source = data.mode == "public_account" and data.accounts or data.books
@@ -108,6 +113,11 @@ package.preload["weread.ui.library_view"] = function()
                 setRefreshing = function(self, busy) self.refreshing = busy end,
                 getScrollOffset = function() return { x = 0, y = 125 } end,
                 getFocusedBookId = function() return nil end,
+                getBrowsePosition = function(self)
+                    local book = source[(page - 1) * data.page_size + 1]
+                    return { page = page, book_id = book and (book.bookId or book.book_id),
+                        scroll_offset = not data.paged and self:getScrollOffset() or nil }
+                end,
             }
         end,
     }
@@ -385,6 +395,7 @@ host.library_db = { cacheShelf = function(_self, _books, value) written_archives
 local cache_notice
 host.showTransientInfo=function(_self,text) cache_notice=text end
 local before_refresh = shown[#shown]
+local refreshing_view, before_close_count = host.shelf_view, #closed_views
 local cover_generation = host.shelf_cover_generation
 host.shelf_cover_pending = { view = host.shelf_view }
 before_refresh.callbacks.on_refresh()
@@ -393,11 +404,15 @@ expect(host.shelf_refreshing and fetches == nil, "refresh was not scheduled or g
 expect(host.shelf_cover_generation > cover_generation and host.shelf_cover_pending == nil,
     "refresh left a thumbnail batch able to replace the view")
 pending()
+local refresh_closes = 0
+for index = before_close_count + 1, #closed_views do
+    if closed_views[index] == refreshing_view then refresh_closes = refresh_closes + 1 end
+end
+expect(refresh_closes == 1, "successful refresh closed the old shelf more than once")
 expect(fetches == 1 and written_archives[2].archiveId == 7 and not host.shelf_refreshing,
     "refresh duplicated requests or omitted archive caching")
-expect(shown[#shown].data.page == 2 and shown[#shown].data.group_key == "archive:7"
-        and shown[#shown].data.scroll_offset.y == 125,
-    "refresh lost group, page or scroll position after archive reorder")
+expect(shown[#shown].data.page == 2 and shown[#shown].data.group_key == "archive:7",
+    "refresh lost group or page after archive reorder")
 expect(cache_notice and cache_notice:find('offline',1,true),
     'visible shelf refresh did not report a failed offline snapshot')
 local saved_result,refreshed_snapshot

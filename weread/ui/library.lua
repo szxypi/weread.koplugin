@@ -557,9 +557,10 @@ function M:refreshBookshelf(old_view, view_options)
         next_options.prepared_shelf = nil
         next_options.refresh_progress = true
         if old_group_key ~= self.shelf_group_key then
-            next_options.page, next_options.scroll_offset = 1, nil
+            next_options.page, next_options.scroll_offset, next_options.browse_position = 1, nil, nil
         end
-        if old_view then UIManager:close(old_view) end
+        -- showShelfView closes the current shelf while replacing it.
+        if old_view and old_view~=self.shelf_view and not old_view._shelf_closed then UIManager:close(old_view) end
         self:showShelfView(
             view_options and view_options.mode or self.shelf_view_mode or "books",
             view_options and view_options.keyword or nil,
@@ -906,7 +907,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
     local focus_id = position and position.focus_book_id or options.focus_book_id
-    local focus_book_index = paged and focus_id and LibraryView.bookIndex(source, focus_id)
+    local focus_book_index = (paged or position) and focus_id and LibraryView.bookIndex(source, focus_id)
     local first_index = position and position.book_id and LibraryView.bookIndex(source, position.book_id)
     local anchor = focus_book_index or options.rotation_anchor or first_index
     if paged and anchor then
@@ -1103,8 +1104,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             local refresh_options = {}
             for key, value in pairs(options) do refresh_options[key] = value end
             refresh_options.prepared_shelf = nil
-            refresh_options.page = view.page
-            refresh_options.scroll_offset = view:getScrollOffset()
+            refresh_options.browse_position = view:getBrowsePosition()
             self:refreshBookshelf(view, refresh_options)
         end,
         on_sort = function()
@@ -1189,10 +1189,9 @@ function M:showShelfView(mode, keyword, old_view, options)
     view._finish_current=current
     view._shelf_snapshot_redraw=function()
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
-        next_options.prepared_shelf=nil;next_options.page=view.page
-        next_options.scroll_offset=view:getScrollOffset()
-        next_options.focus_book_id=paged and view:getFocusedBookId()
-        if next_options.focus_book_id then self:showShelfView(mode,keyword,view,next_options)
+        next_options.prepared_shelf=nil
+        next_options.browse_position=view:getBrowsePosition()
+        if view:getFocusedBookId() then self:showShelfView(mode,keyword,view,next_options)
         else
             require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
                 self:showShelfView(mode,keyword,view,next_options)

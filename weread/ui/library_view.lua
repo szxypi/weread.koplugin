@@ -1075,10 +1075,18 @@ function LibraryView:getVisibleBooks()
 end
 
 function LibraryView:getBrowsePosition()
-    local position = { page = self.page, book_id = ShelfSnapshot.persisted_id(self:getVisibleBooks()[1]) }
-    if self.paged then
-        position.focus_book_id = self:getFocusedBookId()
-    else
+    local visible = self:getVisibleBooks()
+    local position = { page = self.page, book_id = ShelfSnapshot.persisted_id(visible[1]) }
+    local focused = self:getFocusItem()
+    if focused and focused.book then
+        for _, book in ipairs(visible) do
+            if book == focused.book then
+                position.focus_book_id = ShelfSnapshot.persisted_id(book)
+                break
+            end
+        end
+    end
+    if not self.paged then
         local offset = self:getScrollOffset()
         position.scroll_offset = offset
         if position.book_id and self._list_bottoms then
@@ -1581,7 +1589,15 @@ function LibraryView:init()
     end
     local rows = { self._header_buttons }
     local first_item_row, focus_x, focus_y
-    local focused_book = self.focus_book_index and self._item_rows[self.focus_book_index - (self.page - 1) * self.page_size]
+    local focus_index = self.focus_book_index
+    if offset and not self.paged and self._list_bottoms then
+        local top = self:getScrollOffset().y
+        local bottom = focus_index and self._list_bottoms[focus_index]
+        if not bottom or bottom <= top or ShelfVisible.top(self._list_bottoms, focus_index) >= top + scroll.dimen.h then
+            focus_index = ShelfVisible.first(self._list_bottoms, top)
+        end
+    end
+    local focused_book = focus_index and self._item_rows[focus_index - (self.page - 1) * self.page_size]
     local function book_rows()
         first_item_row = #self._focus_item_rows > 0 and #rows + 1 or nil
         for _, item_row in ipairs(self._focus_item_rows) do
