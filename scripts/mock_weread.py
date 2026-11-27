@@ -491,7 +491,8 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError('invalid native finished-mark position query')
                 return 200,self.get_progress(book_id)
             if path == "/book/getProgress" and method == "GET":
-                if query != {"bookId": [book_id]} or not any(row["bookId"] == book_id for row in BOOKS):
+                if query != {"bookId": [book_id]} or (
+                        book_id != "CB_SyntheticDisplay" and not any(row["bookId"] == book_id for row in readable_books)):
                     raise ValueError("invalid native shelf progress query")
                 result = self.get_progress(book_id)
                 result.setdefault("bookId", book_id)

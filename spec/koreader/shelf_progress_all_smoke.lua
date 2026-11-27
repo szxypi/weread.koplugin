@@ -1,5 +1,5 @@
 -- Real native dialog, worker, local HTTP and SQLite; synthetic books only.
-return function(plugin,books,count,control,wait_progress,evidence)
+return function(plugin,books,count,control,wait_progress,evidence,imported)
     local UI=require('ui/uimanager');local Screen=require('device').screen;local socket=require('socket')
     local settings=plugin.settings
     local old_key,old_cookies=settings:get('api_key'),settings:get('cookies')
@@ -112,13 +112,29 @@ return function(plugin,books,count,control,wait_progress,evidence)
         assert(plugin.library_db:getShelfProgress({book.bookId})[book.bookId].source=='native')
     end
     plugin:closeWeReadUI()
+    expire({imported,sample[1]});before=count(native_path)
+    plugin:showShelfView('books',nil,nil,{page=1,refresh_progress=true,
+        prepared_shelf={books={imported,sample[1]},accounts={}}})
+    wait_progress()
+    local imported_progress=plugin.library_db:getShelfProgress({imported.bookId})[imported.bookId]
+    assert(count(native_path)-before==2 and imported_progress.source=='native' and imported_progress.exact_percent==0
+        and imported._shelf_progress==0,'native-only visible shelf did not render the imported book')
+    local online=plugin.isNetworkOnline
+    plugin.isNetworkOnline=function() return false end
+    plugin.shelf_view.on_display_change('view_mode','list')
+    assert(plugin.shelf_view:itemStatus(imported):find('0%%') and count(native_path)-before==2,
+        'offline shelf lost native imported progress')
+    plugin.isNetworkOnline=online
+    plugin:closeWeReadUI()
+    sample[#sample]=imported;ids[#ids]=imported.bookId
     plugin:applyShelfSnapshot(sample,{})
     plugin:showShelfView('books');wait_progress()
     notices={};before=count(native_path);job=start();wait_done()
     assert(job.done==#sample and count(native_path)-before==#sample and #notices==1,'native-only bulk refresh missed books')
     cached=plugin.library_db:getShelfProgress(ids)
     for _,id in ipairs(ids) do assert(cached[id] and cached[id].source=='native') end
-    assert(cached[sample[1].bookId].exact_percent==37 and cached[sample[2].bookId].exact_percent==0,
+    assert(cached[sample[1].bookId].exact_percent==37 and cached[sample[2].bookId].exact_percent==0
+        and cached[imported.bookId].exact_percent==0,
         'native-only cache lost explicit percentages')
     control{progress_response='foreign'}
     notices={};before=count(native_path);job=start();wait_done()
@@ -137,5 +153,5 @@ return function(plugin,books,count,control,wait_progress,evidence)
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})
     settings:set('shelf',plugin.client:json_decode(old_shelf));settings:flush()
     plugin:applyShelfSnapshot(plugin.library_db:getShelf(),plugin.library_db:getShelfArchives())
-    print('PASS: native-only home and shelf progress; bulk progress dialog, batched HTTP/SQLite, cancel and 429; no reading writes')
+    print('PASS: native-only home and shelf progress, imported book offline and in bulk update; cancel and 429; no reading writes')
 end

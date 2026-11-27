@@ -14,7 +14,7 @@ end
 local cookies={wr_vid='900000',wr_skey='synthetic-web-access'}
 local scope={vid='900000',epoch=1}
 local gateway=true
-local settings={cache_dir='synthetic-cache',data_dir='synthetic-data',
+local settings={cache_dir='synthetic-cache',
     get=function(_self,key,default)
         if key=='api_key' then return gateway and 'synthetic-key' or '' end
         if key=='cookies' then return cookies end
@@ -33,7 +33,7 @@ local context={checkCancelled=function() end,emit=function() end}
 local selected=Data.selection(settings)
 expect(Data.supports(cb,selected) and Data.supports('900001',selected),'Web CB display was not available')
 for _i,value in ipairs({{},false,{gateway={kind='gateway'}},{web=false}}) do
-    expect(not Data.supports(cb,value),'CB support appeared without Web authorization')
+    expect(not Data.supports(cb,value),'CB support appeared without Web or E-Ink authorization')
 end
 local batch=Data.fetch(client,{'900001',cb,'900002'},context,selected)
 expect(not batch.failed and #batch.snapshots==3 and #calls==3,'mixed display batch failed')
@@ -73,6 +73,52 @@ selected=Data.selection(settings);calls={}
 behavior=function() cookies.wr_skey='synthetic-replaced-web' end
 batch=Data.fetch(client,{cb,'900001'},context,selected)
 expect(batch.stale and #batch.snapshots==0 and #calls==1,'authorization change retained CB progress')
+
+local original_credentials=package.loaded['weread.lib.native_credentials']
+local native_grant={vid=scope.vid,accessToken='synthetic-native-access'}
+local revision=1
+package.loaded['weread.lib.native_credentials']={new=function()
+    return {read=function() return native_grant,revision end}
+end}
+settings.data_dir='synthetic-data'
+cookies={};gateway=false;behavior=nil;calls={}
+local native_id
+function client:request(options)
+    local id=options.url:match('^https://i%.weread%.qq%.com/book/getProgress%?bookId=([a-zA-Z0-9_]+)$')
+    expect((id==cb or id=='900001') and options.method=='GET' and options.skip_cookie
+        and options.persist_response_cookies==false and options.headers.accessToken==native_grant.accessToken
+        and not options.headers.Cookie,'native CB request left its authorized channel')
+    native_id=id
+    calls[#calls+1]={id=id,kind='native'}
+    return 'synthetic response',200
+end
+function client:json_decode()
+    return {bookId=native_id,book={progress=native_id==cb and 0.6 or 37,chapterOffset=3}}
+end
+selected=Data.selection(settings)
+expect(Data.supports(cb,selected),'E-Ink authorization did not enable imported books')
+batch=Data.fetch(client,{cb,'900001'},context,selected)
+expect(not batch.failed and #calls==2 and calls[1].kind=='native' and calls[2].kind=='native'
+    and batch.snapshots[1].source=='native' and batch.snapshots[1].exact_percent==0.6
+    and batch.snapshots[1].chapterOffset==nil,'native-only imported projection lost precision or kept private position')
+gateway=true;calls={}
+selected=Data.selection(settings)
+batch=Data.fetch(client,{'900001',cb,'900002'},context,selected)
+expect(not batch.failed and #calls==3 and calls[1].kind=='gateway' and calls[2].kind=='native'
+    and calls[3].kind=='gateway','native CB read changed the selected route for numeric IDs')
+gateway=false
+expect(not Data.matches(settings,selected),'replaced gateway key matched a mixed authorization')
+gateway=true;revision=2
+expect(not Data.matches(settings,selected),'replaced native grant matched a mixed authorization')
+calls={}
+selected=Data.selection(settings)
+batch=Data.fetch(client,{cb},context,selected,{web_only=true})
+expect(batch.failed and #calls==0,'Web renewal continuation started a native read')
+cookies={wr_vid='900000',wr_skey='synthetic-web-access'};calls={}
+batch=Data.fetch(client,{cb},context)
+expect(not batch.failed and #calls==1 and calls[1].kind=='web','native grant displaced the preferred Web channel')
+package.loaded['weread.lib.native_credentials']=original_credentials
+
 local saved={recent_read_account='account-a',pending_upload_position={book_id=cb,percent=83}}
 local value,pending=Data.display(saved,{percent=37},'account-a',cb)
 expect(value==83 and pending,'CB cloud display replaced pending local reading')

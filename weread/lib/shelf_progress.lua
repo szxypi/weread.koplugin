@@ -5,21 +5,29 @@ local NativeAccess = require("weread.lib.native_read_access")
 M.book_id = Access.display_book_id
 
 function M.selection(settings)
-    local access = Access.capture(settings)
-    if access or not settings then return access end
+    local standard = Access.capture(settings)
+    if not settings or standard and standard.web then return standard end
     local native = NativeAccess.capture(settings)
-    if native and not native.renewal_pending then
-        return { native = { kind = "native", grant = native }, revision = native.fingerprint }
-    end
+    if not native or native.renewal_pending then return standard end
+    return {
+        gateway = standard and standard.gateway,
+        standard = standard,
+        native = { kind = "native", grant = native },
+        revision = (standard and standard.revision or "") .. ":" .. native.fingerprint,
+    }
 end
 
 function M.matches(settings, selected)
-    if selected and selected.native then return NativeAccess.matches(settings, selected.native.grant) end
+    if selected and selected.native then
+        return (not selected.standard or Access.matches(settings, selected.standard))
+            and NativeAccess.matches(settings, selected.native.grant)
+    end
     return Access.matches(settings, selected)
 end
 
 function M.supports(id, selected)
-    return M.book_id(id) ~= nil and (Access.book_id(id) ~= nil or type(selected) == "table" and type(selected.web) == "table")
+    return M.book_id(id) ~= nil and (Access.book_id(id) ~= nil
+        or type(selected) == "table" and (type(selected.web) == "table" or type(selected.native) == "table"))
 end
 
 local function exact_percent(value)
@@ -91,29 +99,34 @@ function M.fetch(client, ids, context, selected, options)
     selected = selected or M.selection(client.settings)
     local snapshots = {}
     if not selected then return { snapshots = snapshots, failed = true } end
-    local access = options and options.web_only and selected.web or selected.gateway or selected.web or selected.native
-    if not access or options and options.web_only and not selected.web then return {snapshots=snapshots,failed=true} end
+    local web_only = options and options.web_only
+    local imported_access = selected.web or not web_only and selected.native
+    local access
+    if web_only then access = selected.web
+    else access = selected.gateway or imported_access end
+    if not access then return { snapshots = snapshots, failed = true } end
     local function current()
         context.checkCancelled()
         return M.matches(client.settings, selected)
     end
-    local owner = client
-    local read = client.get_shelf_display_progress
-    if access.kind == "native" then
-        local grant = access.grant
-        owner = require("weread.lib.native_authorization"):new(client, { expected_vid = grant.scope.vid, is_current = current })
-        read = function(auth, id) return auth:read_shelf_progress(grant.credentials, id) end
+    local native_auth
+    local function read(id, channel)
+        if channel.kind ~= "native" then return client:get_shelf_display_progress(id, channel) end
+        local grant = channel.grant
+        if not native_auth then
+            native_auth = require("weread.lib.native_authorization"):new(client, {
+                expected_vid = grant.scope.vid, is_current = current,
+            })
+        end
+        return native_auth:read_shelf_progress(grant.credentials, id)
     end
     for index, id in ipairs(ids) do
         if not current() then return { snapshots = {}, stale = true } end
         context.emit { stage = "shelf_progress", current = index, total = #ids }
-        -- CB_ is verified only on Web. Do not send it to the gateway, and do
-        -- not switch later ordinary books away from their selected channel.
-        local book_access = type(id) == "string" and id:sub(1, 3) == "CB_" and selected.web or access
-        if type(id) == "string" and id:sub(1, 3) == "CB_" and not selected.web then
-            return { snapshots = snapshots, failed = true }
-        end
-        local ok, value = pcall(read, owner, id, book_access)
+        local book_access = access
+        if type(id) == "string" and id:sub(1, 3) == "CB_" then book_access = imported_access end
+        if not book_access then return { snapshots = snapshots, failed = true } end
+        local ok, value = pcall(read, id, book_access)
         if not current() then return { snapshots = {}, stale = true } end
         local snapshot, reason
         if ok then

@@ -280,7 +280,7 @@ end}
 settings.data_dir='/unused'
 cookies={}
 local native_access=Data.selection(settings)
-expect(native_access and native_access.native and not Data.supports('CB_Example',native_access),'native-only routing')
+expect(native_access and native_access.native and Data.supports('CB_Example',native_access),'native-only routing')
 local native_calls,reply,rotate=0,nil,false
 function client:request(options)
     native_calls=native_calls+1

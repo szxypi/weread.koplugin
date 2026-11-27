@@ -237,9 +237,9 @@ function Auth:read_shelf_progress(credentials, book_id)
         fail("shelf_progress", "invalid_credentials")
     end
     if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("shelf_progress", "account_mismatch") end
-    book_id = require("weread.lib.read_access").book_id(book_id)
+    book_id = require("weread.lib.read_access").display_book_id(book_id)
     if not book_id then fail("shelf_progress", "invalid_book") end
-    return self:_request("shelf_progress", BASE .. "/book/getProgress?bookId=" .. book_id, nil, credentials, { 5, 10 })
+    return self:_request("shelf_progress", BASE .. "/book/getProgress?bookId=" .. Protocol.urlencode(book_id), nil, credentials, { 5, 10 })
 end
 
 -- Read-only chapter annotations verified against real nonempty replies first.
