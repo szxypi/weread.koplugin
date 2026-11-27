@@ -1,4 +1,5 @@
 local Data = require("weread.lib.shelf_progress")
+local Recovery = require("weread.ui.shelf_progress_recovery")
 local Access = require("weread.lib.read_access")
 local Identity = require("weread.lib.shelf_snapshot")
 local NetworkLink = require("weread.lib.network_link")
@@ -35,26 +36,29 @@ function M:cancelShelfProgress()
     if context and context.request and self.shelf_progress_worker then
         self.shelf_progress_worker:cancel(context.request, "view_changed")
     end
-    if context and context.web_request then require('weread.ui.web_renewal').cancel(self,context.web_request) end
+    if context then Recovery.cancel(self, context) end
 end
 
 function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     options = options or {}
     local account = self.library_db and self.library_db:accountKey()
+    local epoch = self.discovery_epoch or 0
     local ids = {}
-    local access = Data.selection(self.settings)
     for _, book in ipairs(books) do
         local id = Identity.persisted_id(book)
         id=id and Data.book_id(id)
-        if id and Data.supports(id, access) then ids[#ids + 1] = id end
+        if id then ids[#ids + 1] = id end
     end
-    local key = tostring(account) .. ":" .. tostring(self.discovery_epoch or 0) .. ":"
-        .. (access and access.revision or "") .. ":" .. table.concat(ids, ",")
+    local view_key = tostring(account) .. ":" .. tostring(epoch) .. ":" .. table.concat(ids, ",")
     local current = self.shelf_progress_context
     if current and current.is_current and not current.is_current() then
         self:cancelShelfProgress();current=nil
     end
-    if current and current.key == key and (current.request or current.renewing) then
+    -- A pending native renewal temporarily hides the grant from read selection.
+    -- Keep ownership across redraws of the same visible books.
+    local same_view = current and current.view_key == view_key
+    local access = same_view and current.renewing and current.access or Data.selection(self.settings)
+    if same_view and (current.renewing or current.request and access and current.access.revision == access.revision) then
         current.redraw = options.on_redraw
         current.snapshots = snapshots
         current.view = view
@@ -67,7 +71,8 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     local needed = {}
     for _, id in ipairs(ids) do
         local cached = snapshots[id]
-        if options.force or not cached or os.time() - (tonumber(cached.fetched_at) or 0) >= Data.TTL then
+        if Data.supports(id, access) and
+            (options.force or not cached or os.time() - (tonumber(cached.fetched_at) or 0) >= Data.TTL) then
             needed[#needed + 1] = id
         end
     end
@@ -79,9 +84,8 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
         }
     end
     if not self.shelf_progress_worker:available() then return end
-    local context = { key = key, redraw = options.on_redraw, snapshots = snapshots, view = view }
+    local context = { view_key = view_key, access = access, redraw = options.on_redraw, snapshots = snapshots, view = view }
     local saved_progress = {}
-    local epoch = self.discovery_epoch or 0
     local document=self.ui and self.ui.document
     local file=document and document.file
     local session,cache=self._reader_session_gen,self.settings.cache_dir
@@ -124,7 +128,7 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     launch=function()
     context.generation=(context.generation or 0)+1
     local generation=context.generation
-    local batch_access,batch_needed,web_only=access,needed,context.recovery_attempted==true
+    local batch_access,batch_needed,web_only=access,needed,context.web_only
     local delivered=false
     local called, started, request = pcall(self.shelf_progress_worker.start,self.shelf_progress_worker,{
         kind = "shelf_progress", queue = true, replace_active = true,
@@ -142,39 +146,37 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
             if result.value.stale then return end
             local values = result.value.snapshots
             if type(values)~='table' then finish(true);return end
+            local channel=Recovery.channel(context,result.value)
+            local index=result.value.next_index
+            if channel then
+                if type(index)~='number' or index%1~=0 or index<1 or index>#needed or #values~=index-1 then finish(true);return end
+                for i,snapshot in ipairs(values) do
+                    if type(snapshot)~='table' or snapshot.book_id~=needed[i] then finish(true);return end
+                end
+            end
             if #values>0 then
                 if not self.library_db:putShelfProgress(values) then finish(true);return end
                 for _, snapshot in ipairs(values) do saved_progress[snapshot.book_id] = snapshot end
             end
             -- Keep the valid prefix, then resume only the failed suffix. Do
             -- not redraw into a new request while renewal owns this context.
-            if result.value.web_expired and not context.recovery_attempted then
-                local index=result.value.next_index
-                if type(index)~='number' or index%1~=0 or index<1 or index>#needed or #values~=index-1 then finish(true);return end
-                for i,snapshot in ipairs(values) do if snapshot.book_id~=needed[i] then finish(true);return end end
-                context.recovery_attempted,context.renewing=true,true
+            if channel then
                 local remaining={};for i=index,#needed do remaining[#remaining+1]=needed[i] end
-                local Renewal=require('weread.ui.web_renewal')
-                local started,request=Renewal.run(self,{is_current=owner_current},function(ok,reason)
-                    if not owner_current() or not context.renewing or context.generation~=generation then return end
-                    context.web_request,context.renewing=nil,false
-                    if reason=='session_changed' then self:cancelShelfProgress();return end
-                    if not ok then
-                        finish(true)
-                        if self.showTransientInfo then self:showTransientInfo(Renewal.error_text(reason),4) end
-                        return
-                    end
-                    local fresh=Data.selection(self.settings)
-                    if not fresh or not fresh.web or not owner_current() then self:cancelShelfProgress();return end
-                    -- Only access may change; view, account and reader owners
-                    -- remain bound to the original visible batch.
-                    access,needed=fresh,remaining
-                    context.key=tostring(account)..':'..tostring(epoch)..':'..access.revision..':'..table.concat(ids,',')
-                    launch()
-                end)
-                if self.shelf_progress_context==context and context.renewing then
-                    if started then context.web_request=request else context.renewing=false;finish(true) end
-                elseif started then Renewal.cancel(self,request) end
+                local started=Recovery.start(self,context,access,channel,{
+                    is_current=function() return owner_current() and context.generation==generation end,
+                    stale=function() if self.shelf_progress_context==context then self:cancelShelfProgress() end end,
+                    complete=function(ok,fresh,resumed_web_only,message)
+                        if not ok then
+                            finish(true)
+                            if message and self.showTransientInfo then self:showTransientInfo(message,4) end
+                            return
+                        end
+                        access,needed=fresh,remaining
+                        context.access,context.web_only=access,resumed_web_only
+                        launch()
+                    end,
+                })
+                if not started then finish(true) end
                 return
             end
             finish(result.value.failed)

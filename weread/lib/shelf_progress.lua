@@ -153,6 +153,8 @@ function M.fetch(client, ids, context, selected, options)
             -- Stop on the first service/auth/rate failure; do not flood the remaining books.
             return { snapshots = snapshots, failed = true,
                 web_expired = not ok and book_access.kind == "web" and value == "display_progress/login" or nil,
+                native_expired = not ok and book_access.kind == "native"
+                    and value == "native_auth/shelf_progress/http_401" or nil,
                 next_index = index }
         end
     end

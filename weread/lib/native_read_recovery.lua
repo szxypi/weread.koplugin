@@ -19,6 +19,7 @@ function M.start(host, context, selected, options)
     context.recovery_attempted, context.renewing = true, true
     local delivered = false
     local function complete(success)
+        if delivered then return end
         delivered = true
         context.renewal_job, context.renewing = nil, nil
         if not options.is_current() or not M.current(host.settings, selected, options.capture) then

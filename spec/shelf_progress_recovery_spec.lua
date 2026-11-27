@@ -139,4 +139,58 @@ local client={settings=host.settings,get_shelf_display_progress=function() error
 local access=assert(Data.selection(host.settings))
 local value=Data.fetch(client,ids,worker_context,access,{web_only=true})
 expect(value.web_expired and value.next_index==1 and #value.snapshots==0,'explicit Web continuation lost login classification')
+
+local function native_fixture()
+    local native_host,native_state=fixture()
+    native_state.cookies={}
+    native_host.settings.data_dir='/native-fixture'
+    local grant={vid='900000',accessToken='old-native',refreshToken='synthetic-refresh',deviceId='synthetic-device'}
+    local revision,pending=5,false
+    package.loaded['weread.lib.native_credentials']={new=function()
+        return {read=function() return grant,revision,nil,pending end}
+    end}
+    local book_id
+    function native_host.client:request(options)
+        book_id=assert(options.url:match('bookId=(%d+)$'))
+        local token=options.headers.accessToken
+        native_state.requests[#native_state.requests+1]={id=book_id,token=token}
+        local blocked=book_id==ids[2] and (token=='old-native' or native_state.persistent)
+        return 'synthetic reply',blocked and (native_state.status or 401) or 200
+    end
+    function native_host.client:json_decode() return {bookId=book_id,book={progress=37}} end
+    native_host.native_renewal={
+        start=function(_self,options,callback)
+            expect(options.expected_revision==revision and not pending,'wrong native renewal grant')
+            revision,pending=revision+1,true
+            local job={callback=callback};renewals[#renewals+1]=job
+            return true,job
+        end,
+        cancel=function(_self,job) cancelled[#cancelled+1]=job end,
+    }
+    function native_state:renew(delta)
+        revision,pending=revision+(delta or 1),false
+        grant.accessToken='renewed-native'
+        renewals[1].callback(true)
+    end
+    return native_host,native_state
+end
+
+host,state=native_fixture()
+state:start();old,batch=state:complete()
+expect(batch.native_expired and not batch.web_expired and batch.next_index==2 and #renewals==1
+    and state.cache[ids[1]],'native 401 lost its prefix or renewal')
+state:start()
+expect(#state.jobs==1 and #renewals==1 and not Data.selection(host.settings),'redraw cancelled and restarted a pending native renewal')
+state:renew();state:complete()
+expect(#state.requests==4 and state.requests[3].id==ids[2] and state.requests[3].token=='renewed-native'
+    and state.cache[ids[3]] and state.redraws==1,'native renewal repeated a prefix or lost the suffix')
+old.options.on_done{ok=true,value=batch};renewals[1].callback(true)
+expect(#state.jobs==2,'duplicate native renewal callback dispatched another read')
+
+host,state=native_fixture();state:start();state:complete();state:renew(2)
+expect(#state.jobs==1 and not host.shelf_progress_context,'another revision was accepted as the owned renewal')
+host,state=native_fixture();state:start();state:complete();host:cancelShelfProgress();state:renew()
+expect(#state.jobs==1 and cancelled[1]==renewals[1],'cancelled native renewal resumed or left an active job')
+host,state=native_fixture();state.status=429;state:start();state:complete()
+expect(#renewals==0 and #state.requests==2 and host.shelf_progress_retry_at,'native 429 started renewal')
 print('PASS: visible progress once-only renewal, suffix continuation and owner/cancellation guards ('..checks..' checks)')

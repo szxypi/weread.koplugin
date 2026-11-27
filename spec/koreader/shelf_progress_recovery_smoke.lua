@@ -101,11 +101,95 @@ return function(plugin,flush,evidence)
     local worker=host.web_renewal.worker;local pid=assert(worker.job.pid)
     host:onSuspend();pump(function() return worker.runner.done(pid) end);Auth.run=run
     assert(not host.shelf_progress_context and not host._web_renewal_request and host.web_renewal.store:read().phase=='pending','suspend lost cancellation or unknown intent')
+    host:onResume()
     control{match='/web/book/getProgress',times=1,status=401};start();wait()
     assert(count('/web/login/renewal')==posts,'suspend/reopen replayed an unconfirmed intent')
     local saved=settings:get('books')[id]
     assert(saved.progress==83 and saved.chapter_uid==99 and saved.pending_upload_position.percent==83,'progress reading changed local sync intent')
     assert(count('/web/book/read')==writes,'display recovery wrote reading data')
+    do
+        local store=host.native_renewal.store
+        local native_path='/book/getProgress'
+        local old_access='synthetic-native-progress-old'
+        local native_writes=count('/book/read')
+        local function native_fresh()
+            host:closeWeReadUI()
+            settings:update_auth({cookies={}}, {replace_cookies=true})
+            host.shelf_progress_retry_at,host.shelf_progress_retry_revision=nil,nil
+            control{match='',times=0,delay=0,skip=0}
+            local _,revision=store:read()
+            local scope=assert(settings:get_auth_scope())
+            assert(store:save({vid=scope.vid,accessToken=old_access,refreshToken='mock-native-refresh',
+                deviceId='eink334691225'..string.rep('1',19)},scope,revision,#books))
+            local values={}
+            for _,book in ipairs(selected) do values[#values+1]={book_id=book.bookId,percent=9,fetched_at=os.time()} end
+            assert(host.library_db:putShelfProgress(values))
+            host:applyShelfSnapshot(selected,{})
+            host:showShelfView('books')
+        end
+        local function wait_native()
+            wait()
+            pump(function() return not host.native_renewal.job and not host.shelf_progress_all_context end)
+        end
+        local original_request=client.request
+        prefix=true
+        client.request=function(self,options)
+            local response,code,headers,status=original_request(self,options)
+            if prefix and options.url=='https://i.weread.qq.com'..native_path..'?bookId='..id
+                and options.headers.accessToken==old_access and code==200 then
+                control{match=native_path,times=1,status=401}
+            end
+            return response,code,headers,status
+        end
+        native_fresh()
+        local _,revision=store:read()
+        local NativeAuth=require('weread.lib.native_authorization')
+        local renew=NativeAuth.renew
+        NativeAuth.renew=function(...) socket.sleep(.35);return renew(...) end
+        posts,gets=count('/login'),count(native_path);start()
+        pump(function() return host.shelf_progress_context and host.shelf_progress_context.renewing end)
+        local active=host.shelf_progress_context
+        local _,_,_,pending=store:read()
+        assert(pending and percent(id)==37,'native recovery did not persist its prefix before renewal')
+        start()
+        assert(host.shelf_progress_context==active,'same viewport cancelled native renewal while its grant was pending')
+        wait_native();NativeAuth.renew=renew
+        local grant,renewed_at,_,renewing=store:read()
+        assert(count('/login')==posts+1 and count(native_path)==gets+4 and percent(selected[2].bookId)==0
+            and percent(selected[3].bookId)==0 and grant.accessToken=='mock-native-access'
+            and renewed_at==revision+2 and not renewing,'native visible renewal did not resume the exact suffix')
+        assert(host.shelf_view.books[1]._shelf_progress==83,'native renewal replaced a pending local position')
+
+        native_fresh()
+        posts,gets=count('/login'),count(native_path)
+        local view=host.shelf_view
+        assert(require('weread.ui.shelf_progress_all').start(host,{owner=view,is_current=function() return host.shelf_view==view end}))
+        local job=assert(host.shelf_progress_all_context)
+        wait_native();prefix=false
+        assert(job.done==#selected and count('/login')==posts+1 and count(native_path)==gets+4,
+            'native bulk renewal missed or repeated a book')
+
+        for _,status in ipairs({401,429}) do
+            native_fresh();control{match=native_path,times=-1,status=status}
+            posts,gets=count('/login'),count(native_path);start();wait_native()
+            local renewed=status==401 and 1 or 0
+            assert(count('/login')==posts+renewed and count(native_path)==gets+1+renewed and percent(id)==9,
+                'native failure retried too far, renewed a 429 or changed the cache')
+        end
+        native_fresh();control{match=native_path,times=1,status=401}
+        NativeAuth.renew=function(...) socket.sleep(.8);return renew(...) end
+        posts=count('/login');start();pump(function() return host.native_renewal.job~=nil end)
+        local native_worker=host.native_renewal.worker
+        local native_pid=assert(native_worker.job.pid)
+        host:onSuspend();pump(function() return native_worker.runner.done(native_pid) end);NativeAuth.renew=renew
+        local _,_,_,unconfirmed=store:read()
+        assert(unconfirmed and not host.native_renewal.job and not host.shelf_progress_context,'native suspend lost its pending intent')
+        host:onResume()
+        start();wait_native()
+        assert(count('/login')==posts and count('/book/read')==native_writes and count('/web/book/read')==writes,
+            'native suspend or progress recovery wrote reading data or replayed authorization')
+        client.request=original_request
+    end
     host:closeWeReadUI();control{match='',times=0,delay=0,web_renewal_mode='plain'}
     local file=assert(io.open(evidence..'/shelf-progress-recovery.json','wb'))
     file:write(client:json_encode({result='PASS',synthetic_only=true,real_background_http=true,durable_web_renewal=true,
@@ -113,4 +197,5 @@ return function(plugin,flush,evidence)
         persistent_401_once_only=true,failed_read_wait=true,http_429_no_renewal=true,suspend_worker_reaped=true,
         unknown_intent_not_replayed=true,local_sync_state_preserved=true,account_data_writes=0}));file:close()
     print('PASS: visible progress -> actual child HTTP 401, durable renewal, prefix/suffix continuation, native pending priority, persistent/429 wait and suspend/no-replay')
+    print('PASS: E-Ink progress HTTP 401, visible and bulk suffix recovery, 429 no renewal and suspended intent')
 end

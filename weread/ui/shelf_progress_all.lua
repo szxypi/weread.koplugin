@@ -1,5 +1,6 @@
 -- User-requested, cancellable refresh of the complete shelf display cache.
 local Data=require('weread.lib.shelf_progress')
+local Recovery=require('weread.ui.shelf_progress_recovery')
 local Identity=require('weread.lib.shelf_snapshot')
 local Popup=require('weread.ui.shelf_popup')
 local UI=require('ui/uimanager')
@@ -23,7 +24,7 @@ function M.cancel(host,already_closed)
     if not job then return end
     if job.scheduled and UI.unschedule then UI:unschedule(job.scheduled) end
     if job.request and host.shelf_progress_all_worker then host.shelf_progress_all_worker:cancel(job.request,'cancelled') end
-    if job.web_request then require('weread.ui.web_renewal').cancel(host,job.web_request) end
+    Recovery.cancel(host,job)
     if not already_closed then
         if job.dialog and Popup.current(job.origin.owner,job.dialog) then Popup.close(job.origin.owner)
         elseif job.dialog then UI:close(job.dialog) end
@@ -160,27 +161,25 @@ function M.start(host,origin,on_done)
                     or type(result.value)~='table' or result.value.stale then finish('failed');return end
                 local value=result.value;local values=value.snapshots
                 if not valid_prefix(values,batch) or not value.failed and #values~=#batch then finish('failed');return end
+                local channel=Recovery.channel(job,value)
+                if channel and (value.next_index~=#values+1 or value.next_index>#batch) then finish('failed');return end
                 if #values>0 then
                     local saved,committed=pcall(job.db.putShelfProgress,job.db,values)
                     if not saved or committed~=true then finish('failed');return end
                 end
                 job.done=job.done+#values
                 dialog:reportProgress(job.done,T(_('Updating bookshelf progress: %1/%2'),tostring(job.done),tostring(#ids)))
-                if value.web_expired and not job.renewed then
-                    if value.next_index~=#values+1 or value.next_index>#batch then finish('failed');return end
-                    job.renewed=true
-                    local Renewal=require('weread.ui.web_renewal')
-                    local delivered_renewal=false
-                    local called_renewal,started_renewal,renewal_request=pcall(Renewal.run,host,{is_current=function() return current(host,job) end},function(success)
-                        delivered_renewal=true
-                        if not current(host,job) then return end
-                        job.web_request=nil
-                        local fresh=success and Data.selection(host.settings)
-                        if not fresh or not fresh.web then finish('failed');return end
-                        job.access=fresh;job.web_only=true;later()
-                    end)
-                    if current(host,job) and called_renewal and started_renewal and not delivered_renewal then job.web_request=renewal_request
-                    elseif current(host,job) and not delivered_renewal and (not called_renewal or not started_renewal) then finish('failed') end
+                if channel then
+                    local started_renewal=Recovery.start(host,job,job.access,channel,{
+                        is_current=function() return current(host,job) end,
+                        stale=function() if host.shelf_progress_all_context==job then M.cancel(host) end end,
+                        complete=function(success,fresh,web_only)
+                            if not success then finish('failed');return end
+                            job.access,job.web_only=fresh,web_only
+                            later()
+                        end,
+                    })
+                    if not started_renewal then finish('failed') end
                     return
                 end
                 if value.failed then finish('failed') elseif job.done==#ids then finish('complete') else later() end
