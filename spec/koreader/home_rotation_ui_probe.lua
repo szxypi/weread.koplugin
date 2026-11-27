@@ -177,6 +177,41 @@ local ok,reason=pcall(function()
     plugin:closeWeReadUI()
     for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
     expect(plugin.shelf_view==nil)
+    report.phase='shelf_page_jump'
+    local large_shelf={}
+    for index=1,1500 do
+        large_shelf[index]={bookId=tostring(2000+index),title='合成书目'..index,readUpdateTime=1800000000-index}
+    end
+    shelf.view_mode='cover';shelf.paginated=true
+    plugin.settings:set('shelf',shelf);plugin.settings:flush()
+    expect(plugin.library_db:cacheShelf(large_shelf,{}))
+    plugin:showBookshelf();view=assert(plugin.shelf_view)
+    expect(view.page_count>100 and view.page==1)
+    local function tick()
+        UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+    end
+    local function jump_dialog(current)
+        local pager=assert(current._page_buttons)
+        for row_index,row in ipairs(current.layout) do
+            if row==pager then current:moveFocusTo(2,row_index,Focus.FORCED_FOCUS);break end
+        end
+        expect(current:getFocusItem()==pager[2])
+        UI:forceRePaint();current:sendTapEventToFocusedWidget();tick()
+        return assert(current._shelf_popup)
+    end
+    local pages,turns=view.page_count,0
+    local on_page_changed=view.on_page_changed
+    view.on_page_changed=function(page) turns=turns+1;on_page_changed(page) end
+    jump_dialog(view).buttons[1][2].callback();tick()
+    view=assert(plugin.shelf_view)
+    local visible=view:getVisibleBooks()
+    expect(turns==1 and view.page==pages and visible[#visible].bookId=='3500')
+    jump_dialog(view).buttons[1][1].callback();tick()
+    view=assert(plugin.shelf_view)
+    expect(view.page==1 and view:getVisibleBooks()[1].bookId=='2001')
+    jump_dialog(view).buttons[2][1].callback();tick()
+    expect(plugin.shelf_view==view and not view._shelf_popup)
+    plugin:closeWeReadUI()
     report.result='PASS';report.phase='complete'
 end)
 if not ok then report.reason=tostring(reason):gsub('[\r\n]',' '):sub(1,160) end

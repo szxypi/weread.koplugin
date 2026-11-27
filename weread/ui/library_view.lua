@@ -1534,6 +1534,46 @@ function LibraryView:content()
     return content
 end
 
+function LibraryView:showPageJump()
+    if self._shelf_closed or self._shelf_popup or UIManager:getTopmostVisibleWidget() ~= self
+        or not self.paged or self.page_count <= 1 or not self.on_page_changed then return end
+    local Popup = require("weread.ui.shelf_popup")
+    local limit = self.page_count
+    local dialog
+    local function finish(page)
+        if not Popup.current(self, dialog) then return end
+        Popup.close(self)
+        if page and page ~= self.page then self.on_page_changed(page) end
+    end
+    dialog = require("ui/widget/inputdialog"):new{
+        title = T(_("Go to page (1–%1)"), limit),
+        input = "", input_type = "number",
+        buttons = {
+            {
+                { text = _("First page"), enabled = self.page > 1, callback = after_tap(function() finish(1) end) },
+                { text = _("Last page"), enabled = self.page < limit, callback = after_tap(function() finish(limit) end) },
+            },
+            {
+                { text = _("Cancel"), callback = after_tap(function() finish() end) },
+                { text = _("Go to page"), is_enter_default = true, callback = after_tap(function()
+                    if not Popup.current(self, dialog) then return end
+                    local input = require("weread.lib.search_query").trim(dialog:getInputText())
+                    local page = input:match("^%d+$") and tonumber(input)
+                    if not page or page < 1 or page > limit then
+                        require("ui/widget/notification"):notify(T(_("Enter a whole page number from 1 to %1."), limit))
+                        return
+                    end
+                    finish(page)
+                end) },
+            },
+        },
+    }
+    Popup.show(self, dialog, function(widget)
+        UIManager:show(widget)
+        widget:onShowKeyboard()
+    end)
+end
+
 function LibraryView:pageBar()
     if not self.paged or (self.page_count or 1) <= 1 then return nil end
     local cell_w = math.floor(self.screen_w / 3)
@@ -1552,7 +1592,8 @@ function LibraryView:pageBar()
         text = T(_("%1/%2 pages"), tostring(self.page), tostring(self.page_count)),
         width = cell_w, height = button_height, text_font_size = 18,
         radius = 0, margin = 0, bordersize = 0, padding = 0,
-        enabled = false, show_parent = self,
+        enabled = self.on_page_changed ~= nil, show_parent = self,
+        callback = after_tap(function() self:showPageJump() end),
     }
     local next_page = Button:new{
         text = _("Next"), width = self.screen_w - 2 * cell_w,

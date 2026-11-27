@@ -71,7 +71,27 @@ if stage=='write' then
     assert(host.discovery_state.cursor==0)
     local writes,remember=0,Cache.remember
     Cache.remember=function(...) writes=writes+1;return remember(...) end
-    host.shelf_view.on_page_changed(2)
+    local first_view=host.shelf_view
+    local function page_dialog(view)
+        local button=assert(view._page_buttons[2])
+        assert(button.enabled,'page number could not be selected')
+        UI:forceRePaint();button:onTapSelectButton();flush_actions()
+        return assert(view._shelf_popup)
+    end
+    local jump=page_dialog(first_view)
+    redraw_covers(first_view.page);flush_actions()
+    assert(host.shelf_view==first_view and first_view._shelf_popup==jump,'cover redraw closed the page selector')
+    local stale_submit=jump.buttons[2][2].callback
+    for _,invalid in ipairs({'0','2.5','2e1',tostring(first_view.page_count+1)}) do
+        jump:setInputText(invalid);stale_submit();flush_actions()
+        assert(host.shelf_view==first_view and first_view._shelf_popup==jump,'invalid page moved the list or lost input')
+    end
+    jump:setInputText('2');stale_submit();flush_actions()
+    assert(host.shelf_view~=first_view and host.shelf_view.page==2 and not first_view._shelf_popup
+        and host.discovery_state.cursor==0,'page jump moved to the wrong batch or page')
+    local second_view=host.shelf_view
+    stale_submit();flush_actions()
+    assert(host.shelf_view==second_view,'an old jump dialog changed the replacement page')
     focus(2)
     redraw_covers(2);flush_actions()
     assert_position(2)
