@@ -44,6 +44,13 @@ def validate(payload):
     full_shelf = payload.get('full_shelf', False)
     if type(full_shelf) is not bool:
         raise ValueError('full_shelf')
+    if 'range' in payload:
+        subset = payload['range']
+        if (full_shelf or not isinstance(subset, dict) or set(subset) != {'first', 'last'}
+                or type(subset['first']) is not int or type(subset['last']) is not int
+                or not 1 <= subset['first'] <= subset['last'] <= total
+                or not len(sources) <= subset['last']-subset['first']+1 < total):
+            raise ValueError('range')
     if full_shelf:
         books = payload.get('shelf_books')
         if not isinstance(books, list) or not 1 <= len(books) <= 5000:
@@ -78,6 +85,8 @@ def main():
         raw = sys.stdin.buffer.read(262145)
         if len(raw) > 262144: raise ValueError('input_limit')
         payload = validate(json.loads(raw))
+        subset = payload.get('range')
+        scoped_total = subset['last']-subset['first']+1 if subset else payload['total']
         runtime = Path('/validation/runtime/lib/koreader')
         with tempfile.TemporaryDirectory(prefix='weread-native-batch-owner-', dir='/dev/shm') as temporary:
             root = Path(temporary)
@@ -134,7 +143,7 @@ def main():
                                 raise ValueError('offline')
                             size_result['reader_text_checked'] = result['tokens']
                     else:
-                        if (result.get('source_matches') is not True or result.get('unavailable') != payload['total']-len(payload['sources'])
+                        if (result.get('source_matches') is not True or result.get('unavailable') != scoped_total-len(payload['sources'])
                                 or type(result.get('missing')) is not int or not 0 <= result['missing'] <= len(payload['sources'])
                                 or type(result.get('requests')) is not int or not 1 <= result['requests'] <= 200):
                             raise ValueError('online')
@@ -156,7 +165,7 @@ def main():
                             raise ValueError('installed_bytes')
                 results.append(size_result)
             report.update(result='PASS', screen_sizes=2, chapters=len(payload['sources']),
-                          unavailable=payload['total']-len(payload['sources']), source_matches=True,
+                          unavailable=scoped_total-len(payload['sources']), source_matches=True,
                           repeat_skipped=True, offline_render=True, network_blocked=True,
                           credential_file_audit=True, installed_bytes_match=True, samples=results)
             if payload.get('full_shelf'):

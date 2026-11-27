@@ -100,12 +100,23 @@ wait(function() return host.completed or host._native_direct_reading and host._n
 if host.completed then print('WEREAD_BATCH_OWNER='..json.encode{ok=false,phase='catalog'});return end
 local ctx=assert(host._native_direct_reading);local catalog=assert(ctx.catalog)
 assert(catalog.version==input.version and #catalog.chapters==input.total)
+local first,last=1,input.total
+if input.range then first,last=input.range.first,input.range.last end
 local live_count=0
-for _,row in ipairs(catalog.chapters) do
+for index=first,last do
+    local row=catalog.chapters[index]
     if row.downloadable then assert(expected[row.chapterUid]);live_count=live_count+1 end
 end
 assert(live_count==count)
-local confirm=assert(ctx.confirm);confirm.ok_callback();UI:close(confirm)
+local confirm=assert(ctx.confirm)
+if input.range then
+    confirm.choice1_callback();UI:close(confirm)
+    local menu=assert(ctx.menu);menu:onGotoPage(menu:getPageNumber(last));menu:onMenuSelect(menu.item_table[last])
+    menu=assert(ctx.menu);menu:onGotoPage(menu:getPageNumber(first));menu:onMenuSelect(menu.item_table[first])
+    confirm=assert(ctx.confirm);confirm.ok_callback()
+    assert(ctx.batch_range.first==first and ctx.batch_range.last==last)
+else confirm.choice2_callback() end
+UI:close(confirm)
 wait(function() return host.completed end)
 if type(result)~='table' or result.ok~=true then
     local allowed={auth_expired=true,rate_limited=true,session_changed=true,catalog_changed=true,
@@ -114,7 +125,7 @@ if type(result)~='table' or result.ok~=true then
     return
 end
 assert(result.downloaded==(input.mode=='online' and count or 0)
-    and result.saved==(input.mode=='repeat' and count or 0) and result.unavailable==input.total-count)
+    and result.saved==(input.mode=='repeat' and count or 0) and result.unavailable==last-first+1-count)
 local rows=assert(Cache.list(settings,vid,book_id,function() return true end));assert(#rows==count)
 local missing=0
 for _,entry in ipairs(rows) do
@@ -125,5 +136,5 @@ for _,entry in ipairs(rows) do
 end
 assert(missing==result.missing and not host._native_direct_reading and not host.busy_message)
 local ledger=assert(io.open(home..'/request-count','rb'));local requests=#assert(ledger:read('*a'));assert(ledger:close())
-print('WEREAD_BATCH_OWNER='..json.encode{ok=true,mode=input.mode,chapters=count,unavailable=input.total-count,
+print('WEREAD_BATCH_OWNER='..json.encode{ok=true,mode=input.mode,chapters=count,unavailable=last-first+1-count,
     missing=missing,requests=requests,source_matches=true})

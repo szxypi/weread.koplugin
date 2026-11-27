@@ -138,12 +138,13 @@ function M.start(host,book,view,options)
             end})
         if not started then fail('E-Ink authorization expired. Please authorize again.') end
     end
-    local function show_chapter_menu(rows)
+    local function show_chapter_menu(rows,picker)
         if #rows==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
         close_busy()
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
-        local subtitle=offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
+        local subtitle=picker and picker.subtitle
+            or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
         local search=''
         local by_index,menu
@@ -154,23 +155,25 @@ function M.start(host,book,view,options)
             for number=1,(matches and #matches or #rows) do
                 local index=matches and matches[number] or number
                 local row=rows[index]
-                local enabled=offline or row.downloadable
                 local chapter_title=row.title~='' and row.title or empty_title
-                local label=ChapterSearch.label(chapter_title,row.catalog_order,counts,saved_labels and saved_labels[index])
-                if not enabled then label=label..'  ·  '.._('Unavailable') end
+                local label=picker and T('%1. %2',index,chapter_title)
+                    or ChapterSearch.label(chapter_title,row.catalog_order,counts,saved_labels and saved_labels[index])
+                if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
-                local item={text=label,select_enabled=enabled,chapter_index=index}
+                local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index}
                 result[number],by_index[index]=item,item
             end
             if #result==0 then result[1]={text=_('No matching chapters.'),select_enabled=false} end
             return result
         end
-        menu=host:showList(_(offline and 'Saved E-Ink chapters' or 'E-Ink chapters'),items(),nil,
+        local menu_title=picker and picker.title or _(offline and 'Saved E-Ink chapters' or 'E-Ink chapters')
+        menu=host:showList(menu_title,items(),nil,
             {subtitle=subtitle,left_icon='appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
                 if ctx.menu~=menu or not index or by_index[index]~=item or not item.select_enabled then return end
                 if not current() then M.cancel(host);return end
                 ctx.menu=nil;UIManager:close(menu)
+                if picker then picker.choose(index);return end
                 if offline then ctx.entry=rows[index];ctx.phase='offline_open'
                 else ctx.chapter=rows[index];ctx.phase='chapter' end
                 host:showBusy(_(offline and 'Checking saved E-Ink chapter...' or 'Preparing E-Ink chapter...'),
@@ -194,6 +197,76 @@ function M.start(host,book,view,options)
             end)
             return true
         end
+        if picker and picker.start then menu:onGotoPage(menu:getPageNumber(picker.start)) end
+    end
+    local function start_batch(range)
+        ctx.batch_range=range
+        ctx.phase='batch';host._native_direct_worker.timeout=3600
+        local ok,widget=pcall(function() return require('weread.ui.download_dialog'):new{
+            title=_('Download E-Ink chapters'),
+            description=_('Readable chapters are saved individually. Cancel to keep completed chapters.'),
+            buttons={{{text=_('Cancel'),callback=function() M.cancel(host) end}}},
+        } end)
+        if not ok or not widget then fail();return end
+        host.busy_message=widget;ctx.busy=widget;widget:show();launch()
+    end
+    local function take_confirmation(dialog)
+        if ctx.confirm~=dialog then return false end
+        ctx.confirm=nil
+        if current() then return true end
+        M.cancel(host);return false
+    end
+    local function show_confirmation(dialog)
+        ctx.confirm=dialog
+        local closed=dialog.onCloseWidget
+        dialog.onCloseWidget=function(widget,...)
+            if ctx.confirm==widget then ctx.confirm=nil;M.cancel(host) end
+            if closed then return closed(widget,...) end
+        end
+        UIManager:show(dialog)
+    end
+    local function show_batch_options(chapters)
+        local function count_readable(first,last)
+            local count=0
+            for index=first,last do if chapters[index].downloadable then count=count+1 end end
+            return count
+        end
+        local available=count_readable(1,#chapters)
+        if available==0 then fail('No readable E-Ink chapters are available for this book.');return end
+        local function choose_end(start)
+            show_chapter_menu(chapters,{title=_('Choose the last chapter to download'),start=start,
+                subtitle=T(_('Chapter %1 selected first'),start),choose=function(ending)
+                    local first,last=math.min(start,ending),math.max(start,ending)
+                    local count=count_readable(first,last)
+                    if count==0 then
+                        choose_end(start);host:showInfo(_('No readable E-Ink chapters in this range.'));return
+                    end
+                    local confirm
+                    confirm=require('ui/widget/confirmbox'):new{
+                        text=T(_('Save chapters %1–%2 for offline reading? %3 readable chapters will be saved. %4 unavailable chapters will be skipped.'),
+                            first,last,count,last-first+1-count),
+                        ok_text=_('Download'),cancel_text=_('Cancel'),
+                        ok_callback=function() if take_confirmation(confirm) then start_batch({first=first,last=last}) end end,
+                        cancel_callback=function() if take_confirmation(confirm) then M.cancel(host) end end,
+                    }
+                    show_confirmation(confirm)
+                end})
+        end
+        local dialog
+        dialog=require('ui/widget/multiconfirmbox'):new{
+            text=T(_('Choose how to save %1 readable E-Ink chapters. %2 unavailable chapters will be skipped.'),
+                available,#chapters-available),
+            choice1_text=_('Select range'),choice2_text=_('Download all'),cancel_text=_('Cancel'),
+            choice1_callback=function()
+                if take_confirmation(dialog) then
+                    show_chapter_menu(chapters,{title=_('Choose the first chapter to download'),
+                        subtitle=_('Unavailable chapters in the range will be skipped.'),choose=choose_end})
+                end
+            end,
+            choice2_callback=function() if take_confirmation(dialog) then start_batch() end end,
+            cancel_callback=function() if take_confirmation(dialog) then M.cancel(host) end end,
+        }
+        show_confirmation(dialog)
     end
     ctx.phase=offline and 'offline_list' or 'catalog'
     launch=function()
@@ -203,7 +276,7 @@ function M.start(host,book,view,options)
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
             if phase=='batch' then
                 return require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
-                    ctx.selected.native,current,progress)
+                    ctx.selected.native,current,progress,ctx.batch_range)
             end
             if phase=='offline_list' then
                 local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
@@ -248,12 +321,14 @@ function M.start(host,book,view,options)
                 fail('WeRead is limiting requests. Please try again later.');return
             end
             if phase=='batch' then
+                local range=ctx.batch_range
+                local count=range and range.last-range.first+1 or #ctx.catalog.chapters
                 local good=type(result)=='table' and result.ok==true
-                    and Protocol.integer(result.downloaded,0,#ctx.catalog.chapters)
-                    and Protocol.integer(result.saved,0,#ctx.catalog.chapters)
-                    and Protocol.integer(result.unavailable,0,#ctx.catalog.chapters)
-                    and Protocol.integer(result.missing,0,#ctx.catalog.chapters)
-                    and result.downloaded+result.saved+result.unavailable==#ctx.catalog.chapters
+                    and Protocol.integer(result.downloaded,0,count)
+                    and Protocol.integer(result.saved,0,count)
+                    and Protocol.integer(result.unavailable,0,count)
+                    and Protocol.integer(result.missing,0,count)
+                    and result.downloaded+result.saved+result.unavailable==count
                     and result.missing<=result.downloaded+result.saved
                 local downloaded,saved,unavailable,missing=good and result.downloaded,good and result.saved,
                     good and result.unavailable,good and result.missing
@@ -290,29 +365,7 @@ function M.start(host,book,view,options)
                 ctx.catalog=checked
                 if ctx.batch then
                     close_busy()
-                    local available=0
-                    for _,chapter in ipairs(checked.chapters) do if chapter.downloadable then available=available+1 end end
-                    if available==0 then fail('No readable E-Ink chapters are available for this book.');return end
-                    local dialog
-                    dialog=require('ui/widget/confirmbox'):new{
-                        text=T(_('Save %1 available E-Ink chapters for offline reading? %2 unavailable chapters will be skipped. Previously saved chapters are kept.'),
-                            tostring(available),tostring(#checked.chapters-available)),
-                        ok_text=_('Download'),cancel_text=_('Cancel'),
-                        ok_callback=function()
-                            if ctx.confirm~=dialog then return end
-                            if not current() then ctx.confirm=nil;M.cancel(host);return end
-                            ctx.confirm=nil;ctx.phase='batch';host._native_direct_worker.timeout=3600
-                            local shown,widget=pcall(function() return require('weread.ui.download_dialog'):new{
-                                title=_('Download E-Ink chapters'),
-                                description=_('Readable chapters are saved individually. Cancel to keep completed chapters.'),
-                                buttons={{{text=_('Cancel'),callback=function() M.cancel(host) end}}},
-                            } end)
-                            if not shown or not widget then fail();return end
-                            host.busy_message=widget;ctx.busy=widget;widget:show();launch()
-                        end,
-                        cancel_callback=function() if ctx.confirm==dialog then ctx.confirm=nil;M.cancel(host) end end,
-                    }
-                    ctx.confirm=dialog;UIManager:show(dialog);return
+                    show_batch_options(checked.chapters);return
                 end
                 if ctx.target then
                     local wanted=ctx.target;local chapter=checked.chapters[wanted.order]

@@ -39,6 +39,14 @@ class ScopeValidation(unittest.TestCase):
         self.rejected(lambda value: value['shelf_books'][0].update(title='bad\ntitle'))
         self.rejected(lambda value: value.update(full_shelf=False))
 
+    def test_range_must_bound_a_proper_subset(self):
+        self.payload.update(range=dict(first=2, last=2))
+        self.assertIs(validate(self.payload), self.payload)
+        self.rejected(lambda value: value.update(range=dict(first=True, last=2)))
+        self.rejected(lambda value: value.update(range=dict(first=2, last=1)))
+        self.rejected(lambda value: value.update(range=dict(first=2, last=3)))
+        self.rejected(lambda value: value.update(range=dict(first=1, last=2)))
+
 
 if __name__ == '__main__':
     unittest.main()

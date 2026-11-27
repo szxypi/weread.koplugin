@@ -256,11 +256,12 @@ if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     assert(not cache.present(settings,'87654321','42'),'presence escaped its account')
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
-if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' then
+if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' or input.mode=='offline_range' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local cache=require('weread.lib.native_direct_cache')
     local rows=assert(cache.list(settings,scope.vid,'42',function() return true end))
-    assert(#rows==(input.mode=='offline_partial' and 1 or input.mode=='offline_locked' and 2 or 3))
+    local single=input.mode=='offline_partial' or input.mode=='offline_range'
+    assert(#rows==(single and 1 or input.mode=='offline_locked' and 2 or 3))
     assert(cache.present(settings,scope.vid,'42'),'verified chapters missing shelf presence')
     local seen={};local cache_dir
     for _,row in ipairs(rows) do
@@ -271,8 +272,13 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         local hits=assert(doc:findAllText('Chapter '..row.chapter_uid..', synthetic paragraph',false,0,8,false,0))
         assert(hits[1],'saved chapter content did not render');doc:close();seen[row.chapter_uid]=true
     end
-    assert(seen['37'] and (seen['38']~=nil)==(input.mode~='offline_partial')
-        and (seen['39']~=nil)==(input.mode=='offline'))
+    if input.mode=='offline_range' then
+        assert(seen['38'] and rows[1].catalog_order==2 and rows[1].catalog_count==3
+            and rows[1].catalog_prev=='37' and rows[1].catalog_next=='39','range lost its full catalog position')
+    else
+        assert(seen['37'] and (seen['38']~=nil)==(input.mode~='offline_partial')
+            and (seen['39']~=nil)==(input.mode=='offline'))
+    end
     if input.mode=='offline' then
         -- A future cache cleanup and chapter publishing must never overlap.
         local held=assert(cache.acquire(settings,scope.vid,'42'))
@@ -376,6 +382,20 @@ end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
+local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel'
+if range_mode then
+    G_reader_settings:saveSetting('items_per_page',2)
+    local ctx=host._native_direct_reading
+    confirm.choice1_callback();UI:close(confirm)
+    local start=assert(ctx.menu)
+    assert(start.page_num==2 and start.item_table[3].select_enabled)
+    start:onGotoPage(2);UI:forceRePaint();start:onMenuSelect(start.item_table[3])
+    local ending=assert(ctx.menu)
+    assert(ending~=start and ending.page==2)
+    ending:onGotoPage(1);UI:forceRePaint();ending:onMenuSelect(ending.item_table[2])
+    confirm=assert(ctx.confirm)
+    assert(not host._native_direct_worker.job and ctx.phase=='catalog')
+end
 if input.mode=='catalog_capture' then
     local cache=require('weread.lib.native_direct_cache')
     local rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==3)
@@ -402,15 +422,16 @@ if input.mode=='catalog_capture' then
     assert(restored.chapters[1].words==saved.chapters[1].words,'failed save changed the stored catalog')
     confirm.cancel_callback();UI:close(confirm)
     assert(not host._native_direct_reading and not host.busy_message)
-elseif input.mode=='cancel' then
+elseif input.mode=='cancel' or input.mode=='range_cancel' then
     confirm.cancel_callback();UI:close(confirm)
     assert(not host._native_direct_reading and not host.busy_message)
 elseif input.mode=='stale' then
     scope={vid='87654321',epoch=2}
-    confirm.ok_callback();UI:close(confirm)
+    confirm.choice2_callback();UI:close(confirm)
     assert(not host._native_direct_reading and not host.busy_message,'old confirmation started after account change')
 else
-    confirm.ok_callback();UI:close(confirm)
+    if range_mode then confirm.ok_callback() else confirm.choice2_callback() end
+    UI:close(confirm)
     if input.mode=='cancel_running' then
         pump(function()
             local ctx=host._native_direct_reading;local file=io.open(home..'/hold','rb')
@@ -429,9 +450,11 @@ else
     else
         local T=require('weread.lib.plugin_util').T;local tr=require('weread.lib.plugin_util').tr
         local template=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
-        local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2' or input.mode=='cleanup_redownload' and '1' or '0'
-        local saved=input.mode=='resume' and '1' or input.mode=='locked' and '0' or input.mode=='cleanup_redownload' and '2' or '3'
-        assert(text==T(template,downloaded,saved,input.mode=='locked' and '1' or '0','0'),text)
+        local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2'
+            or (input.mode=='cleanup_redownload' or input.mode=='range') and '1' or '0'
+        local saved=(input.mode=='resume' or input.mode=='range_repeat') and '1'
+            or (input.mode=='locked' or input.mode=='range') and '0' or input.mode=='cleanup_redownload' and '2' or '3'
+        assert(text==T(template,downloaded,saved,(input.mode=='locked' or range_mode) and '1' or '0','0'),text)
     end
     assert(not host._native_direct_reading and not host.busy_message)
 end

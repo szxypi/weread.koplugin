@@ -136,7 +136,7 @@ local ctx=assert(host._native_direct_reading);assert(ctx.catalog.version==input.
 local readable=0
 for _,row in ipairs(ctx.catalog.chapters) do if row.downloadable then assert(sources[row.chapterUid]);readable=readable+1 end end
 assert(readable==count)
-local confirm=assert(ctx.confirm);confirm.ok_callback();UI:close(confirm)
+local confirm=assert(ctx.confirm);confirm.choice2_callback();UI:close(confirm)
 pump(function() return host.completed end)
 if type(result)~='table' or result.ok~=true then
     local allowed={auth_expired=true,rate_limited=true,session_changed=true,catalog_changed=true,

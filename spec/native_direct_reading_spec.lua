@@ -11,6 +11,7 @@ package.preload['ui/uimanager']=function() return {show=function() end,
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) local args={...};return (text:gsub('%%(%d)',function(i) return args[tonumber(i)] or '' end)) end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_,value) return value end} end
+package.preload['ui/widget/multiconfirmbox']=package.preload['ui/widget/confirmbox']
 package.preload['ui/widget/inputdialog']=function()
     return {new=function(_,value) value.getInputText=function(self) return self.input end;return value end}
 end
@@ -71,7 +72,8 @@ local function fixture()
         showOffline=function() error('unexpected offline') end,
         showInputDialog=function(_,dialog) state.input=dialog end,
         showList=function(_,title,items,_,options)
-            local menu={item_table=items,switchItemTable=function(self,_,rows)
+            local menu={item_table=items,getPageNumber=function(_,index) return index end,
+                onGotoPage=function(_,page) state.page=page end,switchItemTable=function(self,_,rows)
                 self.item_table=rows;state.items=rows
             end}
             state.title=title;state.items=items;state.subtitle=options.subtitle;state.icon=options.left_icon
@@ -142,13 +144,28 @@ host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
 local confirm=assert(host._native_direct_reading.confirm);confirm.cancel_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'cancelled batch started downloading')
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
-confirm=assert(host._native_direct_reading.confirm);account_valid=false;confirm.ok_callback()
+confirm=assert(host._native_direct_reading.confirm);account_valid=false;confirm.choice2_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'old account confirmation started downloading')
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
-confirm=assert(host._native_direct_reading.confirm);confirm.ok_callback()
+confirm=assert(host._native_direct_reading.confirm);confirm.choice2_callback()
 expect(#s.jobs==2 and host._native_direct_reading.phase=='batch','batch did not start after confirmation')
 account_valid=false;s.jobs[2].progress(33)
 expect(not host._native_direct_reading and s.cancelled,'account change did not cancel the background batch')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+confirm=assert(host._native_direct_reading.confirm);confirm.choice1_callback()
+s.select(2)
+expect(s.page==2 and s.title=='Choose the last chapter to download' and #s.jobs==1,'range end did not open at start')
+s.select(2)
+expect(s.message=='No readable E-Ink chapters in this range.' and host._native_direct_reading.menu and #s.jobs==1,
+    'empty readable range started a batch')
+s.select(1);confirm=assert(host._native_direct_reading.confirm)
+expect(#s.jobs==1 and confirm.text:find('chapters 1–2',1,true),'reverse range did not wait for confirmation')
+confirm.ok_callback()
+local range=host._native_direct_reading.batch_range
+expect(#s.jobs==2 and range.first==1 and range.last==2,'range did not bind to the full catalog indices')
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
+confirm=assert(host._native_direct_reading.confirm);require('ui/uimanager'):close(confirm);confirm.choice2_callback()
+expect(not host._native_direct_reading and #s.jobs==1,'dismissed download options retained a valid action')
 local target={uid='2',from_uid='1',catalog_sha256=digest,book_version=7,count=2,order=2,direction=1}
 host,s=fixture();sample.reading_chapters[2].downloadable=true
 UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)

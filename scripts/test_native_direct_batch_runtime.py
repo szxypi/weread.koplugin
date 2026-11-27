@@ -191,6 +191,25 @@ def run(runtime):
                         if mode == 'offline_locked': expected['network_blocked'] = True
                         assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
                         assert server.chapters == ['37', '38'] and server.valid and not server.leaked
+                with tempfile.TemporaryDirectory(prefix='weread-native-batch-range-', dir='/dev/shm') as directory:
+                    root = Path(directory)
+                    for name in ('plugins', 'xdg'):
+                        (root/name).mkdir(mode=0o700)
+                    extract_candidate(candidate, root/'plugins')
+                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                    server.chapters = []
+                    for mode in ('range_cancel', 'range', 'range_repeat', 'offline_range'):
+                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                               env=env, cwd=runtime, capture_output=True, timeout=150)
+                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                        marker = 'WEREAD_DIRECT_BATCH='
+                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                        expected = dict(ok=True, mode=mode)
+                        if mode == 'offline_range': expected['network_blocked'] = True
+                        assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
+                        assert server.chapters == ([] if mode == 'range_cancel' else ['38'])
+                        assert server.valid and not server.leaked
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-cancel-', dir='/dev/shm') as directory:
                     root = Path(directory)
                     for name in ('plugins', 'xdg'):
@@ -217,7 +236,7 @@ def run(runtime):
                     frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
                     assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == dict(
                         ok=True, mode='offline_partial', network_blocked=True)
-        print('PASS: packaged E-Ink batch cancel, rate limit, resume and offline reopen at both sizes')
+        print('PASS: packaged E-Ink batch range, cancel, rate limit, resume and offline reopen at both sizes')
     finally:
         server.shutdown()
         server.server_close()

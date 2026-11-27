@@ -27,9 +27,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--full-shelf', action='store_true')
+    parser.add_argument('--range', action='store_true', help='Verify a proper subset through the chapter range picker')
     args = parser.parse_args()
     if not args.saved_session:
         parser.error('explicit --saved-session is required for account reads')
+    if args.range and args.full_shelf:
+        parser.error('range verification uses the isolated detail host')
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     report = dict(result='UNVERIFIED', account_data_writes=0, authentication_posts=0,
                   credentials_written_to_files=False)
@@ -59,10 +62,18 @@ def main():
             except (ValueError, KeyError, TypeError, TranslationError):
                 continue
             available = [row for row in model['chapters'] if row['downloadable']]
-            if 1 <= len(available) <= 8 and len(model['chapters']) <= 200:
+            if (2 if args.range else 1) <= len(available) <= 8 and len(model['chapters']) <= 200:
                 samples.append((len(available), key, model, available))
         if not samples: raise ValueError('no_small_sample')
         _, book_id, model, available = min(samples, key=lambda value: (value[0], len(value[2]['chapters'])))
+        selected_range = None
+        scoped_total = len(model['chapters'])
+        if args.range:
+            available = available[:min(2, len(available)-1)]
+            indices = {row['chapterUid']: index for index, row in enumerate(model['chapters'], 1)}
+            first, last = indices[available[0]['chapterUid']], indices[available[-1]['chapterUid']]
+            selected_range = dict(first=first, last=last)
+            scoped_total = last-first+1
         phase = 'web_baseline'
         web = WebSourceProbe();web.vid = saved['vid'];web.book_id = book_id
         for key, value in saved['cookies'].items(): web.set_cookie(key, value)
@@ -86,6 +97,8 @@ def main():
             sources[uid] = item
         payload = dict(credentials=credentials, book_id=book_id, version=model['version'],
                        total=len(model['chapters']), sources=sources)
+        if selected_range:
+            payload['range'] = selected_range
         if args.full_shelf:
             projected, seen = [], set()
             def safe_text(value):
@@ -118,7 +131,7 @@ def main():
                                        'unavailable','not_entitled','storage','invalid_source','invalid'}:
                 report['reason'] = result['reason']
             raise ValueError('runner')
-        if (result.get('chapters')!=len(available) or result.get('unavailable')!=len(model['chapters'])-len(available)
+        if (result.get('chapters')!=len(available) or result.get('unavailable')!=scoped_total-len(available)
                 or result.get('screen_sizes')!=2 or any(result.get(key) is not True for key in (
                     'profile_removed','source_matches','repeat_skipped','offline_render','network_blocked',
                     'credential_file_audit','installed_bytes_match'))):
@@ -135,12 +148,14 @@ def main():
             progress = reading_position(web.request('progress_after', WEB_BASE+'/web/book/getProgress?bookId='+book_id),
                                         book_id, allow_unstarted=True)
             if progress != before_web: raise ValueError('progress_changed')
-        report.update(result='PASS', chapters=len(available), unavailable=len(model['chapters'])-len(available),
+        report.update(result='PASS', chapters=len(available), unavailable=scoped_total-len(available),
             rendered_tokens=sum('token' in item for item in sources.values()), screen_sizes=2,
             shelf_members_flags_groups_unchanged=True, web_position_unchanged=True,
             source_matches=True, repeat_skipped=True, offline_render=True, network_blocked=True,
             credential_file_audit=True, installed_bytes_match=True, profile_removed=True,
             missing_images_by_size=[row['missing'] for row in result['samples']])
+        if selected_range:
+            report.update(range_verified=True, catalog_chapters=len(model['chapters']), range_chapters=scoped_total)
         if args.full_shelf:
             report.pop('rendered_tokens')
             report.update(full_plugin=True, numeric_shelf_books=len(projected), offline_reader_opened=True,

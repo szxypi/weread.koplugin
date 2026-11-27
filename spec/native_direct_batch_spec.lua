@@ -27,8 +27,8 @@ local function setup()
         catalog_next='2',missing_images=0}}
     usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={}
 end
-local function run()
-    return Batch.run({}, {},book,catalog,selected,function() return live end,function(value) progress[#progress+1]=value end)
+local function run(range)
+    return Batch.run({}, {},book,catalog,selected,function() return live end,function(value) progress[#progress+1]=value end,range)
 end
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
@@ -45,4 +45,15 @@ expect(not result.ok and result.error=='rate_limited' and result.saved==1 and #d
 setup();room=0;result=run()
 expect(not result.ok and result.error=='storage' and #downloads==0,'full cache did not stop before download')
 setup();live=false;result=run();expect(result.error=='invalid' and #downloads==0,'stale account started a batch')
+setup();result=run({first=2,last=3})
+expect(result.ok and result.downloaded==1 and result.saved==0 and result.unavailable==1
+    and #downloads==1 and downloads[1]=='3' and progress[1]==50 and progress[2]==99,'range skipped or counted the wrong chapters')
+setup();rows[2]={chapter_uid='3',book_version=1,catalog_sha256='digest',catalog_order=3,catalog_count=3,
+    catalog_prev='2',missing_images=1};usable['3']=true
+result=run({first=3,last=3})
+expect(result.ok and result.saved==1 and result.missing==1 and #downloads==0 and #progress==1 and progress[1]==99,
+    'range did not verify the cached chapter against its full catalog position')
+for _,range in ipairs({{},false,{first=3,last=2},{first=0,last=3},{first=1,last=4},{first=1.5,last=3}}) do
+    setup();result=run(range);expect(result.error=='invalid' and #downloads==0 and #progress==0,'invalid range started a batch')
+end
 print('PASS: native chapter batch preserves completed chapters and skips inaccessible ones ('..checks..' checks)')

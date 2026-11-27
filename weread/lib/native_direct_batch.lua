@@ -5,13 +5,18 @@ local Path=require('weread.lib.native_direct_path')
 local Protocol=require('weread.lib.native_position_protocol')
 local M={}
 
-function M.run(client,settings,book,catalog,selected,current,progress)
+function M.run(client,settings,book,catalog,selected,current,progress,range)
     if type(book)~='table' or type(catalog)~='table' or catalog.book_id~=book.book_id
         or type(selected)~='table' or type(selected.scope)~='table'
         or type(current)~='function' or current()~=true or type(progress)~='function'
         or type(catalog.chapters)~='table' or #catalog.chapters<1 or #catalog.chapters>20000 then
         return {error='invalid'}
     end
+    local total=#catalog.chapters
+    if range~=nil and (type(range)~='table' or not Protocol.integer(range.first,1,total)
+        or not Protocol.integer(range.last,range.first,total)) then return {error='invalid'} end
+    local first,last=1,total
+    if range then first,last=range.first,range.last end
     local rows=Cache.list(settings,selected.scope.vid,book.book_id,current)
     if not rows then return {error='storage'} end
     local by_chapter={}
@@ -22,8 +27,8 @@ function M.run(client,settings,book,catalog,selected,current,progress)
         end
     end
     local result={ok=true,downloaded=0,saved=0,unavailable=0,missing=0}
-    local total=#catalog.chapters
-    for index,chapter in ipairs(catalog.chapters) do
+    for index=first,last do
+        local chapter=catalog.chapters[index]
         if current()~=true then return {error='session_changed'} end
         if not chapter.downloadable then result.unavailable=result.unavailable+1
         else
@@ -52,7 +57,7 @@ function M.run(client,settings,book,catalog,selected,current,progress)
             end
             if found.missing_images>0 then result.missing=result.missing+1 end
         end
-        progress(math.min(99,math.floor(index*100/total)))
+        progress(math.min(99,math.floor((index-first+1)*100/(last-first+1))))
     end
     return result
 end
