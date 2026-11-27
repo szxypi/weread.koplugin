@@ -42,4 +42,24 @@ assert(not store:read('900001') and store:read('910033'))
 db=assert(library:open());assert(db:rowexec('SELECT COUNT(*) FROM native_book_reviews')==Store.MAX_BOOKS)
 db:exec([[UPDATE native_book_reviews SET payload='{}' WHERE book_id='910033']]);db:close()
 assert(not store:read('910033'))
+local recommended=Store:new(library,codec,owner,'recommended')
+local latest=Store:new(library,codec,owner,'latest')
+local skill_row={review_id='recommendation',author='Reader',content='Synthetic recommendation',rating=5,
+    create_time=1700000000000,is_finish=false,idx=20}
+local anonymous={author='Reader',content='Synthetic no-ID review',rating=0,create_time=0,is_finish=false}
+local skill_page={items={skill_row,anonymous},has_more=false,synckey=123,seen_cursors={20},max_idx=20}
+assert(recommended:write('900001',skill_page,1300) and latest:write('900001',{items={},has_more=false},1301))
+local skill=assert(recommended:read('900001'))
+assert(skill.mode=='recommended' and #skill.items==2 and not skill.items[1].idx and not skill.synckey
+    and not skill.seen_cursors and not skill.max_idx and not skill.items[2].review_id)
+assert(#latest:read('900001').items==0 and not store:read('900001'),'separate review types reused the same slot')
+assert(recommended:write('900001',{items={skill_row},has_more=true},1302))
+assert(#recommended:read('900001').items==2 and recommended:read('900001').saved_at==1300,'shorter prefix replaced saved Skill pages')
+account='900099';assert(not recommended:read('900001') and not recommended:write('900001',skill_page,1303))
+assert(not Store:new(library,codec,library:accountKey(),'recommended'):read('900001'))
+account='900000'
+db=assert(library:open())
+db:exec([[UPDATE gateway_book_reviews SET payload=(SELECT payload FROM gateway_book_reviews WHERE book_id='latest:900001')
+    WHERE book_id='recommended:900001']])
+db:close();assert(not recommended:read('900001') and latest:read('900001'),'Skill snapshot passed with the wrong tab identity')
 print('PASS: saved review SQLite bounds, rollback, account isolation and invalid snapshots')

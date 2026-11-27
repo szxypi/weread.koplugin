@@ -9,9 +9,11 @@ local UI, json, socket, ffi = require('ui/uimanager'), require('json'), require(
 local pid = tonumber(ffi.C.getpid())
 local scope = {vid = '123', epoch = 1}
 local key_only=os.getenv('WEREAD_GATEWAY_KEY_ONLY')=='1'
+local offline=os.getenv('WEREAD_GATEWAY_REOPEN')=='1'
+local vid='123'
 local settings = {data_dir = assert(os.getenv('KO_HOME')), get = function(_, key, fallback)
     if key == 'api_key' then return 'synthetic-key' end
-    if key == 'account' then return key_only and {} or {user_vid='123'} end
+    if key == 'account' then return key_only and {} or {user_vid=vid} end
     return fallback end,
     get_auth_scope = function() return scope end, auth_scope_matches = function(_, value) return value == scope end}
 if key_only then
@@ -22,8 +24,11 @@ end
 local grant = {vid = '123', accessToken = 'synthetic-token'}
 local store = {read = function() return grant, 1, nil, false end}
 local Source = require('weread.lib.gateway_book_reviews_source')
-local selected = assert(Source.capture(settings, key_only and nil or store))
-assert(selected.api_key and (key_only and selected.key_only or not key_only and selected.native))
+local selected
+if not offline then
+    selected=assert(Source.capture(settings, key_only and nil or store))
+    assert(selected.api_key and (key_only and selected.key_only or not key_only and selected.native))
+end
 local mock_port = tonumber(os.getenv('WEREAD_GATEWAY_MOCK_PORT'))
 local client
 if mock_port then
@@ -78,8 +83,12 @@ local host = {settings = settings, client = client, library_db = require('weread
 function host:showBusy(_, cancel) self.busy_message = {}; self.cancel_busy = cancel end
 function host:closeBusy() self.busy_message = nil end
 function host:showInfo() error('unexpected failure') end
-function host:isNetworkOnline() return true end
-function host:runOnlineTask(_, fn) UI:scheduleIn(0.01, fn); return true end
+function host:isNetworkConnected() return not offline end
+host.isNetworkOnline=host.isNetworkConnected
+function host:runOnlineTask(_, fn)
+    assert(not offline,'offline reviews scheduled network work')
+    UI:scheduleIn(0.01, fn); return true
+end
 host.showBookReviewDetail = require('weread.ui.library').showBookReviewDetail
 local Gateway = require('weread.ui.gateway_book_reviews')
 local function wait(predicate)
@@ -90,6 +99,36 @@ local function wait(predicate)
     end
 end
 UI:setRunForeverMode(); UI:setInputTimeout(0)
+if offline then
+    client.request=function() error('offline review attempted HTTP') end
+    local show=require('weread.ui.library').showBookReviews
+    local book={book_id='42',title='合成书籍'}
+    local message
+    host.showInfo=function(_self,value) message=value end
+    if not key_only then
+        assert(show(host,book))
+        wait(function() return host._gateway_reviews_owner and host._gateway_reviews_owner.view end)
+        local view=host._gateway_reviews_owner.view
+        assert(view.mode=='recommended' and #view.result.items==40 and not view.result.has_more
+            and not view.result.seen_cursors and #view._review_buttons==40
+            and view.incomplete_text:find('保存于',1,true),'could not restore the saved recommendation list')
+        assert(view.result.items[1].review_id=='recommended-1' and view.result.items[40].review_id=='recommended-40')
+        view._review_buttons[1].callback()
+        local detail=assert(host._gateway_reviews_owner.detail)
+        assert(detail.text:find('合成书评 1',1,true),'cached review body was not visible')
+        detail:onClose()
+        view._tab_buttons[2].callback()
+        wait(function() return host._gateway_reviews_owner.view~=view end)
+        local latest=host._gateway_reviews_owner.view
+        assert(latest.mode=='latest' and #latest.result.items==20 and not latest.result.has_more
+            and latest.result.items[1].review_id=='latest-1','latest tab reused another saved list')
+        latest:onClose();vid='124'
+    end
+    show(host,book)
+    wait(function() return message~=nil end)
+    assert(not host._gateway_reviews_owner and not host._native_reviews_owner,'isolated account saw saved reviews')
+    print('GATEWAY_BOOK_REVIEWS_OFFLINE_PASS');os.exit(0)
+end
 assert(Gateway.open(host, {book_id = '42', title = '合成书籍'}, selected))
 local heartbeat = false; UI:scheduleIn(0.05, function() heartbeat = true end)
 wait(function() return heartbeat end); assert(host._gateway_reviews_owner.context, 'gateway blocked UI heartbeat')

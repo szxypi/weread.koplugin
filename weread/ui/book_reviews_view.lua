@@ -196,6 +196,12 @@ function BookReviewsView:buildContent()
     }
     self._review_buttons = {}
     content._review_rows = self._review_buttons
+    if self.incomplete_text and not self.latest_only then
+        table.insert(content, TextWidget:new{
+            text = self.incomplete_text, face = Font:getFace("cfont", 16), max_width = self.content_width,
+        })
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+    end
     local items = self.result and self.result.items or {}
     if #items == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })

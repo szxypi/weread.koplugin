@@ -11,6 +11,7 @@ end
 package.preload['ui/uimanager'] = empty
 local native_opens, gateway_opens, native_cancels, gateway_cancels = 0, 0, 0, 0
 local native_cache=false
+local skill_cache=false
 local captures=0
 local native_selected, gateway_selected = {native = {}}, {api_key = 'synthetic'}
 package.preload['weread.lib.native_book_reviews_source'] = function() return {capture = function() captures=captures+1;return native_selected end} end
@@ -22,7 +23,11 @@ package.preload['weread.ui.native_book_reviews'] = function()
 end
 package.preload['weread.ui.gateway_book_reviews'] = function()
     return {cancel = function() gateway_cancels = gateway_cancels + 1 end,
-        open = function(_, book, selected) assert(book.book_id == '42' and selected == gateway_selected); gateway_opens = gateway_opens + 1; return true end}
+        open = function(_, book, selected)
+            assert(book.book_id == '42')
+            if not selected then return skill_cache end
+            assert(selected == gateway_selected); gateway_opens = gateway_opens + 1; return true
+        end}
 end
 local Library = require('weread.ui.library')
 local configured, allowed, info, online = false, true, nil, true
@@ -43,6 +48,10 @@ configured=true;online=false
 local before_offline=captures
 assert(host:showBookReviews(book) and gateway_opens==1 and captures==before_offline,
     'offline Skill route skipped saved native reviews or read authorization unnecessarily')
+skill_cache=true
+local before_native=native_opens
+assert(host:showBookReviews(book) and native_opens==before_native and captures==before_offline,
+    'offline Skill snapshot did not take precedence over saved native latest reviews')
 native_cache=false;online=true
 configured = true; allowed = true; gateway_selected = nil
 assert(not host:showBookReviews(book) and info == 'Book review authorization changed. Please sign in again.',

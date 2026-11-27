@@ -10,6 +10,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+from run_persistent_ui_probe import extract_candidate
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -75,22 +76,37 @@ def main():
     thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-gateway-review-') as root:
+            bundle = Path(root) / 'candidate.zip'
+            subprocess.run(['bash', str(repo/'scripts/package_release.sh'), str(bundle)], cwd=repo, check=True,
+                           capture_output=True)
+            plugins = Path(root) / 'plugins'
+            plugins.mkdir()
+            extract_candidate(bundle, plugins)
             env = dict(os.environ, KO_HOME=root, SDL_VIDEODRIVER='dummy', EMULATE_READER='1',
                        EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
-                       LD_LIBRARY_PATH=str(runtime / 'libs'), WEREAD_SOURCE=str(repo),
+                       LD_LIBRARY_PATH=str(runtime / 'libs'), WEREAD_SOURCE=str(plugins/'weread.koplugin'),
                        WEREAD_GATEWAY_MOCK_PORT=str(server.server_port))
             if args.key_only:env['WEREAD_GATEWAY_KEY_ONLY']='1'
-            child = subprocess.run([str(runtime / 'luajit'), str(repo / 'spec/koreader/gateway_book_reviews_smoke.lua')],
-                                   cwd=runtime, env=env, capture_output=True, timeout=90)
+            command = [str(runtime/'luajit'), str(repo/'spec/koreader/gateway_book_reviews_smoke.lua')]
+            child = subprocess.run(command, cwd=runtime, env=env, capture_output=True, timeout=90)
+            failure = child if child.returncode or b'GATEWAY_BOOK_REVIEWS_SMOKE_PASS' not in child.stdout else None
+            if failure is None:
+                reopened = subprocess.run(command, cwd=runtime, env=env | {'WEREAD_GATEWAY_REOPEN': '1'},
+                                          capture_output=True, timeout=90)
+                if reopened.returncode or b'GATEWAY_BOOK_REVIEWS_OFFLINE_PASS' not in reopened.stdout:
+                    failure = reopened
         expected = [(1, None), (1, 20), (3, None)]
         got = [(row.get('reviewListType'), row.get('maxIdx')) for row in server.calls]
-        if child.returncode or b'GATEWAY_BOOK_REVIEWS_SMOKE_PASS' not in child.stdout or server.invalid or got != expected:
-            print(json.dumps({'result': 'UNVERIFIED', 'exit': child.returncode, 'mock_requests': len(server.calls),
+        if failure is not None or server.invalid or got != expected:
+            if failure is not None:
+                print(failure.stderr.decode(errors='replace')[-2000:])
+            print(json.dumps({'result': 'UNVERIFIED', 'exit': failure.returncode if failure else 0, 'mock_requests': len(server.calls),
                               'invalid_requests': server.invalid, 'expected_sequence': got == expected}))
             return 1
         print(json.dumps({'result': 'SYNTHETIC_GATEWAY_HTTP_UI_VERIFIED', 'width': args.width, 'height': args.height,
-                          'mock_requests': len(server.calls), 'invalid_requests': server.invalid, 'credentials_forwarded': False}))
+                          'mock_requests': len(server.calls), 'invalid_requests': server.invalid,
+                          'fresh_offline_reopen': True, 'credentials_forwarded': False}))
         return 0
     finally:
         server.shutdown()
