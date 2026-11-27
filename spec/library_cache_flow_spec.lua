@@ -1,6 +1,7 @@
 package.path = "./?.lua;" .. package.path
 
 local existing_paths = {}
+local path_probes = {}
 local catalog_save_count = 0
 local last_dialog
 local function empty_module() return {} end
@@ -32,7 +33,10 @@ package.preload["weread.lib.plugin_util"] = function()
         T = function(text, ...) local values={...};return (text:gsub('%%(%d+)',function(index) return tostring(values[tonumber(index)] or '') end)) end,
         log_error = tostring,
         display_error = tostring,
-        file_exists = function(path) return existing_paths[path] == true end,
+        file_exists = function(path)
+            if type(path)=='string' then path_probes[path]=(path_probes[path] or 0)+1 end
+            return existing_paths[path] == true
+        end,
     }
 end
 
@@ -148,6 +152,16 @@ db_detail = { book_id = "42", title = "Cached", detail_updated_at = 123 }
 host:showBookRecord({ bookId = "42", title = "Shelf title" })
 expect(shown_book and not auto_refresh,
     "cached detail unexpectedly triggered an automatic refresh")
+
+db_detail,auto_refresh,shown_book=nil,nil,nil
+books['44']={book_id='44',_library_account_key=current_owner,detail_updated_at=123,detail_source='native',intro='Saved introduction'}
+host:showBookRecord({bookId='44',title='Saved'})
+expect(shown_book and shown_book.intro=='Saved introduction' and not auto_refresh,
+    'same-account saved details waited for metadata when SQLite lacked a copy')
+current_owner='account-b';auto_refresh,shown_book=nil,nil
+host:showBookRecord({bookId='44',title='Other account'})
+expect(auto_refresh and not auto_refresh.intro and not shown_book,'foreign saved details bypassed the metadata refresh')
+current_owner='account-a'
 
 db_detail,auto_refresh,shown_book=nil,nil,nil
 host:showBookRecord({bookId='45',title='Public book',_public_info={intro='Public excerpt',
@@ -451,15 +465,26 @@ local detail_book={book_id='42',title='Synthetic book',chapters={{chapterUid=1},
 existing_paths['/cache/1.epub']=true;existing_paths['/cache/2.epub']=true;existing_paths['/cache/unknown.epub']=true
 books['42']=detail_book
 detail_book.full_path='/cache/full.epub';existing_paths[detail_book.full_path]=true
-host.bookRecordHasDownload=function() return true end
+detail_book.cached_full_book=detail_book.full_path
 host.safeCallback=function(_self,_title,callback) return callback end
+path_probes={}
 Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Full book cached','full download with separate chapters displayed a partial count')
+expect(path_probes[detail_book.full_path]==1 and not path_probes['/cache/1.epub'],
+    'detail probed individual cached chapters despite a recorded full download')
 detail_book.chapters=nil;Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Full book cached','full download without a catalog displayed a partial count')
-detail_book.full_path=nil;detail_book.chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
+detail_book.full_path=nil;detail_book.cached_full_book=nil;detail_book.chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
+detail_book.cached_file='/cache/1.epub';detail_book.cached_chapters['3']='/cache/1.epub'
+detail_book.cached_chapters.missing='/cache/missing.epub';detail_book.cached_chapters.missing_alias='/cache/missing.epub'
+path_probes={}
 Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Cached 2/3 chapters','partial download lost the count status')
+expect(path_probes['/cache/1.epub']==1 and path_probes['/cache/missing.epub']==1,
+    'cached and missing paths were probed repeatedly within one detail render')
+detail_book.cached_file=nil;detail_book.cached_chapters['3']=nil
+detail_book.cached_chapters.missing=nil;detail_book.cached_chapters.missing_alias=nil
+Library.showBookMenu(host,detail_book)
 local cached_action
 for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
 expect(cached_action~=nil,'partial cache has no explicit cached reading action')
@@ -471,7 +496,7 @@ Library.showBookMenu(host,detail_book);cached_action=nil
 for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
 current_owner='account-b';opened_path=nil;cached_action.callback()
 expect(not opened_path,'cached reading action crossed account boundary');current_owner='account-a'
-detail_book.cached_chapters={unknown='/cache/unknown.epub'}
+detail_book.cached_file=nil;detail_book.cached_chapters={unknown='/cache/unknown.epub'}
 Library.showBookMenu(host,detail_book);cached_action=nil
 for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
 expect(cached_action~=nil,'cached chapter missing from an old catalog has no manual reading action')

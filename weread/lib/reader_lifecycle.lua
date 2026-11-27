@@ -864,11 +864,11 @@ end
 -- cached_file historically pointed at either a full-book EPUB or the most
 -- recently downloaded single chapter. Shared mappings need archive evidence
 -- before the file can be treated as a combined book.
-function M:getFullBookCachePath(book)
+function M:getFullBookCachePath(book, exists)
     if type(book) ~= "table" then return nil end
     local Claims=require('weread.lib.chapter_cache_claim')
     if type(book.cached_full_book) == "string"
-        and book.cached_full_book ~= "" and file_exists(book.cached_full_book) then
+        and book.cached_full_book ~= "" and (exists or file_exists)(book.cached_full_book) then
         if not Claims.shared(book,book.cached_full_book)
             or Claims.inspect(book,book.cached_full_book).kind=='combined' then return book.cached_full_book end
     end

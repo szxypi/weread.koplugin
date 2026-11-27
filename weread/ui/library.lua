@@ -138,7 +138,7 @@ end
 
 local function has_book_details(book)
     if type(book) ~= "table" then return false end
-    if tonumber(book.detail_updated_at or 0) > 0 then return true end
+    if (tonumber(book.detail_updated_at) or 0) > 0 then return true end
     for _, key in ipairs({
         "intro", "publisher", "isbn", "wordCount", "newRating",
         "translator", "categoryName", "publishTime",
@@ -1413,6 +1413,10 @@ function M:showBookRecord(book, options)
             end
         end
     end
+    local source=saved.detail_source
+    local saved_details = saved._library_account_key == account_key and (tonumber(saved.detail_updated_at) or 0) > 0
+        and (account_key and (source == 'native' or source == 'web' or source == 'gateway')
+            or not account_key and source == 'public')
     local cached = self.library_db and self.library_db:getBook(book_id) or nil
     for key, value in pairs(cached or {}) do
         if saved[key] == nil and not BookStore.is_reading_field(key) then saved[key] = value end
@@ -1444,7 +1448,7 @@ function M:showBookRecord(book, options)
         end
         saved=display
     end
-    if not has_book_details(cached) and not (options and options.verified_metadata) then
+    if not saved_details and not has_book_details(cached) and not (options and options.verified_metadata) then
         self:refreshBookRecord(saved, nil, { automatic = true })
     else
         self:showBookMenu(saved)
@@ -1475,25 +1479,37 @@ function M:showBookMenu(book)
             end
         end
     end
-    local cached_path = self:getFullBookCachePath(saved)
-    local is_full_cached = file_exists(cached_path)
-    local has_cache = self:bookRecordHasDownload(saved)
+    local probes = {}
+    local function exists(path)
+        if type(path) ~= 'string' or path == '' then return false end
+        if probes[path] == nil then probes[path] = file_exists(path) end
+        return probes[path]
+    end
+    local cached_path = self:getFullBookCachePath(saved, exists)
+    local is_full_cached = exists(cached_path)
+    local has_cache = exists(saved.cached_full_book) or exists(saved.cached_file)
     book.cached_full_book = is_full_cached and cached_path or nil
     local cached_chapter_count,any_cached_chapter = 0,false
     local catalog_uids,seen_paths={},{}
-    for _i,chapter in ipairs(book.chapters or {}) do
-        local uid=chapter.chapterUid or chapter.chapterId
-        if uid~=nil then catalog_uids[tostring(uid)]=true end
+    local total_chapters = type(book.chapters) == "table" and #book.chapters or nil
+    if not is_full_cached then
+        for _i,chapter in ipairs(book.chapters or {}) do
+            local uid=chapter.chapterUid or chapter.chapterId
+            if uid~=nil then catalog_uids[tostring(uid)]=true end
+        end
     end
-    for uid, path in pairs(type(saved.cached_chapters)=='table' and saved.cached_chapters or {}) do
-        if file_exists(path) then
-            any_cached_chapter=true
-            if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] then
-                cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+    if not is_full_cached or not has_cache then
+        for uid, path in pairs(type(saved.cached_chapters)=='table' and saved.cached_chapters or {}) do
+            if exists(path) then
+                any_cached_chapter=true
+                if is_full_cached then break end
+                if (not total_chapters or catalog_uids[tostring(uid)]) and not seen_paths[path] then
+                    cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+                end
             end
         end
     end
-    local total_chapters = type(book.chapters) == "table" and #book.chapters or nil
+    has_cache = has_cache or any_cached_chapter
     local chapter_status = is_full_cached and _("Full book cached") or total_chapters
         and T(_("Cached %1/%2 chapters"), tostring(cached_chapter_count), tostring(total_chapters))
         or T(_("%1 chapters cached"), tostring(cached_chapter_count))

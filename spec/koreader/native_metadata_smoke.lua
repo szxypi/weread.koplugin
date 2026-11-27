@@ -31,7 +31,10 @@ return function(plugin,count,flush_tasks,home,pump_until)
     local function wait() pump_until(function() return not plugin.book_metadata_context end);flush_tasks() end
     plugin:closeWeReadUI();plugin:showBookMenu(cached())
     control{match="/book/info",times=0,delay=0.5}
+    local online=plugin.isNetworkOnline
+    plugin.isNetworkOnline=function() error('metadata refresh performed a synchronous Internet check') end
     refresh()
+    plugin.isNetworkOnline=online
     local heartbeat=false
     UIManager:scheduleIn(0.1,function() heartbeat=true end)
     pump_until(function() return heartbeat end)
@@ -51,6 +54,17 @@ return function(plugin,count,flush_tasks,home,pump_until)
     local view=assert(plugin._book_detail_view)
     assert(view[1][1]:getSize().h==Screen:getHeight() and view.data.metadata and #view.data.metadata>=3,"native metadata viewport missing")
     UIManager:forceRePaint();Screen:shot(home.."/../evidence/native-eink-book-metadata.png")
+    plugin:closeWeReadUI()
+    local get_book=plugin.library_db.getBook
+    plugin.library_db.getBook=function(db,other_id) if other_id~=id then return get_book(db,other_id) end end
+    plugin.isNetworkOnline=function() error('local detail attempted a synchronous Internet check') end
+    local before_cached_open=count('/book/info')
+    plugin:showBookRecord({bookId=id,title=value.title})
+    plugin.library_db.getBook=get_book
+    plugin.isNetworkOnline=online
+    view=assert(plugin._book_detail_view)
+    assert(not plugin.book_metadata_context and view.data.intro==value.intro and count('/book/info')==before_cached_open,
+        'locally verified details waited for a missing SQLite copy or requested metadata again')
 
     -- A new grant revision invalidates both child and parent callbacks.
     books=settings:get("books",{});books[id].detail_updated_at=1000;settings:set("books",books);settings:flush()

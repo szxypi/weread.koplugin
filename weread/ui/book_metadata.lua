@@ -1,6 +1,7 @@
 -- Async display metadata; the parent alone persists sanitized fields and UI.
 local Access = require("weread.lib.read_access")
 local Metadata = require("weread.lib.book_metadata")
+local NetworkLink = require("weread.lib.network_link")
 local Recovery = require("weread.lib.native_read_recovery")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local UIManager = require("ui/uimanager")
@@ -32,7 +33,6 @@ function M.refresh(host, book, old_view, options)
     if old_view and host._book_detail_view ~= old_view then return false end
     M.cancel(host)
     local id = Access.display_book_id(ShelfSnapshot.persisted_id(book))
-    local access = Metadata.capture(host.settings)
     if not id then return false end
     local known,initial,initial_error=pcall(function()
         return Access.cached_book_for_update(host.settings:get('books',{}),id)
@@ -41,10 +41,11 @@ function M.refresh(host, book, old_view, options)
         host:showInfo(_("Saved book information does not match. Check the local cache before opening."))
         return false
     end
-    if not host:isNetworkOnline() then
+    if not NetworkLink.available(host) then
         if options.automatic then host:showBookMenu(book) else host:showOffline(_("Book info")) end
         return false
     end
+    local access = Metadata.capture(host.settings)
     local guest=not access and not (host.library_db and host.library_db:accountKey()) and Access.book_id(id)~=nil
     if not access and not guest then
         if options.automatic then
@@ -126,7 +127,7 @@ function M.refresh(host, book, old_view, options)
         context.web_attempted, context.web_renewing = true, true
         context.web_current = function()
             if not current_view() or not host.settings:auth_scope_matches(original.scope)
-                or host.settings:get('api_key', '') ~= api_key or not host:isNetworkOnline() then return false end
+                or host.settings:get('api_key', '') ~= api_key or not NetworkLink.available(host) then return false end
             local ok, fresh = pcall(Metadata.capture, host.settings, access.native and access.native.store)
             return ok and fresh ~= nil and (fresh.native and fresh.native.fingerprint) == native_fingerprint
         end
