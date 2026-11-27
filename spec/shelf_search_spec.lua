@@ -38,6 +38,33 @@ expect(not Search.matches({title="三体",author="刘慈欣"},Search.prepare("�
 expect(Search.matches({title="one two"},Search.prepare("one two")),"exact phrase stopped matching")
 expect(not Search.matches({title="one",author="other"},Search.prepare("one two")),"incomplete cross-field query matched")
 
+local normalize = Search.cached_fold()
+local first_query = Search.prepare("三体 刘慈欣")
+local next_query = Search.prepare("123456 森林")
+before = calls
+expect(Search.matches(book, first_query, nil, normalize) and calls == before + 3,
+    "cold cache changed how title, author and identifier were searched")
+before = calls
+expect(Search.matches(book, next_query, nil, normalize) and calls == before,
+    "another query did not reuse the same display fields")
+book.title = "新版标题"
+expect(not Search.matches(book, next_query, nil, normalize) and calls == before + 1,
+    "editing a title returned a stale search match")
+expect(normalize("A\0B") == "a\0b" and normalize("\255") == "\255",
+    "the cache changed matching for NUL or invalid UTF-8")
+local oversized = string.rep("A", 140 * 1024)
+before = calls
+normalize(oversized)
+normalize(oversized)
+expect(calls == before + 2, "one large value exceeded the cache byte limit")
+local limited = Search.cached_fold()
+for i=1,4096 do limited("fixture" .. i) end
+before = calls
+limited("overflow")
+limited("overflow")
+expect(limited("fixture1") == "fixture1" and calls == before + 2,
+    "the entry limit discarded useful folds or kept growing")
+
 package.loaded["ffi/utf8proc"] = previous
 package.loaded["weread.lib.shelf_search"] = nil
 print(("shelf_search_spec: %d checks"):format(checks))

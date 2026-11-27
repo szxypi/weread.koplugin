@@ -353,6 +353,7 @@ function M:onWeReadAccountChanged()
     self.shelf_multi_groups = nil
     self._shelf_multi_loaded = nil
     self._shelf_multi_owner = nil
+    self._shelf_search_fold = nil
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
     if self.offline_time then self.offline_time:resume() end
@@ -374,6 +375,7 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
     load_group_selection(self)
     local shelf = self.settings:get("shelf")
     self.shelf_filters = { reading = shelf.filter_reading, download = shelf.filter_download }
+    self._shelf_search_fold = nil
     self.shelf_regular = {}
     self.shelf_mp = {}
     for _i, book in ipairs(all_books or {}) do
@@ -883,6 +885,8 @@ function M:showShelfView(mode, keyword, old_view, options)
     local needs_progress = order == 'progress_asc' or order == 'progress_desc' or progress_filtered
     local needle = ShelfSearch.prepare(keyword)
     local terms = ShelfSearch.terms(needle)
+    if needle and not self._shelf_search_fold then self._shelf_search_fold = ShelfSearch.cached_fold() end
+    local normalize = self._shelf_search_fold
     local progress_by_id
     local function filtered(source, with_download_state)
         source = source or {}
@@ -891,7 +895,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             if query then
                 local matches = {}
                 for _, book in ipairs(source) do
-                    if ShelfSearch.matches(book, query, terms) then matches[#matches + 1] = book end
+                    if ShelfSearch.matches(book, query, terms, normalize) then matches[#matches + 1] = book end
                 end
                 source, query = matches, nil
             end
@@ -899,7 +903,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
         local result = {}
         for _, book in ipairs(source) do
-            if (not query or ShelfSearch.matches(book, query, terms))
+            if (not query or ShelfSearch.matches(book, query, terms, normalize))
                 and (not with_download_state or self:bookMatchesFilters(book, saved_books, downloaded_cache)) then
                 if with_download_state and filters.download then
                     book._cached = self:isBookDownloaded(book, saved_books, downloaded_cache)

@@ -1,6 +1,9 @@
 -- Normalize case and Unicode presentation for local shelf search.
 local loaded, utf8proc = pcall(require, "ffi/utf8proc")
 local Search = {}
+local fields = { "title", "author", "authors", "bookId", "book_id" }
+local MAX_FOLDS = 4096
+local MAX_FOLD_BYTES = 256 * 1024
 
 local function fold(value)
     if loaded and type(utf8proc) == "table" and type(utf8proc.count) == "function"
@@ -13,6 +16,24 @@ local function fold(value)
         if ok and type(result) == "string" then return result end
     end
     return string.lower(value)
+end
+
+-- Share completed folds within one shelf snapshot. Once full, new strings
+-- still match normally without increasing the memory used by the cache.
+function Search.cached_fold()
+    local values = {}
+    local count, bytes = 0, 0
+    return function(value)
+        local normalized = values[value]
+        if normalized ~= nil then return normalized end
+        normalized = fold(value)
+        local cost = #value + #normalized
+        if count < MAX_FOLDS and cost <= MAX_FOLD_BYTES - bytes then
+            values[value] = normalized
+            count, bytes = count + 1, bytes + cost
+        end
+        return normalized
+    end
 end
 
 function Search.prepare(keyword)
@@ -31,24 +52,25 @@ function Search.terms(needle)
     return require("weread.lib.search_query").words(needle)
 end
 
-function Search.matches(book, needle, terms)
+function Search.matches(book, needle, terms, normalize)
     if not needle then return true end
     if type(book) ~= "table" then return false end
-    local fields = {}
-    for _, field in ipairs({ "title", "author", "authors", "bookId", "book_id" }) do
+    normalize = normalize or fold
+    local values = {}
+    for _, field in ipairs(fields) do
         local value = book[field]
         if type(value) == "number" and (field == "bookId" or field == "book_id") then value = tostring(value) end
         if type(value) == "string" then
-            value = fold(value)
+            value = normalize(value)
             if type(needle) == "string" and value:find(needle, 1, true) then return true end
-            fields[#fields + 1] = value
+            values[#values + 1] = value
         end
     end
     terms = terms or Search.terms(needle)
     if #terms < 2 then return false end
     for _, term in ipairs(terms) do
         local found = false
-        for _, value in ipairs(fields) do
+        for _, value in ipairs(values) do
             if value:find(term, 1, true) then found = true; break end
         end
         if not found then return false end

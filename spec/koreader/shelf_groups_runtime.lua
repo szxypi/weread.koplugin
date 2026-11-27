@@ -682,6 +682,17 @@ for _,case in ipairs({{'JOSÉ　STRASSE','SYN-U2'},{'SYN-U2\194\160josé','SYN-U
     assert(case[2] and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2]
         or not case[2] and #plugin.shelf_view.books==0,'multiword search or active group constraint failed')
 end
+do
+    plugin:applyShelfSnapshot({{bookId='SYN-U2',title='新版标题',author='JOSÉ'}},
+        {{archiveId=98,name='合成分组',bookIds={'SYN-U2'}}})
+    plugin:showShelfView('books','STRASSE')
+    assert(#plugin.shelf_view.books==0,'refreshed shelf still matched the former title')
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText('新版 JOSÉ');search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-U2',
+        'refreshed title and author did not match the same book')
+end
 -- Real paged shelf: equal values keep original order within pinned/unpinned
 -- sections after page changes and after switching the sort field.
 local tied,expected,pinned,unpinned={},{},{},{}
