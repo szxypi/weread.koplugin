@@ -134,7 +134,7 @@ function M.open(host, book, selected)
         local function failed(try_native, message)
             if not live() then return end
             stop(host, owner)
-            if try_native and not owner.view and owner.account and NativeData.book_id(id) then
+            if try_native and not owner.view and owner.account and NativeData.list_book_id(id) then
                 M.cancel(host)
                 require('weread.ui.native_book_reviews').open(host, book)
                 return

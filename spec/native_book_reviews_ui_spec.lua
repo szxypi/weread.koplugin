@@ -109,7 +109,7 @@ expect(recovery_callback and host._native_reviews_owner.context.renewing, 'expir
 source_error = nil; recovery_callback(true); tick()
 expect(host._native_reviews_owner.view ~= nil, 'successful renewal did not retry the read')
 UI.cancel(host)
-expect(not UI.open(host, {book_id = 'CB_fake'}, selected) and info == 2, 'unsupported ID accepted')
+expect(not UI.open(host, {book_id = 'CB_fake/invalid'}, selected) and info == 2, 'unsupported ID accepted')
 saved_reviews={items={{review_id='saved'}},ids={'saved'},limit=20,has_more=true}
 online=false;local before_pending=#pending;local before_views=#views
 expect(UI.open(host,{book_id='42',title='Book'},nil),'offline cache did not open')
@@ -176,4 +176,15 @@ expect(filtered.data.mode=='five_stars' and #filtered.result.items==20 and not f
     and filtered.data.incomplete_text:find('only loaded reviews are filtered.',1,true),
     'offline filter lost cached results or scope notice')
 UI.cancel(host)
+online=true
+source.fetch=function(_,book,limit,previous,value)
+    assert(book=='CB_Imported' and limit==20 and not previous and value==selected)
+    return {items={{review_id='imported-review',rating=5}},ids={'imported-review'},limit=20,has_more=false}
+end
+expect(UI.open(host,{bookId='CB_Imported',title='Imported'},selected),'imported public reviews did not open')
+schedule();tick()
+local imported=views[#views]
+imported.callbacks.on_select(imported.result.items[1]);detail=host._native_reviews_owner.detail
+expect(host.selected_review.review_id=='imported-review' and detail.options.on_replies==nil,
+    'imported public review unexpectedly enabled unverified replies')
 print('native_book_reviews_ui_spec: ' .. checks .. ' checks')

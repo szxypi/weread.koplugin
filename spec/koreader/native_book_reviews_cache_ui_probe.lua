@@ -158,7 +158,24 @@ assert(view.mode=='latest' and #view.result.items==40 and calls[0]==prior_calls)
 UI:forceRePaint();view:onClose();assert(not host._native_reviews_owner and not host.busy_message)
 local Store=require('weread.lib.native_book_reviews_cache')
 local original=Store:new(library,client,library:accountKey());assert(original:read('42'))
+local imported='CB_SyntheticImport'
+settings.is_api_configured=function() return true end
+Source.fetch=function(c,id,limit,previous)
+    assert(mode~='offline' and id==imported and limit==20 and not previous)
+    calls[4]=calls[4]+1
+    if mode~='online' then error('synthetic_unavailable',0) end
+    return require('weread.lib.native_book_reviews').project(c,{reviews=c:json_decode('[]')},id,limit)
+end
+assert(require('weread.ui.library').showBookReviews(host,{bookId=imported,title='合成导入书'}))
+wait(function() return host._native_reviews_owner and host._native_reviews_owner.view end)
+local imported_view=host._native_reviews_owner.view
+assert(#imported_view.result.items==0 and not imported_view.result.has_more and #imported_view._review_buttons==0
+    and not host._gateway_reviews_owner and calls[4]==(mode=='offline' and 0 or 1),'imported empty review view or route is wrong')
+assert((imported_view.tab_text=='Saved latest reviews')==(mode~='online'))
+local imported_cached=assert(original:read(imported))
+assert(#imported_cached.items==0 and imported_cached.book_id==imported)
+UI:forceRePaint();imported_view:onClose()
 account='900001';local other=Store:new(library,client,library:accountKey())
-assert(not original:read('42') and not other:read('42'))
+assert(not original:read('42') and not other:read('42') and not other:read(imported))
 print('\nWEREAD_REVIEW_CACHE_UI='..json.encode({result='PASS',mode=mode,items=40,
     requests=tonumber(calls[0]),reply_requests=tonumber(calls[1])}))

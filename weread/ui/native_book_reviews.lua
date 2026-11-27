@@ -3,6 +3,7 @@ local Source = require('weread.lib.native_book_reviews_source')
 local Data = require('weread.lib.native_book_reviews')
 local Recovery = require('weread.lib.native_read_recovery')
 local Cache = require('weread.lib.native_book_reviews_cache')
+local Identity = require('weread.lib.shelf_snapshot')
 local NetworkLink = require('weread.lib.network_link')
 local UI = require('ui/uimanager')
 local Util = require('weread.lib.plugin_util')
@@ -27,8 +28,8 @@ function M.cancel(host)
 end
 
 function M.open(host, book, selected)
-    local id = book.book_id or book.bookId
-    if not Data.book_id(id) then
+    local id = Identity.persisted_id(book)
+    if not Data.list_book_id(id) then
         host:showInfo(_('Book reviews are unavailable for this book.'))
         return false
     end
@@ -118,12 +119,12 @@ function M.open(host, book, selected)
                             require('weread.ui.review_images').open(host,owner,book,review,index,detail,current_view)
                         end
                     end,
-                    on_replies = function()
+                    on_replies = Data.book_id(id) and function()
                         if current_view() and owner.detail == detail then
                             require('weread.ui.review_images').cancel(host,owner)
                             require('weread.ui.native_review_replies').open(host, owner, book, review, detail, current_view)
                         end
-                    end,
+                    end or nil,
                     on_close = function()
                         if owner.detail == detail then
                             require('weread.ui.review_images').cancel(host,owner)

@@ -55,6 +55,13 @@ end
 local changed = sample(41); changed.reviews[2].reviewId = 'new'; changed.reviews[2].review.reviewId = 'new'
 expect(not pcall(Data.project, client, changed, '42', 40, first.ids), 'changed prefix accepted')
 expect(not Data.book_id('CB_42') and not Data.book_id('042') and Data.book_id('42'), 'book identity validation failed')
+expect(Data.list_book_id('CB_42') and not Data.list_book_id('CB_42?x=1') and not Data.list_book_id('MP_WXS_42'),
+    'public list identifier validation was not scoped to book IDs')
+local imported = sample(1)
+imported.reviews[1].review.bookId = 'CB_42'
+imported.reviews[1].review.book.bookId = 'CB_42'
+expect(#Data.project(client, imported, 'CB_42', 20).items == 1
+    and not pcall(Data.project, client, imported, 'CB_43', 20), 'imported public review lost its book binding')
 local scope = {vid = '123', epoch = 1}
 local creds = {vid = '123', accessToken = 'synthetic-token'}
 local store = {read = function() return creds, 1, nil, false end}
@@ -71,6 +78,11 @@ expect(#loaded.items == 20 and loaded.has_more, 'native source did not project r
 expect(request.url == 'https://i.weread.qq.com/review/list?bookId=42&listType=3&listMode=1&synckey=0&count=21&maxIdx=0&tips=1'
     and request.method == 'GET' and not request.body and request.sensitive and request.skip_cookie
     and not request.persist_response_cookies and request.headers.accessToken == 'synthetic-token', 'unsafe request')
+client.json_decode = function(self, s) if s == 'fixture' then return sample(0) end return decode(self, s) end
+local imported_page = Source.fetch(client, 'CB_42', 20, nil, selected, true)
+expect(#imported_page.items == 0 and not imported_page.has_more and request.method == 'GET'
+    and request.url == 'https://i.weread.qq.com/review/list?bookId=CB_42&listType=3&listMode=1&synckey=0&count=21&maxIdx=0&tips=1',
+    'imported empty page did not use the account-bound public list')
 status = 401
 local ok, reason = pcall(Source.fetch, client, '42', 20, nil, selected, true)
 expect(not ok and reason == 'native_reviews/native_expired', '401 did not trigger safe recovery')

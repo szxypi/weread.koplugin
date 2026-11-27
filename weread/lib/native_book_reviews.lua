@@ -2,6 +2,7 @@
 -- request one extra row and compare the already displayed prefix on reload.
 local Protocol = require('weread.lib.protocol')
 local Reviews = require('weread.lib.book_reviews')
+local Access = require('weread.lib.read_access')
 local M = { PAGE_SIZE = 20, MAX_ITEMS = 200 }
 local function fail(kind) error('native_reviews/' .. kind, 0) end
 local function integer(v, max) return type(v) == 'number' and v >= 0 and v <= max and v % 1 == 0 end
@@ -12,8 +13,11 @@ end
 function M.book_id(value)
     return type(value) == 'string' and #value <= 20 and value:match('^[1-9]%d*$') ~= nil
 end
+function M.list_book_id(value)
+    return type(value) == 'string' and Access.display_book_id(value) == value
+end
 function M.project(client, raw, book_id, limit, previous)
-    if not M.book_id(book_id) or not integer(limit, M.MAX_ITEMS) or limit < 1 then fail('query') end
+    if not M.list_book_id(book_id) or not integer(limit, M.MAX_ITEMS) or limit < 1 then fail('query') end
     local null = client:json_decode('null')
     local array = client:json_decode('[]')
     local array_mt = getmetatable(array)

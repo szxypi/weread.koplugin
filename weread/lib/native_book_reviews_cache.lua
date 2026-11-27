@@ -11,7 +11,7 @@ local function text(value,max,empty)
         and Protocol.utf8_substr(value,#value)==value
 end
 local function cache_key(id,mode)
-    if mode==nil then return Data.book_id(id) and id or nil end
+    if mode==nil then return Data.list_book_id(id) and id or nil end
     if (mode=='recommended' or mode=='latest') and text(id,256) and not id:find('[%c]') then return mode..':'..id end
 end
 function M.validate(codec,value,id,mode)

@@ -1701,8 +1701,9 @@ function M:showBookMenu(book, options)
             self:showBookMenu(latest)
         end)
     end)
+    local imported = type(book_id) == "string" and book_id:sub(1, 3) == "CB_"
     local review_action = {
-        text = self.settings.is_api_configured and not self.settings:is_api_configured()
+        text = imported and _("Book reviews") or self.settings.is_api_configured and not self.settings:is_api_configured()
             and _("Latest reviews") or _("Recommended / Latest"),
         callback = self:safeCallback(_("Book reviews"), function()
             self:showBookReviews(book)
@@ -2020,9 +2021,14 @@ function M:showBookReviews(book)
         if require('weread.ui.gateway_book_reviews').open(self, book) then return true end
         return require('weread.ui.native_book_reviews').open(self, book)
     end
-    if self.settings and self.settings.is_api_configured and not self.settings:is_api_configured() then
+    local id = ShelfSnapshot.persisted_id(book)
+    local imported = id and id:sub(1, 3) == "CB_" and ReadAccess.display_book_id(id)
+    local no_skill = self.settings and self.settings.is_api_configured and not self.settings:is_api_configured()
+    if no_skill or imported then
         local selected = require('weread.lib.native_book_reviews_source').capture(self.settings)
-        return require('weread.ui.native_book_reviews').open(self, book, selected)
+        if no_skill or selected and selected.native then
+            return require('weread.ui.native_book_reviews').open(self, book, selected)
+        end
     end
     if not self:requireLogin(false, true) then return false end
     local selected = require('weread.lib.gateway_book_reviews_source').capture(self.settings)
