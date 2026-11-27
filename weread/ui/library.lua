@@ -850,12 +850,29 @@ function M:showShelfView(mode, keyword, old_view, options)
     local downloaded_cache = {}
     local shelf_settings = self.settings:get("shelf")
     local filters = self.shelf_filters or {}
+    local order = shelf_settings.sort_order
+    local reading_filter = filters.reading
+    local needs_progress = order == 'progress_asc' or order == 'progress_desc'
+        or reading_filter == 'progress_zero' or reading_filter == 'progress_active'
     local needle = ShelfSearch.prepare(keyword)
     local terms = ShelfSearch.terms(needle)
+    local progress_by_id
     local function filtered(source, with_download_state)
+        source = source or {}
+        local query = needle
+        if with_download_state and needs_progress and self.prepareShelfProgress then
+            if query then
+                local matches = {}
+                for _, book in ipairs(source) do
+                    if ShelfSearch.matches(book, query, terms) then matches[#matches + 1] = book end
+                end
+                source, query = matches, nil
+            end
+            progress_by_id = self:prepareShelfProgress(source, saved_books)
+        end
         local result = {}
-        for _, book in ipairs(source or {}) do
-            if ShelfSearch.matches(book, needle, terms)
+        for _, book in ipairs(source) do
+            if (not query or ShelfSearch.matches(book, query, terms))
                 and (not with_download_state or self:bookMatchesFilters(book, saved_books, downloaded_cache)) then
                 if with_download_state and filters.download then
                     book._cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
@@ -863,7 +880,7 @@ function M:showShelfView(mode, keyword, old_view, options)
                 result[#result + 1] = book
             end
         end
-        return sortBooks(result, shelf_settings.sort_order, with_download_state and saved_books or nil,
+        return sortBooks(result, order, with_download_state and saved_books or nil,
             recent_account, with_download_state and local_pins or nil)
     end
     local group = ShelfGroups.unique(self.shelf_groups, self.shelf_group_key)
@@ -886,13 +903,6 @@ function M:showShelfView(mode, keyword, old_view, options)
     end
     local prepared = options.prepared_shelf
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
-    local order=shelf_settings.sort_order
-    local reading_filter=filters.reading
-    local needs_progress=order=='progress_asc' or order=='progress_desc'
-        or reading_filter=='progress_zero' or reading_filter=='progress_active'
-    if not prepared and needs_progress and self.prepareShelfProgress then
-        self:prepareShelfProgress(group_source or {},saved_books)
-    end
     local books = prepared and prepared.books or filtered(group_source, true)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)
     local cover_mode = shelf_settings.view_mode == "cover"
@@ -929,7 +939,16 @@ function M:showShelfView(mode, keyword, old_view, options)
     local progress_books, progress_snapshots
     if mode == "books" and self.prepareShelfProgress then
         progress_books = visible
-        progress_snapshots = self:prepareShelfProgress(progress_books,saved_books)
+        if progress_by_id then
+            -- Retain only the visible snapshots for the background refresh.
+            progress_snapshots = {}
+            for _, book in ipairs(visible) do
+                local id = ShelfSnapshot.persisted_id(book)
+                if id then progress_snapshots[id] = progress_by_id[id] end
+            end
+        else
+            progress_snapshots = self:prepareShelfProgress(progress_books, saved_books)
+        end
     end
     local cover_paths, cover_loading
     if cover_mode then

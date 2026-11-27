@@ -62,12 +62,23 @@ return function(plugin,mode,pump,evidence)
     if mode=='live' then require('device').screen:shot(evidence..'/progress-filter-reading.png') end
     local old=view;old.on_select_group('archive:2');pump(function() return plugin.shelf_view~=old end)
     view=plugin.shelf_view;assert(#view.books==1 and view.books[1].bookId=='902002','group filter lost the fractional book')
-    plugin:showShelfView('books','合成筛选书 2');view=plugin.shelf_view
+    local get_progress=db.getShelfProgress
+    local queries={}
+    db.getShelfProgress=function(self,ids)
+        if #ids>0 then queries[#queries+1]=table.concat(ids,',') end
+        return get_progress(self,ids)
+    end
+    plugin:showShelfView('books','合成筛选书 902002');view=plugin.shelf_view
     assert(#view.books==1 and view.books[1].bookId=='902002','search failed within a progress-filtered group')
+    assert(#queries==1 and queries[1]=='902002','progress search read unrelated or repeated book records')
     assert(db:putShelfProgress({{book_id='902002',percent=0,exact_percent=0,fetched_at=1001}}))
     local callback=assert(redraw);callback();view=plugin.shelf_view
     assert(#view.books==0,'visible progress update failed to refilter the old page')
     assert(view.empty_text and view.empty_text~='','empty filtered view lacks a recovery hint')
+    queries={}
+    plugin:showShelfView('books','No matching book')
+    assert(#plugin.shelf_view.books==0 and #queries==0,'empty search read progress for other books')
+    db.getShelfProgress=get_progress
     assert(db:putShelfProgress({{book_id='902002',percent=0,exact_percent=0.25,fetched_at=1000}}))
     vid='progress-filter-account-b';plugin.shelf_group_key=nil;plugin:showShelfView('books')
     assert(#plugin.shelf_view.books==0,'another account inherited cached or local progress')

@@ -84,6 +84,22 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     paint("web-shelf-progress-list")
     plugin.isNetworkOnline=function() return true end
     plugin:closeWeReadUI()
+    shelf = settings:get("shelf")
+    shelf.sort_order = "progress_desc"
+    settings:set("shelf", shelf)
+    before = count("/web/book/getProgress")
+    plugin:showShelfView("books", seed)
+    wait_progress()
+    assert(#plugin.shelf_view.books == 1 and plugin.shelf_view.books[1].bookId == seed
+        and count("/web/book/getProgress") == before, "progress search refetched a fresh visible snapshot")
+    expires({books[1]})
+    plugin:showShelfView("books", seed)
+    wait_progress()
+    assert(count("/web/book/getProgress") == before + 1 and progress(seed).percent == 37
+        and plugin.shelf_view.books[1]._shelf_progress == 83, "progress search fetched other books or lost local progress")
+    shelf.sort_order = "default"
+    settings:set("shelf", shelf)
+    plugin:closeWeReadUI()
     expires({books[1]})
     plugin:showHome()
     wait_progress()
