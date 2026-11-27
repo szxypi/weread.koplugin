@@ -190,6 +190,7 @@ function M:onReaderReady()
     self:_teardownThoughtInterception()
     self:_installReaderHighlightTapGuard()
 
+    self._weread_book_route = nil
     local weread_book_id = self:detectWeReadBook()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
@@ -438,6 +439,7 @@ function M:onCloseDocument()
     self._annotation_pending_prefetch = nil
     self._annotation_context = nil
     self._current_weread_book_id = nil
+    self._weread_book_route = nil
     self:_teardownThoughtInterception()
     self:_teardownXPointerOverlayPrototype()
     self:_removeReaderHighlightTapGuard()
@@ -798,19 +800,39 @@ function M:detectWeReadBook()
     if self._personal_original_local_only==file then return nil end
     if require("weread.lib.notes_export").is_export_path(self.settings,file) then return nil end
     if require("weread.lib.mp_export").is_export_path(self.settings,file) then return nil end
-    local books = self.settings:get("books", {})
+    local settings = self.settings
+    local indexes = type(settings.get_book_indexes) == "function" and settings:get_book_indexes()
+    if type(indexes) ~= "table" then indexes = nil end
+    local auth_epoch = indexes and settings:get("auth_epoch", 0)
+    local route = self._weread_book_route
+    if route and route.file == file and route.settings == settings and route.indexes == indexes
+        and route.cache_dir == settings.cache_dir and route.auth_epoch == auth_epoch then
+        local index = indexes[route.book_id]
+        if type(index) == "table" and index.cache_dir == route.book_dir then return route.book_id end
+    end
+    self._weread_book_route = nil
+    local books = settings:get("books", {})
     for book_id, book in pairs(books) do
         if type(book) == "table" then
-            local dir = Content.book_resolved_dir(
-                self.settings, book_id, book):gsub("/+$", "") .. "/"
-            if file == book.cached_file or file:sub(1, #dir) == dir then
+            local dir = Content.book_resolved_dir(settings, book_id, book):gsub("/+$", "") .. "/"
+            local in_directory = file:sub(1, #dir) == dir
+            if file == book.cached_file or in_directory then
+                -- BookStore resolves its directory from this in-memory index.
+                -- An exact cached file outside that directory still needs the
+                -- live metadata lookup (e.g. an old or moved cached copy).
+                local index = indexes and indexes[book_id]
+                local root = type(index) == "table" and index.cache_dir
+                if in_directory and type(root) == "string" and root ~= "" and root:gsub("/+$", "") .. "/" == dir then
+                    self._weread_book_route = { file = file, book_id = book_id, settings = settings, indexes = indexes,
+                        cache_dir = settings.cache_dir, book_dir = root, auth_epoch = auth_epoch }
+                end
                 return book_id
             end
         end
     end
 
     -- Require a path boundary after the cache directory.
-    local prefix = self.settings.cache_dir:gsub("/+$", "") .. "/"
+    local prefix = settings.cache_dir:gsub("/+$", "") .. "/"
     if file:sub(1, #prefix) == prefix then
         local rest = file:sub(#prefix + 1)
         return rest:match("^([^/]+)")
