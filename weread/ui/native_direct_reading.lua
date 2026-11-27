@@ -345,7 +345,14 @@ function M.start(host,book,view,options)
             or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
-        local current_index=not picker and current_row(rows,anchor,ctx.catalog)
+        local current_index
+        if picker then
+            local row=anchor and rows[anchor.catalog_order]
+            if row and matches_catalog(anchor,row,ctx.catalog) then current_index=anchor.catalog_order end
+        else
+            current_index=current_row(rows,anchor,ctx.catalog)
+        end
+        local initial_index=picker and picker.start or current_index
         local screen=sections and require('device').screen
         local indent=screen and screen:scaleBySize(16)
         -- A single item per page can otherwise make the keyboard shortcut
@@ -415,7 +422,7 @@ function M.start(host,book,view,options)
         end
         local function search_titles()
             ChapterSearch.prompt(host,menu,search,menu_current,function(query)
-                filter(query,query=='' and current_index or nil)
+                filter(query,query=='' and initial_index or nil)
             end)
         end
         local function select_section()
@@ -457,7 +464,6 @@ function M.start(host,book,view,options)
             Popup.show(menu,actions)
             return true
         end
-        local initial_index=picker and picker.start or current_index
         if initial_index then menu:onGotoPage(menu:getPageNumber(initial_index)) end
     end
     local function start_batch(range)

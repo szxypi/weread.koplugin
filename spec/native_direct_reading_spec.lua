@@ -156,6 +156,19 @@ expect(s.page==2 and marked(s.items[2]) and #s.jobs==1,'clearing search did not 
 anchor.book_version=6
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{anchor=anchor});s.finish(1)
 expect(not s.page and not marked(s.items[2]),'a different catalog version inherited a current chapter badge')
+anchor.book_version=7;anchor.catalog_order=2;anchor.catalog_count=2;anchor.catalog_prev='1'
+for _,sha in ipairs({digest,fingerprint}) do
+    anchor.catalog_sha256=sha
+    host,s=fixture();host.ui.document={file=reader_path}
+    expect(UI.start(host,{book_id='456'},host.ui,{from_reader=true,batch=true,anchor=anchor}),'reader batch did not start')
+    s.finish(1);assert(host._native_direct_reading.confirm).choice1_callback()
+    local matches=sha==digest
+    expect(s.title=='Choose the first chapter to download' and marked(s.items[2])==matches
+        and s.page==(matches and 2 or nil),'range picker used an unverified anchor or missed the current chapter')
+    s.select(1)
+    expect(s.page==1 and #s.jobs==1,'range end ignored the chosen start or started downloading prematurely')
+    UI.cancel(host)
+end
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
 expect(s.opened==0 and host._native_direct_reading==nil,'stale account opened chapter')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='catalog_changed';s.finish(2)

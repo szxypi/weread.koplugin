@@ -87,6 +87,14 @@ shown.callbacks.on_book_details()
 expect(host._book_detail_view and not host._native_direct_navigation and not auto_target,
     'explicit book details did not open over the reader')
 host,s=fixture();Nav.start(host);s.finish(1)
+shown.callbacks.on_download_chapters()
+expect(auto_target and auto_target.book.book_id==source.book_id and auto_target.view==host.ui
+    and auto_target.options.from_reader and auto_target.options.batch and auto_target.options.anchor==source
+    and not host._native_direct_navigation,'download did not use the current verified reader chapter')
+host,s=fixture();Nav.start(host);s.finish(1);host._reader_session_gen=2
+shown.callbacks.on_download_chapters()
+expect(not auto_target,'stale reader quick menu started a chapter download')
+host,s=fixture();Nav.start(host);s.finish(1)
 expect(not shown.callbacks.on_native_refresh_images,'complete chapter offered image retry')
 source.missing_images=2;host,s=fixture();Nav.start(host);s.finish(1)
 expect(type(shown.callbacks.on_native_refresh_images)=='function','missing image retry was not offered')

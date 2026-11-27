@@ -1,13 +1,15 @@
 -- Real KOReader dialogs and workers; account-scoped navigation, optionally offline.
 require('jit').off();require('ffi').log=function() end;require('setupkoenv')
 assert(os.getenv('WEREAD_SYNTHETIC')=='1')
-package.path=assert(arg[1])..'/?.lua;'..package.path
+local repo=assert(arg[1]);local home=assert(os.getenv('KO_HOME'))
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
-if input.mode~='online' then assert(dofile(arg[1]..'/spec/koreader/offline_network_guard.lua')()) end
+local online=input.mode=='online'
+package.path=(online and home..'/plugins/weread.koplugin' or repo)..'/?.lua;'..package.path
+if not online then assert(dofile(repo..'/spec/koreader/offline_network_guard.lua')()) end
 G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefaults'):open()
 local Device=require('device');require('document/canvascontext'):init(Device)
-local UI=require('ui/uimanager');local socket=require('socket');local home=assert(os.getenv('KO_HOME'))
-local scope={vid='12345678',epoch=1};local online=input.mode=='online'
+local UI=require('ui/uimanager');local socket=require('socket')
+local scope={vid='12345678',epoch=1}
 local connected=online
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,
     get=function(_,_,default) return default end,get_book=function() return nil end,
@@ -38,7 +40,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     library_db={accountKey=function() return 'synthetic' end,getChapters=function() return {} end},ui={document={file=input.first}},
     isNetworkConnected=function() return connected end,
     showBusy=Common.showBusy,closeBusy=Common.closeBusy,refreshUI=function() end,
-    showInfo=function(self,message) self.message=message end,showOffline=function() error('unexpected offline') end,
+    showInfo=function(self,message) self.message=message end,showOffline=Common.showOffline,
     showList=Common.showList,showInputDialog=Common.showInputDialog,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,
@@ -140,11 +142,11 @@ else
     if input.mode=='online' then
         G_reader_settings:saveSetting('items_per_page',1)
         G_reader_settings:saveSetting('items_font_size',20)
+        local prefix=tr('Current chapter')..' · '
         press('chapter_list')
         wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
         local ctx=assert(host._native_direct_reading)
         local menu=assert(ctx.menu)
-        local prefix=tr('Current chapter')..' · '
         assert(not host.message and not ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
             and not menu.item_table[1].text:find(prefix,1,true) and host.opened==second,
             'online reader did not open the catalog at its current chapter')
@@ -203,6 +205,33 @@ else
         assert(host.message==tr('No saved copy matches this chapter. Connect to download it.')
             and menu.page==3 and UI:getTopmostVisibleWidget()==menu and host.ui.document.file==second,
             'an uncached chapter did not keep the catalog open after disconnecting')
+        host.message=nil;connected=true;menu:onClose()
+        press('download_chapters')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.confirm end)
+        local batch=assert(host._native_direct_reading)
+        local choice=assert(batch.confirm)
+        choice.choice1_callback();UI:close(choice)
+        local start=assert(batch.menu)
+        assert(batch.batch and start.page==2 and start.item_table[2].text:find(prefix,1,true)==1
+            and host.ui.document.file==second and not host._book_detail_view,'reader download lost its current chapter')
+        start:onGotoPage(3);start:onMenuSelect(start.item_table[3])
+        local ending=assert(batch.menu)
+        assert(ending.page==3 and not host.busy_message,'range end did not follow the explicit start')
+        ending:onMenuSelect(ending.item_table[3])
+        local confirm=assert(batch.confirm)
+        assert(not host.busy_message,'reader started downloading before range confirmation')
+        confirm.ok_callback();UI:close(confirm)
+        wait(function() return host.message end)
+        local T=require('weread.lib.plugin_util').T
+        local label=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
+        assert(host.message==T(label,1,0,0,0) and not host._native_direct_reading and not host.busy_message
+            and host.ui.document.file==second and UI:getTopmostVisibleWidget()==base,'reader range download did not stay in the reader')
+        host.message=nil
+        local saved=require('weread.lib.native_direct_cache').list(settings,scope.vid,'42',function() return true end,'39')
+        assert(saved and #saved==1 and saved[1].catalog_order==3,'reader download did not save the selected chapter')
+        press('chapter_list')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+        menu=assert(host._native_direct_reading.menu);connected=false
         host.message,host.opened=nil,nil
         menu:onGotoPage(1)
         menu:onMenuSelect(menu.item_table[1])
@@ -232,6 +261,11 @@ else
     end
     if input.mode=='two' then
         host.opened=nil
+        press('download_chapters');wait(function() return host.message end)
+        assert(host.message:find(tr('No network connection. Please connect Wi-Fi and try again.'),1,true)
+            and not host._native_direct_reading and host.ui.document.file==second and not host.opened,
+            'offline download started a worker or moved the reader')
+        host.message=nil
         press('previous_chapter');wait(function() return host.opened or host.message end)
         assert(not host.message and host.opened==input.first)
         host.opened=nil;host.ui.document={file=second};host._reader_session_gen=host._reader_session_gen+1

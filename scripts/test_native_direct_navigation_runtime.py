@@ -87,7 +87,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                     server.catalog_interruptions=0
                     server.hierarchical=mode=='online'
                     payload=dict(credentials=credentials,mock_endpoint=endpoint,mode=mode,plugin_profile=mode=='full')
-                    if mode=='full':
+                    if mode in ('full','online'):
                         (Path(root)/'settings').mkdir();(Path(root)/'plugins').mkdir()
                         extract_candidate(candidate,Path(root)/'plugins')
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_nav_prepare.lua'),str(REPO)],
@@ -121,7 +121,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
                             assert damaged.read_bytes()==original+b'corrupt'
-                    expected={'copies':['37','38','38'],'online':['37','37','38','37'],'gap':['37','39']}.get(mode,['37','38'])
+                    expected={'copies':['37','38','38'],'online':['37','37','38','39','37'],'gap':['37','39']}.get(mode,['37','38'])
                     assert server.chapters==expected and server.valid and not server.leaked
                     assert server.interruptions==int(mode=='online')
                     assert server.catalog_interruptions==int(mode=='online')

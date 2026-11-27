@@ -130,6 +130,10 @@ function M.show(opts, callbacks)
         })
     end
     table.insert(buttons, downloaded_row)
+    if callbacks.on_download_chapters then
+        table.insert(buttons, {{id='download_chapters',text=_('Download E-Ink chapters'),
+            callback=function() dismiss_then(callbacks.on_download_chapters) end}})
+    end
 
     if callbacks.on_native_position_check or callbacks.on_native_offline_reminder then
         local row={}
