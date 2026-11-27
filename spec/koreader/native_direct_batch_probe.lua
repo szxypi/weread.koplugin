@@ -240,21 +240,39 @@ end
 if input.mode=='presence_repair' or input.mode=='presence_unwritable' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local cache=require('weread.lib.native_direct_cache')
+    local function current() return true end
     assert(not cache.present(settings,scope.vid,'42'),'invalid presence marker was accepted')
     local old_output
     if input.mode=='presence_unwritable' then
         old_output=package.loaded['weread.lib.notes_export_file']
         package.loaded['weread.lib.notes_export_file']={create=function() return nil end}
+        local old_limit=cache.MAX_ENTRIES
+        cache.MAX_ENTRIES=2
+        assert(not cache.repair_presence(settings,scope.vid,'42',current),'overfull directory was scanned')
+        cache.MAX_ENTRIES=old_limit
+        local checks=0
+        assert(not cache.repair_presence(settings,scope.vid,'42',function()
+            checks=checks+1;return checks<2
+        end) and not cache.present(settings,scope.vid,'42'),'stale scan returned a hint')
     end
-    local rows,available=cache.list(settings,scope.vid,'42',function() return true end)
-    assert(rows and #rows==(input.expected_rows or 3) and available,'listing failed to recognize usable files')
+    local open,entry_reads,catalog_reads=io.open,0,0
+    rawset(io,'open',function(path,...)
+        if path:match('/entry%.txt$') then entry_reads=entry_reads+1 end
+        if path:match('/catalog%.txt$') then catalog_reads=catalog_reads+1 end
+        return open(path,...)
+    end)
+    local available=cache.repair_presence(settings,scope.vid,'42',current)
+    rawset(io,'open',open)
+    assert(available and catalog_reads==0,'repair failed or read catalog records')
     if input.mode=='presence_unwritable' then
+        assert(entry_reads==1,'repair kept reading entries after finding a valid copy')
         assert(not cache.present(settings,scope.vid,'42'),'failed index write claimed success')
         package.loaded['weread.lib.notes_export_file']=old_output
-        rows=assert(cache.list(settings,scope.vid,'42',function() return true end));assert(#rows==3)
     end
+    local rows=assert(cache.list(settings,scope.vid,'42',current))
+    assert(#rows==(input.expected_rows or 3),'listing did not return all saved chapters')
     assert(cache.present(settings,scope.vid,'42'),'saved chapters did not repair the presence marker')
-    assert(not cache.present(settings,'87654321','42'),'presence escaped its account')
+    assert(not cache.repair_presence(settings,'87654321','42',current),'presence escaped its account')
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
 if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline_partial' or input.mode=='offline_range' then

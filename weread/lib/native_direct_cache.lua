@@ -358,6 +358,51 @@ local function save_presence(...)
     return ok and result==true
 end
 
+local function read_list_entry(lfs,book_dir,name,book_id,account,selected_file,chapter_set)
+    local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
+    if not key then key=name;suffix='0' end
+    local copy=tonumber(suffix)
+    if not hash(key) or not copy or tostring(copy)~=suffix or copy>=M.MAX_COPIES then return nil end
+    local dir=book_dir..'/'..name
+    local attr=mode(lfs,dir)
+    -- The filename can rule out unrelated copies, but the entry must still
+    -- identify the requested chapter.
+    if not attr or attr.mode~='directory'
+        or selected_file and not is_chapter_file(mode(lfs,dir..selected_file))
+        or mode(lfs,dir..'/'..RETIRING) then return nil end
+    return read_entry(lfs,dir,key,copy,book_id,account,chapter_set),dir
+end
+
+-- Downloaded books only need one usable copy. Check the directory limit
+-- before reading entries, then stop at the first match without loading its catalog.
+function M.repair_presence(settings,account,book_id,current)
+    local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if not lfs or type(current)~='function' then return false end
+    local ok,available=pcall(function()
+        if current()~=true then return false end
+        if marker_present(lfs,book_dir,book_id,account) then return current()==true end
+        local names={}
+        for name in lfs.dir(book_dir) do
+            if name~='.' and name~='..' and name~=OPERATION then
+                if #names>=M.MAX_ENTRIES then return false end
+                names[#names+1]=name
+                if #names%32==0 and current()~=true then return false end
+            end
+        end
+        if current()~=true then return false end
+        for index,name in ipairs(names) do
+            if index%32==0 and current()~=true then return false end
+            local entry=read_list_entry(lfs,book_dir,name,book_id,account)
+            if entry and candidate_present(lfs,book_dir,entry) then
+                save_presence(settings,account,book_id,entry,current)
+                return current()==true
+            end
+        end
+        return false
+    end)
+    return ok and available==true
+end
+
 -- List bounded metadata only; a selected file is fully checked by open(). A
 -- full listing also returns whether it found a copy, even if its marker failed to save.
 -- Missing/corrupt sidecars and old pre-index files are left untouched.
@@ -380,21 +425,10 @@ function M.list(settings,account,book_id,current,selection)
                 -- Metadata reads are local; recheck the live grant in bounded
                 -- groups and before delivering any rows to the caller.
                 if count%32==0 and current()~=true then return nil end
-                local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
-                if not key then key=name;suffix='0' end
-                local copy=tonumber(suffix)
-                if hash(key) and copy and tostring(copy)==suffix and copy<M.MAX_COPIES then
-                    local dir=book_dir..'/'..name;local attr=mode(lfs,dir)
-                    -- Use the known filename only to avoid reading unrelated
-                    -- sidecars. The sidecar must still identify this chapter.
-                    local entry=attr and attr.mode=='directory'
-                        and (not selected_file or is_chapter_file(mode(lfs,dir..selected_file)))
-                        and not mode(lfs,dir..'/'..RETIRING)
-                        and read_entry(lfs,dir,key,copy,book_id,account,chapter_set)
-                    if entry and (not chapter_uid or entry.chapter_uid==chapter_uid) then
-                        local file=mode(lfs,dir..(selected_file or '/'..filename(book_id,entry.chapter_uid)))
-                        if is_chapter_file(file) then rows[#rows+1]=attach_ref(entry,read_ref(lfs,dir,entry)) end
-                    end
+                local entry,dir=read_list_entry(lfs,book_dir,name,book_id,account,selected_file,chapter_set)
+                if entry and (not chapter_uid or entry.chapter_uid==chapter_uid) then
+                    local file=mode(lfs,dir..(selected_file or '/'..filename(book_id,entry.chapter_uid)))
+                    if is_chapter_file(file) then rows[#rows+1]=attach_ref(entry,read_ref(lfs,dir,entry)) end
                 end
             end
         end
