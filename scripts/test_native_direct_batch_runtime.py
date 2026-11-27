@@ -217,27 +217,36 @@ def run(runtime):
                         assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
                         assert server.chapters == ([] if mode == 'range_cancel' else ['38'])
                         assert server.valid and not server.leaked
-                with tempfile.TemporaryDirectory(prefix='weread-native-batch-retry-', dir='/dev/shm') as directory:
-                    root = Path(directory)
-                    for name in ('plugins', 'xdg'):
-                        (root/name).mkdir(mode=0o700)
-                    extract_candidate(candidate, root/'plugins')
-                    env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
-                    server.resume, server.expired, server.locked = False, False, False
-                    server.interrupt_download = True
-                    server.chapters = []
-                    for mode in ('range_retry', 'offline_retry'):
-                        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
-                                                str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
-                                               env=env, cwd=runtime, capture_output=True, timeout=150)
-                        if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
-                        marker = 'WEREAD_DIRECT_BATCH='
-                        frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
-                        expected = dict(ok=True, mode=mode)
-                        if mode == 'offline_retry': expected['network_blocked'] = True
-                        assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
-                        assert not server.interrupt_download and server.chapters == ['37', '38', '38']
-                        assert server.valid and not server.leaked
+                for modes in (('range_retry', 'offline_retry'), ('range_interrupted', 'range_reopen', 'offline_retry')):
+                    with tempfile.TemporaryDirectory(prefix='weread-native-batch-retry-', dir='/dev/shm') as directory:
+                        root = Path(directory)
+                        for name in ('plugins', 'xdg'):
+                            (root/name).mkdir(mode=0o700)
+                        extract_candidate(candidate, root/'plugins')
+                        env.update(KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'))
+                        server.resume, server.expired, server.locked = False, False, False
+                        server.interrupt_download = modes[0] == 'range_retry'
+                        server.hold = modes[0] == 'range_interrupted'
+                        server.hold_marker = root/'hold'
+                        server.hold_release, server.hold_done = threading.Event(), threading.Event()
+                        server.chapters = []
+                        for mode in modes:
+                            child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
+                                                    str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
+                                                   env=env, cwd=runtime, capture_output=True, timeout=150)
+                            if mode == 'range_interrupted':
+                                server.hold_release.set()
+                                assert server.hold_done.wait(10)
+                                server.hold = False
+                            if child.returncode: raise AssertionError(child.stdout[-6000:] + child.stderr[-6000:])
+                            marker = 'WEREAD_DIRECT_BATCH='
+                            frames = [line for line in child.stdout.splitlines() if line.startswith(marker)]
+                            expected = dict(ok=True, mode=mode)
+                            if mode == 'offline_retry': expected['network_blocked'] = True
+                            assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
+                            expected_chapters = ['37', '38'] if mode == 'range_interrupted' else ['37', '38', '38']
+                            assert not server.interrupt_download and server.chapters == expected_chapters
+                            assert server.valid and not server.leaked
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-cancel-', dir='/dev/shm') as directory:
                     root = Path(directory)
                     for name in ('plugins', 'xdg'):

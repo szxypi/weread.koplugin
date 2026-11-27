@@ -555,10 +555,17 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     showOffline=function() error('unexpected offline') end,
     showList=require('weread.ui.common').showList,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
+    cancelBookMetadata=function() end,cancelBookReading=function() end,
     safeCallback=function(_,_,callback) return callback end,openFile=function() error('batch unexpectedly opened reader') end}
-if input.mode=='catalog_capture' then
+local range_retry=input.mode=='range_retry'
+local range_interrupted=input.mode=='range_interrupted'
+local range_reopen=input.mode=='range_reopen'
+if input.mode=='catalog_capture' or range_retry or range_interrupted or range_reopen then
     settings.get=function(_,key,default) if key=='account' then return {user_vid=scope.vid} end return default end
     host.library_db=require('weread.lib.library_db'):new(settings)
+end
+local function pending_plan()
+    return require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope):read('42',function() return true end)
 end
 host:showBookMenu({book_id='42',title='Synthetic',author='Fixture',chapters={}})
 local view=assert(host._book_detail_view);local action
@@ -568,16 +575,16 @@ end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
-local range_retry=input.mode=='range_retry'
-local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or range_retry
+local first_range=range_retry or range_interrupted
+local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or first_range
 if range_mode then
     G_reader_settings:saveSetting('items_per_page',2)
     local ctx=host._native_direct_reading
     confirm.choice1_callback();UI:close(confirm)
     local start=assert(ctx.menu)
     assert(start.page_num==2 and start.item_table[3].select_enabled)
-    local page=range_retry and 1 or 2
-    start:onGotoPage(page);UI:forceRePaint();start:onMenuSelect(start.item_table[range_retry and 1 or 3])
+    local page=first_range and 1 or 2
+    start:onGotoPage(page);UI:forceRePaint();start:onMenuSelect(start.item_table[first_range and 1 or 3])
     local ending=assert(ctx.menu)
     assert(ending~=start and ending.page==page)
     ending:onGotoPage(1);UI:forceRePaint();ending:onMenuSelect(ending.item_table[2])
@@ -618,9 +625,16 @@ elseif input.mode=='stale' then
     confirm.choice2_callback();UI:close(confirm)
     assert(not host._native_direct_reading and not host.busy_message,'old confirmation started after account change')
 else
-    if range_mode then confirm.ok_callback() else confirm.choice2_callback() end
+    if range_reopen then
+        local util=require('weread.lib.plugin_util')
+        local text=util.T(util.tr('Continue downloading chapters %1–%2? Completed chapters will be reused.'),1,2)
+        assert(confirm.text==text and confirm.choice1_text==util.tr('Continue download')
+            and not host._native_direct_worker.job,'reopening did not offer the saved range before downloading')
+        confirm.choice1_callback()
+    elseif range_mode then confirm.ok_callback()
+    else confirm.choice2_callback() end
     UI:close(confirm)
-    if input.mode=='cancel_running' then
+    if input.mode=='cancel_running' or range_interrupted then
         pump(function()
             local ctx=host._native_direct_reading;local file=io.open(home..'/hold','rb')
             if file then file:close() end
@@ -629,7 +643,14 @@ else
         local ctx=host._native_direct_reading
         local lease,reason=require('weread.lib.native_direct_cache').acquire(settings,scope.vid,'42')
         assert(not lease and reason=='busy','running batch did not retain its capacity lease')
-        ctx.busy.buttons[1][1].callback()
+        if range_interrupted then
+            local record=assert(pending_plan(),'range was still in memory when the chapter request started')
+            assert(record.first==1 and record.last==2)
+            view:onClose()
+            assert(not host._book_detail_view and pending_plan().revision==record.revision)
+        else
+            ctx.busy.buttons[1][1].callback()
+        end
         assert(not host._native_direct_reading and not host.busy_message)
         print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode});os.exit(0)
     end
@@ -656,10 +677,11 @@ else
         local T=require('weread.lib.plugin_util').T;local tr=require('weread.lib.plugin_util').tr
         local template=tr('E-Ink chapters ready: %1 downloaded, %2 already saved, %3 unavailable. %4 chapters have missing images.')
         local downloaded=input.mode=='resume' and '2' or input.mode=='locked' and '2'
-            or (input.mode=='cleanup_redownload' or input.mode=='range' or range_retry) and '1' or '0'
-        local saved=(input.mode=='resume' or input.mode=='range_repeat' or range_retry) and '1'
+            or (input.mode=='cleanup_redownload' or input.mode=='range' or range_retry or range_reopen) and '1' or '0'
+        local saved=(input.mode=='resume' or input.mode=='range_repeat' or range_retry or range_reopen) and '1'
             or (input.mode=='locked' or input.mode=='range') and '0' or input.mode=='cleanup_redownload' and '2' or '3'
         assert(text==T(template,downloaded,saved,(input.mode=='locked' or range_mode and not range_retry) and '1' or '0','0'),text)
+        if range_retry or range_reopen then assert(not pending_plan(),'completed batch left a resume offer') end
     end
     assert(not host._native_direct_reading and not host.busy_message)
 end

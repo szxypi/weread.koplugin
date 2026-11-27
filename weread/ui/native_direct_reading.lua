@@ -156,6 +156,9 @@ function M.start(host,book,view,options)
     local ctx={epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
         book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch}
+    if batch and host.library_db then
+        ctx.batch_store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+    end
     host._native_direct_reading=ctx
     local function view_current()
         local now=host.ui and host.ui.document
@@ -418,6 +421,17 @@ function M.start(host,book,view,options)
         }
         show_confirmation(dialog)
     end
+    local function show_batch_plan(range,chapters)
+        local dialog
+        dialog=require('ui/widget/multiconfirmbox'):new{
+            text=T(_('Continue downloading chapters %1–%2? Completed chapters will be reused.'),range.first,range.last),
+            choice1_text=_('Continue download'),choice2_text=_('Choose new download'),cancel_text=_('Cancel'),
+            choice1_callback=function() if take_confirmation(dialog) then start_batch(range) end end,
+            choice2_callback=function() if take_confirmation(dialog) then show_batch_options(chapters) end end,
+            cancel_callback=function() if take_confirmation(dialog) then M.cancel(host) end end,
+        }
+        show_confirmation(dialog)
+    end
     launch=function()
         local phase,saved_entry=ctx.phase,ctx.entry
         local is_current=phase_guard(phase)
@@ -426,8 +440,15 @@ function M.start(host,book,view,options)
         local generation=ctx.generation
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
             if phase=='batch' then
-                return require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
+                local store=ctx.batch_store
+                local record=store and store:begin(ctx.catalog,ctx.batch_range,ctx.batch_record,current)
+                local result=require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
                     ctx.selected.native,current,progress,ctx.batch_range)
+                if record then
+                    if result.ok==true then store:remove(id,record,current) end
+                    result.batch_record=record
+                end
+                return result
             end
             if phase=='offline_list' then
                 local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
@@ -465,6 +486,9 @@ function M.start(host,book,view,options)
                     pcall(require('weread.lib.native_direct_catalog_store').save,host.library_db,host.settings,host.client,
                         scope,result,current)
                 end
+                if result and not ctx.catalog and ctx.batch_store then
+                    result.batch_record=ctx.batch_store:read(id,current)
+                end
                 return result or {error='unavailable'}
             end
             local expected={book_id=id,chapter_uid=ctx.chapter.chapterUid,book_version=ctx.catalog.version,
@@ -475,6 +499,9 @@ function M.start(host,book,view,options)
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not is_current() then M.cancel(host);return end
+            if phase=='batch' and type(result)=='table' and ctx.batch_store and ctx.batch_store:verified(result.batch_record,id) then
+                ctx.batch_record=result.batch_record
+            end
             local reason=type(result)=='table' and result.error
             if phase=='chapter' and ctx.menu and reason=='transport' then
                 begin_open('saved_matches');return
@@ -532,7 +559,12 @@ function M.start(host,book,view,options)
                         end
                         start_batch(ctx.batch_range)
                     else
-                        show_batch_options(checked.chapters)
+                        if ctx.batch_store and ctx.batch_store:verified(result.batch_record,id) then
+                            ctx.batch_record=result.batch_record
+                        end
+                        local range=ctx.batch_store and ctx.batch_store:range(ctx.batch_record,checked)
+                        if range then show_batch_plan(range,checked.chapters)
+                        else show_batch_options(checked.chapters) end
                     end
                     return
                 end
