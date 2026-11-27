@@ -14,10 +14,11 @@ local function view_position(view)
     return {anchor=(view.page-1)*view.page_size+1,focus=view:getFocusedBookId()}
 end
 
-function M:discoveryNavigation(active, current)
+function M:discoveryNavigation(active, current, on_leave)
     local function switch(callback)
         return function()
             if current and not current() then return end
+            if on_leave then on_leave() end
             self:closeWeReadUI()
             callback()
         end
@@ -26,7 +27,7 @@ function M:discoveryNavigation(active, current)
         { text = _("Home"), active = active == "home",
             callback = switch(function() self:showHome() end) },
         { text = _("Bookshelf"), active = active == "shelf",
-            callback = switch(function() self:showBookshelf() end) },
+            callback = switch(function() self:showBookshelf(true) end) },
         { text = _("Bookstore"), active = active == "store",
             callback = switch(function() self:openBookstore() end) },
         { text = _("My WeRead"), active = active == "profile",

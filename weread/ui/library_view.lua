@@ -1074,6 +1074,21 @@ function LibraryView:getVisibleBooks()
     return result
 end
 
+function LibraryView:getBrowsePosition()
+    local position = { page = self.page, book_id = ShelfSnapshot.persisted_id(self:getVisibleBooks()[1]) }
+    if self.paged then
+        position.focus_book_id = self:getFocusedBookId()
+    else
+        local offset = self:getScrollOffset()
+        position.scroll_offset = offset
+        if position.book_id and self._list_bottoms then
+            local index = ShelfVisible.first(self._list_bottoms, offset.y)
+            position.inset = offset.y - ShelfVisible.top(self._list_bottoms, index)
+        end
+    end
+    return position
+end
+
 function LibraryView:showSourceMenu(menu_mode)
     if self._shelf_closed then return end
     local Popup=require('weread.ui.shelf_popup')
@@ -1540,9 +1555,16 @@ function LibraryView:init()
         VerticalGroup:new{ align = "left", content },
     }
     self.scroll = scroll
-    if self.scroll_offset and not self.paged then
+    local offset = self.scroll_offset
+    local browse = self.browse_scroll
+    if browse and self._list_bottoms and self._list_bottoms[browse.index] then
+        local top = ShelfVisible.top(self._list_bottoms, browse.index)
+        local height = self._list_bottoms[browse.index] - top
+        offset = { x = offset and offset.x or 0, y = top + math.max(-1, math.min(browse.inset or 0, height - 1)) }
+    end
+    if offset and not self.paged then
         scroll:initState()
-        scroll:setScrolledOffset(self.scroll_offset)
+        scroll:setScrolledOffset(offset)
         scroll:_scrollBy(0, 0) -- Clamp to the current list if it shrank while details were open.
     end
     if not self.paged and self.on_visible_changed then
@@ -1763,6 +1785,7 @@ function M.show(data, callbacks)
         group_label = data.group_label,
         total_books = data.total_books,
         scroll_offset = data.scroll_offset,
+        browse_scroll = data.browse_scroll,
         accounts = data.accounts,
         keyword = data.keyword,
         sort_label = data.sort_label,

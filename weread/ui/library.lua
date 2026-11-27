@@ -156,14 +156,23 @@ local function list_items_per_page()
     return math.max(4, perpage)
 end
 
-function M:showBookshelf()
+function M:showBookshelf(restore_browse_position)
     if self._profile_view then self:closeWeReadUI() end
     local volatile = VolatileShelf.get(self)
     local cached = volatile and volatile.books or self.library_db and self.library_db:getShelf() or nil
     local archives = volatile and volatile.archives or self.library_db and self.library_db:getShelfArchives() or nil
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil)
-        self:showShelfView("books")
+        local position = restore_browse_position == true and self._shelf_browse_position
+        if position and position.account ~= group_owner(self) then
+            self._shelf_browse_position, self.shelf_view_pages = nil, nil
+            position = nil
+        end
+        if position then
+            self:showShelfView(position.mode, position.keyword, nil, { browse_position = position })
+        else
+            self:showShelfView("books")
+        end
         if volatile and volatile.groups_incomplete then
             self:showTransientInfo(_("The bookshelf did not include group information. This temporary list is not saved; refresh again later."), 5)
         end
@@ -320,6 +329,7 @@ function M:onWeReadAccountChanged()
     self:closeWeReadUI()
     self.discovery_state = nil
     self._home_browse_position = nil
+    self._shelf_browse_position = nil
     self.discovery_categories = nil
     self.shelf_progress_retry_at = nil
     self.shelf_regular = nil
@@ -886,15 +896,19 @@ function M:showShelfView(mode, keyword, old_view, options)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)
     local cover_mode = shelf_settings.view_mode == "cover"
     local paged = cover_mode or shelf_settings.paginated ~= false
-    local page = paged and (options.page or self.shelf_view_pages[mode] or 1) or 1
+    local position = options.browse_position
+    options.browse_position = nil
+    local page = paged and (position and position.page or options.page or self.shelf_view_pages[mode] or 1) or 1
     local source = mode == "public_account" and accounts or books
     local navigation = self.discoveryNavigation and not options.on_select
         and self:discoveryNavigation("shelf") or nil
     local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
-    local focus_book_index=paged and options.focus_book_id and LibraryView.bookIndex(source,options.focus_book_id)
-    local anchor=focus_book_index or options.rotation_anchor
+    local focus_id = position and position.focus_book_id or options.focus_book_id
+    local focus_book_index = paged and focus_id and LibraryView.bookIndex(source, focus_id)
+    local first_index = position and position.book_id and LibraryView.bookIndex(source, position.book_id)
+    local anchor = focus_book_index or options.rotation_anchor or first_index
     if paged and anchor then
         page=math.max(1,math.min(math.floor((anchor-1)/page_size)+1,
             math.max(1,math.ceil(#source/page_size))))
@@ -976,7 +990,14 @@ function M:showShelfView(mode, keyword, old_view, options)
         next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
         self:showShelfView('books',keyword,view,next_options)
     end
-    if navigation then navigation = self:discoveryNavigation("shelf", current) end
+    if navigation then
+        navigation = self:discoveryNavigation("shelf", current, function()
+            if not recent_account then return end
+            local browse = view:getBrowsePosition()
+            browse.account, browse.mode, browse.keyword = recent_account, mode, keyword
+            self._shelf_browse_position = browse
+        end)
+    end
     view = LibraryView.show({
         mode = mode,
         navigation = navigation,
@@ -993,7 +1014,8 @@ function M:showShelfView(mode, keyword, old_view, options)
         group_keys = multi,
         group_label = multi_label or group and (group.incomplete and T(_('%1 (incomplete)'),group.label) or group.label),
         total_books = #(self.shelf_regular or {}),
-        scroll_offset = options.scroll_offset,
+        scroll_offset = position and position.scroll_offset or options.scroll_offset,
+        browse_scroll = not paged and first_index and { index = first_index, inset = position.inset } or nil,
         focus_book_index = focus_book_index,
         keyword = keyword,
         empty_text = mode=='books' and #books==0 and (reading_filter=='progress_zero' or reading_filter=='progress_active')

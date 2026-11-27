@@ -131,7 +131,76 @@ if mode=='live' then
     assert(plugin.shelf_view.page==1 and plugin.shelf_view:getFocusItem().book.bookId==id
         and plugin.shelf_view:getFocusItem().book.title=='000 合成新书名',
         'bookshelf return restored the old grid slot after a same-account reorder')
+    local function navigate(label)
+        local prior=assert(plugin.shelf_view)
+        local tr=require('weread.lib.i18n').tr
+        local callback
+        for _,button in ipairs(prior._navigation_buttons) do
+            if button.text==tr(label) then callback=button.callback;break end
+        end
+        assert(callback,'missing navigation to '..label)()
+        local deadline=socket.gettime()+4
+        while plugin.shelf_view==prior do
+            assert(socket.gettime()<deadline,'navigation did not open '..label)
+            UI:handleInput()
+        end
+        UI:forceRePaint()
+        return assert(plugin.shelf_view)
+    end
+    local keyword='合成书籍'
+    prefs.paginated,prefs.sort_order=false,'default';plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    plugin:showShelfView('books',keyword)
+    local browsing=assert(plugin.shelf_view);UI:forceRePaint()
+    browsing.scroll:_scrollBy(0,615);UI:forceRePaint()
+    local board_offset=browsing:getScrollOffset().y
+    local first_id=assert(browsing:getVisibleBooks()[1]).bookId
+    assert(board_offset>0 and first_id~=browsing.books[1].bookId)
+    assert(navigate('Home')._discovery_tab=='home')
+    local restored=navigate('Bookshelf')
+    assert(not restored.paged and restored.keyword==keyword and restored:getScrollOffset().y==board_offset
+        and restored:getVisibleBooks()[1].bookId==first_id,
+        'returning from home lost the continuous bookshelf search or scroll')
+    assert(navigate('Bookstore')._discovery_tab=='store')
+    local inserted={bookId='899999',title='合成书籍 新书'}
+    local reordered={inserted}
+    for _,book in ipairs(books) do reordered[#reordered+1]=book end
+    assert(plugin.library_db:cacheShelf(reordered,archives))
+    restored=navigate('Bookshelf')
+    assert(restored.books[1].bookId==inserted.bookId and restored:getVisibleBooks()[1].bookId==first_id
+        and restored:getScrollOffset().y>board_offset,
+        'returning from bookstore restored a screen coordinate instead of the visible book')
+    assert(plugin.library_db:cacheShelf(books,archives))
+    prefs.paginated=true;plugin.settings:set('shelf',prefs)
+    plugin:showShelfView('books',keyword,nil,{page=2})
+    local searched=assert(plugin.shelf_view)
+    local focused=assert(searched._item_rows[2])
+    for y,row in ipairs(searched.layout) do
+        if row[1]==focused then searched:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break end
+    end
+    assert(navigate('Home')._discovery_tab=='home')
+    restored=navigate('Bookshelf')
+    assert(restored.paged and restored.page==2 and restored.keyword==keyword
+        and restored:getFocusedBookId()==focused.book.bookId,
+        'returning from home lost the paged bookshelf focus')
+    plugin:showShelfView('public_account','合成公众号')
+    assert(navigate('Home')._discovery_tab=='home')
+    restored=navigate('Bookshelf')
+    assert(restored.mode=='public_account' and restored.keyword=='合成公众号' and #restored:getVisibleBooks()==1,
+        'returning to the bookshelf lost the public account tab')
+    navigate('Home')
     plugin:closeWeReadUI()
+    local original_account=plugin.settings:get('account')
+    plugin.settings:set('account',{user_vid='900099',name='Other synthetic account'})
+    plugin.settings:flush()
+    assert(plugin.library_db:cacheShelf(books,{}))
+    plugin:showHome()
+    restored=navigate('Bookshelf')
+    assert(restored.mode=='books' and restored.keyword==nil and restored.page==1
+        and restored:getVisibleBooks()[1].bookId==books[1].bookId,
+        'another account inherited the previous shelf mode, search or page')
+    plugin:closeWeReadUI()
+    plugin.settings:set('account',original_account);plugin.settings:flush()
     prefs.view_mode,prefs.paginated,prefs.sort_order=saved_mode,saved_paginated,saved_sort
     plugin.settings:set('shelf',prefs)
 end

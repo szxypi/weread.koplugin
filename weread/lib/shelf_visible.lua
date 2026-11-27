@@ -10,9 +10,13 @@ function M.first(bottoms, top)
     return low
 end
 
+function M.top(bottoms, index)
+    return index > 1 and bottoms[index - 1] + 1 or 0
+end
+
 function M.books(source, bottoms, top, height)
     local result, index = {}, M.first(bottoms, top)
-    local y = index > 1 and bottoms[index - 1] + 1 or 0
+    local y = M.top(bottoms, index)
     while index <= #bottoms and y < top + height do
         if bottoms[index] > top then result[#result + 1] = source[index] end
         y = bottoms[index] + 1
