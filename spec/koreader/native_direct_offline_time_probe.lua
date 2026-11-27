@@ -72,6 +72,7 @@ local C=require('weread.lib.readtime_transfer_contract')
 local files={};local selections={}
 for _,row in ipairs(rows) do
     assert(row.book_id=='42' and row.version_source=='native_direct' and #row.file_id==64)
+    assert(row.book_version==input.version,'ledger did not preserve the chapter version')
     assert(not C.verified(row,os.time()),'ordinary transfer selected native chapter time')
     files[row.file_id]=true
     selections[row.file_id]={book_id=row.book_id,file_id=row.file_id,book_version=row.book_version}

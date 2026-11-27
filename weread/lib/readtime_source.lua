@@ -71,9 +71,8 @@ function M.version(payload,id)
     return count==1 and result or nil
 end
 -- A missing Web version is distinct from zero, null, malformed or conflicting
--- version fields. Only a unique, same-book imported TXT may use this path.
-function M.unversioned_cb(payload,id)
-    if not C.cb_id(id) then return false end
+-- version fields. Require a unique, same-book record.
+local function unversioned(payload,id,normalize)
     local rows=type(payload)=='table' and (payload.data or payload.books or payload)
     if type(rows)~='table' then return false end
     if rows.bookId or rows.book then rows={rows} end
@@ -84,8 +83,8 @@ function M.unversioned_cb(payload,id)
         local outer,inner
         if type(row)=='table' then outer=row.bookId end
         if type(book)=='table' then inner=book.bookId end
-        if outer==id or inner==id then
-            if outer~=nil and outer~=id or inner~=nil and inner~=id then return false end
+        if normalize(outer)==id or normalize(inner)==id then
+            if outer~=nil and normalize(outer)~=id or inner~=nil and normalize(inner)~=id then return false end
             matches=matches+1
             for _j,node in ipairs({row,type(book)=='table' and book or {}}) do
                 if node.bookVersion~=nil or node.version~=nil then return false end
@@ -93,6 +92,12 @@ function M.unversioned_cb(payload,id)
         end
     end
     return matches==1
+end
+function M.unversioned_cb(payload,id)
+    return C.cb_id(id) and unversioned(payload,id,function(value) return value end)
+end
+function M.unversioned_native_txt(payload,id)
+    return C.id(id) and unversioned(payload,id,require('weread.lib.native_position_protocol').id)
 end
 local function local_source(selection,ref,read)
     local meta_path=Source.meta_path(ref.chapter_uid)

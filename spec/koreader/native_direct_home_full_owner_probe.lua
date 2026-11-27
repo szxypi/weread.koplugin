@@ -24,6 +24,7 @@ if live_cloud then
 end
 if input.missing_resume_source then assert(live_cloud and input.exact_resume) end
 if input.native_txt then assert(live_cloud and input.exact_resume) end
+if input.time_trial_txt then assert(input.book_version==0 and not input.exact_resume and not input.read_entry) end
 if input.missing_txt_resume_source or input.wrong_cloud_offset then
     assert(input.mock_endpoint and input.exact_resume and input.plain_text and os.getenv('WEREAD_SYNTHETIC')=='1')
 end
@@ -88,7 +89,7 @@ Client.request=function(self,options)
         assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
             and body.synckeys[1]==0 and body.updateTimes[1]==0 and body.maxfreeIdx[1]==0)
     elseif url:find(base..'/book/chapterdownload?',1,true)==1 then
-        local chapter_fields=(input.plain_text or input.native_txt)
+        local chapter_fields=(input.plain_text or input.native_txt or input.time_trial_txt)
             and 'chapters='..input.uid..'&bookType=txt&bookVersion=0&'
             or 'chapters=0%2C'..input.uid..'&bookType=epub&'
         assert(options.method=='GET' and url:find('bookId='..input.book_id..'&',1,true)

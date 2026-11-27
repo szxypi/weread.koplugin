@@ -6,9 +6,9 @@ assert(P.sign({'a','b','c',''})=='cc40c3dd32695af0481d8cfdd4409bc5870387c01aeacf
 assert(P.sign({'0','999','4102444800','device_id_123'})=='714b65712962735b3fce784d35460e7688cf34fc4684a029894b5673e6fb7502')
 local credentials={vid='900000',deviceId='eink334691225'..string.rep('1',19),accessToken='mock-access',refreshToken='mock-refresh'}
 local function rows() return {{start_time=1700002799,duration=2,time_zone='+08:00',book_version=7}} end
-local function body(value)
+local function body(value,native_txt)
     return P.batch(credentials,'900001',value or rows(),'5ecdcfd7f','fixture-config',1700007200,123,
-        {timestamp=1700007200123,random=456,current_zone='+00:00'})
+        {timestamp=1700007200123,random=456,current_zone='+00:00'},native_txt)
 end
 local value=body();local book=value.books[1]
 assert(book.signature=='de30ed1ad8d1c42bed906eb950814124be85a326fa587a6ee620724ae5b30c07')
@@ -30,6 +30,10 @@ local zero_rows=rows();zero_rows[1].book_version=0
 local zero=cb('合成摘要','CB_Synthetic',zero_rows)
 assert(zero.books[1].bookVersion==0 and zero.books[1].signature==imported.books[1].signature)
 fails(function() body(zero_rows) end)
+local native_txt=body(zero_rows,'保留原摘要\r\n一行').books[1]
+assert(native_txt.bookVersion==0 and native_txt.signature==book.signature and native_txt.chapterUid==nil
+    and native_txt.summary=='保留原摘要\r\n一行')
+fails(function() body(zero_rows,true) end)
 for _i,invalid in ipairs({'','CB_','CB_bad/','CB_'..string.rep('A',65),'900001'}) do
     fails(function() cb('合成摘要',invalid) end)
 end

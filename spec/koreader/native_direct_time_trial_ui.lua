@@ -21,7 +21,9 @@ local worked,reason=pcall(function()
     local plugin=home..'/plugins/weread.koplugin';package.path=plugin..'/?.lua;'..assert(arg[1])..'/?.lua;'..package.path
     local Position=require('weread.lib.native_position_protocol')
     assert(Position.id(input.book_id)==input.book_id and input.credentials.vid==input.cookies.wr_vid)
-    assert(Position.integer(input.book_version,1,2147483647) and Position.id(input.chapter_uid)==input.chapter_uid)
+    local txt=input.native_txt==true
+    assert((txt and input.book_version==0 or not txt and Position.integer(input.book_version,1,2147483647))
+        and Position.id(input.chapter_uid)==input.chapter_uid)
     if input.mock_endpoint then
         assert(input.mock_endpoint:match('^http://127%.0%.0%.1:%d+$') and input.credentials.vid=='12345678'
             and input.book_id=='42' and input.credentials.accessToken=='synthetic-access'
@@ -91,7 +93,7 @@ local worked,reason=pcall(function()
     local function active() return automatic and host._native_auto_time~=nil or not automatic and host._offline_time_review~=nil end
     local guard=require('spec.koreader.native_time_http_guard').install(host.client,{
         grant=input.credentials,book_id=input.book_id,chapter_uid=input.chapter_uid,book_version=input.book_version,
-        native_direct=true,cookies=input.cookies,months=input.months,now=os.time,
+        native_direct=true,native_txt=txt,cookies=input.cookies,months=input.months,now=os.time,
         current=active,selection=function() return selected end,
         record=function() local record=assert(journal:pending(account));assert(record.phase=='claimed');return record end,
         rpc=function(kind,value) return rpc(kind,value) end})

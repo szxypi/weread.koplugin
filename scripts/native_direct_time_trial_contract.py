@@ -62,7 +62,9 @@ def validate_selection(selection,reference,expected,seconds,now=None):
         row=by_id[part['row_id']];seen.add(part['row_id'])
         if part['start_time']!=row['start_time'] or part['duration']!=row['duration']:raise ValueError('direct_time/parts')
         expected_protocol.append({key:row[key] for key in ('start_time','duration','time_zone','book_version')})
-    if protocol!=expected_protocol or sum(row['duration'] for row in rows)!=seconds or validate_rows(protocol,expected['book_id'],now)!=seconds:
+    txt=expected.get('native_txt') is True and expected['version']==0
+    if (protocol!=expected_protocol or sum(row['duration'] for row in rows)!=seconds
+            or validate_rows(protocol,expected['book_id'],now,native_txt=txt)!=seconds):
         raise ValueError('direct_time/interval')
     if (not isinstance(reference,dict) or set(reference)!={'kind','file','chapter_uid','source_sha256'}
             or reference['kind']!='native_direct' or reference['chapter_uid']!=expected['uid']
@@ -94,19 +96,29 @@ def validate_claim(event,selection,reference,expected,baseline,grant,now=None):
                 or actual.get('book_version')!=expected['version'] or actual.get('version_source')!='native_direct'
                 or actual.get('time_zone')!='+08:00' or actual.get('start_time')!=part['start_time']
                 or actual.get('duration')!=part['duration']):raise ValueError('direct_time/record_rows')
+    txt=expected.get('native_txt') is True and expected['version']==0
     if (source.get('kind')!='native_direct' or source.get('ref')!=reference or source.get('account')!=record['account']
             or source.get('book_id')!=expected['book_id'] or source.get('chapter_uid')!=expected['uid']
             or source.get('file_id')!=selection['file_id'] or source.get('book_version')!=expected['version']
             or source.get('source_sha256')!=expected['source_sha256'] or not valid_hash(source.get('catalog_stamp'))
-            or not integer(source.get('chapter_idx'),0,1000000)):
+            or not integer(source.get('chapter_idx'),0,1000000) or txt and source.get('format')!='web_txt'):
         raise ValueError('direct_time/source')
     stamp=inner.get('timestamp')
     if not integer(stamp,now-30,now+2) or day(stamp)!=day(now):raise ValueError('direct_time/clock')
+    unstarted=baseline.get('unstarted') is True
+    summary=None
+    if txt:
+        summary=''
+        if not unstarted:
+            native_summary=baseline['native_point'].get('summary')
+            if (not isinstance(native_summary,dict) or native_summary.get('present') is not True
+                    or not native_summary.get('value') or native_summary!=baseline['web_point'].get('summary')):
+                raise ValueError('direct_time/summary')
+            summary=native_summary['value']
     calculated=batch(grant,expected['book_id'],selection['protocol_rows'],baseline['guest'],baseline['config_token'],stamp,
-        inner.get('random'),body.get('timestamp'),body.get('random'),current_zone='+08:00')
+        inner.get('random'),body.get('timestamp'),body.get('random'),current_zone='+08:00',native_txt=txt,native_txt_summary=summary)
     if not equivalent(calculated,body):raise ValueError('direct_time/signature')
     request_hash=native_digest(body)
-    unstarted=baseline.get('unstarted') is True
     point_contract='historical-time-no-chapter-presence-v1' if unstarted else 'historical-time-point-presence-v1'
     native_hash=no_chapter_hash(baseline['native_point'],expected['book_id']) if unstarted else point_hash(baseline['native_point'],expected['book_id'])
     web_hash=no_chapter_hash(baseline['web_point'],expected['book_id']) if unstarted else point_hash(baseline['web_point'],expected['book_id'])

@@ -54,9 +54,14 @@ def main(argv=None):
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
                 WEREAD_DIRECT_OWNER_TMPFS='1')
             stage='prepare'
+            txt=payload.get('native_txt') is True
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                 str(plugin),str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],env,
-                json.dumps(dict(payload,plugin_home=True,quick_search=False),ensure_ascii=False).encode(),runtime,timeout=180)
+                json.dumps(dict(payload,plugin_home=True,quick_search=False,time_trial_txt=txt,native_txt=False),ensure_ascii=False).encode(),
+                runtime,timeout=180)
+            if code and payload.get('mock_endpoint'):
+                issue=re.search(rb'(?m)^WEREAD_DIRECT_OWNER_ERROR=(\d+)$',out)
+                if issue:diagnostic={'prepare_line':int(issue.group(1))}
             prepared=frame(out,b'WEREAD_DIRECT_HOME_FULL=');path=Path(prepared.get('path',''))
             if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
                     or not path.is_file() or profile/'weread' not in path.parents):raise ValueError('prepare')
@@ -64,6 +69,9 @@ def main(argv=None):
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
                 str(REPO),str(REPO/'spec/koreader/native_direct_time_owner_probe.lua')],env,
                 json.dumps(dict(stage='capture',path=str(path),book_id=payload['book_id'],vid=grant['vid'])).encode(),runtime,timeout=150)
+            if code and payload.get('mock_endpoint'):
+                issue=re.search(rb'(?m)^WEREAD_DIRECT_OWNER_ERROR=(\d+)$',out)
+                if issue:diagnostic={'capture_line':int(issue.group(1))}
             captured=frame(out,b'WEREAD_DIRECT_TIME_OWNER=')
             if (code or repaint or captured.get('ok') is not True or captured.get('network_blocked') is not True
                     or type(captured.get('seconds')) is not int or not 5<=captured['seconds']<=20
@@ -71,7 +79,7 @@ def main(argv=None):
                 raise ValueError('capture')
             private=dict(token=token,armed=args.armed,path=str(path),book_id=payload['book_id'],chapter_uid=payload['uid'],
                 book_version=payload['book_version'],credentials=grant,cookies=payload['web_cookies'],months=payload['months'],
-                ledger_hash=captured['snapshot'])
+                ledger_hash=captured['snapshot'],native_txt=txt)
             if args.automatic:private['automatic']=True
             if args.full_interval:private['full_interval']=True
             if payload.get('mock_endpoint') is not None:private['mock_endpoint']=payload['mock_endpoint']

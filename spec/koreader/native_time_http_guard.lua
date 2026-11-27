@@ -37,6 +37,7 @@ local OPTION_KEYS={url=true,method=true,body=true,headers=true,skip_cookie=true,
 function M.install(client,config)
     local imported=type(config)=='table' and config.imported==true
     local direct=type(config)=='table' and config.native_direct==true
+    local txt=type(config)=='table' and config.native_txt==true
     local position=type(config)=='table' and config.position_write==true
     local book_valid=type(config)=='table' and (imported and Contract.cb_id(config.book_id)
         or not imported and Position.id(config.book_id) and Position.id(config.book_id)==config.book_id)
@@ -44,7 +45,9 @@ function M.install(client,config)
         or type(config)~='table' or config.imported~=nil and type(config.imported)~='boolean'
         or config.native_direct~=nil and type(config.native_direct)~='boolean' or direct and imported
         or config.position_write~=nil and type(config.position_write)~='boolean' or position and not direct
-        or direct and not Contract.integer(config.book_version,1,2147483647)
+        or config.native_txt~=nil and type(config.native_txt)~='boolean'
+        or txt and (not direct or position or config.book_version~=0)
+        or direct and not txt and not Contract.integer(config.book_version,1,2147483647)
         or not Position.credentials(config.grant) or not book_valid
         or not Position.id(config.chapter_uid)
         or config.chapter_uid~=Position.id(config.chapter_uid) or type(config.cookies)~='table'
@@ -67,7 +70,7 @@ function M.install(client,config)
     local function binding()
         return Contract.digest({vid=config.grant.vid,accessToken=config.grant.accessToken,refreshToken=config.grant.refreshToken,
             deviceId=config.grant.deviceId,cookies=config.cookies,book_id=config.book_id,chapter_uid=config.chapter_uid,months=config.months,
-            imported=config.imported==true,native_direct=direct,position_write=position,book_version=config.book_version})
+            imported=config.imported==true,native_direct=direct,native_txt=txt,position_write=position,book_version=config.book_version})
     end
     local bound=binding()
     local original=client.request
@@ -161,7 +164,8 @@ function M.install(client,config)
                 native_headers(h);return 'read'
             end
             if direct and api=='native_chapter_download' then
-                local fields={{'bookId',book},{'chapters','0,'..config.chapter_uid},{'bookType','epub'},
+                local fields={{'bookId',book},{'chapters',txt and config.chapter_uid or '0,'..config.chapter_uid},
+                    {'bookType',txt and 'txt' or 'epub'},
                     {'bookVersion',config.book_version},{'pf','wechat_wx-2001-android-100-weread'},{'pfkey','pfKey'},
                     {'zoneId',1},{'quote',''},{'release',1},{'stopAutoPayWhenBNE',1},{'preload',2},{'preview',0},{'offline',1}}
                 local encoded={};for _,field in ipairs(fields) do encoded[#encoded+1]=field[1]..'='..Protocol.urlencode(tostring(field[2])) end
@@ -210,7 +214,9 @@ function M.install(client,config)
                 for key in pairs(value.bookIds) do if key~=1 then fail('body') end end
                 return 'read'
             end
-            if url==WEB..'/web/book/chapter/e_0' or url==WEB..'/web/book/chapter/e_1' or url==WEB..'/web/book/chapter/e_3' then
+            if url==WEB..'/web/book/chapter/e_0'
+                or txt and (url==WEB..'/web/book/chapter/t_0' or url==WEB..'/web/book/chapter/t_1')
+                or not txt and (url==WEB..'/web/book/chapter/e_1' or url==WEB..'/web/book/chapter/e_3') then
                 content_body(options.body);return 'read'
             end
         end

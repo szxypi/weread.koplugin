@@ -4,6 +4,7 @@ local body='synthetic source';local stamp=string.rep('c',64)
 local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,file_id=string.rep('a',64),
     source_sha256=Crypto.sha256_hex(body)}
 local live=true;local account=string.rep('d',20);local fetches=0;local version=7;local replaced=false;local resolved_index=2
+local source_format='web_xhtml';local chapter_book='42'
 package.preload['weread.lib.native_position_contract']=function() return {account_key=function(vid)
     return vid=='123' and account or nil
 end} end
@@ -13,9 +14,10 @@ end} end
 package.preload['weread.lib.native_direct_position']=function() return {verified_source=function(_,_,e,_,_,_,current,options)
     fetches=fetches+1
     if not current() then return nil,'invalid' end
-    local ok=pcall(function() options.verify_catalog({bookId='42',bookVersion=version}) end)
+    assert(options.allow_txt==true)
+    local ok=pcall(function() options.verify_catalog({bookId=chapter_book,bookVersion=version}) end)
     if not ok then return nil,'source_changed' end
-    return e==entry and body or nil,nil,stamp,e.chapter_idx or resolved_index
+    return e==entry and body or nil,nil,stamp,e.chapter_idx or resolved_index,source_format
 end} end
 local TimeSource=require('weread.lib.native_direct_readtime_source')
 local selection={book_id='42',file_id=entry.file_id,book_version=7}
@@ -34,8 +36,13 @@ assert(not moved and why=='source_changed','changed resolved index was accepted'
 entry.chapter_idx=2
 version=8;local bad,reason=observe();assert(not bad and reason=='source_changed');version=7
 selection.file_id=string.rep('b',64);bad,reason=observe();assert(not bad and reason=='file_changed')
-selection.file_id=entry.file_id;selection.book_version=0;bad,reason=observe();assert(not bad and reason=='invalid')
-selection.book_version=7;replaced=true;bad,reason=observe();assert(not bad and reason=='file_changed');replaced=false
+selection.file_id=entry.file_id;selection.book_version=0;bad,reason=observe();assert(not bad and reason=='file_changed')
+entry.book_version=0;version=nil;chapter_book=42;bad,reason=observe();assert(not bad and reason=='source_changed')
+source_format='web_txt';local txt=assert(observe());assert(txt.format=='web_txt' and txt.book_version==0 and observe(txt))
+version=0;bad,reason=observe();assert(not bad and reason=='source_changed','explicit Web version passed the missing-version guard')
+version=nil;chapter_book=43;bad,reason=observe();assert(not bad and reason=='source_changed','other Web book passed')
+selection.book_version=7;entry.book_version=7;version=7;chapter_book='42';source_format='web_xhtml'
+replaced=true;bad,reason=observe();assert(not bad and reason=='file_changed');replaced=false
 local before=fetches
 bad,reason=TimeSource.observe({}, {},string.rep('e',20),selection,'/synthetic.epub',native,{},current)
 assert(not bad and reason=='invalid' and fetches==before,'wrong account reached source read')

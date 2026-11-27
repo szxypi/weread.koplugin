@@ -32,7 +32,7 @@ local function source_map(client,settings,entry,file,native,web,active,options,a
     local format=source.is_text and 'web_txt' or 'web_xhtml'
     local checked
     if entry.chapter_idx==nil and options and options.resolve_index==true then
-        checked=Currentness.fetch_resolving_index(client,expected,web,options)
+        checked=Currentness.fetch_resolving_index(client,expected,web,options,format)
         expected.chapter_idx=checked and checked.chapter_idx
     else
         expected=Currentness.expected(expected)

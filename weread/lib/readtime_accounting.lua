@@ -7,10 +7,10 @@ local Dates=require('weread.lib.read_stats')
 local M={}
 function M.day(stamp) return math.floor((stamp+28800)/86400)*86400-28800 end
 local function copy(v) if type(v)~='table' then return v end;local o={};for k,x in pairs(v) do o[k]=copy(x) end;return o end
-function M.window(rows,book,now,current_day)
+function M.window(rows,book,now,current_day,native_txt)
     local seconds,version
     if C.cb_id(book) then seconds,version=Wire.validate_cb_rows(rows,book,now)
-    else seconds,version=Wire.validate_rows(rows,book,now) end
+    else seconds,version=Wire.validate_rows(rows,book,now,native_txt) end
     local first=M.day(rows[1].start_time)
     assert(current_day==true and C.id(book) and first==M.day(now)
         or not current_day and first<M.day(now),'readtime_accounting/day')

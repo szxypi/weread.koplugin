@@ -95,6 +95,10 @@ function M:begin(account,selection,metadata)
         local cb=metadata.protocol=='native-historical-time-cst-cb-v1' and C.cb_id(metadata.book_id)
         local native=type(metadata.source)=='table' and metadata.source.kind=='native_direct'
         if native then assert(metadata.source.account==account and selection.native_direct==true,'source') end
+        if native and selection.book_version==0 then
+            assert(metadata.book_version==0 and selection.book_id==metadata.book_id and selection.file_id==metadata.file_id
+                and C.native_txt(metadata.source,metadata.book_id,metadata.file_id,account),'source')
+        end
         local current=metadata.protocol=='native-current-time-cst-v1'
         assert(not current or native and selection.current_day==true
             and metadata.day==require('weread.lib.readtime_accounting').day(self.now()),'source')

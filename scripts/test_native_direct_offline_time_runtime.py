@@ -10,6 +10,7 @@ import tempfile
 import threading
 from urllib.parse import parse_qs, urlsplit
 import test_native_full_book_runtime as fixture
+from test_native_chapter_archive_runtime import plain_tar
 from run_persistent_ui_probe import extract_candidate
 from test_native_direct_navigation_runtime import frame
 
@@ -17,6 +18,16 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 class IndexedHandler(fixture.Handler):
+    def book_format(self):
+        return 'txt' if self.server.plain_text else super().book_format()
+
+    def chapter_archive(self, uid):
+        if not self.server.plain_text:
+            return super().chapter_archive(uid)
+        manifest = json.dumps(dict(bookId='42', chapters=[dict(chapterUid=int(uid))]))
+        text = f'Full chapter {uid} native marker readable text.\r\n中文😀\r\n' * 10
+        return plain_tar([('info.txt', manifest.encode()), (uid + '.txt', text.encode())])
+
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
         if target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos' and self.command == 'POST':
@@ -36,8 +47,9 @@ class IndexedHandler(fixture.Handler):
         super().dispatch()
 
 
-def run(runtime):
+def run(runtime, plain_text=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), IndexedHandler)
+    server.plain_text = plain_text
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -72,7 +84,8 @@ def run(runtime):
                                               input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=150)
                     saved = frame(prepared, 'WEREAD_DIRECT_NAV_PREPARED=')
                     probe = subprocess.run([str(runtime / 'luajit'), str(REPO / 'spec/koreader/native_direct_offline_time_probe.lua'), str(REPO)],
-                                           input=json.dumps({'first': saved['37'], 'second': saved['38'], 'indexed': indexed}), text=True, env=env, cwd=runtime,
+                                           input=json.dumps({'first': saved['37'], 'second': saved['38'], 'indexed': indexed,
+                                                             'version': 0 if plain_text else 1}), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
                     assert frame(probe, 'WEREAD_DIRECT_OFFLINE_TIME=') == dict(ok=True, network_blocked=True,
                         real_statistics=True, pause_resume=True, deduplicated=True, chapter_change=True, online_capture=True,
@@ -90,4 +103,6 @@ def run(runtime):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--txt', action='store_true')
+    args = parser.parse_args()
+    run(args.koreader.resolve(), args.txt)

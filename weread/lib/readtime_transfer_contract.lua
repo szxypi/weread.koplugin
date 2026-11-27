@@ -53,6 +53,11 @@ function M.row(row)
 end
 function M.part(part) return exact_keys(part,PART_KEYS) and M.integer(part.row_id,1,2^53-1)
     and M.integer(part.start_time,1,4102444800) and M.integer(part.duration,1,60) end
+function M.native_txt(source,book,file_id,account)
+    return type(source)=='table' and source.kind=='native_direct' and source.format=='web_txt' and source.book_version==0
+        and M.id(book) and source.book_id==book and M.hash(file_id) and source.file_id==file_id
+        and M.account(account) and source.account==account
+end
 function M.verified(row,now,allow_cb,allow_native)
     if not M.row(row) then return false end
     local positive=(M.id(row.book_id) or allow_cb==true and M.cb_id(row.book_id))
@@ -60,7 +65,7 @@ function M.verified(row,now,allow_cb,allow_native)
     -- This only permits selection. The task must subsequently prove that the
     -- original archive is content-bound TXT and the current server is unversioned.
     local imported_zero=allow_cb==true and M.cb_id(row.book_id) and row.book_version==0 and row.version_source=='epub_unknown'
-    local native=allow_native==true and M.id(row.book_id) and row.book_version>0 and row.version_source=='native_direct'
+    local native=allow_native==true and M.id(row.book_id) and row.version_source=='native_direct'
     return (positive or imported_zero or native) and M.hash(row.file_id)
         and row.start_time+row.duration<=now and pcall(Protocol.zone,row.time_zone)
 end
@@ -101,7 +106,7 @@ function M.select(rows,coverage,now,book_id,allow_cb,allow_native)
         protocol[#protocol+1]={start_time=part.start_time,duration=part.duration,time_zone=row.time_zone,book_version=row.book_version}
     end
     if M.cb_id(selected.book_id) then Protocol.validate_cb_rows(protocol,selected.book_id,now)
-    else Protocol.validate_rows(protocol,selected.book_id,now) end
+    else Protocol.validate_rows(protocol,selected.book_id,now,selected.native_direct==true and selected.book_version==0) end
     selected.protocol_rows=protocol
     selected.rows_hash=M.digest(selected.rows);selected.parts_hash=M.digest(selected.parts)
     return selected

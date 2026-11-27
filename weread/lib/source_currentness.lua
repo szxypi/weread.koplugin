@@ -198,7 +198,7 @@ local function fetch(client,expected_value,selected,format,options,cb,resolve_in
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
     local expected
     if resolve_index then
-        if cb or format~='web_xhtml' or type(expected_value)~='table' then fail('expected') end
+        if cb or type(expected_value)~='table' then fail('expected') end
         local count,copy=0,{}
         for key,value in pairs(expected_value) do
             if key~='book_id' and key~='chapter_uid' and key~='raw_sha256' and key~='raw_bytes' then fail('expected') end
@@ -339,8 +339,8 @@ end
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
 -- This is only a source proof: a unique index from the first catalog must
 -- survive the independent second catalog and the exact raw-content check.
-function M.fetch_resolving_index(client,value,selected,options)
-    return fetch(client,value,selected,'web_xhtml',options,false,true)
+function M.fetch_resolving_index(client,value,selected,options,format)
+    return fetch(client,value,selected,format,options,false,true)
 end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
 -- Read-only: this proof alone cannot create a position or authorize an upload.

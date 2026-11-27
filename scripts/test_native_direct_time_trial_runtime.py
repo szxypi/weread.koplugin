@@ -25,9 +25,11 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--ko2',action='store_true');parser.add_argument('--automatic',action='store_true')
     parser.add_argument('--full-interval',action='store_true');parser.add_argument('--unstarted',action='store_true')
+    parser.add_argument('--txt',action='store_true')
     args=parser.parse_args()
     if args.full_interval and not args.automatic:parser.error('full interval requires automatic mode')
     server=ThreadingHTTPServer(('127.0.0.1',0),StoreHandler)
+    server.plain_text=args.txt
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='direct-time-trial-test-',dir='/dev/shm') as directory:
@@ -37,6 +39,7 @@ def main():
             for armed,ack,add_zero in cases:
                 server.time_preflight=True;server.no_position=args.unstarted;server.live_time=True;server.time_delta=0;server.time_ack=ack
                 server.time_initial=20 if args.unstarted else 0
+                server.time_summary='Synthetic point'
                 server.time_add_zero=add_zero
                 server.mode='preview';server.calls=[];server.leaked=False;server.valid=True;server.review=None
                 fixture.BODY=BODY
@@ -49,10 +52,13 @@ def main():
                     months={str(month):dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0)},
                     guest='5ecdcfd7f',config_token='synthetic-config')
                 if args.unstarted:baseline['unstarted']=True
-                expected=dict(book_id='42',uid='37',version=1,source_sha256=hashlib.sha256(BODY.encode()).hexdigest())
+                raw=fixture.TXT if args.txt else BODY
+                expected=dict(book_id='42',uid='37',version=0 if args.txt else 1,native_txt=args.txt,
+                    source_sha256=hashlib.sha256(raw.encode()).hexdigest())
                 payload=dict(token=token,armed=armed,credentials=dict(vid='12345678',accessToken='synthetic-access',
                     refreshToken='synthetic-refresh',deviceId='eink334691225'+'0'*19),
-                    web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},book_id='42',uid='37',book_version=1,
+                    web_cookies={'wr_vid':'12345678','wr_skey':'synthetic-web-access'},book_id='42',uid='37',
+                    book_version=expected['version'],native_txt=args.txt,
                     source_sha256=expected['source_sha256'],months=[month],
                     mock_endpoint='http://127.0.0.1:'+str(server.server_port))
                 if args.automatic:payload['automatic']=True

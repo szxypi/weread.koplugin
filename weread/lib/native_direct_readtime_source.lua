@@ -17,7 +17,7 @@ function M.scan_page(settings,account,scope,selection,cursor,prior,current,optio
     options=options or {};local cache=options.cache or Cache
     if not Contract.account(account) or type(scope)~='table' or Account(scope.vid)~=account
         or type(selection)~='table' or not Contract.id(selection.book_id) or not Contract.hash(selection.file_id)
-        or not Contract.integer(selection.book_version,1,2147483647) or not Contract.integer(cursor,1,2001)
+        or not Contract.integer(selection.book_version,0,2147483647) or not Contract.integer(cursor,1,2001)
         or type(current)~='function' or current()~=true then return {kind='unavailable'} end
     local rows=cache.list(settings,scope.vid,selection.book_id,current)
     if not Contract.array(rows,0,2000) or cursor>#rows+1 then return {kind='unavailable'} end
@@ -59,24 +59,29 @@ function M.observe(client,settings,account,selection,file,native,web,current,pre
     if not Contract.account(account) or type(native)~='table' or type(native.scope)~='table'
         or Account(native.scope.vid)~=account or type(selection)~='table'
         or not Contract.id(selection.book_id) or not Contract.hash(selection.file_id)
-        or not Contract.integer(selection.book_version,1,2147483647)
+        or not Contract.integer(selection.book_version,0,2147483647)
         or type(file)~='string' or type(current)~='function' then return nil,'invalid' end
     local ok,entry=pcall(Cache.identify,settings,native.scope.vid,file,current)
     if not ok or not entry or entry.book_id~=selection.book_id or entry.file_id~=selection.file_id
         or entry.book_version~=selection.book_version then return nil,'file_changed' end
+    local unversioned=selection.book_version==0
     local function verify_catalog(payload)
-        assert(Source.version(payload,selection.book_id)==selection.book_version,'native_direct_time/version')
+        local valid=unversioned and Source.unversioned_native_txt(payload,selection.book_id)
+            or not unversioned and Source.version(payload,selection.book_id)==selection.book_version
+        assert(valid,'native_direct_time/version')
     end
-    local raw,why,stamp,index=Position.verified_source(client,settings,entry,file,native,web,current,
-        {verify_catalog=verify_catalog,resolve_index=true})
+    local raw,why,stamp,index,format=Position.verified_source(client,settings,entry,file,native,web,current,
+        {verify_catalog=verify_catalog,resolve_index=true,allow_txt=true})
     if not raw then return nil,why end
-    if not Contract.hash(stamp) or not Contract.integer(index,0,1000000)
+    if format~='web_xhtml' and format~='web_txt' or unversioned and format~='web_txt'
+        or not Contract.hash(stamp) or not Contract.integer(index,0,1000000)
         or entry.chapter_idx~=nil and entry.chapter_idx~=index
         or Crypto.sha256_hex(raw)~=entry.source_sha256 then return nil,'source_changed' end
     local result={kind='native_direct',ref={kind='native_direct',file=file,chapter_uid=entry.chapter_uid,
         source_sha256=entry.source_sha256},book_id=entry.book_id,chapter_uid=entry.chapter_uid,chapter_idx=index,
         file_id=entry.file_id,book_version=entry.book_version,source_sha256=entry.source_sha256,
         catalog_stamp=stamp,account=account}
+    if format=='web_txt' then result.format=format end
     if previous and Contract.digest(previous)~=Contract.digest(result) then return nil,'source_changed' end
     return result
 end

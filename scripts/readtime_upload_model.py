@@ -70,7 +70,7 @@ def local_zone():
     return zone(('-' if minutes<0 else '+')+f'{abs(minutes)//60:02}:{abs(minutes)%60:02}')
 
 
-def validate_rows(rows,book_id,now):
+def validate_rows(rows,book_id,now,*,native_txt=False):
     if not isinstance(book_id,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',book_id) or not integer(now,1,4102444800):raise ValueError('readtime/identity_clock')
     if not isinstance(rows,list) or not 1<=len(rows)<=100:raise ValueError('readtime/rows')
     group=None;previous=0;total=0
@@ -79,7 +79,7 @@ def validate_rows(rows,book_id,now):
         if (not isinstance(row,dict) or set(row)!={'start_time','duration','time_zone','book_version'}
                 or not integer(row['start_time'],1,4102444800) or not integer(row['duration'],1,60)
                 or row['start_time']<previous or row['start_time']+row['duration']>now
-                or not integer(row['book_version'],1,2147483647)):raise ValueError('readtime/rows')
+                or not integer(row['book_version'],0 if native_txt is True else 1,2147483647)):raise ValueError('readtime/rows')
         zone(row['time_zone']);current=row['book_version']
         if group is not None and current!=group:raise ValueError('readtime/mixed_source')
         group=current;previous=row['start_time']+row['duration'];total+=row['duration']
@@ -100,12 +100,17 @@ def hours(rows):
     return [buckets[key] for key in sorted(buckets)]
 
 
-def batch(credentials,book_id,rows,guest,config_token,now,random,outer_timestamp,outer_random,*,current_zone):
-    validate_credentials(credentials);total=validate_rows(rows,book_id,now);tz=zone(current_zone)
+def batch(credentials,book_id,rows,guest,config_token,now,random,outer_timestamp,outer_random,*,current_zone,native_txt=False,native_txt_summary=None):
+    validate_credentials(credentials);total=validate_rows(rows,book_id,now,native_txt=native_txt);tz=zone(current_zone)
+    if native_txt is True:
+        summary=native_txt_summary
+        if (not isinstance(summary,str) or len(summary)>512 or len(summary.encode())>2048
+                or any(ord(char)<32 and char not in '\t\n\r' for char in summary)):raise ValueError('readtime/summary')
+    else:summary=''
     if (not integer(random,0,999) or not integer(outer_random,0,999) or not integer(outer_timestamp,1000,4102444800999)
             or not 0<=outer_timestamp-now*1000<2000 or any(not isinstance(t,str) or not 1<=len(t.encode())<=4096 for t in (guest,config_token))):raise ValueError('readtime/parameters')
     buckets=hours(rows)
-    body=dict(bookId=book_id,bookVersion=rows[0]['book_version'],appId='',deviceId=credentials['deviceId'],installId='',summary='',
+    body=dict(bookId=book_id,bookVersion=rows[0]['book_version'],appId='',deviceId=credentials['deviceId'],installId='',summary=summary,
         progress=0,currentProgress=0,autoTime=0,isLecture=0,isResendReadingInfo=1,lectureTime=0,lectureTextTime=0,novalTime=0,ttsTime=0,
         finish=False,risk=0,readingTime=total,recordCreateTimeZone=tz,timestamp=now,random=random,hours=buckets)
     parts=[credentials['vid'],body['deviceId'],'',book_id,'0',tz,str(total),'0']

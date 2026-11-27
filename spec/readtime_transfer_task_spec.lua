@@ -396,6 +396,7 @@ do
     local DirectCurrent=require('weread.lib.source_currentness')
     local old_identify,old_fetch,old_web_fetch,old_resolve=Cache.identify,NativeSource.fetch,DirectCurrent.fetch,DirectCurrent.fetch_resolving_index
     local direct_body='<html><body><p>Synthetic native chapter text.</p></body></html>'
+    local catalog_version,native_text=7,false
     f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,false,{version_source='native_direct'})
     f.options.observe_source=nil
     local direct_entry={owner=Crypto.sha256_hex('native-direct-account\0'..f.native.scope.vid),book_id='42',chapter_uid='7',
@@ -403,12 +404,14 @@ do
         source_sha256=Crypto.sha256_hex(direct_body),file_id=f.file_id,key=string.rep('b',64),copy=0}
     local reference={kind='native_direct',file='/synthetic/source.epub',chapter_uid='7',source_sha256=direct_entry.source_sha256}
     Cache.identify=function(_settings,_vid,file,current) return current() and file==reference.file and direct_entry or nil end
-    NativeSource.fetch=function() return {is_text=false,book_version=7,body=direct_body} end
-    DirectCurrent.fetch=function(_client,expected,_web,_format,options)
-        local catalog={{bookId='42',bookVersion=7}}
+    NativeSource.fetch=function() return {is_text=native_text,book_version=direct_entry.book_version,body=direct_body} end
+    DirectCurrent.fetch=function(_client,expected,_web,format,options)
+        expect(format==(native_text and 'web_txt' or 'web_xhtml'),'wrong source format reached Web verification')
+        local catalog={{bookId='42',bookVersion=catalog_version}}
         options.verify_catalog(catalog);options.verify_catalog(catalog)
         local proof={};for key,value in pairs(expected) do proof[key]=value end
         proof.catalog_stamp=string.rep('d',64);proof.source_current=true;proof.upload_verified=false
+        if native_text then proof.basis='raw_txt_utf16' end
         return proof
     end
     result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
@@ -418,15 +421,53 @@ do
         'native source proof was not bound to journal')
     f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,false,{version_source='native_direct'})
     f.options.observe_source=nil;direct_entry.chapter_idx=nil;direct_entry.file_id=f.file_id
-    DirectCurrent.fetch_resolving_index=function(client,expected,web,options)
+    DirectCurrent.fetch_resolving_index=function(client,expected,web,options,format)
         expect(expected.chapter_idx==nil and options.resolve_index==true,'index resolution was not scoped to time')
         local copy={};for key,value in pairs(expected) do copy[key]=value end;copy.chapter_idx=0
-        return DirectCurrent.fetch(client,copy,web,'web_xhtml',options)
+        return DirectCurrent.fetch(client,copy,web,format,options)
     end
     result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
     expect(result.kind=='confirmed' and f.posts==1 and direct_entry.chapter_idx==nil,'index-free chapter time did not settle')
     record=assert(f.journal:get(f.account,result.attempt))
     expect(record.metadata.source.chapter_idx==0,'resolved index not bound to time proof')
+    catalog_version=nil;native_text=true;direct_entry.book_version=0
+    direct_body='\239\187\191Synthetic native TXT text.\r\n中文😀'
+    direct_entry.source_sha256=Crypto.sha256_hex(direct_body);reference.source_sha256=direct_entry.source_sha256
+    local function direct_txt_fixture(mode,today)
+        local trial=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,false,
+            {version_source='native_direct',book_version=0,native_txt=true,current_day=today})
+        trial.options.observe_source=nil;direct_entry.file_id=trial.file_id
+        return trial
+    end
+    for _,today in ipairs({false,true}) do
+        f=direct_txt_fixture(today and 'no_position' or nil,today)
+        result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+        expect(result.kind=='confirmed' and f.posts==1 and f.body.books[1].bookVersion==0
+            and f.body.books[1].chapterUid==nil and f.body.books[1].summary==(today and '' or 'Synthetic complete summary'),
+            'native TXT time did not settle with the original summary')
+        record=assert(f.journal:get(f.account,result.attempt));expect(record.metadata.source.format=='web_txt')
+    end
+    for _,mode in ipairs({'metadata_format','metadata_version','metadata_conflict','metadata_zero_string','cb_web_counter_mismatch',
+        'absent_summary','empty_summary','cb_summary_mismatch','cb_summary_changed_before'}) do
+        f=direct_txt_fixture(mode,true)
+        result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+        expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'native TXT sent after '..mode)
+    end
+    f=direct_txt_fixture('cb_web_counter_changed',false)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(result.kind=='unconfirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==0,'Web mismatch settled TXT time')
+    record=assert(f.journal:pending(f.account));expect(record.phase=='acknowledged')
+    f.mode=nil
+    result=Task.resolve(f.client,f.settings,f.native,f.web,record,{reference},f.journal,f.options)
+    expect(result.kind=='confirmed' and not result.attempted and f.posts==1,'TXT read-only resolution resent or failed')
+    f=direct_txt_fixture('no_ack',true)
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(result.kind=='unconfirmed' and f.posts==1 and f.journal:pending(f.account)~=nil,'unknown TXT receipt was lost')
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(not result.attempted and f.posts==1,'unknown TXT receipt was resent')
+    f=direct_txt_fixture(nil,true);native_text=false
+    result=Task.run(f.client,f.settings,f.native,f.web,f.selection,{reference},f.journal,f.options)
+    expect(not result.attempted and f.posts==0,'zero-version XHTML reached the time endpoint')
     Cache.identify,NativeSource.fetch,DirectCurrent.fetch,DirectCurrent.fetch_resolving_index=old_identify,old_fetch,old_web_fetch,old_resolve
 end
 Signing.time_zone=original_zone

@@ -83,6 +83,7 @@ function M.new(mode,expect,roots,cb,config)
             data=(f.mode=='no_ack' or f.mode=='no_position_no_ack') and {} or {succ=1}
         elseif options.url:find('/book/info?',1,true) then
             data={bookId=f.book_id,bookVersion=(f.mode=='metadata_version' or f.mode=='metadata_changed_after' and f.posts>0) and 8 or f.book_version}
+            if config.native_txt then data.format=f.mode=='metadata_format' and 'epub' or 'txt' end
             if f.mode=='metadata_conflict' then data.version=8 end
             if f.mode=='metadata_missing' then data.bookVersion=nil end
             if f.mode=='metadata_zero_string' then data.bookVersion='0' end

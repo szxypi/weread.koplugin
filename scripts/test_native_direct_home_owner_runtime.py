@@ -20,13 +20,16 @@ class StoreHandler(Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
         if getattr(self.server,'time_preflight',False):
+            txt=getattr(self.server,'plain_text',False)
             value=None
             if getattr(self.server,'live_time',False) and target.hostname=='i.weread.qq.com' \
                     and target.path=='/book/batchUploadProgress' and self.command=='POST':
                 request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-                self.server.valid &= len(request.get('books',[]))==1 and request['books'][0].get('bookId')=='42'
+                self.server.valid &= (len(request.get('books',[]))==1 and request['books'][0].get('bookId')=='42'
+                    and request['books'][0].get('bookVersion')==(0 if txt else 1))
                 if self.server.time_ack:
                     self.server.time_delta+=request['books'][0]['readingTime'];value={'succ':1}
+                    if txt and not self.server.no_position:self.server.time_summary=request['books'][0]['summary']
                 else:value={'succ':0}
             if target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
                 value=dict(timestamp=int(time.time()),bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,
@@ -37,6 +40,8 @@ class StoreHandler(Handler):
                     value.pop('chapterIdx');value.pop('summary')
             elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET':
                 value=dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=1,progress=50,summary='Synthetic point')
+                if txt:
+                    value.update(readingTime=100+getattr(self.server,'time_delta',0),recordReadingTime=0,ttsTime=0)
                 if self.server.no_position:
                     value.update(chapterUid=0,chapterOffset=0,progress=0,
                         readingTime=getattr(self.server,'time_initial',0)+getattr(self.server,'time_delta',0),
@@ -44,7 +49,8 @@ class StoreHandler(Handler):
             elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
                 body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 self.server.valid &= body==dict(bookIds=['42'])
-                value=dict(data=[dict(bookId='42',book=dict(bookId='42',bookVersion=1),
+                book=dict(bookId='42') if txt else dict(bookId='42',bookVersion=1)
+                value=dict(data=[dict(bookId='42',book=book,
                     updated=[dict(chapterUid=37,chapterIdx=1),dict(chapterUid=38,chapterIdx=2)])])
             elif target.hostname=='i.weread.qq.com' and target.path=='/readdata/detail' and self.command=='GET':
                 month=int(parse_qs(target.query)['baseTime'][0]);delta=getattr(self.server,'time_delta',0)
@@ -56,6 +62,10 @@ class StoreHandler(Handler):
                 value=dict(token='synthetic-config')
             elif target.hostname=='i.weread.qq.com' and target.path=='/feature' and self.command=='GET':
                 value=dict(feature={})
+            if txt and value is not None and 'summary' in value and getattr(self.server,'time_delta',0):
+                summary=self.server.time_summary
+                if summary:value['summary']=summary
+                else:value.pop('summary')
             if value is not None:
                 self.server.calls.append((self.command,target.hostname,target.path))
                 self.server.leaked |= any(key.lower() in ('vid','accesstoken','cookie') for key in self.headers)
@@ -69,7 +79,8 @@ class StoreHandler(Handler):
                 data = dict(books=[dict(bookId='42',title='Synthetic book',author='Fixture',searchIdx=1)],hasMore=0)
             else:
                 self.server.valid &= parse_qs(target.query) == dict(bookId=['42'])
-                data = dict(bookId='42',title='Synthetic book',author='Fixture',format='epub',version=1)
+                txt=getattr(self.server,'plain_text',False)
+                data = dict(bookId='42',title='Synthetic book',author='Fixture',format='txt' if txt else 'epub',version=0 if txt else 1)
             raw=json.dumps(data).encode()
             self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
             return
