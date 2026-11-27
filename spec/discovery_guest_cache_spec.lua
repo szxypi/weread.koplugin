@@ -11,7 +11,10 @@ package.preload['weread.lib.discovery_cache']=function() return {new=function() 
         if not personal_missing then return {kind='search',source_kind=personal_source} end
     end,
     write=function() personal_writes=personal_writes+1;return 'personal-generation' end,
-    remember=function() personal_remembered=personal_remembered+1;return true end,
+    remember=function(_self,state,_position,shared_public)
+        assert(state._shared_public_category==shared_public)
+        personal_remembered=personal_remembered+1;return true
+    end,
 } end} end
 package.preload['weread.lib.public_discovery_cache']=function() return {new=function() return {
     read=function(_self,query,cursor)
@@ -55,8 +58,8 @@ expect(not UI.read(host) and not UI.read(host,{kind='recommend'}) and not UI.rea
 value=UI.read(host,query,0)
 expect(value and value._shared_public_category and value.account==account and public_reads==before+1,
     'missing account category did not open the explicit guest batch')
-expect(not UI.remember(host,value,{anchor=1}) and public_remembered==0 and personal_remembered==0,
-    'account browsing history was written while using guest data')
+expect(UI.remember(host,value,{anchor=1}) and public_remembered==0 and personal_remembered==1,
+    'borrowed category position was not confined to the signed-in account')
 personal_missing=false;local personal_before=personal_reads
 local next_batch=UI.read(host,query,20,value)
 expect(next_batch and next_batch.cursor==20 and next_batch._shared_public_category and personal_reads==personal_before,

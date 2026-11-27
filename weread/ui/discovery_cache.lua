@@ -15,7 +15,12 @@ function M.read(host,query,cursor,continuation)
     local shared=category and continuation and continuation._shared_public_category
     local ok,value,from_public=pcall(function()
         if not shared then
-            local own=store(host,account):read(query,cursor)
+            local resolve_public=account and not query and cursor==nil and function(key,generation,batch)
+                local restored=store(host):read_reference(key,generation,batch)
+                if restored then restored._shared_public_category=true end
+                return restored
+            end
+            local own=store(host,account):read(query,cursor,resolve_public)
             if own or not (category and cursor==0 and not continuation) then return own end
         end
         return store(host):read(query,cursor),true
@@ -53,8 +58,9 @@ function M.save(host,state,previous,continuation)
     return false
 end
 function M.remember(host,state,position)
-    if state._shared_public_category or not state._cache_view or state.account~=host.library_db:accountKey() then return false end
-    local ok,saved=pcall(function() return store(host,state.account):remember(state,position) end)
+    if not state._cache_view or state.account~=host.library_db:accountKey()
+        or state._shared_public_category and not state.account then return false end
+    local ok,saved=pcall(function() return store(host,state.account):remember(state,position,state._shared_public_category) end)
     return ok and saved==true
 end
 return M

@@ -26,6 +26,10 @@ function M:read(query,cursor)
     local value=self.cache:read(query,cursor)
     if public(value) then return value end
 end
+function M:read_reference(key,generation,cursor)
+    local value=self.cache:read_reference(key,generation,cursor)
+    if public(value) then return value end
+end
 function M:write(state,previous,continuation)
     if not public(state) or previous and not public(previous) then return nil end
     return self.cache:write(state,previous,continuation)

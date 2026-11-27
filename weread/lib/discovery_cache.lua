@@ -3,6 +3,9 @@
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
 local M={MAX_QUERIES=12,MAX_PAGES=12,MAX_PAYLOAD=2*1024*1024,MAX_TOTAL=16*1024*1024};M.__index=M
+-- Cache row serials start at one. Zero points to a guest category snapshot
+-- and lets older versions ignore the position and open an account-local list.
+local PUBLIC_REFERENCE_SERIAL=0
 local function fail() error('discovery_cache/invalid',0) end
 local function text(value,limit,empty)
     return type(value)=='string' and (empty or value~='') and #value<=limit and not value:find('[%z%c]')
@@ -163,24 +166,35 @@ local function cached_state(value,reference,cursor)
     if state then state._cache_view=reference end
     return state
 end
-local function resume(self,db)
+local function valid_reference(key,generation)
+    return type(key)=='string' and #key==64 and key:match('^[a-f0-9]+$')
+        and type(generation)=='string' and #generation==32 and generation:match('^[a-f0-9]+$')
+end
+local function resume(self,db,resolve_public)
     local row=statement(db,[[SELECT cache_key,serial,generation,cursor,anchor,focus
         FROM discovery_position WHERE id=1]])
-    if not row or not text(row[1],64) or #row[1]~=64 then return nil end
+    if not row or not valid_reference(row[1],row[3]) then return nil end
     local cursor,anchor=tonumber(row[4]),tonumber(row[5])
     if not integer(cursor) or not valid_position(anchor,row[6]) then return nil end
-    local ok,value,reference=pcall(read,self,db,row[1])
-    if not ok or not reference or reference.serial~=tonumber(row[2]) or reference.generation~=row[3] then return nil end
-    local state=cached_state(value,reference,cursor)
+    local serial=tonumber(row[2])
+    local state
+    if serial==PUBLIC_REFERENCE_SERIAL then
+        if resolve_public then state=resolve_public(row[1],row[3],cursor) end
+    else
+        local value,reference=read(self,db,row[1])
+        if reference and reference.serial==serial and reference.generation==row[3] then
+            state=cached_state(value,reference,cursor)
+        end
+    end
     if not state then return nil end
     state._browse_position={anchor=anchor,focus=row[6]}
     state._browse_saved=true
     return state
 end
-function M:read(query,cursor)
+function M:read(query,cursor,resolve_public)
     return run(self,function(db)
         if not query and cursor==nil then
-            local ok,state=pcall(resume,self,db)
+            local ok,state=pcall(resume,self,db,resolve_public)
             if ok and state then return state end
         end
         local value,reference
@@ -189,20 +203,33 @@ function M:read(query,cursor)
         return cached_state(value,reference,cursor)
     end)
 end
+function M:read_reference(key,generation,cursor)
+    if not valid_reference(key,generation) or not integer(cursor) then return nil end
+    return run(self,function(db)
+        local value,reference=read(self,db,key)
+        if reference and reference.generation==generation then return cached_state(value,reference,cursor) end
+    end)
+end
 
--- Only a batch still backed by the same cache row can remember a position.
--- Check its serial without reading or rewriting the cached books.
-function M:remember(state,position)
+-- Record the position without rewriting the cached books. A public reference
+-- is resolved against the same public generation when the account reopens it.
+function M:remember(state,position,shared_public)
     local reference=state._cache_view
     if not reference or not valid_position(position.anchor,position.focus) or not integer(state.cursor) then return false end
+    if shared_public and (state.kind~='category' or state.source_kind~='public'
+        or not valid_reference(reference.key,reference.generation) or M.key(state)~=reference.key) then return false end
     return run(self,function(db,begin,commit)
         begin()
-        local row=statement(db,'SELECT serial FROM discovery_cache WHERE cache_key=?',reference.key)
-        if not row or tonumber(row[1])~=reference.serial then return false end
+        local serial=PUBLIC_REFERENCE_SERIAL
+        if not shared_public then
+            local row=statement(db,'SELECT serial FROM discovery_cache WHERE cache_key=?',reference.key)
+            if not row or tonumber(row[1])~=reference.serial then return false end
+            serial=reference.serial
+        end
         statement(db,[[INSERT INTO discovery_position(id,cache_key,serial,generation,cursor,anchor,focus)
             VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET cache_key=excluded.cache_key,serial=excluded.serial,
             generation=excluded.generation,cursor=excluded.cursor,anchor=excluded.anchor,focus=excluded.focus]],
-            reference.key,reference.serial,reference.generation,state.cursor,position.anchor,position.focus)
+            reference.key,serial,reference.generation,state.cursor,position.anchor,position.focus)
         commit();return true
     end)
 end

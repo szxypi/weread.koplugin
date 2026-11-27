@@ -4,6 +4,7 @@ assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local scope,stage=assert(arg[2]),assert(arg[3])
 local personal=scope=='account'
+local shared=scope=='shared'
 package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -26,15 +27,17 @@ local function flush_actions()
 end
 local Cache=require('weread.ui.discovery_cache')
 local account
-if personal then
-    host.settings:set('account',{name='Synthetic',user_vid='900000',login_method='qr'})
-    host.settings:set('cookies',{wr_vid='900000',wr_skey='synthetic'})
+local function switch_account(vid)
+    host.settings:set('account',vid and {name='Synthetic',user_vid=vid,login_method='qr'} or {})
+    host.settings:set('cookies',vid and {wr_vid=vid,wr_skey='synthetic'} or {})
     assert(host.settings:flush())
-    account=assert(host.library_db:accountKey())
+    account=host.library_db:accountKey()
+    assert((account~=nil)==(vid~=nil))
 end
+if personal or shared and stage~='write' and stage~='replace' then switch_account('900000') end
 
 local function batch(query,cursor)
-    local state={account=account,source_kind=personal and 'native' or 'public',source_revision='synthetic',
+    local state={account=account,source_kind=account and 'native' or 'public',source_revision='synthetic',
         cursor=cursor,next_cursor=cursor+20,has_more=cursor==0,loaded_at=os.time(),books={}}
     for key,value in pairs(query) do state[key]=value end
     for index=1,20 do
@@ -44,6 +47,7 @@ local function batch(query,cursor)
 end
 local query=personal and {kind='search',keyword='Synthetic search'}
     or {kind='category',category_id='rising',category_title='Synthetic rank',rank=true}
+local account_fallback={kind='search',keyword='Newer search'}
 local function focus(index)
     local view=host.shelf_view
     local focused=assert(view._item_rows[index])
@@ -56,18 +60,29 @@ local function assert_position(index)
     assert(host.discovery_state.cursor==0 and host.discovery_state.cached and view.page==2)
     assert(view:getFocusedBookId()==tostring(900000+view.page_size+index),'focused book did not survive reopening')
 end
+local function press(label)
+    local translated=require('weread.lib.i18n').tr(label)
+    for _,button in ipairs(host.shelf_view._action_buttons) do
+        if button.text==translated then button.callback();flush_actions();return end
+    end
+    error('offline batch unavailable: '..label)
+end
 if stage=='write' then
     local first=batch(query,0);assert(Cache.save(host,first))
     assert(Cache.save(host,batch(query,20),first,true))
-    local other=personal and {kind='search',keyword='Newer search'}
-        or {kind='category',category_id='different',category_title='Newer rank',rank=true}
+    local other=personal and account_fallback or {kind='category',category_id='different',category_title='Newer rank',rank=true}
     assert(Cache.save(host,batch(other,0)))
-    assert(Cache.open(host,query,20))
+    if shared then
+        assert(Cache.remember(host,assert(Cache.read(host,query,20)),{anchor=1,focus='900021'}))
+        switch_account('900000')
+        assert(Cache.save(host,batch(account_fallback,0)))
+        assert(Cache.open(host,query,0) and host.discovery_state._shared_public_category)
+        press('Next batch')
+    else
+        assert(Cache.open(host,query,20))
+    end
     assert(host.discovery_state.cursor==20)
-    local previous=require('weread.lib.i18n').tr('Previous batch')
-    local action
-    for _,button in ipairs(host.shelf_view._action_buttons) do if button.text==previous then action=button end end
-    assert(action,'offline previous batch unavailable');action.callback();flush_actions()
+    press('Previous batch')
     assert(host.discovery_state.cursor==0)
     local writes,remember=0,Cache.remember
     Cache.remember=function(...) writes=writes+1;return remember(...) end
@@ -105,11 +120,33 @@ if stage=='write' then
     assert(writes==1,'an unchanged position was written again')
     focus(3);UI:flushSettings()
     assert(writes==2,'flushing settings did not save the new focus')
-else
-    assert(stage=='reopen')
+elseif stage=='reopen' then
     host:openBookstore()
     assert_position(3)
     assert(host.discovery_state.kind==query.kind and host.discovery_state.keyword==query.keyword
         and host.discovery_state.category_id==query.category_id and not host.discovery_state.source_revision)
+    if shared then
+        assert(host.discovery_state._shared_public_category and host.discovery_state.account==account)
+        press('Next batch');assert(host.discovery_state._shared_public_category and host.discovery_state.cursor==20)
+        host:closeWeReadUI();host.discovery_state=nil
+        switch_account('900001')
+        host:openBookstore();assert(not host.discovery_state,'shared position crossed accounts')
+        host:closeWeReadUI()
+        switch_account(nil)
+        host:openBookstore()
+        assert(host.discovery_state.cursor==20 and host.shelf_view:getFocusedBookId()=='900021'
+            and not host.discovery_state._shared_public_category,'account browsing changed the guest position')
+    end
+elseif stage=='replace' then
+    assert(shared)
+    switch_account(nil)
+    local changed=batch(query,0);changed.books[1].title='Another guest result'
+    assert(Cache.save(host,changed))
+else
+    assert(shared and stage=='reopen-stale')
+    host:openBookstore()
+    assert(host.discovery_state and host.discovery_state.kind=='search'
+        and host.discovery_state.keyword==account_fallback.keyword and not host.discovery_state._shared_public_category,
+        'obsolete public position opened a different generation')
 end
 print('WEREAD_BOOKSTORE_POSITION='..scope..'/'..stage)
