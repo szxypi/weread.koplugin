@@ -51,6 +51,7 @@ Client.request=function(self,options)
     elseif url==base..'/book/info?bookId='..input.book_id then assert(options.method=='GET')
     elseif input.cloud_chapter_uid and url==base..'/book/getProgress?bookId='..input.book_id then
         assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1' and options.method=='GET')
+        assert(self.settings.mock_endpoint==input.mock_endpoint)
     elseif url==base..'/book/chapterInfos' then
         local body=json.decode(options.body)
         assert(options.method=='POST' and #body.bookIds==1 and body.bookIds[1]==input.book_id
@@ -208,11 +209,37 @@ worker.start=function(self,task,callback,...)
     end,...)
 end
 host.showInfo=function() ui_failed=true end
+local resume_message,cloud_xpointer
+if input.exact_resume then
+    assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
+    local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
+    CloudOpen.receive=function(next_host,...)
+        next_host.settings.mock_endpoint=input.mock_endpoint
+        next_host.showInfo=function(_,message) resume_message=message end
+        return receive(next_host,...)
+    end
+    local geometry=require('weread.lib.reader_position');local goto_xpointer=geometry.goto_xpointer
+    geometry.goto_xpointer=function(reader,point)
+        cloud_xpointer=point
+        return goto_xpointer(reader,point)
+    end
+end
 ctx.menu:onMenuSelect(ctx.menu.item_table[index])
 stage='reader';pump(function() return ui_failed or Reader.instance and Reader.instance.weread and Reader.instance.document end)
 if ui_failed then print('WEREAD_DIRECT_HOME_REASON='..(failure or 'unavailable'));error('chapter preparation failed') end
 local reader=Reader.instance;local path=reader.document.file
 assert(require('weread.lib.native_direct_path').contains(reader.weread.settings,path))
+if input.exact_resume then
+    stage='cloud_position';pump(function() return resume_message~=nil end)
+    local tr=require('weread.lib.plugin_util').tr
+    assert(resume_message==tr('Opened the cloud reading position in this chapter.'),resume_message)
+    local doc=reader.document
+    assert(cloud_xpointer and doc:isXPointerInCurrentPage(cloud_xpointer))
+    local last=cloud_xpointer
+    for _i=1,38 do last=assert(doc:getNextVisibleChar(last)) end
+    assert(doc:getTextFromXPointers(cloud_xpointer,last):find('synthetic paragraph 70',1,true)==13,
+        'the reader did not open at the original cloud text')
+end
 if input.store_search_keyword then
     local css=assert(reader.document:getDocumentFileContent('OEBPS/style.css'))
     assert(type(input.inline_style)=='string' and #input.inline_style>0 and css:find(input.inline_style,1,true),

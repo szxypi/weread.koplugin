@@ -60,4 +60,38 @@ expect(not value and why=='auth_expired' and calls==1,'expired auth was not clas
 fail_reason='native_auth/direct_progress/http_429';value,why=check(same)
 expect(not value and why=='rate_limited' and calls==1,'limited request was retried')
 fail_at=nil;live=false;value,why=check(same);expect(not value and why=='invalid' and calls==0,'stale account reached network')
+
+local checked={book_id='42',chapter_uid='38',book_version=7,source_sha256='raw',catalog_sha256='catalog',file_id='file'}
+local raw
+package.loaded['weread.lib.native_direct_cache']={identify=function() return checked end,
+    read_raw_source=function() return raw end}
+require('weread.lib.native_read_access').guard=function(_,current) return current end
+local Resume=require('weread.lib.native_direct_resume')
+local quote='A unique excerpt from the original chapter'
+raw='<html><body><p>'..quote..'</p></body></html>'
+local map=assert(require('weread.lib.source_coordinates').build(raw,{format='web_xhtml'}))
+local point=assert(map:locate_point(quote,0))
+local progress={bookId='42',chapterUid=38,chapterOffset=point.co,progress=25,summary=quote}
+local hint=assert(Resume.hint(progress,'42'))
+expect(hint.uid=='38' and not hint.idx and Resume.valid_target(hint.target),'native progress without an index did not provide a target')
+expect(not Resume.hint(progress,'43'),'foreign book provided a resume hint')
+progress.chapterIdx=3
+local indexed=Resume.hint(progress,'42');local exact=assert(indexed.target)
+expect(indexed.idx==3,'explicit chapter index was dropped')
+expect(not Resume.matches_entry({book_id='42',chapter_uid='38',chapter_idx=2},exact),'conflicting chapter index could locate text')
+progress.chapterIdx=nil
+local function resume(target)
+    calls=0;snapshots={progress}
+    return Resume.prepare_destination({}, {},checked,'/native',native,function() return live end,target)
+end
+live=true;value=resume(hint.target)
+expect(value and value.anchor.co==point.co and value.anchor.point_offset==0 and calls==1,
+    'unique summary at its saved offset could not be located')
+progress.chapterOffset=point.co+1;value,why=resume(hint.target)
+expect(not value and why=='cloud_changed','a changed cloud point was used')
+expect(not resume(Resume.hint(progress,'42').target),'a unique summary at a different offset was used')
+progress.chapterOffset=point.co;raw='<html><body><p>'..quote..'</p><p>'..quote..'</p></body></html>'
+expect(not resume(hint.target),'a repeated summary was used')
+progress.summary=nil;progress.chapterTitle=quote
+expect(not Resume.hint(progress,'42').target,'an inferred chapter title was used as the cloud summary')
 print('PASS: native direct cloud comparison is stable and read-only ('..n..' checks)')

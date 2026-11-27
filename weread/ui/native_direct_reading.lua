@@ -423,6 +423,7 @@ function M.start(host,book,view,options)
                     begin_open('offline_open')
                 else
                     ctx.chapter=rows[index]
+                    ctx.cloud_target=index==cloud_index and cloud_chapter.target or nil
                     begin_open(connected(host) and 'chapter' or 'saved_matches')
                 end
             end})
@@ -694,9 +695,7 @@ function M.start(host,book,view,options)
                     local ok,raw=pcall(auth._request,auth,'direct_progress',
                         'https://i.weread.qq.com/book/getProgress?bookId='..id,nil,native.credentials,{2,3})
                     if ok then
-                        local point,_,provided=require('weread.lib.remote_progress').project(raw,id,'native')
-                        local uid=point and Protocol.id(point.chapter_uid)
-                        if uid then result.cloud_chapter={uid=uid,idx=provided.chapter_idx and point.chapter_idx or nil} end
+                        result.cloud_chapter=require('weread.lib.native_direct_resume').hint(raw,id)
                     end
                 end
                 auth:cancel()
@@ -857,8 +856,13 @@ function M.start(host,book,view,options)
                     reason=='catalog_changed');return
             end
             local path=result.path
+            local handoff
+            if ctx.cloud_target and current() and connected(host) then
+                handoff=require('weread.ui.native_direct_cloud_open').for_catalog(host,result,ctx.catalog,
+                    ctx.chapter,ctx.cloud_target,ctx.selected.native)
+            end
             M.cancel(host)
-            host:openFile(path)
+            host:openFile(path,handoff)
         end,phase=='batch' and function(value)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not current() or ctx.busy~=host.busy_message then M.cancel(host);return end

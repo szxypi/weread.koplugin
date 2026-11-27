@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import test_native_full_book_runtime as fixture
 from run_persistent_ui_probe import extract_candidate
+from verify_source_coordinates import FilteredSource
 
 REPO = Path(__file__).resolve().parent.parent
 fixture.body = lambda uid: '<html><body>' + ''.join(
@@ -28,7 +29,12 @@ class ResumeHandler(fixture.Handler):
         server.progress_requests += 1
         server.valid &= (self.command == 'GET' and target.query == 'bookId=42' and server.cloud_chapter is not None)
         server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
-        body = json.dumps(dict(book=dict(bookId='42', chapterUid=server.cloud_chapter, progress=25))).encode()
+        point = dict(bookId='42', chapterUid=server.cloud_chapter, progress=25)
+        if server.exact_resume:
+            summary = f'Chapter {server.cloud_chapter}, synthetic paragraph 70 for pagination.'
+            source = FilteredSource(fixture.body(server.cloud_chapter))
+            point.update(summary=summary, chapterOffset=source.starts[''.join(source.characters).index(summary)])
+        body = json.dumps(dict(book=point)).encode()
         self.send_response(200 if server.valid else 400)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
@@ -62,6 +68,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         partial = entry in ('shelf_partial', 'shelf_partial_offline')
         offline_shelf = entry == 'shelf_partial_offline'
         server.cloud_chapter = '38' if entry in ('details', 'shelf', 'shelf_partial') else None
+        server.exact_resume = entry == 'shelf_partial'
         server.progress_requests = 0
         uid = server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
@@ -81,6 +88,8 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             payload.update(require_cached=True, offline=offline_shelf)
         if server.cloud_chapter is not None:
             payload['cloud_chapter_uid'] = server.cloud_chapter
+        if server.exact_resume:
+            payload['exact_resume'] = True
         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
                                input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
         result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
@@ -88,7 +97,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         assert server.chapters == ([] if offline_shelf else [uid]) and server.valid and not server.leaked
         if partial:
             assert (Path(result['path']) == saved) == offline_shelf
-        assert server.progress_requests == int(server.cloud_chapter is not None)
+        assert server.progress_requests == (3 if server.exact_resume else int(server.cloud_chapter is not None))
         if entry in ('details', 'catalog'):
             mode = 'detail_catalog_saved' if entry == 'catalog' else 'detail_read_saved'
             offline = dict(mode=mode, path=result['path'])
@@ -101,6 +110,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
 def run(runtime, read_entries_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), ResumeHandler)
     server.cloud_chapter = None
+    server.exact_resume = False
     server.progress_requests = 0
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -179,6 +189,7 @@ def run(runtime, read_entries_only=False):
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native-only reading and catalogs from details and bookshelf, and offline details reopening at both sizes')
         print('PASS: partial downloads keep cloud chapter selection online and are selectable offline at both sizes')
+        print('PASS: exact read-only native cloud location with a verified original quote at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:

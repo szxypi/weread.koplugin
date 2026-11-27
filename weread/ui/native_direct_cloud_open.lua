@@ -9,6 +9,9 @@ local Identity=require('weread.lib.book_file_identity')
 local P=require('weread.lib.native_position_protocol')
 local _=require('weread.lib.plugin_util').tr
 local M={}
+local function access_current(settings,native,web,native_resume)
+    return Access.matches(settings,native) and (native_resume or Currentness.matches(settings,web))
+end
 local function location(reader,doc)
     return Context.location(doc,reader.view and reader.view.view_mode)
 end
@@ -36,12 +39,15 @@ local function message(reason)
     if reason=='cloud_changed' then return 'The cloud position changed during the check. Your current page is kept.' end
     return 'The cloud position could not be located in this chapter. Your current page is kept.'
 end
-function M.start(host,entry,wanted,native,web)
+function M.start(host,entry,wanted,native,web,native_resume)
+    local proof=native_resume and require('weread.lib.native_direct_resume') or Cloud
     local reader=host.ui;local doc=reader and reader.document;local scope=host.settings:get_auth_scope()
-    if not reader or not doc or not scope or not host.settings:auth_scope_matches(scope) or not Cloud.valid_target(wanted)
-        or not Cache.valid_entry(entry,wanted.book_id,scope.vid) or entry.chapter_uid~=wanted.chapter_uid
-        or entry.chapter_idx~=wanted.chapter_idx or not Access.matches(host.settings,native)
-        or not Currentness.matches(host.settings,web) then return false end
+    if not reader or not doc or not scope or not host.settings:auth_scope_matches(scope) or not proof.valid_target(wanted)
+        or not access_current(host.settings,native,web,native_resume) then return false end
+    if native_resume then
+        if not proof.matches_entry(entry,wanted) then return false end
+    elseif not Cache.valid_entry(entry,wanted.book_id,scope.vid) or entry.chapter_uid~=wanted.chapter_uid
+        or entry.chapter_idx~=wanted.chapter_idx then return false end
     local identity=Identity.read_document(doc,wanted.book_id);local initial=location(reader,doc)
     if not initial or identity.book_id~=wanted.book_id or identity.file_id~=entry.file_id
         or identity.book_version~=entry.book_version then return false end
@@ -55,7 +61,7 @@ function M.start(host,entry,wanted,native,web)
         if host._native_direct_cloud_open~=ctx or age<0 or age>180 or host.ui~=reader or reader.document~=doc
             or doc.file~=ctx.file or (host._reader_session_gen or 0)~=ctx.session
             or not host.settings:auth_scope_matches(scope) or host.library_db and host.library_db:accountKey()~=ctx.account
-            or not Access.matches(host.settings,native) or not Currentness.matches(host.settings,web) then return false end
+            or not access_current(host.settings,native,web,native_resume) then return false end
         local actual=Identity.read_document(doc,wanted.book_id)
         return actual.file_id==identity.file_id and actual.book_id==wanted.book_id and actual.book_version==identity.book_version
             and Context.same_location(initial,location(reader,doc))
@@ -77,17 +83,22 @@ function M.start(host,entry,wanted,native,web)
     local function run(callback)
         local ok,started=pcall(worker.start,worker,function()
             local function active()
-                return host.settings:auth_scope_matches(scope) and Access.matches(host.settings,native)
-                    and Currentness.matches(host.settings,web)
+                return host.settings:auth_scope_matches(scope)
+                    and (native_resume or access_current(host.settings,native,web,false))
             end
-            local result,reason=Cloud.prepare_destination(host.client,host.settings,entry,ctx.file,native,web,active,wanted)
+            local result,reason
+            if native_resume then
+                result,reason=proof.prepare_destination(host.client,host.settings,entry,ctx.file,native,active,wanted)
+            else
+                result,reason=proof.prepare_destination(host.client,host.settings,entry,ctx.file,native,web,active,wanted)
+            end
             return result and {value=result} or {error=reason or 'unavailable'}
         end,function(result)
             if host._native_direct_cloud_open~=ctx then return end
             if not current() then M.cancel(host);return end
             local value=type(result)=='table' and result.value
             local anchor=type(value)=='table' and value.anchor
-            if type(anchor)~='table' or not Cloud.same_target(value.target,wanted)
+            if type(anchor)~='table' or not proof.same_target(value.target,wanted)
                 or anchor.co~=wanted.chapter_offset or anchor.basis~='filtered_xhtml_utf16'
                 or anchor.point_unit~='unicode_scalars' or type(anchor.text)~='string' or #anchor.text<12 or #anchor.text>8192
                 or not P.integer(anchor.point_offset,0,8192) then
@@ -143,7 +154,7 @@ function M.start(host,entry,wanted,native,web)
 end
 -- The after-open callback fires before the new ReaderUI is installed. Defer
 -- without assuming the destination page remains unchanged in the meantime.
-function M.receive(host,entry,wanted,native,web)
+function M.receive(host,entry,wanted,native,web,native_resume)
     M.cancel(host)
     local reader=host.ui;local doc=reader and reader.document
     local at=doc and location(reader,doc)
@@ -155,10 +166,33 @@ function M.receive(host,entry,wanted,native,web)
         local age=os.time()-incoming.started
         if age<0 or age>120 or host.ui~=reader or reader.document~=doc or doc.file==nil
             or (host._reader_session_gen or 0)~=incoming.session or not Context.same_location(at,location(reader,doc))
-            or not Access.matches(host.settings,native) or not Currentness.matches(host.settings,web) then return end
-        M.start(host,entry,wanted,native,web)
+            or not access_current(host.settings,native,web,native_resume) then return end
+        M.start(host,entry,wanted,native,web,native_resume)
     end
     host._native_direct_cloud_incoming=incoming;UI:scheduleIn(0.1,incoming.task)
     return true
+end
+
+function M.for_catalog(host,result,catalog,chapter,wanted,native)
+    local Resume=require('weread.lib.native_direct_resume')
+    if not chapter or not Resume.valid_target(wanted) or not Access.matches(host.settings,native) then return end
+    local entry={book_id=catalog.book_id,chapter_uid=chapter.chapterUid,chapter_idx=chapter.chapterIdx,
+        book_version=catalog.version,catalog_sha256=catalog.reading_digest,source_sha256=result.source_sha256}
+    if not Resume.matches_entry(entry,wanted) then return end
+    local used=false;local started=os.time()
+    return function(reader)
+        if used then return false end
+        used=true
+        local age=os.time()-started
+        local next_host=reader and reader.weread
+        local doc=next_host and next_host.ui and next_host.ui.document
+        if age<0 or age>180 or not doc or doc~=reader.document or doc.file~=result.path
+            or not Access.matches(host.settings,native) or not Access.matches(next_host.settings,native) then return false end
+        local identity=Identity.read_document(doc,entry.book_id)
+        if identity.book_id~=entry.book_id or identity.book_version~=entry.book_version or identity.file_id==nil
+            or result.file_id and identity.file_id~=result.file_id then return false end
+        entry.file_id=identity.file_id
+        return M.receive(next_host,entry,wanted,native,nil,true)
+    end
 end
 return M
