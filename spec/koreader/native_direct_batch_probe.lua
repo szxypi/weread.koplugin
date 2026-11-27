@@ -263,6 +263,10 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     local single=input.mode=='offline_partial' or input.mode=='offline_range'
     assert(#rows==(single and 1 or input.mode=='offline_locked' and 2 or 3))
     assert(cache.present(settings,scope.vid,'42'),'verified chapters missing shelf presence')
+    if input.mode=='offline_partial' then
+        local lease=assert(cache.acquire(settings,scope.vid,'42'),'cancelled worker kept the book lease')
+        lease:release()
+    end
     local seen={};local cache_dir
     for _,row in ipairs(rows) do
         local saved=assert(cache.open(settings,scope.vid,'42',row,function() return true end))
@@ -293,6 +297,43 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         assert(#assert(cache.list(settings,scope.vid,'42',function() return true end))==3,'blocked publisher changed chapters')
         held:release();local resumed=assert(cache.acquire(settings,scope.vid,'42'));resumed:release()
 
+        local function save_capacity_fixture(id,uid,reservation)
+            return cache.publish(settings,scope.vid,{book_id=id,title='Synthetic',author='Fixture'},
+                {chapterUid=uid,title='Fixture'},{book_id=id,chapter_uid=uid,book_version=1,missing_images=0,
+                    catalog_sha256=digest,reading_catalog_sha256=digest,source_sha256=digest,source_channel='eink',
+                    coordinate_source_authoritative=false,xhtml='<p>synthetic</p>',css='',assets={}},
+                function() return true end,reservation)
+        end
+        assert(save_capacity_fixture('51','1'))
+        local lfs=require('libs/libkoreader-lfs')
+        local list_dir,scans=lfs.dir,0
+        local dir=assert(cache.book_directory(settings,scope.vid,'51'))
+        rawset(lfs,'dir',function(path,...)
+            if path==dir then scans=scans+1 end
+            return list_dir(path,...)
+        end)
+        local old_limit=cache.MAX_ENTRIES
+        cache.MAX_ENTRIES=2
+        local function current() return true end
+        local reservation=assert(cache.begin_capacity(settings,scope.vid,'51',current))
+        assert(cache.remaining(settings,scope.vid,'51',current,reservation)==1)
+        blocked,reason=cache.acquire(settings,scope.vid,'51')
+        assert(not blocked and reason=='busy','reservation allowed a concurrent book operation')
+        local wrong=save_capacity_fixture('52','1',reservation)
+        assert(not wrong and not cache.book_directory(settings,scope.vid,'52'),'reservation crossed book directories')
+        local reused=assert(save_capacity_fixture('51','1',reservation))
+        assert(reused.reused and cache.remaining(settings,scope.vid,'51',current,reservation)==1)
+        local fresh=assert(save_capacity_fixture('51','2',reservation))
+        assert(not fresh.reused and cache.remaining(settings,scope.vid,'51',current,reservation)==0)
+        assert(not save_capacity_fixture('51','3',reservation),'full reservation allocated another slot')
+        reservation.lease:release()
+        assert(cache.remaining(settings,scope.vid,'51',current,reservation)==nil and scans==1,
+            'reservation rescanned or remained usable after release')
+        rawset(lfs,'dir',list_dir)
+        assert(cache.remaining(settings,scope.vid,'51',current)==0)
+        cache.MAX_ENTRIES=old_limit
+        local acquired=assert(cache.acquire(settings,scope.vid,'51'));acquired:release()
+
         -- The cleanup planner must retain sources referenced by all local time
         -- windows, including unknown legacy records, without creating a DB.
         local Ledger=require('weread.lib.offline_time_store')
@@ -313,7 +354,6 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         assert(references.unverified,'unverified legacy source was treated as safe')
         local invalid=Ledger:new(home..'/missing-parent')
         assert(not invalid:source_references(owner,'42'),'missing storage was treated as an empty ledger')
-        local lfs=require('libs/libkoreader-lfs')
         local linked=assert(ledger:path(string.rep('c',20)))
         assert(lfs.link(path,linked,true))
         assert(not ledger:source_references(string.rep('c',20),'42'),'linked ledger was treated as safe')
@@ -517,6 +557,8 @@ else
             return ctx and (ctx.batch_progress or -1)>=33 and file~=nil
         end)
         local ctx=host._native_direct_reading
+        local lease,reason=require('weread.lib.native_direct_cache').acquire(settings,scope.vid,'42')
+        assert(not lease and reason=='busy','running batch did not retain its capacity lease')
         ctx.busy.buttons[1][1].callback()
         assert(not host._native_direct_reading and not host.busy_message)
         print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode});os.exit(0)

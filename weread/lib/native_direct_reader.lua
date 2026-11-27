@@ -18,6 +18,6 @@ function M.build(client,settings,book,chapter,expected,options)
         {is_current=current,allow_missing_images=options.allow_missing_images==true})
     if not prepared then return nil,why end
     if not current() then return nil,'session_changed' end
-    return Cache.publish(settings,selected.scope.vid,book,chapter,prepared,current)
+    return Cache.publish(settings,selected.scope.vid,book,chapter,prepared,current,options.capacity)
 end
 return M

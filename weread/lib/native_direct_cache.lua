@@ -411,12 +411,19 @@ function M.list(settings,account,book_id,current,selection)
     return ok and result or nil
 end
 
--- Count every directory entry, including damaged copies and staging files:
--- the offline index refuses to scan beyond MAX_ENTRIES even when some entries
--- are not usable chapters. Never delete anything to make room.
-function M.remaining(settings,account,book_id,current)
+local function reserved_room(capacity,lfs,book_dir)
+    if capacity.book_dir~=book_dir or not capacity.lease:owns() then return nil end
+    local owner=mode(lfs,book_dir)
+    if owner and owner.mode=='directory' and owner.dev==capacity.dev and owner.ino==capacity.ino then
+        return capacity.room
+    end
+end
+
+-- Count every directory entry, including damaged copies and staging files.
+function M.remaining(settings,account,book_id,current,capacity)
     if type(current)~='function' or current()~=true then return nil end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
+    if capacity then return reserved_room(capacity,lfs,book_dir) end
     if not lfs then return M.MAX_ENTRIES end
     local ok,count=pcall(function()
         local total=0
@@ -432,6 +439,25 @@ function M.remaining(settings,account,book_id,current)
         return current()==true and total or nil
     end)
     return ok and count and M.MAX_ENTRIES-count or nil
+end
+
+-- The batch owns the same lease used by individual saves and cleanup.
+-- Count once after acquiring it, then charge each newly created slot.
+function M.begin_capacity(settings,account,book_id,current)
+    local lease,reason=M.acquire(settings,account,book_id)
+    if not lease then return nil,reason end
+    local ok,capacity=pcall(function()
+        local lfs,book_dir=existing_book_dir(settings,account,book_id)
+        if not lfs or lease.path~=book_dir..'/'..OPERATION then return nil end
+        local owner=mode(lfs,book_dir)
+        if not owner or owner.mode~='directory' then return nil end
+        local scope={book_dir=book_dir,lease=lease,dev=owner.dev,ino=owner.ino}
+        scope.room=M.remaining(settings,account,book_id,current)
+        if reserved_room(scope,lfs,book_dir)~=nil then return scope end
+    end)
+    if ok and capacity then return capacity end
+    lease:release()
+    return nil,'unavailable'
 end
 
 function M.open(settings,account,book_id,entry,current)
@@ -509,7 +535,7 @@ local function content_key(account,book,chapter,prepared)
     return Crypto.sha256_hex(table.concat(parts,'\0'))
 end
 
-function M.publish(settings,account,book,chapter,prepared,current)
+function M.publish(settings,account,book,chapter,prepared,current,capacity)
     local function live()
         if type(current)~='function' then return false end
         local ok,value=pcall(current)
@@ -544,14 +570,26 @@ function M.publish(settings,account,book,chapter,prepared,current)
     local lfs=fs();local root=Path.root(settings)
     local key=content_key(account,book,chapter,prepared)
     if not lfs or not root or not key then return nil,'storage' end
-    local parent=mode(lfs,settings.data_dir)
-    if not parent or parent.mode~='directory' then return nil,'storage' end
-    root=directory(lfs,settings.data_dir:gsub('/+$',''),'native-reader-v1')
-    local account_dir=root and directory(lfs,root,Crypto.sha256_hex('native-direct-account\0'..account))
-    local book_dir=account_dir and directory(lfs,account_dir,Crypto.sha256_hex('native-direct-book\0'..book.book_id))
-    if not book_dir then return nil,'storage' end
-    local lease,reason=M.acquire(settings,account,book.book_id)
-    if not lease and reason~='unsupported' then return nil,live() and 'storage' or 'session_changed' end
+    local book_dir,lease
+    if capacity then
+        book_dir=M.book_directory(settings,account,book.book_id)
+        local room=reserved_room(capacity,lfs,book_dir)
+        if not room or room<1 then return nil,live() and 'storage' or 'session_changed' end
+        lease=capacity.lease
+    else
+        local parent=mode(lfs,settings.data_dir)
+        if not parent or parent.mode~='directory' then return nil,'storage' end
+        root=directory(lfs,settings.data_dir:gsub('/+$',''),'native-reader-v1')
+        local account_dir=root and directory(lfs,root,Crypto.sha256_hex('native-direct-account\0'..account))
+        book_dir=account_dir and directory(lfs,account_dir,Crypto.sha256_hex('native-direct-book\0'..book.book_id))
+        if not book_dir then return nil,'storage' end
+        local reason
+        lease,reason=M.acquire(settings,account,book.book_id)
+        if not lease and reason~='unsupported' then return nil,live() and 'storage' or 'session_changed' end
+    end
+    local function can_publish()
+        return live() and (not capacity or reserved_room(capacity,lfs,book_dir)~=nil)
+    end
     local ok,first,second=pcall(function()
     local chapter_file=filename(book.book_id,chapter.chapterUid)
     local text_digest=Crypto.sha256_hex(prepared.xhtml)
@@ -559,8 +597,10 @@ function M.publish(settings,account,book,chapter,prepared,current)
     if not wanted then return nil,'storage' end
     for index=0,M.MAX_COPIES-1 do
         if not live() then return nil,'session_changed' end
+        if capacity and reserved_room(capacity,lfs,book_dir)==nil then return nil,'storage' end
         local dir=book_dir..'/'..key..(index==0 and '' or '-'..index)
         local created=lfs.mkdir(dir)
+        if created and capacity then capacity.room=capacity.room-1 end
         local attr=mode(lfs,dir)
         if not attr or attr.mode~='directory' then return nil,'storage' end
         -- A power loss after the last cleanup marker was removed can leave an
@@ -580,10 +620,10 @@ function M.publish(settings,account,book,chapter,prepared,current)
             entry.catalog_prev,entry.catalog_next=chapter.catalog_prev,chapter.catalog_next
         end
         if not created then
-            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and live()
-                and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
-                pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,live)
-                save_presence(settings,account,book.book_id,entry,live)
+            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and can_publish()
+                and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and can_publish() then
+                pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
+                save_presence(settings,account,book.book_id,entry,can_publish)
                 return {path=path,reused=true,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                     missing_images=prepared.missing_images}
             end
@@ -593,7 +633,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
             local local_chapter={chapterUid=chapter.chapterUid,title=chapter.title,chapterIdx=chapter.chapterIdx}
             local function guard()
                 local directory_now=mode(lfs,dir)
-                if not live() or not directory_now or directory_now.mode~='directory'
+                if not can_publish() or not directory_now or directory_now.mode~='directory'
                     or directory_now.dev~=attr.dev or directory_now.ino~=attr.ino then
                     error('native_direct/session_changed',0)
                 end
@@ -601,23 +641,24 @@ function M.publish(settings,account,book,chapter,prepared,current)
             end
             local ok,result=pcall(require('weread.lib.content').save_chapter_epub,settings,local_book,local_chapter,
                 prepared.xhtml,prepared.assets,prepared.css,Identity.capture(local_book),nil,nil,guard)
-            if not ok or result~=path or not live() then return nil,live() and 'storage' or 'session_changed' end
+            if not ok or result~=path or not can_publish() then return nil,live() and 'storage' or 'session_changed' end
             local size,digest=digest_file(lfs,path)
             if not size or not Archive.verify_members(path,wanted)
-                or not live() or not publish_receipt(dir,key,size,digest) or not live()
+                or not can_publish() or not publish_receipt(dir,key,size,digest) or not can_publish()
                 or not verified(lfs,dir,path,key,wanted)
-                or not publish_entry(lfs,dir,entry,account) or not publish_ref(lfs,dir,entry) or not live() then
+                or not can_publish() or not publish_entry(lfs,dir,entry,account)
+                or not publish_ref(lfs,dir,entry) or not can_publish() then
                 return nil,live() and 'storage' or 'session_changed'
             end
-            save_presence(settings,account,book.book_id,entry,live)
-            pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,live)
+            save_presence(settings,account,book.book_id,entry,can_publish)
+            pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,can_publish)
             return {path=path,reused=false,book_version=prepared.book_version,source_sha256=prepared.source_sha256,
                 missing_images=prepared.missing_images}
         end
     end
     return nil,'storage'
     end)
-    if lease then lease:release() end
+    if lease and not capacity then lease:release() end
     if not ok then return nil,live() and 'storage' or 'session_changed' end
     return first,second
 end

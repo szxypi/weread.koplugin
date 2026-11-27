@@ -1,9 +1,20 @@
 package.path='./?.lua;'..package.path
 local rows,usable,room,failed,downloads,live,progress,cache_selection
+local capacity_mode,reserved,acquires,scans,releases
 package.preload['weread.lib.native_direct_cache']=function() return {
     list=function(_,_,_,_,selection) cache_selection=selection;return rows end,
     open=function(_,_,_,entry) return usable[entry.chapter_uid] and {missing_images=entry.missing_images} end,
-    remaining=function() return room end,
+    begin_capacity=function()
+        acquires=acquires+1
+        if capacity_mode~='ready' then return nil,capacity_mode end
+        scans=scans+1
+        reserved={room=room,lease={release=function() releases=releases+1 end}}
+        return reserved
+    end,
+    remaining=function(_,_,_,_,capacity)
+        if capacity then assert(capacity==reserved);return capacity.room end
+        scans=scans+1;return room
+    end,
 } end
 package.preload['weread.lib.native_direct_path']=function() return {contains=function(_,path) return path=='/valid' end} end
 package.preload['weread.lib.native_position_protocol']=function() return {integer=function(n,a,b)
@@ -13,6 +24,10 @@ package.preload['weread.lib.native_direct_reader']=function() return {build=func
     assert(expected.reading_catalog_sha256=='digest' and expected.access_fingerprint=='fingerprint')
     downloads[#downloads+1]=chapter.chapterUid
     if failed==chapter.chapterUid then return nil,'rate_limited' end
+    if options.capacity then
+        assert(options.capacity==reserved and reserved.room>0)
+        reserved.room=reserved.room-1
+    end
     return {path='/valid',book_version=1,missing_images=chapter.chapterUid=='3' and 1 or 0}
 end} end
 local Batch=require('weread.lib.native_direct_batch')
@@ -26,9 +41,13 @@ local function setup()
     rows={{chapter_uid='1',book_version=1,catalog_sha256='digest',catalog_order=1,catalog_count=3,
         catalog_next='2',missing_images=0}}
     usable={['1']=true};room=1;failed=nil;downloads={};live=true;progress={};cache_selection=nil
+    capacity_mode,reserved,acquires,scans,releases='absent',nil,0,0,0
 end
-local function run(range)
-    return Batch.run({}, {},book,catalog,selected,function() return live end,function(value) progress[#progress+1]=value end,range)
+local function run(range,on_progress)
+    return Batch.run({}, {},book,catalog,selected,function() return live end,function(value)
+        progress[#progress+1]=value
+        if on_progress then on_progress() end
+    end,range)
 end
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
@@ -59,6 +78,22 @@ setup();rows[2]={chapter_uid='3',book_version=1,catalog_sha256='digest',catalog_
 result=run({first=3,last=3})
 expect(result.ok and result.saved==1 and result.missing==1 and #downloads==0 and #progress==1 and progress[1]==99,
     'range did not verify the cached chapter against its full catalog position')
+setup();capacity_mode='ready';room=2;usable={};result=run()
+expect(result.ok and result.downloaded==2 and acquires==1 and scans==1 and releases==1,
+    'batch did not reuse and release its capacity reservation')
+setup();capacity_mode='ready';usable={};result=run()
+expect(not result.ok and result.error=='storage' and result.downloaded==1 and #downloads==1 and releases==1,
+    'full reservation allowed another download or was not released')
+setup();capacity_mode='ready';failed='3';result=run()
+expect(result.error=='rate_limited' and releases==1,'failed download kept the reservation')
+setup();capacity_mode='ready';usable={};result=run(nil,function() live=false end)
+expect(result.error=='session_changed' and #downloads==1 and releases==1,'session change kept the reservation')
+setup();capacity_mode='ready';usable={}
+local ok=pcall(run,nil,function() error('synthetic callback error') end)
+expect(not ok and releases==1,'unexpected callback failure kept the reservation')
+setup();capacity_mode='unsupported';usable={};result=run()
+expect(result.ok and result.downloaded==2 and acquires==1 and scans==2 and releases==0,
+    'unsupported leases did not fall back to fresh capacity checks')
 for _,range in ipairs({{},false,{first=3,last=2},{first=0,last=3},{first=1,last=4},{first=1.5,last=3}}) do
     setup();result=run(range);expect(result.error=='invalid' and #downloads==0 and #progress==0,'invalid range started a batch')
 end
