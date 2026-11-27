@@ -107,10 +107,11 @@ def main():
                 full_shelf = payload.get('full_shelf', False)
                 probe = 'native_direct_batch_shelf_owner_probe.lua' if full_shelf else 'native_direct_batch_owner_probe.lua'
                 marker = b'WEREAD_BATCH_SHELF=' if full_shelf else b'WEREAD_BATCH_OWNER='
-                for mode in ('online', 'repeat', 'offline'):
+                modes = ('online', 'repeat', 'offline', 'offline_resume') if full_shelf else ('online', 'repeat', 'offline')
+                for mode in modes:
                     phase = mode
                     private = dict(payload, mode=mode)
-                    if mode == 'offline':
+                    if mode in ('offline', 'offline_resume'):
                         private.pop('credentials');private.pop('web_cookies', None)
                         private['vid'] = payload['credentials']['vid']
                     code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -129,10 +130,13 @@ def main():
                     if full_shelf and (result.get('full_plugin') is not True
                             or result.get('shelf_count') != len(payload['shelf_books'])):
                         raise ValueError('shelf')
-                    if full_shelf and mode!='offline' and (result.get('downloaded_filter') is not True
+                    if full_shelf and mode in ('online', 'repeat') and (result.get('downloaded_filter') is not True
                                                            or result.get('home_native_only_safe') is not True):
                         raise ValueError('shelf_filter')
-                    if mode == 'offline':
+                    if mode == 'offline_resume':
+                        if result.get('network_blocked') is not True or result.get('detail_page_restored') is not True:
+                            raise ValueError('offline_resume')
+                    elif mode == 'offline':
                         if (result.get('network_blocked') is not True
                                 or full_shelf and result.get('reader_opened') is not True
                                 or not full_shelf and result.get('tokens') != sum('token' in row for row in payload['sources'].values())):
@@ -170,7 +174,8 @@ def main():
                           credential_file_audit=True, installed_bytes_match=True, samples=results)
             if payload.get('full_shelf'):
                 report.update(full_plugin=True, shelf_count=len(payload['shelf_books']), offline_reader=True,
-                              downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True)
+                              downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True,
+                              detail_page_restored=True)
     except (Exception, KeyboardInterrupt):
         report['phase'] = phase
     finally:

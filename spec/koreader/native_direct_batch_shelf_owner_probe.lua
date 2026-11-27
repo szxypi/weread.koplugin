@@ -4,6 +4,7 @@ assert(os.getenv('WEREAD_DIRECT_OWNER_TMPFS')=='1')
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
 local plugin=assert(arg[1]);package.path=plugin..'/?.lua;'..package.path
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
+local offline=input.mode=='offline' or input.mode=='offline_resume'
 local vid=assert(input.vid or input.credentials and input.credentials.vid)
 local sources=assert(input.sources);local book_id=assert(input.book_id)
 local count=0;for _ in pairs(sources) do count=count+1 end
@@ -20,8 +21,8 @@ if input.mode=='online' then
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report);settings:flush()
 end
 local Common=require('weread.ui.common')
-Common.isNetworkOnline=function() return input.mode~='offline' end;Common.isNetworkConnected=Common.isNetworkOnline
-if input.mode=='offline' then
+Common.isNetworkOnline=function() return not offline end;Common.isNetworkConnected=Common.isNetworkOnline
+if offline then
     assert(dofile(assert(arg[3])..'/spec/koreader/offline_network_guard.lua')())
 else
     assert(input.credentials and input.credentials.vid==vid)
@@ -95,9 +96,28 @@ if input.mode~='online' then
     assert(detail.data.status_line:find(require('weread.lib.plugin_util').tr('E-Ink chapters saved'),1,true),
         'saved native chapter status missing from details')
 end
+local tr=require('weread.lib.plugin_util').tr
+local resume_path=home..'/shelf-resume-check.json'
+if input.mode=='offline_resume' then
+    for _,button in ipairs(detail._footer_actions) do
+        if button.text==tr('▤ Continue reading') then action=button end
+    end
+    assert(action and action.enabled~=false,'missing primary detail resume action')
+    local file=assert(io.open(resume_path,'rb'))
+    local expected=json.decode(assert(file:read('*a')));assert(file:close())
+    UI:forceRePaint()
+    action:onTapFooterAction()
+    pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document end)
+    local document=Reader.instance.document
+    assert(document.file==expected.path and document:isXPointerInCurrentPage(expected.anchor),
+        'detail resume did not restore the saved chapter and page')
+    print('WEREAD_BATCH_SHELF='..json.encode{ok=true,mode=input.mode,chapters=count,network_blocked=true,
+        full_plugin=true,shelf_count=#input.shelf_books,detail_page_restored=true})
+    return
+end
 local label=input.mode=='offline' and 'Read saved E-Ink chapter' or 'Download E-Ink chapters'
 for _,button in ipairs(detail._action_buttons) do
-    if button.text==require('weread.lib.plugin_util').tr(label) then action=button end
+    if button.text==tr(label) then action=button end
 end
 assert(action);action.callback()
 local Cache=require('weread.lib.native_direct_cache')
@@ -125,6 +145,23 @@ if input.mode=='offline' then
         assert(sources[row.chapter_uid] and row.source_sha256==sources[row.chapter_uid].sha256)
         assert(Cache.open(reader.weread.settings,vid,book_id,row,function() return true end))
     end
+    pump(function()
+        local book=reader.weread.settings:get_book(book_id)
+        local recent=book and book.native_home_resume
+        return recent and recent.entry.file_id==entry.file_id
+    end)
+    if reader.document:getPageCount()<2 then
+        assert(reader.font:onSetFontSize(48));UI:forceRePaint()
+    end
+    assert(reader.document:getPageCount()>=2,'sample does not cover page navigation')
+    local first=assert(reader.document:getXPointer())
+    reader.rolling:onGotoPage(2);UI:forceRePaint()
+    local anchor=assert(reader.document:getXPointer())
+    assert(anchor~=first,'page navigation did not advance')
+    local path=reader.document.file
+    reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
+    local file=assert(io.open(resume_path,'wb'))
+    assert(file:write(json.encode{path=path,anchor=anchor}));assert(file:close())
     print('WEREAD_BATCH_SHELF='..json.encode{ok=true,mode='offline',chapters=count,network_blocked=true,
         full_plugin=true,shelf_count=#input.shelf_books,reader_opened=true,tokens=matched})
     return

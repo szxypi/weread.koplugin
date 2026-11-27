@@ -55,6 +55,7 @@ def main():
             assert child.returncode == 0 and report['result'] == 'PASS', report
             assert report['full_plugin'] and report['offline_reader'] and report['shelf_count']==len(shelf)
             assert report['downloaded_filter'] and report['detail_offline_status'] and report['home_native_only_safe']
+            assert report['detail_page_restored'] is True
             assert [row['reader_text_checked'] for row in report['samples']]==[1,1]
             assert server.chapters == ['37', '38', '39']*4 and server.valid and not server.leaked
         print('PASS: private owner batch runner against synthetic service at both sizes')

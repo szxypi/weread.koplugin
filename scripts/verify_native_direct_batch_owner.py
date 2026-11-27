@@ -124,7 +124,8 @@ def main():
         if len(child.stdout)>65536 or child.stdout.count(MARKER)!=1: raise ValueError('runner')
         result = json.loads(child.stdout.split(MARKER, 1)[1].splitlines()[0])
         if child.returncode or result.get('result')!='PASS':
-            if result.get('phase') in {'input','online','repeat','offline','audit'}: report['runner_phase']=result['phase']
+            if result.get('phase') in {'input','online','repeat','offline','offline_resume','audit'}:
+                report['runner_phase']=result['phase']
             if type(result.get('probe_line')) is int and 0 <= result['probe_line'] <= 10000:
                 report['runner_line'] = result['probe_line']
             if result.get('reason') in {'auth_expired','rate_limited','session_changed','catalog_changed',
@@ -139,6 +140,7 @@ def main():
         if args.full_shelf and (result.get('full_plugin') is not True or result.get('offline_reader') is not True
                                 or result.get('downloaded_filter') is not True or result.get('detail_offline_status') is not True
                                 or result.get('home_native_only_safe') is not True
+                                or result.get('detail_page_restored') is not True
                                 or result.get('shelf_count')!=len(projected)):
             raise ValueError('shelf_result')
         phase = 'final_check'
@@ -161,7 +163,7 @@ def main():
             report.update(full_plugin=True, numeric_shelf_books=len(projected), offline_reader_opened=True,
                 offline_reader_chapters=1, other_cached_chapters_verified=len(available)-1,
                 reader_text_checked_by_size=[row['reader_text_checked'] for row in result['samples']],
-                downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True)
+                downloaded_filter=True, detail_offline_status=True, home_native_only_safe=True, detail_page_restored=True)
     except (Exception, KeyboardInterrupt) as error:
         report['phase'] = phase
         if 'HTTP 401' in str(error): report['reason'] = 'auth_expired'
