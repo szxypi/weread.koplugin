@@ -16,7 +16,7 @@ local function scope(host)
     local instance=reader and reader.instance
     return {account=host.library_db and host.library_db:accountKey() or false,
         epoch=host.discovery_epoch or 0,session=host._reader_session_gen or false,
-        menu=host.cache_menu or false,detail=host._book_detail_view or false,
+        menu=host.cache_menu or false,detail=host._book_detail_view or false,saved_chapters=host._saved_chapter_menu or false,
         document=host.ui and host.ui.document or false,
         reader=instance and instance.document or false,cache=host.settings.cache_dir or false}
 end
@@ -47,10 +47,11 @@ function M.current(host,job)
     end
     return true
 end
-function M.prepare(host,ids,full_path)
-    local job={owner=scope(host),items={},index=1,files=0,bytes=0,full_path=full_path}
+function M.prepare(host,ids,copy)
+    if copy and (#ids~=1 or type(copy.path)~='string' or copy.path=='') then return nil,'unavailable' end
+    local job={owner=scope(host),items={},index=1,files=0,bytes=0,copy=copy}
     if host.settings.get_auth_scope then job.auth=host.settings:get_auth_scope() end
-    if not full_path and job.auth and host.library_db and type(host.library_db.open)=='function' then
+    if not copy and job.auth and host.library_db and type(host.library_db.open)=='function' then
         local ok,store=pcall(require('weread.lib.translation_resume').new,
             require('weread.lib.translation_resume'),host.library_db,host.client,job.auth)
         if not ok or not store then return nil,'unavailable' end
@@ -67,7 +68,7 @@ function M.prepare(host,ids,full_path)
         if seen[root] or active(host,root,id) then return nil,'busy' end;seen[root]=true
         local info=require('libs/libkoreader-lfs').symlinkattributes(root)
         if info then
-            local ok,plan=pcall(Model.scan,root,id,full_path)
+            local ok,plan=pcall(Model.scan,root,id,copy and copy.path,copy and copy.chapter_uid)
             if not ok then return nil,'unavailable' end
             local item={id=id,root=root,book=book,preview=plan}
             if job.translation_tokens then item.translation_token=job.translation_tokens[id] end
@@ -82,8 +83,9 @@ local function release(job)
 end
 function M.begin(host,job)
     if not M.current(host,job) then return false,'changed' end
+    local copy=job.copy
     for _i,item in ipairs(job.items) do
-        local called,lease,plan=pcall(Model.acquire,item.root,item.id,job.full_path)
+        local called,lease,plan=pcall(Model.acquire,item.root,item.id,copy and copy.path,copy and copy.chapter_uid)
         if not called or not lease then release(job);return false,'busy' end
         item.lease=lease
         if not Model.same_plan(item.preview,plan) then release(job);return false,'changed' end
@@ -91,8 +93,7 @@ function M.begin(host,job)
     end
     return true
 end
-local function remove_collection(host,job,item)
-    local path=job.full_path or item.book.cached_full_book or item.book.cached_file
+local function remove_collection(host,job,path)
     if not path or Util.file_exists(path) then return end
     local ok=pcall(function()
         local collection=require('readcollection');local name=host.settings.collection_name or 'weread'
@@ -111,12 +112,13 @@ local function finalize(host,job,item,complete)
         local now=lfs.symlinkattributes(item.root);local before=item.deletion.plan.owner
         if item.lease and item.lease:owns() and now and now.dev==before.dev and now.ino==before.ino then
             local plan=item.deletion.plan
-            local called,patched=pcall(Store.clear_downloads,host.settings,item.id,{cache_dir=item.root},plan.metadata,job.full_path)
+            local path=plan.selected_path
+            local called,patched=pcall(Store.clear_downloads,host.settings,item.id,{cache_dir=item.root},plan.metadata,path)
             ok=called and patched==true
-            remove_collection(host,job,item)
+            remove_collection(host,job,path or item.book.cached_full_book or item.book.cached_file)
         else ok=false end
     end
-    if complete and not job.full_path then
+    if complete and not job.copy then
         local called,cleared=pcall(host.clearBookAnnotationData,host,item.id,item.book)
         ok=called and cleared==true and ok
         if item.translation_token and item.translation_token.generation then
@@ -171,7 +173,9 @@ local function end_ui(host,job,ok)
     if ok and not job.failed then
         if job.on_cleared then
             job.on_cleared()
-            host:showTransientInfo(job.full_path and _('Full-book copy removed') or _('Cache cleared'))
+            local message=_('Cache cleared')
+            if job.copy then message=job.copy.chapter_uid and _('Chapter copy removed') or _('Full-book copy removed') end
+            host:showTransientInfo(message)
         else host:refreshCacheManagement(_('Cache cleared')) end
     else
         host:showInfo(_('Cache cleanup stopped. Some files may have been removed. Reading positions, pending sync records, and local notes are kept.'))
@@ -185,14 +189,20 @@ function M.cancel(host)
     M.stop(host,job)
     if host.busy_message==job.busy then host:closeBusy() end
 end
-function M.show(host,ids,title,on_cleared,full_path)
+function M.show(host,ids,title,on_cleared,copy)
     if host.book_cache_cleanup_job then return false end
-    local ok,job=pcall(M.prepare,host,ids,full_path)
+    local ok,job=pcall(M.prepare,host,ids,copy)
     if not ok or not job then failure(host);return false end
-    if full_path and job.files==0 then host:showInfo(_('No full-book copy could be verified.'));return false end
+    local chapter=copy and copy.chapter_uid
+    if copy and job.files==0 then
+        host:showInfo(chapter and _('No separate chapter download could be verified.') or _('No full-book copy could be verified.'))
+        return false
+    end
     job.on_cleared=on_cleared;host.book_cache_cleanup_job=job
     local text
-    if full_path then
+    if chapter then
+        text=T(_('Remove the downloaded copy of "%1" (%2)?\n\nOther downloads, annotations, and reading positions are kept.'),title,size(job.bytes))
+    elseif copy then
         text=T(_('Remove the full-book copy of "%1" (%2)?\n\nDownloaded chapters, annotations, translation downloads, and reading positions are kept.'),title,size(job.bytes))
     else
         text=title and T(_('Clear cache for "%1"?'),title) or _('Clear selected caches?')

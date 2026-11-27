@@ -44,9 +44,14 @@ rawset(os,'remove',function(path)
     files[path]=nil;return true
 end)
 package.preload.json=function() return {decode=function(raw) return assert(tokens[raw]) end} end
-package.preload['weread.lib.chapter_cache_claim']=function() return {combined=function(_book,path)
-    return files[path] and files[path].data=='full'
-end} end
+package.preload['weread.lib.chapter_cache_claim']=function() return {
+    combined=function(_book,path) return files[path] and files[path].data=='full' end,
+    shared=function(book,path) return book.cached_full_book==path or (book.cached_chapters or {})['3']==path end,
+    inspect=function(_book,path)
+        if files[path] and files[path].data=='chapter' then return {kind='single',uid='2'} end
+        return {kind='unknown'}
+    end,
+} end
 local Model=require('weread.lib.book_cache_cleanup')
 local root='/cache/900001'
 local checks=0
@@ -65,7 +70,7 @@ local function fixture()
     return Model.scan(root,'900001')
 end
 local function begin(plan)
-    local lease,fresh=Model.acquire(root,'900001',plan.full_path);assert(lease)
+    local lease,fresh=Model.acquire(root,'900001',plan.selected_path,plan.chapter_uid);assert(lease)
     expect(Model.same_plan(plan,fresh),'unchanged preview rejected')
     return {plan=fresh,lease=lease,files=0,bytes=0}
 end
@@ -157,5 +162,22 @@ lease,fresh=Model.acquire(root,'900001',full)
 expect(lease and not Model.same_plan(plan,fresh),'replacement copy matched the original preview');lease:release()
 fixture();job=begin(Model.scan(root,'900001',full));put(full,'full')
 expect(not Model.step(job) and files[full],'replacement copy was removed after confirmation');job.lease:release()
+
+local chapter=root..'/chapter.epub'
+fixture();plan=Model.scan(root,'900001',chapter,'2')
+expect(plan.files==1 and plan.bytes==7 and plan.entries[1].path==chapter,'chapter preview included other downloads')
+expect(not pcall(Model.scan,root,'900001',nil,'2') and not Model.acquire(root,'900001',nil,'2') and not held[root],
+    'missing selected path fell back to clearing the whole book or leaked the lease')
+job=begin(plan);ok,reason=Model.step(job);job.lease:release()
+expect(ok and reason=='done' and not files[chapter] and files[full] and files[root..'/catalog.json']
+    and files[root..'/reading_state.json'],'chapter cleanup failed to retain the full copy or records')
+fixture();tokens.valid.cached_chapters['3']=chapter
+expect(Model.scan(root,'900001',chapter,'2').files==0,'chapter shared by two mappings was selectable')
+fixture();tokens.valid.cached_chapters['2']=full
+expect(Model.scan(root,'900001',full,'2').files==0,'whole-book file was selectable by chapter')
+fixture();tokens.valid.cached_chapters={['3']=chapter}
+expect(not pcall(Model.scan,root,'900001',chapter,'2'),'reassigned chapter was selectable from a stale menu')
+tokens.valid.cached_chapters={['2']=chapter};put(chapter,'unverified epub')
+expect(Model.scan(root,'900001',chapter,'2').files==0,'unverified source was selectable by chapter')
 rawset(io,'open',open);rawset(os,'remove',remove)
 print(('book_cache_cleanup_spec: %d checks'):format(checks))

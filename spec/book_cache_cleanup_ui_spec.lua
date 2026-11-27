@@ -19,9 +19,9 @@ package.preload['ui/uimanager']=function() return {
     scheduleIn=function(_self,delay,callback) assert(delay>=.1);scheduled[#scheduled+1]=callback end,
 } end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
-local function scan(_root,_id,path)
-    local files=path==full and 1 or path and 0 or 70
-    return {files=files,bytes=files,metadata='fixture',owner=metadata}
+local function scan(_root,_id,path,chapter)
+    local files=(path==full or path==root..'/chapter.epub' and chapter=='2') and 1 or path and 0 or 70
+    return {files=files,bytes=files,metadata='fixture',owner=metadata,selected_path=path}
 end
 package.preload['weread.lib.book_cache_cleanup']=function() return {
     scan=scan,
@@ -109,9 +109,9 @@ Model.show(host,{'900001'});shown.ok_callback();generation='replacement'
 while #scheduled>0 do table.remove(scheduled,1)() end
 expect(clears==2 and host.info[#host.info]:find('stopped',1,true),'changed checkpoint was removed or cleanup claimed success')
 host=fixture();host.library_db={accountKey=function() return 'account' end,open=function() end}
-expect(not Model.show(host,{'900001'},'Synthetic cache',nil,full..'.missing') and not shown and removed==0,
+expect(not Model.show(host,{'900001'},'Synthetic cache',nil,{path=full..'.missing'}) and not shown and removed==0,
     'missing copy offered a deletion confirmation')
-expect(Model.show(host,{'900001'},'Synthetic cache',function() host.done=host.done+1 end,full),
+expect(Model.show(host,{'900001'},'Synthetic cache',function() host.done=host.done+1 end,{path=full}),
     'verified full copy did not offer a deletion confirmation')
 expect(shown.text:find('Downloaded chapters',1,true) and not shown.text:find('Interrupted translation',1,true),
     'selective confirmation described full cleanup')
@@ -119,4 +119,18 @@ shown.ok_callback();while #scheduled>0 do table.remove(scheduled,1)() end
 expect(removed==1 and released==1 and patches==1 and patched_path==full and host.done==1
     and not host.annotation_cleared and clears==2 and host.info[#host.info]=='Full-book copy removed',
     'selective cleanup lost its removal path or cleared notes or translations')
+local chapter={path=root..'/chapter.epub',chapter_uid='2'}
+host=fixture();host._saved_chapter_menu={}
+expect(not Model.show(host,{'900001'},'Synthetic chapter',nil,{chapter_uid='2'}) and not shown,
+    'chapter cleanup with no path offered to clear the whole book')
+expect(Model.show(host,{'900001'},'Synthetic chapter',nil,chapter),'chapter preview did not open')
+expect(shown.text:find('Other downloads',1,true),'chapter confirmation omitted retained content')
+host._saved_chapter_menu={};shown.ok_callback()
+expect(removed==0 and not host.book_cache_cleanup_job,'replacement picker could confirm an old removal')
+host=fixture();host._saved_chapter_menu={}
+Model.show(host,{'900001'},'Synthetic chapter',function() host.done=host.done+1 end,chapter)
+shown.ok_callback();table.remove(scheduled,1)()
+expect(removed==1 and patches==1 and patched_path==chapter.path and host.done==1
+    and not host.annotation_cleared and host.info[#host.info]=='Chapter copy removed',
+    'chapter cleanup lost the selected path or cleared other content')
 print(('book_cache_cleanup_ui_spec: %d checks'):format(checks))

@@ -2256,8 +2256,10 @@ function M:showSavedChapters(book_id, detail)
     local rows = saved_chapter_rows(self, latest, catalog)
     local ChapterSearch = require('weread.ui.chapter_search')
     local Popup = require('weread.ui.shelf_popup')
+    local Cleanup = require('weread.ui.book_cache_cleanup')
     local page_current = require('weread.ui.page_scope').capture(self, detail, '_book_detail_view')
     local query, menu, visible = '', nil, nil
+    local hold_hint = _('Hold a separately downloaded chapter to remove its copy')
     local function current()
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
@@ -2276,7 +2278,7 @@ function M:showSavedChapters(book_id, detail)
         return entries
     end
     menu = self:showList(_('Downloaded chapters'), items(), _('No downloaded chapters found.'), {
-        left_icon='appbar.search', subtitle='', on_choice=function(entry)
+        left_icon='appbar.search', subtitle=hold_hint, on_choice=function(entry)
             local chapter = visible[entry]
             if not current() or not chapter then return end
             local fresh = ReadAccess.load_cached_book(self.settings, book_id)
@@ -2288,10 +2290,26 @@ function M:showSavedChapters(book_id, detail)
     })
     if not menu then return end
     self._saved_chapter_menu = menu
+    menu.onMenuHold = function(_menu, entry)
+        local chapter = visible[entry]
+        if not current() or not chapter then return true end
+        local path = ReadAccess.cached_chapter(latest.cached_chapters, chapter.chapterUid)
+        if not path or not file_exists(path) then
+            self:showInfo(_('No separate chapter download could be verified.'))
+            return true
+        end
+        Cleanup.show(self, {book_id}, entry.text, function()
+            local fresh = ReadAccess.load_cached_book(self.settings, book_id)
+            UIManager:close(menu)
+            UIManager:close(detail)
+            if fresh then self:showBookMenu(fresh) end
+        end, {path=path, chapter_uid=chapter.chapterUid})
+        return true
+    end
     menu.onLeftButtonTap = function()
         ChapterSearch.prompt(self, menu, query, current, function(value)
             query = value
-            menu.subtitle = query~='' and T(_('Chapter filter: %1'), query) or ''
+            menu.subtitle = query~='' and T(_('Chapter filter: %1'), query) or hold_hint
             menu:switchItemTable(nil, items(), nil, nil, menu.subtitle)
         end)
         return true
@@ -2299,6 +2317,8 @@ function M:showSavedChapters(book_id, detail)
     local on_close = menu.onCloseWidget
     menu.onCloseWidget = function(widget,...)
         if self._saved_chapter_menu == widget then self._saved_chapter_menu = nil end
+        local cleanup = self.book_cache_cleanup_job
+        if cleanup and cleanup.owner.saved_chapters == widget then Cleanup.cancel(self) end
         widget._shelf_closed = true
         Popup.close(widget)
         if on_close then return on_close(widget,...) end

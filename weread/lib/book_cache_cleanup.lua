@@ -47,8 +47,14 @@ local function read_metadata(root,id)
     end
     return raw,info,data
 end
-local function select_full_book(plan,book,path)
-    if path~=book.cached_full_book and path~=book.cached_file then fail('changed') end
+local function select_copy(plan,book)
+    local path,uid=plan.selected_path,plan.chapter_uid
+    if type(path)~='string' or path=='' then fail('ownership') end
+    local Claims=require('weread.lib.chapter_cache_claim')
+    if uid then
+        if require('weread.lib.read_access').cached_chapter(book.cached_chapters,uid)~=path then fail('changed') end
+        if Claims.shared(book,path) then return end
+    elseif path~=book.cached_full_book and path~=book.cached_file then fail('changed') end
     local info=fs().symlinkattributes(path)
     if not info then return end
     if info.mode~='file' or not path:match('%.epub$') then fail('ownership') end
@@ -60,12 +66,15 @@ local function select_full_book(plan,book,path)
         parent=parent:match('^(.*)/[^/]+$') or ''
     end
     if parent~=plan.root then fail('ownership') end
-    if not require('weread.lib.chapter_cache_claim').combined(book,path) then return end
+    if uid then
+        local proof=Claims.inspect(book,path,nil,true)
+        if proof.kind~='single' or proof.uid~=uid then return end
+    elseif not Claims.combined(book,path) then return end
     if not unchanged(info,fs().symlinkattributes(path)) then fail('changed') end
     plan.entries[1]={path=path,info=info}
     plan.files,plan.bytes=1,info.size
 end
-function M.scan(root,id,full_path)
+function M.scan(root,id,selected_path,chapter_uid)
     if not Operation.path(root) then fail('ownership') end
     root=root:gsub('/+$','')
     local basename=tostring(id):gsub('[^%w%._-]','_')
@@ -74,9 +83,9 @@ function M.scan(root,id,full_path)
     if not owner or owner.mode~='directory' then fail('unavailable') end
     local metadata,meta_info,book=read_metadata(root,id)
     local plan={root=root,id=tostring(id),owner=owner,metadata=metadata,meta_info=meta_info,
-        entries={},retained=0,files=0,bytes=0,names={},directories={[root]=owner},full_path=full_path}
-    if full_path then
-        select_full_book(plan,book,full_path)
+        entries={},retained=0,files=0,bytes=0,names={},directories={[root]=owner},selected_path=selected_path,chapter_uid=chapter_uid}
+    if selected_path~=nil or chapter_uid~=nil then
+        select_copy(plan,book)
         if not same(owner,fs().symlinkattributes(root)) then fail('changed') end
         return plan
     end
@@ -115,13 +124,13 @@ function M.scan(root,id,full_path)
     if not same(owner,fs().symlinkattributes(root)) then fail('changed') end
     return plan
 end
-function M.acquire(root,id,full_path)
+function M.acquire(root,id,selected_path,chapter_uid)
     if not Operation.path(root) then return nil,'ownership' end
     root=root:gsub('/+$','')
     local lease,reason=Operation.open(root,true)
     if not lease then return nil,reason end
-    if full_path then
-        local ok,plan=pcall(M.scan,root,id,full_path)
+    if selected_path~=nil or chapter_uid~=nil then
+        local ok,plan=pcall(M.scan,root,id,selected_path,chapter_uid)
         if not ok then lease:release();return nil,'changed' end
         return lease,plan
     end
@@ -159,7 +168,8 @@ function M.acquire(root,id,full_path)
 end
 function M.same_plan(left,right)
     if not left or not right or left.root~=right.root or left.id~=right.id or left.metadata~=right.metadata
-        or left.full_path~=right.full_path or #left.entries~=#right.entries or not same(left.owner,right.owner) then return false end
+        or left.selected_path~=right.selected_path or left.chapter_uid~=right.chapter_uid
+        or #left.entries~=#right.entries or not same(left.owner,right.owner) then return false end
     for path,info in pairs(left.directories) do if not same(info,right.directories[path]) then return false end end
     for path in pairs(right.directories) do if not left.directories[path] then return false end end
     for i,entry in ipairs(left.entries) do

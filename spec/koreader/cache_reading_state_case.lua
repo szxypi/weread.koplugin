@@ -28,6 +28,9 @@ for key,value in pairs(Cache) do if not host[key] then host[key]=value end end
 local root=settings.data_dir;local manifest_path=root..'/synthetic-cache-check.json'
 local ids={'900001','900002','900003','CB_synthetic','MP_WXS_900001'}
 local function manifest() return json.decode(assert(read(manifest_path))) end
+local function account_journal(dir)
+    return dir..'/.weread-accounts/'..settings:account_state_scope()..'/reading_state.json'
+end
 local function verify(expected,content)
     local indexes=settings:get_book_indexes()
     local count=0
@@ -38,7 +41,8 @@ local function verify(expected,content)
     assert(count==#ids,'book index count changed')
     for _,id in ipairs(ids) do
         local saved=settings:get_book(id);local dir=assert(saved.cache_dir)
-        assert(read(dir..'/reading_state.json')==expected.states[id],'reading-state bytes changed')
+        assert(read(account_journal(dir))==expected.states[id],'account reading-state bytes changed')
+        assert(read(dir..'/reading_state.json')==expected.legacy[id],'legacy reading-state bytes changed')
         assert(read(dir..'/full.sdr/metadata.epub.lua')=='synthetic native notes','native notes changed')
         assert((read(dir..'/full.epub')~=nil)==content,'content presence mismatch')
         if not content then
@@ -56,18 +60,22 @@ if phase=='setup' then
         books[id]={book_id=id,title='Synthetic cache book',progress=37,
             last_local_position={chapter_uid='2',chapter_offset=17,percent=37},
             pending_upload_position={chapter_uid='2',chapter_offset=17,percent=37},
-            pending_upload_account='synthetic-account',source_dispatch={schema=1,id=string.rep('a',32)},
+            pending_upload_account=settings:account_state_scope(),
             cached_full_book=dir..'/full.epub',cached_file=dir..'/full.epub',cached_chapters={['2']=dir..'/chapter.epub'}}
     end
     settings:set('books',books);settings:flush()
-    local result={states={},indexes=settings:get_book_indexes()}
+    local result={states={},legacy={},indexes=settings:get_book_indexes()}
     for _,id in ipairs(ids) do
         local dir=settings.cache_dir..'/'..id
+        assert(settings:patch_reading_state(id,{source_dispatch={schema=1,id=string.rep('a',32)}}))
         write(dir..'/full.epub','synthetic full book');write(dir..'/chapter.epub','synthetic chapter')
         write(dir..'/catalog.json','synthetic catalog');assert(lfs.mkdir(dir..'/full.sdr'))
         write(dir..'/full.sdr/metadata.epub.lua','synthetic native notes')
-        if id=='900003' then write(dir..'/reading_state.json','opaque unrecognized journal; retain verbatim') end
-        result.states[id]=assert(read(dir..'/reading_state.json'))
+        if id=='900003' then
+            result.legacy[id]='opaque unrecognized journal; retain verbatim'
+            write(dir..'/reading_state.json',result.legacy[id])
+        end
+        result.states[id]=assert(read(account_journal(dir)))
     end
     write(manifest_path,json.encode(result));verify(result,true)
 elseif phase=='hold' then

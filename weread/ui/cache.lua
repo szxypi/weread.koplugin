@@ -689,7 +689,8 @@ function M:offerScanNewDir(new_dir, base_message)
 end
 
 function M:confirmClearBookCache(book_id, title, on_cleared, full_path)
-    return require('weread.ui.book_cache_cleanup').show(self,{book_id},title,on_cleared,full_path)
+    local copy=full_path and {path=full_path}
+    return require('weread.ui.book_cache_cleanup').show(self,{book_id},title,on_cleared,copy)
 end
 
 local function cache_ids(host,mp_only)

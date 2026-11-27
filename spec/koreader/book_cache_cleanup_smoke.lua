@@ -10,6 +10,17 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local function dismiss(base)
         while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=base do UI:close(UI:getTopmostVisibleWidget()) end
     end
+    local function hold(menu,index)
+        UI:forceRePaint()
+        for _,item in ipairs(menu.item_group) do
+            if item.entry==menu.item_table[index] then
+                local dimen=assert(item[1].dimen)
+                assert(item:onHoldSelect(nil,{pos={x=dimen.x+dimen.w/2,y=dimen.y+dimen.h/2}}))
+                return
+            end
+        end
+        error('chapter row is not visible')
+    end
     local before=assert(current.progress_sync:current_source_target())
     local before_xpointer=assert(current.progress_sync.source_anchor).xpointer
     local before_page=reader:getCurrentPage()
@@ -43,6 +54,33 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local metadata_before=read(metadata_path)
     local first,second=assert(saved.cached_chapters['2']),assert(saved.cached_chapters['4'])
     local first_bytes,second_bytes=read(first),read(second)
+    press(view,'Downloaded chapters')
+    local picker=assert(host._saved_chapter_menu)
+    assert(#picker.item_table==6,'full copy did not provide all six chapters')
+    hold(picker,1)
+    assert(not host.book_cache_cleanup_job and read(full)==full_bytes,'chapter inside the whole book offered removal')
+    dismiss(picker)
+    hold(picker,2)
+    local chapter_job=assert(host.book_cache_cleanup_job)
+    assert(chapter_job.copy.path==first and chapter_job.copy.chapter_uid=='2' and chapter_job.bytes==#first_bytes)
+    chapter_job.dialog:onClose();records()
+    assert(read(first)==first_bytes and not host.book_cache_cleanup_job,'cancel removed the single chapter')
+    hold(picker,2)
+    assert(host.book_cache_cleanup_job).dialog.ok_callback()
+    pump(function() return not host.book_cache_cleanup_job end);records()
+    saved=assert(host.settings:get_book(id))
+    assert(not lfs.attributes(first) and read(second)==second_bytes and read(full)==full_bytes
+        and not saved.cached_chapters['2'] and saved.cached_chapters['4']==second and saved.cached_full_book==full
+        and pending:get(token,'1'),'single chapter cleanup modified unrelated downloads or lost its metadata')
+    view=assert(host._book_detail_view)
+    dismiss(view)
+    press(view,'Downloaded chapters');picker=assert(host._saved_chapter_menu)
+    assert(#picker.item_table==6,'removed standalone chapter disappeared despite being in the full copy')
+    hold(picker,2)
+    assert(not host.book_cache_cleanup_job and read(full)==full_bytes,'removed chapter still offered cleanup')
+    dismiss(picker);UI:close(picker)
+    write(first,first_bytes);write(metadata_path,metadata_before)
+    report.cache_single_chapter_selective=true
     press(view,'Remove only the full-book copy')
     local selective=assert(host.book_cache_cleanup_job)
     assert(selective.files==1 and selective.bytes==#full_bytes,'selective preview did not match the full copy')
@@ -67,7 +105,7 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local requests=0
     Client.request=function() requests=requests+1;error('offline chapter requested network access') end
     press(view,'Downloaded chapters')
-    local picker=assert(host._saved_chapter_menu)
+    picker=assert(host._saved_chapter_menu)
     assert(#picker.item_table==2,'downloaded picker did not list the two retained chapters')
     picker:onMenuSelect(picker.item_table[1])
     pump(function() return Reader.instance and Reader.instance.document.file==first end)
