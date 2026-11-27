@@ -279,15 +279,31 @@ for _,mode in ipairs({'same','updated','catalog_changed'}) do
         observed.revision=string.rep('f',32)
     else observed=reviewed end
     expect(UI.start(host,{book_id='456'},s.view,{batch=true,resume_plan=reviewed}),'selected plan could not be checked')
+    catalog_error='native_auth/native_catalog_catalog/http_429';s.finish(1)
+    local catalog_retry=host._native_direct_reading and host._native_direct_reading.confirm
+    expect(catalog_retry and catalog_retry.text:find('Retry loading the chapter list?',1,true)
+        and #s.jobs==1 and not host.busy_message,'initial catalog failure dismissed the unfinished download')
+    host.isNetworkConnected=function() return false end
+    catalog_retry.ok_callback()
+    local offline_prompt=assert(host._native_direct_reading.confirm)
+    expect(#s.jobs==1 and not host.busy_message,'offline catalog retry tried to download')
+    host.isNetworkConnected=function() return true end
+    catalog_error=nil;offline_prompt.ok_callback();catalog_retry.ok_callback()
+    expect(#s.jobs==2 and host._native_direct_reading.phase=='catalog','old catalog prompt restarted the download')
     if mode=='catalog_changed' then sample.version=8 end
-    s.finish(1);sample.version=7
+    s.finish(2);sample.version=7
     if mode=='same' then
-        expect(host._native_direct_reading.confirm.choice1_text=='Continue download' and #s.jobs==1,
+        expect(host._native_direct_reading.confirm.choice1_text=='Continue download' and #s.jobs==2,
             'selected plan started without confirmation')
     else
-        expect(not host._native_direct_reading and #s.jobs==1 and s.info==1,'a stale plan proceeded')
+        expect(not host._native_direct_reading and #s.jobs==2 and s.info==1,'a stale plan proceeded after retry')
     end
 end
+host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true})
+catalog_error='native_auth/native_catalog_info/timeout';s.finish(1)
+local catalog_retry=assert(host._native_direct_reading.confirm)
+account_valid=false;catalog_retry.ok_callback()
+expect(not host._native_direct_reading and #s.jobs==1,'old account restarted the batch catalog')
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
 confirm=assert(host._native_direct_reading.confirm);require('ui/uimanager'):close(confirm);confirm.choice2_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'dismissed download options retained a valid action')

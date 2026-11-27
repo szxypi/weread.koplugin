@@ -21,6 +21,14 @@ fixture.body = lambda uid: '<html><body>' + ''.join(
 class Handler(fixture.Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (self.server.catalog_faults and self.command == 'GET' and target.hostname == 'i.weread.qq.com'
+                and target.path == '/book/info'):
+            failure = self.server.catalog_faults.pop(0)
+            if failure == 'transport':
+                self.close_connection = True
+            else:
+                self.send_error(failure)
+            return
         if (self.server.interrupt_download and self.command == 'GET' and target.hostname == 'i.weread.qq.com'
                 and target.path == '/book/chapterdownload' and parse_qs(target.query).get('chapters') == ['0,38']):
             self.server.interrupt_download = False
@@ -55,6 +63,7 @@ class Handler(fixture.Handler):
 
 def run(runtime):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server.catalog_faults = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -232,6 +241,8 @@ def run(runtime):
                         server.hold_release, server.hold_done = threading.Event(), threading.Event()
                         server.chapters = []
                         for mode in modes:
+                            if mode == 'range_reopen':
+                                server.catalog_faults = ['transport', 429]
                             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_batch_probe.lua'),
                                                     str(REPO)], input=json.dumps(dict(payload, mode=mode)), text=True,
                                                    env=env, cwd=runtime, capture_output=True, timeout=150)
@@ -246,7 +257,7 @@ def run(runtime):
                             if mode == 'offline_retry': expected['network_blocked'] = True
                             assert len(frames) == 1 and json.loads(frames[0][len(marker):]) == expected
                             expected_chapters = ['37', '38'] if mode == 'range_interrupted' else ['37', '38', '38']
-                            assert not server.interrupt_download and server.chapters == expected_chapters
+                            assert not server.interrupt_download and not server.catalog_faults and server.chapters == expected_chapters
                             assert server.valid and not server.leaked
                 with tempfile.TemporaryDirectory(prefix='weread-native-batch-cancel-', dir='/dev/shm') as directory:
                     root = Path(directory)

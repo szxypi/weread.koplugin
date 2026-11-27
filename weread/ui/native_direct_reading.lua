@@ -497,13 +497,21 @@ function M.start(host,book,view,options)
         ctx.generation=ctx.generation+1
         close_busy()
         host._native_direct_worker.timeout=180
-        local range=ctx.batch_range
-        local message=_(reason=='rate_limited' and 'WeRead is limiting requests. Completed chapters were kept; try again later.'
-            or 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.')
-        local first,last=range and range.first or 1,range and range.last or #ctx.catalog.chapters
+        local message,prompt
+        if ctx.catalog then
+            local range=ctx.batch_range
+            local first,last=range and range.first or 1,range and range.last or #ctx.catalog.chapters
+            message=_(reason=='rate_limited' and 'WeRead is limiting requests. Completed chapters were kept; try again later.'
+                or 'The download connection was interrupted. Completed chapters were kept. Reconnect to retry.')
+            prompt=T(_('Retry chapters %1–%2?'),first,last)
+        else
+            message=_(reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+                or 'Could not load the E-Ink chapter list. Check the connection and try again.')
+            prompt=_('Retry loading the chapter list?')
+        end
         local dialog
         dialog=require('ui/widget/confirmbox'):new{
-            text=message..'\n\n'..T(_('Retry chapters %1–%2?'),first,last),
+            text=message..'\n\n'..prompt,
             ok_text=_('Retry'),cancel_text=_('Cancel'),
             ok_callback=function()
                 if not take_confirmation(dialog) then return end
@@ -651,7 +659,7 @@ function M.start(host,book,view,options)
                 begin_open('saved_matches');return
             end
             if reason=='auth_expired' then renew();return end
-            if (phase=='batch' or phase=='catalog' and ctx.batch and ctx.catalog)
+            if ctx.batch and (phase=='batch' or phase=='catalog')
                 and (reason=='transport' or reason=='rate_limited') then
                 show_batch_retry(reason);return
             end

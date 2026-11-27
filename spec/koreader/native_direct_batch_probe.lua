@@ -581,9 +581,10 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     print('WEREAD_DIRECT_BATCH='..json.encode{ok=true,mode=input.mode,network_blocked=true});os.exit(0)
 end
 local client=require('weread.lib.client'):new(settings)
+local connected=true
 local host={settings=settings,client=client,discovery_epoch=1,_reader_session_gen=1,
     library_db={accountKey=function() return 'synthetic' end,getChapters=function() return {} end},ui={},
-    isNetworkConnected=function() return true end,
+    isNetworkConnected=function() return connected end,
     showBusy=function(self,label,cancel)
         self.busy_message=require('ui/widget/infomessage'):new{text=label,callback=cancel};UI:show(self.busy_message)
     end,
@@ -613,6 +614,26 @@ end
 assert(action);action.callback()
 pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
 local confirm=host._native_direct_reading.confirm
+if range_reopen then
+    local util=require('weread.lib.plugin_util')
+    local retry_prompt=util.tr('Retry loading the chapter list?')
+    local function retry_catalog(message)
+        assert(confirm.text==util.tr(message)..'\n\n'..retry_prompt
+            and not host.busy_message and not host._native_direct_worker.job and pending_plan(),
+            'catalog error lost the saved range or started a download')
+        local previous=confirm
+        confirm.ok_callback();UI:close(previous)
+        pump(function() return host._native_direct_reading and host._native_direct_reading.confirm end)
+        confirm=host._native_direct_reading.confirm
+        assert(confirm~=previous,'catalog retry reused an old prompt')
+    end
+    connected=false
+    local transport='Could not load the E-Ink chapter list. Check the connection and try again.'
+    retry_catalog(transport)
+    connected=true
+    retry_catalog(transport)
+    retry_catalog('WeRead is limiting requests. Please try again later.')
+end
 local first_range=range_retry or range_interrupted
 local range_mode=input.mode=='range' or input.mode=='range_repeat' or input.mode=='range_cancel' or first_range
 if range_mode then
