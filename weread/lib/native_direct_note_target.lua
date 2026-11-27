@@ -35,20 +35,16 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
             and candidate.chapter_uid==uid and candidate.book_version==source.book_version
             and candidate.catalog_sha256==source.catalog_sha256 and candidate.catalog_count==source.catalog_count
     end
-    local function prepare(candidate)
-        if not matches(candidate) or not active() then return nil end
-        local opened=Cache.open(settings,scope.vid,source.book_id,candidate,active)
-        if not opened or not Path.contains(settings,opened.path) then return nil end
-        local pinned=Cache.identify(settings,scope.vid,opened.path,active)
-        if not pinned or not matches(pinned) or pinned.key~=candidate.key or pinned.copy~=candidate.copy then return nil end
+    local function prepare(pinned,path)
+        if not pinned or not matches(pinned) or not Path.contains(settings,path) or not active() then return nil end
         local metadata=pinned.file_id..pinned.source_sha256..pinned.key
-        local ok,value=pcall(Task.prepare_direct,client,settings,library,opened.path,pinned,metadata,{row},online)
+        local ok,value=pcall(Task.prepare_direct,client,settings,library,path,pinned,metadata,{row},online)
         local item=ok and type(value)=='table' and value.metadata==metadata and type(value.rows)=='table'
             and #value.rows==1 and value.rows[1]
         if type(item)~='table' or item.bookmarkId~=row.bookmarkId
             or item.reference_hash~=Contract.row_hash(row) or item.bookmark~=(row.type==0 and true or nil)
             or not active() then return nil end
-        return {path=opened.path,entry=pinned}
+        return {path=path,entry=pinned}
     end
     local rows=Cache.list(settings,scope.vid,source.book_id,active,uid)
     if not rows then return nil,'storage' end
@@ -64,7 +60,8 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
     -- bypass them and rebuild from the verified catalog and current source.
     if not ambiguous then
         for _,candidate in ipairs(choices) do
-            local result=prepare(candidate)
+            local opened,pinned=Cache.open(settings,scope.vid,source.book_id,candidate,active,true)
+            local result=opened and prepare(pinned,opened.path)
             if result then return result end
         end
     end
@@ -90,7 +87,7 @@ function M.resolve(client,settings,library,source,file,book,row,online,current)
             {is_current=online_active,allow_missing_images=true})
         if not built or not Path.contains(settings,built.path) or not online_active() then return {error=why or 'unavailable'} end
         local target=Cache.identify(settings,scope.vid,built.path,online_active)
-        local prepared=target and prepare(target)
+        local prepared=prepare(target,built.path)
         return prepared or {error='target_unavailable'}
     end)
     auth:cancel()

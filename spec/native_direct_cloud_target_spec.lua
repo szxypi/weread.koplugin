@@ -10,6 +10,7 @@ local row={chapterUid='38',chapterIdx=3,downloadable=true}
 local catalog={book_id='42',version=7,reading_digest=catalog_sha,chapters={row}}
 local cached={book_id='42',chapter_uid='38',chapter_idx=3,book_version=7,catalog_sha256=catalog_sha,source_sha256=digest}
 local live=true;local cloud_count=0;local source_count=0;local build_count=0;local cache_hit=true
+local target_identifications=0
 local changed=false;local duplicate=false;local source_mismatch=false;local bad_target=false
 package.preload['weread.lib.native_read_access']=function() return {matches=function() return live end} end
 package.preload['weread.lib.source_currentness']=function() return {matches=function() return live end} end
@@ -43,8 +44,14 @@ package.preload['weread.lib.native_direct_cache']=function() return {
         assert(owner=='123' and book=='42' and uid==target.chapter_uid and current())
         return cache_hit and {cached} or {}
     end,
-    open=function() return {path='/target'} end,
-    identify=function(_,_,path) return path=='/target' and cached or nil end,
+    open=function(_,_,_,candidate,current,with_entry)
+        assert(candidate==cached and current() and with_entry)
+        return {path='/target'},cached
+    end,
+    identify=function(_,_,path)
+        target_identifications=target_identifications+1
+        return path=='/target' and cached or nil
+    end,
     valid_entry=function(value,id,owner) return value==cached and id=='42' and owner=='123' end,
 } end
 package.preload['weread.lib.native_direct_reader']=function() return {build=function(_,_,book,chapter,expected,options)
@@ -54,13 +61,15 @@ package.preload['weread.lib.native_direct_reader']=function() return {build=func
 end} end
 local Target=require('weread.lib.native_direct_cloud_target')
 local function resolve()
-    cloud_count,source_count,build_count=0,0,0
+    cloud_count,source_count,build_count,target_identifications=0,0,0,0
     return Target.resolve({}, {},entry,'/current',{},native,web,function() return live end,target,{book_id='42'})
 end
 local result=resolve();local reason
-expect(result and result.reused and result.path=='/target' and cloud_count==2 and source_count==1 and build_count==0,
+expect(result and result.reused and result.path=='/target' and cloud_count==2 and source_count==1 and build_count==0
+    and target_identifications==0,
     'verified cached chapter was not selected')
-cache_hit=false;result=resolve();expect(result and result.reused==false and build_count==1,'uncached chapter was not prepared')
+cache_hit=false;result=resolve();expect(result and result.reused==false and build_count==1 and target_identifications==1,
+    'uncached chapter was not prepared and identified')
 cache_hit=true;row.downloadable=false;result,reason=resolve()
 expect(not result and reason=='not_entitled' and source_count==0 and build_count==0,'unavailable chapter was downloaded')
 row.downloadable=true;duplicate=true;result,reason=resolve()

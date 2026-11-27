@@ -221,8 +221,7 @@ local function read_ref(lfs,dir,entry)
         or ref_payload(result)~=payload then return nil end
     return result
 end
-local function attach_ref(lfs,dir,entry)
-    local ref=read_ref(lfs,dir,entry)
+local function attach_ref(entry,ref)
     if ref then
         entry.catalog_sha256,entry.catalog_order,entry.catalog_count=ref.catalog_sha256,ref.catalog_order,ref.catalog_count
         entry.catalog_prev,entry.catalog_next=ref.catalog_prev,ref.catalog_next
@@ -384,7 +383,7 @@ function M.list(settings,account,book_id,current,selection)
                         and read_entry(lfs,dir,key,copy,book_id,account,chapter_set)
                     if entry and (not chapter_uid or entry.chapter_uid==chapter_uid) then
                         local file=mode(lfs,dir..(selected_file or '/'..filename(book_id,entry.chapter_uid)))
-                        if is_chapter_file(file) then rows[#rows+1]=attach_ref(lfs,dir,entry) end
+                        if is_chapter_file(file) then rows[#rows+1]=attach_ref(entry,read_ref(lfs,dir,entry)) end
                     end
                 end
             end
@@ -460,7 +459,9 @@ function M.begin_capacity(settings,account,book_id,current)
     return nil,'unavailable'
 end
 
-function M.open(settings,account,book_id,entry,current)
+-- Callers that also need the chapter identity can take the verified entry
+-- from this same check, including the catalog reference it compared.
+function M.open(settings,account,book_id,entry,current,with_entry)
     if not valid_entry(entry,book_id,account) or type(current)~='function' or current()~=true then return nil end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return nil end
@@ -468,8 +469,9 @@ function M.open(settings,account,book_id,entry,current)
     if not attr or attr.mode~='directory' or mode(lfs,dir..'/'..RETIRING) then return nil end
     local actual=read_entry(lfs,dir,entry.key,entry.copy,book_id,account)
     if not actual or entry_payload(actual)~=entry_payload(entry) then return nil end
+    local ref
     if entry.catalog_sha256 then
-        local ref=read_ref(lfs,dir,actual)
+        ref=read_ref(lfs,dir,actual)
         if not ref or ref_payload(ref)~=ref_payload(entry) then return nil end
     end
     local path=dir..'/'..filename(book_id,entry.chapter_uid)
@@ -482,8 +484,13 @@ function M.open(settings,account,book_id,entry,current)
     local identity=archive_identity(path,book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
     if not identity or current()~=true then return nil end
     if not M.present(settings,account,book_id) then save_presence(settings,account,book_id,entry,current) end
-    return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
+    local opened={path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
         missing_images=entry.missing_images,file_id=identity.file_id}
+    if with_entry then
+        actual.file_id=identity.file_id
+        return opened,attach_ref(actual,ref)
+    end
+    return opened
 end
 
 -- Resolve an open file back to a verified, account-bound chapter. The path is
@@ -504,10 +511,9 @@ function M.identify(settings,account,path,current)
     local entry=read_entry(lfs,dir,key,copy,nil,account)
     if not entry or book_hash~=Crypto.sha256_hex('native-direct-book\0'..entry.book_id)
         or file~=filename(entry.book_id,entry.chapter_uid) then return nil end
-    attach_ref(lfs,dir,entry)
-    local checked=M.open(settings,account,entry.book_id,entry,current)
-    if checked then entry.file_id=checked.file_id end
-    return checked and entry or nil
+    attach_ref(entry,read_ref(lfs,dir,entry))
+    local _,checked=M.open(settings,account,entry.book_id,entry,current,true)
+    return checked
 end
 local function content_key(account,book,chapter,prepared)
     local parts={'native-direct-content-v1',account,prepared.book_id,prepared.chapter_uid,

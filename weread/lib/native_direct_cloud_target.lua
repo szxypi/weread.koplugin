@@ -48,8 +48,8 @@ function M.resolve(client,settings,entry,file,context,native,web,current,wanted,
             if candidate.chapter_uid==wanted.chapter_uid and candidate.chapter_idx==wanted.chapter_idx
                 and candidate.book_version==catalog.version and candidate.catalog_sha256==catalog.reading_digest
                 and candidate.source_sha256==digest then
-                local opened=Cache.open(settings,native.scope.vid,entry.book_id,candidate,active)
-                if opened then path=opened.path;target_entry=Cache.identify(settings,native.scope.vid,path,active);reused=true;break end
+                local opened,checked=Cache.open(settings,native.scope.vid,entry.book_id,candidate,active,true)
+                if opened then path=opened.path;target_entry=checked;reused=true;break end
             end
         end
         if not path then

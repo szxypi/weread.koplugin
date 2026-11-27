@@ -17,14 +17,15 @@ function cache.valid_entry(entry,book,vid) return type(entry)=='table' and entry
 function cache.identify(_,_,path,current)
     if not current() then return nil end
     if path=='/native/source' then return state.source end
-    if path=='/native/target' then return state.target end
+    if path=='/native/target' then state.target_identifications=state.target_identifications+1;return state.target end
 end
 function cache.list(_,owner,book,current,uid)
     assert(owner==scope.vid and book==source.book_id and uid==destination.chapter_uid and current())
     return state.rows
 end
-function cache.open(_,_,_,entry,current)
-    if current() and not state.damaged and entry==state.target then return {path='/native/target'} end
+function cache.open(_,_,_,entry,current,with_entry)
+    assert(with_entry)
+    if current() and not state.damaged and entry==state.target then return {path='/native/target'},state.target end
 end
 package.loaded['weread.lib.native_direct_cache']=cache
 package.loaded['weread.lib.native_direct_path']={contains=function(_,path) return path=='/native/target' or path=='/native/source' end}
@@ -34,6 +35,7 @@ package.loaded['weread.lib.native_direct_position']={same=function(a,b) return a
         state.reads=state.reads+1
         if state.error then return nil,state.error end
         if state.change_source then state.source={} end
+        if state.change_target then state.target={} end
         if state.revoke then state.valid=false end
         return state.raw
     end}
@@ -49,7 +51,7 @@ end}
 local Search=require('weread.lib.native_direct_online_search_target')
 local settings={}
 local function fixture()
-    state={source=source,target=destination,rows={destination},valid=true,raw=raw,reads=0,built=0,
+    state={source=source,target=destination,rows={destination},valid=true,raw=raw,reads=0,built=0,target_identifications=0,
         native={scope=scope,credentials={vid='7'},fingerprint='fingerprint'},web={web={cookies={wr_vid='7'}}},
         catalog={version=3,reading_digest='catalog',chapters={{chapterUid='2'}, {chapterUid='3',downloadable=true}}}}
 end
@@ -61,7 +63,8 @@ local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label or ('check '..checks)) end
 fixture();local result,why=resolve(false)
 expect(result and not why and result.entry==destination and result.path=='/native/target' and result.reused and result.local_only
-    and result.anchor and state.reads==1 and state.built==0,'saved match did not bind')
+    and result.anchor and state.reads==1 and state.built==0 and state.target_identifications==1,
+    'saved match did not use its verified identity and recheck after source processing')
 expect(result.anchor.point_unit=='unicode_scalars' and result.anchor.basis=='filtered_xhtml_utf16',
     'local anchor lacked source identity')
 fixture();state.rows={};result,why=resolve(false);expect(not result and why=='not_saved' and state.built==0,'missing chapter downloaded without consent')
@@ -78,6 +81,7 @@ fixture();state.error='web_expired';result,why=resolve(true)
 expect(not result and why=='web_expired' and state.built==0,'expired web session triggered download')
 fixture();state.source={};result,why=resolve(false);expect(not result and why=='source_changed','changed source chapter accepted')
 fixture();state.change_source=true;result,why=resolve(false);expect(not result and why=='source_changed','source change during lookup accepted')
+fixture();state.change_target=true;result,why=resolve(false);expect(not result and why=='source_changed','target change during lookup accepted')
 fixture();state.revoke=true;result,why=resolve(false);expect(not result and why=='session_changed','session change during lookup accepted')
 fixture();state.valid=false;result,why=resolve(false);expect(not result and why=='invalid','changed account accepted')
 fixture();state.native.renewal_pending=true;result,why=resolve(true);expect(not result and why=='invalid','pending renewal accepted')

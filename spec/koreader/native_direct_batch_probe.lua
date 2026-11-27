@@ -269,7 +269,10 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
     end
     local seen={};local cache_dir
     for _,row in ipairs(rows) do
-        local saved=assert(cache.open(settings,scope.vid,'42',row,function() return true end))
+        local saved,checked=cache.open(settings,scope.vid,'42',row,function() return true end,true)
+        assert(saved and checked and checked.file_id==saved.file_id and checked.key==row.key and checked.copy==row.copy
+            and checked.catalog_sha256==row.catalog_sha256 and checked.catalog_order==row.catalog_order and not row.file_id,
+            'opened file did not return its verified identity and catalog')
         cache_dir=assert(saved.path:match('^(.*)/[^/]+/[^/]+$'))
         local doc=assert(require('document/documentregistry'):openDocument(saved.path))
         assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()

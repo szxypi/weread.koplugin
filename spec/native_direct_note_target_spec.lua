@@ -11,14 +11,15 @@ function cache.valid_entry(entry,book,vid) return type(entry)=='table' and entry
 function cache.identify(_,_,path,current)
     if not current() then return nil end
     if path=='/native/source' then return state.source end
-    if path=='/native/target' then return state.target end
+    if path=='/native/target' then state.target_identifications=state.target_identifications+1;return state.target end
 end
 function cache.list(_,owner,book,current,uid)
     assert(owner==scope.vid and book==source.book_id and uid==target.chapter_uid and current())
     return state.rows
 end
-function cache.open(_,_,_,entry,current)
-    if current() and not state.damaged and entry==state.target then return {path='/native/target'} end
+function cache.open(_,_,_,entry,current,with_entry)
+    assert(with_entry)
+    if current() and not state.damaged and entry==state.target then return {path='/native/target'},state.target end
 end
 package.loaded['weread.lib.native_direct_cache']=cache
 package.loaded['weread.lib.native_direct_path']={contains=function(_,path) return path=='/native/target' end}
@@ -41,7 +42,7 @@ end}
 local Target=require('weread.lib.native_direct_note_target')
 local settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_,v) return state.valid and v==scope end}
 local function fixture(online)
-    state={source=source,target=target,rows={target},valid=true,online=online,prepared=0,built=0,
+    state={source=source,target=target,rows={target},valid=true,online=online,prepared=0,built=0,target_identifications=0,
         access={scope={vid='7'},credentials={},fingerprint='fingerprint'},
         catalog={version=3,reading_digest='catalog',chapters={{chapterUid='2'}, {chapterUid='3',downloadable=true}}}}
 end
@@ -50,7 +51,8 @@ local function resolve()
 end
 local checks=0
 local function expect(value) checks=checks+1;assert(value,'check '..checks) end
-fixture(false);local result=resolve();expect(result and result.path=='/native/target' and state.prepared==1 and state.built==0)
+fixture(false);local result=resolve();expect(result and result.path=='/native/target' and state.prepared==1
+    and state.built==0 and state.target_identifications==0)
 fixture(false);state.rows={};local _,why=resolve();expect(why=='not_saved' and state.built==0)
 fixture(false);state.bad_quote=true;result,why=resolve();expect(not result and why=='not_saved')
 fixture(false);state.damaged=true;result,why=resolve();expect(not result and why=='not_saved' and state.prepared==0)
@@ -62,7 +64,8 @@ fixture(true);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,ca
 result,why=resolve();expect(result and not why and state.built==1 and state.prepared==1 and state.cancelled)
 fixture(true);state.rows={target,{book_id='41',chapter_uid='3',book_version=3,catalog_sha256='catalog',catalog_count=2,source_sha256='different'}}
 state.bad_quote=true;result,why=resolve();expect(not result and why=='target_unavailable' and state.built==1 and state.cancelled)
-fixture(true);state.rows={};result=resolve();expect(result and state.built==1 and state.cancelled and state.prepared==1)
+fixture(true);state.rows={};result=resolve();expect(result and state.built==1 and state.cancelled
+    and state.prepared==1 and state.target_identifications==1)
 fixture(true);state.rows={};state.catalog.reading_digest='different';result,why=resolve();expect(not result and why=='catalog_changed' and state.built==0 and state.cancelled)
 fixture(true);state.rows={};state.catalog.chapters[2].downloadable=false;result,why=resolve();expect(not result and why=='not_entitled' and state.built==0)
 fixture(true);state.rows={};state.access.renewal_pending=true;result,why=resolve();expect(not result and why=='auth_expired' and state.built==0)

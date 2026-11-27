@@ -36,19 +36,18 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
     local function live() return active(settings,native,web,current) end
     local function source_current()
         local initial=Cache.identify(settings,scope.vid,file,live)
-        return Position.same(source,initial) and live()
+        if Position.same(source,initial) and live() then return initial end
     end
     local ok,result=pcall(function()
-        if not source_current() then return {error='source_changed'} end
+        local original=source_current()
+        if not original then return {error='source_changed'} end
         local function matches(entry)
             return Cache.valid_entry(entry,source.book_id,scope.vid) and entry.chapter_uid==uid
                 and entry.book_version==source.book_version and entry.catalog_sha256==source.catalog_sha256
                 and entry.catalog_count==source.catalog_count
         end
-        local function prepare(entry,path)
-            if not matches(entry) or not Path.contains(settings,path) or not live() then return nil,'source_changed' end
-            local pinned=Cache.identify(settings,scope.vid,path,live)
-            if not pinned or not matches(pinned) or pinned.key~=entry.key or pinned.copy~=entry.copy then return nil,'source_changed' end
+        local function prepare(pinned,path)
+            if not pinned or not matches(pinned) or not Path.contains(settings,path) or not live() then return nil,'source_changed' end
             local raw,why=Position.verified_source(client,settings,pinned,path,native,web,live)
             if not raw then return nil,why or 'unavailable' end
             if Crypto.sha256_hex(raw)~=pinned.source_sha256 then return nil,'source_changed' end
@@ -65,7 +64,7 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
             return {path=path,entry=pinned,anchor=anchor,local_only=true},nil
         end
         if uid==source.chapter_uid then
-            local resolved,why=prepare(source,file)
+            local resolved,why=prepare(original,file)
             return resolved or {error=why}
         end
         local rows=Cache.list(settings,scope.vid,source.book_id,live,uid)
@@ -73,9 +72,9 @@ function M.resolve(client,settings,source,file,hit,native,web,current,allow_down
         local failed
         for _,entry in ipairs(rows) do
             if matches(entry) then
-                local opened=Cache.open(settings,scope.vid,source.book_id,entry,live)
+                local opened,pinned=Cache.open(settings,scope.vid,source.book_id,entry,live,true)
                 if opened then
-                    local resolved,why=prepare(entry,opened.path)
+                    local resolved,why=prepare(pinned,opened.path)
                     if resolved then resolved.reused=true;return resolved end
                     failed=why
                     if why=='auth_expired' or why=='web_expired' or why=='rate_limited' or why=='session_changed' then
