@@ -387,6 +387,37 @@ do
 end
 
 do
+    local get_chapters, load_catalog = host.library_db.getChapters, content.load_catalog_cache
+    local function unexpected_catalog() error('reading a catalog without a candidate download') end
+    host.library_db.getChapters,content.load_catalog_cache=unexpected_catalog,unexpected_catalog
+    opened_path=nil
+    expect(not host:openBookForReading({book_id='78',chapter_uid=3},true,{prefer_exact=true}),
+        'a book without a download mapping was considered cached')
+    expect(not host:openBookForReading({book_id='78',cached_chapters={}},true,{prefer_exact=true}) and not opened_path,
+        'an empty chapter mapping entered the reader')
+
+    local original_owner=current_owner;current_owner=string.rep('d',20)
+    local imported={book_id='CB_Cached',cached_chapters={['1']='/cache/imported-hint.epub'}}
+    existing_paths['/cache/imported-hint.epub']=true
+    local Hint=require('weread.lib.unindexed_resume')
+    imported.cb_cloud_view_resume=assert(Hint.make({book_id=imported.book_id,chapter_uid='1',
+        file_id=string.rep('c',64),raw_sha256=string.rep('e',64),basis='filtered_xhtml_utf16',
+        upload_verified=false},imported.book_id,current_owner,0))
+    local old_resume=package.loaded['weread.ui.unindexed_resume']
+    local received
+    package.loaded['weread.ui.unindexed_resume']={start=function(_,book,hint,paths,options)
+        received={book=book,hint=hint,paths=paths,cloud=options.cloud_view};return true
+    end}
+    expect(host:openBookForReading(imported,true,{prefer_exact=true}) and received
+        and received.book==imported and received.hint==imported.cb_cloud_view_resume and received.cloud
+        and #received.paths==1 and received.paths[1]=='/cache/imported-hint.epub',
+        'an imported-book hint should go directly to cache verification')
+    package.loaded['weread.ui.unindexed_resume']=old_resume
+    current_owner=original_owner
+    host.library_db.getChapters,content.load_catalog_cache=get_chapters,load_catalog
+end
+
+do
     local scope={}
     local cached={book_id='76',chapters={{chapterUid=1},{chapterUid=2}},
         chapter_uid=1,cached_chapters={['1']='/cache/76-1.epub'}}
@@ -507,6 +538,12 @@ expect(not host:openBookForReading(partial,true,{prefer_exact=true,confirmed_mis
     'consent for a different chapter let an unindexed hint fall back')
 expect(host:openBookForReading(partial,true,{prefer_exact=true,confirmed_missing_uid='4'}) and opened_path=='/cache/2.epub',
     'the confirmed unindexed hint did not allow a cached alternative')
+local mappings=partial.cached_chapters
+partial.cached_chapters={}
+available,reason,uid=host:openBookForReading(partial,true,{prefer_exact=true})
+expect(not available and reason=='resume_not_cached' and uid=='4',
+    'an empty mapping discarded the ordinary catalog-free resume hint')
+partial.cached_chapters=mappings
 existing_paths['/cache/4.epub']=true;existing_paths[partial.full_path]=true;partial.unindexed_resume=nil;partial.chapters=original_catalog
 partial.full_path=nil;current_owner='account-a';package.loaded['weread.ui.unindexed_resume']=nil
 

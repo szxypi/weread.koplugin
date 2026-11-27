@@ -2790,6 +2790,7 @@ end
 function M:openBookForReading(book, quiet, options)
     local claim_cache={}
     local full_path = self:getFullBookCachePath(book,nil,claim_cache)
+    local cached_chapters=book.cached_chapters
     local book_id = book.book_id or book.bookId
     -- A confirmation permits falling back from only the chapter it showed.
     local confirmed_missing_uid=options and options.confirmed_missing_uid
@@ -2813,15 +2814,19 @@ function M:openBookForReading(book, quiet, options)
     local hint_valid=not (options and options.skip_unindexed_resume) and hint and self.settings
         and Hint.valid(hint,tostring(book_id),account,self.settings:get('auth_epoch',0))
     if hint_valid then
-        local chapters=book.chapters
-        if type(chapters)~='table' or #chapters==0 then
-            chapters=self.library_db and self.library_db:getChapters(book_id)
+        local chapters
+        -- The verified imported-book hint already identifies its chapter.
+        if not cloud_hint then
+            chapters=book.chapters
+            if type(chapters)~='table' or #chapters==0 then
+                chapters=self.library_db and self.library_db:getChapters(book_id)
+            end
+            if type(chapters)~='table' or #chapters==0 then
+                chapters=Content.load_catalog_cache(self.client,self.settings,book)
+            end
         end
         if type(chapters)~='table' or #chapters==0 then
-            chapters=Content.load_catalog_cache(self.client,self.settings,book)
-        end
-        if cloud_hint or type(chapters)~='table' or #chapters==0 then
-            local mapped=ReadAccess.cached_chapter(book.cached_chapters,hint.chapter_uid)
+            local mapped=ReadAccess.cached_chapter(cached_chapters,hint.chapter_uid)
             local paths={}
             if file_exists(mapped) then paths[#paths+1]=mapped end
             if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end
@@ -2850,6 +2855,12 @@ function M:openBookForReading(book, quiet, options)
         return true
     end
 
+    -- An ordinary catalog only helps choose between mapped downloads.
+    if not cached_chapters or type(cached_chapters)=='table' and next(cached_chapters)==nil then
+        if not quiet then self:showInfo(_('No cached file.')) end
+        return false
+    end
+
     local chapters = book.chapters
     if type(chapters) ~= "table" and self.library_db then
         chapters = self.library_db:getChapters(book_id)
@@ -2861,9 +2872,9 @@ function M:openBookForReading(book, quiet, options)
 
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
-        local target=uid and ReadAccess.cached_chapter(book.cached_chapters,uid)
+        local target=uid and ReadAccess.cached_chapter(cached_chapters,uid)
         if uid and uid~=confirmed_missing_uid and not usable(uid,target) then
-            for _id,path in pairs(book.cached_chapters or {}) do
+            for _id,path in pairs(cached_chapters) do
                 if usable(_id,path) then return false,'resume_not_cached',uid end
             end
             if file_exists(target) and claims.shared(book,target,claim_cache) then return false,'ambiguous_cache',uid end
@@ -2882,7 +2893,7 @@ function M:openBookForReading(book, quiet, options)
         local function cached_at(index)
             local chapter = chapters[index]
             local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
-            local path = ReadAccess.cached_chapter(book.cached_chapters,uid)
+            local path = ReadAccess.cached_chapter(cached_chapters,uid)
             if usable(uid,path) then return path end
         end
         if length>0 then
@@ -2902,7 +2913,7 @@ function M:openBookForReading(book, quiet, options)
     end
 
     local fallback_paths = {}
-    for uid, path in pairs(book.cached_chapters or {}) do
+    for uid, path in pairs(cached_chapters) do
         if usable(uid,path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
     end
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
