@@ -55,16 +55,28 @@ local function exact_book_id(value)
     end
 end
 
-function M.cached_book(entries, value)
-    local id=exact_book_id(value)
-    if not id or type(entries)~='table' then return nil,'invalid_identity' end
-    local book=M.cached_key(entries,id)
+local function verified_cached_book(book,id)
     if book==nil then return nil end
     if type(book)~='table' then return nil,'identity_conflict' end
     for _,field in ipairs({'book_id','bookId'}) do
         if book[field]~=nil and exact_book_id(book[field])~=id then return nil,'identity_conflict' end
     end
     return book
+end
+
+function M.cached_book(entries, value)
+    local id=exact_book_id(value)
+    if not id or type(entries)~='table' then return nil,'invalid_identity' end
+    return verified_cached_book(M.cached_key(entries,id),id)
+end
+
+function M.load_cached_book(settings,value)
+    local id=exact_book_id(value)
+    if not id then return nil,'invalid_identity' end
+    if type(settings.get_book)=='function' then
+        return verified_cached_book(settings:get_book(id,true),id)
+    end
+    return M.cached_book(settings:get('books',{}),id)
 end
 
 -- Writers must not choose between two independently stored legacy indices.

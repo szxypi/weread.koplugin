@@ -254,6 +254,18 @@ function BookStore.load(settings, book_id, index)
     return book
 end
 
+-- Reader setup runs before the native document is ready. Use the stored
+-- directory or the legacy exact file, without loading account state or articles.
+function BookStore.match_file(settings, book_id, index, file)
+    local dir = resolved_dir(settings, book_id, index)
+    local directory = dir:gsub("/+$", "") .. "/"
+    if file:sub(1, #directory) == directory then return directory end
+    local metadata = read_json(dir .. "/metadata.json")
+    local cached_file = metadata and metadata.cached_file
+    if cached_file == nil and type(index) == "table" then cached_file = index.cached_file end
+    if cached_file == file then return directory end
+end
+
 -- Late reader jobs update one bounded state file, never an older in-memory
 -- copy of the global settings, metadata or another book's state.
 function BookStore.patch_reading(settings, book_id, index, patch)

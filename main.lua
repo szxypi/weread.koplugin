@@ -188,7 +188,7 @@ function WeReadPlugin:init()
             if not self.progress_sync then return nil end
             local position, reason, context = self.progress_sync:capture_local()
             if not position then return nil,reason end
-            local book = self.settings:get("books", {})[position.book_id]
+            local book = self.settings:get_book(position.book_id)
             if not book or not context then return nil end
             local chapters
             if self.library_db then chapters=self.library_db:getChapters(position.book_id)
@@ -216,7 +216,7 @@ function WeReadPlugin:init()
     self.source_close = require("weread.lib.source_close"):new{source=self.source_position,scheduler=UIManager,
         get_catalog=function(book_id)
             if self.library_db then return self.library_db:getChapters(book_id) end
-            local book=self.settings:get("books",{})[book_id]
+            local book=self.settings:get_book(book_id)
             return book and book.chapters
         end}
     self.progress_sync = ProgressSync:new{
@@ -252,13 +252,13 @@ function WeReadPlugin:init()
             return self:detectWeReadBook()
         end,
         get_book = function(book_id)
-            return self.settings:get("books", {})[tostring(book_id)]
+            return self.settings:get_book(book_id)
         end,
         get_chapters = function(book)
             return self:ensureChaptersLoaded(book)
         end,
         refresh_catalog = function(book_id)
-            local book = self.settings:get("books", {})[tostring(book_id)]
+            local book = self.settings:get_book(book_id)
             if type(book) ~= "table" then
                 return nil, "book_not_found"
             end

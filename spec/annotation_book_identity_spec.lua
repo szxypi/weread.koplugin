@@ -48,4 +48,17 @@ ignored,reason=Access.cached_book({['42']='invalid'},'42')
 assert(ignored==nil and reason=='identity_conflict','malformed book record was accepted')
 assert(Access.cached_book({['CB_Synthetic']={book_id='CB_Synthetic'}},'CB_Synthetic'),
     'matching imported book ID was rejected')
+
+local targeted_reads=0
+host.settings={get_book=function(_,id,legacy_numeric)
+    assert(id=='42' and legacy_numeric==true)
+    targeted_reads=targeted_reads+1
+    return Access.cached_key(books,id)
+end,get=function() error('annotation setup loaded unrelated books') end}
+detected=42;books={[42]={book_id=42,title='Legacy book',annotation_documents={[path]={clean=true,chapters={}}}}}
+assert(host:_usesUnifiedAnnotations() and targeted_reads==2,'indexed lookup lost a legacy book descriptor')
+context=assert(host:_prepareAnnotationContext(false))
+assert(context.book==books[42] and context.descriptor==books[42].annotation_documents[path] and targeted_reads==4)
+books[42].bookId='43'
+assert(not host:_annotationBinding(),'indexed lookup bypassed the stored book identity check')
 print('annotation_book_identity_spec: safe book binding and descriptors passed')

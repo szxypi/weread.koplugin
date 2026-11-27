@@ -277,6 +277,15 @@ function Settings:get_book_indexes()
     return type(value)=='table' and value or nil
 end
 
+function Settings:find_book_by_file(path)
+    if type(path) ~= "string" or path == "" then return nil end
+    local indexes = self:get_book_indexes()
+    for book_id, index in pairs(indexes or {}) do
+        local directory = BookStore.match_file(self, book_id, index, path)
+        if directory then return book_id, directory end
+    end
+end
+
 -- Match the library database's stable account key without exposing a VID in
 -- reading-state paths. Signed-out reading has a separate local namespace.
 function Settings:account_state_scope()
@@ -287,10 +296,15 @@ function Settings:account_state_scope()
 end
 
 -- Hydrate one indexed book without loading unrelated per-book collections.
-function Settings:get_book(book_id)
+function Settings:get_book(book_id, legacy_numeric)
+    book_id = tostring(book_id)
     local indexes=self.store:readSetting("books", {})
-    local index=type(indexes)=="table" and indexes[tostring(book_id)]
-    return index and BookStore.load(self,tostring(book_id),index) or nil
+    if type(indexes) ~= "table" then return nil end
+    local index = indexes[book_id]
+    if index == nil and legacy_numeric then
+        index = require("weread.lib.read_access").cached_key(indexes, book_id)
+    end
+    return index and BookStore.load(self, book_id, index) or nil
 end
 
 function Settings:patch_reading_state(book_id, patch)

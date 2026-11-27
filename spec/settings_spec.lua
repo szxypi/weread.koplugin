@@ -274,4 +274,13 @@ store.flush = old_flush
 os.remove(scope_path)
 settings.settings_file = original_path
 
+local old_books = values.books
+values.books = { [42] = { cache_dir = "/legacy/42" }, [9007199254740992] = { cache_dir = "/rounded" } }
+expect(settings:get_book("42") == nil and settings:get_book("42", true).cache_dir == "/legacy/42",
+    "optional numeric lookup changed ordinary settings lookup or lost a legacy book")
+expect(settings:get_book("9007199254740993", true) == nil, "legacy numeric lookup rounded a large book ID")
+values.books["42"] = { cache_dir = "/exact/42" }
+expect(settings:get_book("42", true).cache_dir == "/exact/42", "exact saved key must precede a legacy numeric key")
+values.books = old_books
+
 print(("settings_spec: %d checks"):format(checks))

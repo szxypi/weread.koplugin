@@ -365,5 +365,16 @@ expect(removed == 3 and io.open(root .. "/orphan.epub.part", "rb") == nil,
 local lfs = require("lfs")
 expect(lfs.attributes(workspace.path, "mode") == nil,
     "startup recovery did not remove the active-looking stale workspace")
+local renamed = assert(io.open(root .. "/missing.epub.weread-backup", "wb"))
+assert(renamed:write("last complete copy"))
+assert(renamed:close())
+local indexed_recovery = { cache_dir = root .. "/new-cache",
+    get_book_indexes = function() return { book = { cache_dir = root } } end,
+    get = function() error("startup recovery hydrated the book records") end }
+expect(Content.cleanup_stale_downloads(indexed_recovery) == 1,
+    "indexed recovery did not find a backup in a moved cache directory")
+local restored = assert(io.open(root .. "/missing.epub", "rb"))
+expect(restored:read("*a") == "last complete copy", "indexed recovery changed the restored backup")
+restored:close()
 assert(os.execute("rm -rf " .. string.format("%q", root)))
 print(("download_disk_assets_spec: %d checks"):format(checks))

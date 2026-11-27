@@ -67,4 +67,18 @@ for _,path in ipairs({file,'/data/weread/exports/notes/book.md','/data/weread/ex
     reader.ui.document.file=path;books['43'].cached_file=path
     assert(detect()==nil and reads==10,'a local-only path acquired normal book identity')
 end
+
+local locations=0
+indexed.find_book_by_file=function(_,path)
+    locations=locations+1
+    assert(path=='/library/moved/book.epub')
+    return '43','/library/moved/'
+end
+reader.ui.document={file='/library/moved/book.epub',getDocumentFileContent=function()
+    error('reader path lookup accessed the document engine')
+end}
+assert(detect()=='43' and locations==1 and reads==10,'cold lookup ignored the path-only settings method')
+assert(detect()=='43' and locations==1,'the same document had to resolve the stored directory twice')
+reader.ui.document={file=reader.ui.document.file}
+assert(detect()=='43' and locations==2,'a new reader reused a previous document route')
 print('PASS: cached book routing, live legacy metadata and local-only file isolation')

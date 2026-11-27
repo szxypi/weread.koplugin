@@ -75,6 +75,30 @@ expect(exists(index.cache_dir .. "/reading_state.json"),
 expect(exists(index.cache_dir .. "/articles.json"),
     "article file was not written")
 
+local routed, routing_index = BookStore.save(settings, "routing", {
+    book_id = "routing", cache_dir = root .. "/routing", cached_file = root .. "/external/chapter.epub",
+})
+expect(routed, "could not save path lookup fixture")
+local original_open, lookup_reads = io.open, {}
+rawset(io, "open", function(path, mode)
+    lookup_reads[#lookup_reads + 1] = path
+    return original_open(path, mode)
+end)
+local managed = BookStore.match_file(settings, "routing", routing_index, routing_index.cache_dir .. "/chapter.epub")
+local external = BookStore.match_file(settings, "routing", routing_index, root .. "/external/chapter.epub")
+local neighbor = BookStore.match_file(settings, "routing", routing_index, routing_index.cache_dir .. "-other/chapter.epub")
+local legacy = BookStore.match_file(settings, "legacy", { cache_dir = root .. "/legacy",
+    cached_file = root .. "/legacy-copy.epub" }, root .. "/legacy-copy.epub")
+rawset(io, "open", original_open)
+expect(managed == routing_index.cache_dir .. "/" and external == managed and not neighbor and legacy == root .. "/legacy/",
+    "book path lookup lost a managed or legacy exact path, or matched a neighboring directory")
+expect(#lookup_reads == 3 and lookup_reads[1] == routing_index.cache_dir .. "/metadata.json"
+    and lookup_reads[2] == lookup_reads[1] and lookup_reads[3] == root .. "/legacy/metadata.json",
+    "path lookup read unrelated records or checked metadata for a known directory")
+expect(not BookStore.match_file(settings, "routing", { cache_dir = routing_index.cache_dir,
+    cached_file = root .. "/stale-inline.epub" }, root .. "/stale-inline.epub"),
+    "current metadata did not supersede an obsolete inline cached path")
+
 local loaded = BookStore.load(settings, "book/42", index)
 local metadata_only = BookStore.without_reading_state(loaded)
 expect(metadata_only.title == loaded.title and metadata_only.cache_dir == loaded.cache_dir,

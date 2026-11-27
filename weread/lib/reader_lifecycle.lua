@@ -190,7 +190,6 @@ function M:onReaderReady()
     self:_teardownThoughtInterception()
     self:_installReaderHighlightTapGuard()
 
-    self._weread_book_route = nil
     local weread_book_id = self:detectWeReadBook()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
@@ -500,8 +499,7 @@ function M:maybePrefetchNextChapter(book_id, recovered)
         return false
     end
 
-    local books = self.settings:get("books", {})
-    local book,identity_error = ReadAccess.cached_book(books,book_id)
+    local book,identity_error = ReadAccess.load_cached_book(self.settings, book_id)
     if identity_error then
         local active=self.downloader.getActivePrefetch and self.downloader:getActivePrefetch()
         local selected=active and active.book and active.chapters and active.chapters[1]
@@ -788,11 +786,20 @@ function M:onNetworkDisconnected()
     if self.offline_time then self.offline_time:update("network_disconnected", false) end
 end
 
+local function remember_book_route(host, file, book_id, indexes, auth_epoch, expected_directory)
+    local index = indexes and indexes[book_id]
+    local root = type(index) == "table" and index.cache_dir
+    if type(root) ~= "string" or root == "" then return end
+    local directory = root:gsub("/+$", "") .. "/"
+    if #directory <= 1 or expected_directory ~= directory or file:sub(1, #directory) ~= directory then return end
+    local settings = host.settings
+    host._weread_book_route = { document = host.ui.document, file = file, book_id = book_id, settings = settings, indexes = indexes,
+        cache_dir = settings.cache_dir, book_dir = root, auth_epoch = auth_epoch }
+end
+
 function M:detectWeReadBook()
-    if not self.ui.document then
-        return nil
-    end
-    local file = self.ui.document.file
+    local document = self.ui.document
+    local file = document and document.file
     if not file then
         return nil
     end
@@ -805,28 +812,27 @@ function M:detectWeReadBook()
     if type(indexes) ~= "table" then indexes = nil end
     local auth_epoch = indexes and settings:get("auth_epoch", 0)
     local route = self._weread_book_route
-    if route and route.file == file and route.settings == settings and route.indexes == indexes
+    if route and route.document == document and route.file == file and route.settings == settings and route.indexes == indexes
         and route.cache_dir == settings.cache_dir and route.auth_epoch == auth_epoch then
         local index = indexes[route.book_id]
         if type(index) == "table" and index.cache_dir == route.book_dir then return route.book_id end
     end
     self._weread_book_route = nil
-    local books = settings:get("books", {})
-    for book_id, book in pairs(books) do
-        if type(book) == "table" then
-            local dir = Content.book_resolved_dir(settings, book_id, book):gsub("/+$", "") .. "/"
-            local in_directory = file:sub(1, #dir) == dir
-            if file == book.cached_file or in_directory then
-                -- BookStore resolves its directory from this in-memory index.
-                -- An exact cached file outside that directory still needs the
-                -- live metadata lookup (e.g. an old or moved cached copy).
-                local index = indexes and indexes[book_id]
-                local root = type(index) == "table" and index.cache_dir
-                if in_directory and type(root) == "string" and root ~= "" and root:gsub("/+$", "") .. "/" == dir then
-                    self._weread_book_route = { file = file, book_id = book_id, settings = settings, indexes = indexes,
-                        cache_dir = settings.cache_dir, book_dir = root, auth_epoch = auth_epoch }
+    if type(settings.find_book_by_file) == "function" then
+        local book_id, directory = settings:find_book_by_file(file)
+        if book_id ~= nil then
+            remember_book_route(self, file, book_id, indexes, auth_epoch, directory)
+            return book_id
+        end
+    else
+        local books = settings:get("books", {})
+        for book_id, book in pairs(books) do
+            if type(book) == "table" then
+                local dir = Content.book_resolved_dir(settings, book_id, book):gsub("/+$", "") .. "/"
+                if file == book.cached_file or file:sub(1, #dir) == dir then
+                    remember_book_route(self, file, book_id, indexes, auth_epoch, dir)
+                    return book_id
                 end
-                return book_id
             end
         end
     end
