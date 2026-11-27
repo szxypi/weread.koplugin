@@ -2222,13 +2222,14 @@ function M:showChapterList(book, on_close)
             reloadBookCache()
             rows = {}
             local is_cached = chapter_cache_lookup(self, book)
-            for _i, chapter in ipairs(chapters) do
+            for index, chapter in ipairs(chapters) do
                 local chapter_uid = chapter.chapterUid or chapter.chapterId
                 rows[#rows + 1] = {
                     title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
                     status = is_cached(chapter_uid) and _("Cached")
                         or T(_("%1 words"), tostring(chapter.wordCount or 0)),
                     source = chapter,
+                    catalog_index = index,
                 }
             end
         end
@@ -2237,8 +2238,17 @@ function M:showChapterList(book, on_close)
         if needle then
             visible = {}
             local terms = ShelfSearch.terms(needle)
+            local counts = {}
             for _i, row in ipairs(rows) do
-                if ShelfSearch.matches(row, needle, terms) then visible[#visible + 1] = row end
+                if ShelfSearch.matches(row, needle, terms) then
+                    visible[#visible + 1] = row
+                    counts[row.title] = (counts[row.title] or 0) + 1
+                end
+            end
+            for i, row in ipairs(visible) do
+                if counts[row.title] > 1 then
+                    visible[i] = { title = T("%1. %2", row.catalog_index, row.title), status = row.status, source = row.source }
+                end
             end
         end
         if old_view then

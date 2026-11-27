@@ -20,6 +20,7 @@ return function(host,view,book,pump,tick,press)
         host:showChapterList(saved)
         local original=assert(host._chapter_list_view)
         local title=assert(original._chapter_rows[1]).text
+        UI:forceRePaint()
         assert(original._toolbar_buttons[3]):onTapSelectButton()
         local search=assert(original._shelf_popup);search:setInputText(title);search.buttons[1][2].callback()
         original=assert(host._chapter_list_view)

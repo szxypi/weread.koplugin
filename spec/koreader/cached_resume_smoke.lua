@@ -175,7 +175,7 @@ if offline then
     local view=assert(current._chapter_list_view)
     local title=assert(view._chapter_rows[1]).text
     view=filter_chapters(current,view,title)
-    assert(#view._chapter_rows>=1 and view._chapter_rows[1].text==title)
+    assert(#view._chapter_rows>=1 and view.chapters[1].source.title==title)
     local empty=filter_chapters(current,view,'unmatched synthetic chapter')
     assert(#empty._chapter_rows==0 and empty.empty_text==tr('No matching chapters.'))
     shot('chapter-filter-empty')
@@ -265,7 +265,8 @@ else
     local duplicates=os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1'
     view=filter_chapters(current,view,'　'..title..'　')
     local index=duplicates and 2 or 1
-    assert(#view._chapter_rows==index and view._chapter_rows[index].text==title)
+    assert(#view._chapter_rows==index and view._chapter_rows[index].text==(duplicates and '4. '..title or title))
+    if duplicates then assert(view._chapter_rows[1].text=='2. '..title) end
     shot('chapter-filter-result')
     view._chapter_rows[index]:onTapChapterRow()
 end

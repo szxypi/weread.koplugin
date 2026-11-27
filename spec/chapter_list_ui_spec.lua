@@ -240,6 +240,8 @@ expect(chapter_loads == 1 and catalog_view_data.subtitle and #results == 2,
     "filter matches words without loading the catalog again")
 expect(results[1].source == chapters[1] and results[2].source == chapters[4],
     "duplicate title results keep catalog order and chapter identity")
+expect(results[1].title == "1. Chapter Alpha" and results[2].title == "4. Chapter Alpha",
+    "duplicate title results are labeled by their original catalog index")
 catalog_view_callbacks.on_select(results[2].source)
 expect(opened_chapter == chapters[4], "filtered selection opens the matching chapter")
 catalog_view_callbacks.on_refresh()
