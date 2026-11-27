@@ -253,6 +253,7 @@ if input.mode:find('^selection_direct') then
                     assert(journal:read().phase=='pending','uncertain annotation did not retain its pending record')
                     host.checked_message=nil;action()
                     if thought then
+                        wait(function() return owner.editor and owner.editor.input or host.checked_message end)
                         assert(owner.editor and owner.editor.input);owner.editor.input:setInputText('Synthetic private thought')
                         tap('submit_thought');wait(function() return not owner.editor end)
                     else wait(function() return not owner.mark_editor end) end
