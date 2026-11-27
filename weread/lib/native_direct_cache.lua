@@ -5,6 +5,7 @@ local Identity=require('weread.lib.book_file_identity')
 local Protocol=require('weread.lib.protocol')
 local NativeProtocol=require('weread.lib.native_position_protocol')
 local Path=require('weread.lib.native_direct_path')
+local Archive=require('weread.lib.source_archive')
 local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000}
 local CHUNK=65536
 local OPERATION='.native-operation'
@@ -42,35 +43,44 @@ local function digest_file(lfs,path)
     if not file:close() or size~=attr.size then return nil end
     return size,Crypto.sha256_hex(chain..':'..tostring(size))
 end
+local function checked_identity(raw,book_id,version,text_digest)
+    local identity=Identity.decode(raw)
+    if identity and identity.book_id==book_id and identity.book_version==Identity.version(version)
+        and identity.chapter_count==1 and raw:match('\ntext_digest=([a-f0-9]+)\n')==text_digest then return identity end
+end
+local function matches_source(opf,book_id,uid)
+    return type(opf)=='string' and opf:find('<dc:source>'..Protocol.reader_url(book_id,uid)..'</dc:source>',1,true)~=nil
+end
 local function archive_identity(path,book_id,uid,version,text_digest)
     local ok,result=pcall(function()
-        local members=require('weread.lib.source_archive').read(path,{
-            [Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024})
-        local identity=members and Identity.decode(members[Identity.PATH])
-        local opf=members and members['OEBPS/content.opf']
-        local matches=identity and identity.book_id==book_id and identity.book_version==Identity.version(version)
-            and identity.chapter_count==1 and type(opf)=='string'
-            and members[Identity.PATH]:match('\ntext_digest=([a-f0-9]+)\n')==text_digest
-            and opf:find('<dc:source>'..Protocol.reader_url(book_id,uid)..'</dc:source>',1,true)~=nil
-        return matches and identity or nil
+        local members=Archive.read(path,{[Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024})
+        if members and matches_source(members['OEBPS/content.opf'],book_id,uid) then
+            return checked_identity(members[Identity.PATH],book_id,version,text_digest)
+        end
     end)
     return ok and result or nil
 end
-local function archive_content(path,book,chapter,prepared)
+local function archive_members(book,chapter,prepared,text_digest)
     local rendered=require('weread.lib.content').single_chapter_xhtml(book,chapter,prepared.xhtml)
-    if #rendered>8*1024*1024 then return false end
+    if #rendered>8*1024*1024 then return nil end
     local wanted={
+        [Identity.PATH]={maximum=Identity.MAX_BYTES,validate=function(raw)
+            return checked_identity(raw,book.book_id,prepared.book_version,text_digest)~=nil
+        end},
+        ['OEBPS/content.opf']={maximum=1024*1024,validate=function(raw)
+            return matches_source(raw,book.book_id,chapter.chapterUid)
+        end},
         ['mimetype']={maximum=128,bytes='application/epub+zip'},
         ['OEBPS/text/chapter.xhtml']={maximum=8*1024*1024,bytes=rendered},
         ['OEBPS/style.css']={maximum=8*1024*1024,bytes=prepared.css},
     }
     for _,asset in ipairs(prepared.assets) do
-        if #asset.data>8*1024*1024 then return false end
+        if #asset.data>8*1024*1024 then return nil end
         wanted['OEBPS/'..asset.href]={maximum=8*1024*1024,bytes=asset.data}
     end
-    return require('weread.lib.source_archive').verify_members(path,wanted)
+    return wanted
 end
-local function verified(lfs,dir,path,book,chapter,prepared,key,text_digest)
+local function verified(lfs,dir,path,key,wanted)
     local proof=dir..'/receipt.txt'
     local attr=mode(lfs,proof)
     if not attr or attr.mode~='file' or attr.size>256 then return false end
@@ -80,9 +90,7 @@ local function verified(lfs,dir,path,book,chapter,prepared,key,text_digest)
     local saved_key,size,digest=text:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$')
     if saved_key~=key or not size or #digest~=64 then return false end
     local actual,hash=digest_file(lfs,path)
-    return actual~=nil and tostring(actual)==size and hash==digest
-        and archive_identity(path,book.book_id,chapter.chapterUid,prepared.book_version,text_digest)
-        and archive_content(path,book,chapter,prepared)
+    return actual~=nil and tostring(actual)==size and hash==digest and Archive.verify_members(path,wanted)
 end
 local function publish_receipt(dir,key,size,digest)
     local temp=dir..'/receipt.txt.part'
@@ -524,6 +532,8 @@ function M.publish(settings,account,book,chapter,prepared,current)
     local ok,first,second=pcall(function()
     local chapter_file=filename(book.book_id,chapter.chapterUid)
     local text_digest=Crypto.sha256_hex(prepared.xhtml)
+    local wanted=archive_members(book,chapter,prepared,text_digest)
+    if not wanted then return nil,'storage' end
     for index=0,M.MAX_COPIES-1 do
         if not live() then return nil,'session_changed' end
         local dir=book_dir..'/'..key..(index==0 and '' or '-'..index)
@@ -547,7 +557,7 @@ function M.publish(settings,account,book,chapter,prepared,current)
             entry.catalog_prev,entry.catalog_next=chapter.catalog_prev,chapter.catalog_next
         end
         if not created then
-            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,book,chapter,prepared,key,text_digest) and live()
+            if not mode(lfs,dir..'/'..RETIRING) and verified(lfs,dir,path,key,wanted) and live()
                 and publish_entry(lfs,dir,entry,account) and publish_ref(lfs,dir,entry) and live() then
                 pcall(save_raw,lfs,dir,entry,prepared.source_raw,lease,live)
                 save_presence(settings,account,book.book_id,entry,live)
@@ -570,10 +580,9 @@ function M.publish(settings,account,book,chapter,prepared,current)
                 prepared.xhtml,prepared.assets,prepared.css,Identity.capture(local_book),nil,nil,guard)
             if not ok or result~=path or not live() then return nil,live() and 'storage' or 'session_changed' end
             local size,digest=digest_file(lfs,path)
-            if not size or not archive_identity(path,book.book_id,chapter.chapterUid,prepared.book_version,text_digest)
-                or not archive_content(path,book,chapter,prepared)
+            if not size or not Archive.verify_members(path,wanted)
                 or not live() or not publish_receipt(dir,key,size,digest) or not live()
-                or not verified(lfs,dir,path,book,chapter,prepared,key,text_digest)
+                or not verified(lfs,dir,path,key,wanted)
                 or not publish_entry(lfs,dir,entry,account) or not publish_ref(lfs,dir,entry) or not live() then
                 return nil,live() and 'storage' or 'session_changed'
             end

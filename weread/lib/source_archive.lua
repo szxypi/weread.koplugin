@@ -74,6 +74,7 @@ end
 -- Verify many known members in a single pass, retaining at most one member's
 -- bytes. This is for worker-side whole-book checks, not archive extraction.
 -- Every requested member must occur exactly once, even after an early match.
+-- Each member uses expected bytes, an expected digest, or a bounded validator.
 function M.verify_members(path, wanted)
     if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]') or type(wanted)~='table' then return false end
     local count=0
@@ -82,9 +83,11 @@ function M.verify_members(path, wanted)
         if type(name)~='string' or #name>1024 or type(item)~='table'
             or type(item.maximum)~='number' or item.maximum%1~=0 or item.maximum<1 or item.maximum>M.MAX_MEMBER_BYTES
             or item.size~=nil and (type(item.size)~='number' or item.size%1~=0 or item.size<0 or item.size>item.maximum)
-            or (type(item.bytes)=='string')==(type(item.sha256)=='string')
             or item.bytes~=nil and (type(item.bytes)~='string' or #item.bytes>item.maximum)
-            or item.sha256~=nil and (type(item.sha256)~='string' or #item.sha256~=64 or not item.sha256:match('^[a-f0-9]+$')) then return false end
+            or item.sha256~=nil and (type(item.sha256)~='string' or #item.sha256~=64 or not item.sha256:match('^[a-f0-9]+$'))
+            or item.validate~=nil and type(item.validate)~='function' then return false end
+        local methods=(item.bytes~=nil and 1 or 0)+(item.sha256~=nil and 1 or 0)+(item.validate~=nil and 1 or 0)
+        if methods~=1 then return false end
     end
     if count<1 or count>40001 then return false end
     local archive,entry,lib,ffi
@@ -108,7 +111,7 @@ function M.verify_members(path, wanted)
                 local size=tonumber(lib.archive_entry_size(entry))
                 if not size or size<0 or size%1~=0 or size>item.maximum or item.size~=nil and size~=item.size
                     or item.bytes~=nil and #item.bytes~=size then return false end
-                local chunks,total=item.sha256 and {} or nil,0
+                local chunks,total=item.bytes==nil and {} or nil,0
                 local expected=compare and item.bytes~=nil and ffi.cast('const unsigned char *',item.bytes) or nil
                 while true do
                     local n=tonumber(lib.archive_read_data(archive,buffer,65536))
@@ -123,6 +126,7 @@ function M.verify_members(path, wanted)
                 end
                 if total~=size then return false end
                 if item.sha256~=nil and require('weread.lib.crypto').sha256_hex(table.concat(chunks))~=item.sha256 then return false end
+                if item.validate~=nil and item.validate(table.concat(chunks))~=true then return false end
                 seen[name]=true;found=found+1
             end
         end

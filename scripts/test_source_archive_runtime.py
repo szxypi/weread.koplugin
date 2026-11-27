@@ -40,6 +40,8 @@ def main():
     warm = archive('valid', [('body.txt', b'safe synthetic body'), ('meta.txt', b'safe metadata')], wanted, True)
     archive('duplicate', [('body.txt', b'safe synthetic body'), ('meta.txt', b'safe metadata'),
                           ('body.txt', b'safe synthetic body')], wanted, False)
+    archive('duplicate-metadata', [('body.txt', b'safe synthetic body'), ('meta.txt', b'safe metadata'),
+                                   ('meta.txt', b'safe metadata')], wanted, False)
     archive('oversize', [('body.txt', b'x' * 65536), ('meta.txt', b'safe metadata')], wanted, False)
     archive('missing', [('body.txt', b'safe synthetic body')], wanted, False)
     archive('truncated', [('body.txt', bytes(range(256)) * 128), ('meta.txt', b'safe metadata')],

@@ -30,6 +30,11 @@ for _,case in ipairs(request.cases) do
         wanted[name]={maximum=maximum,sha256=case.hashes[name] or string.rep('0',64)}
     end
     assert(Archive.verify_members(case.path,wanted)==case.success,'bulk member verification differed')
+    if wanted['meta.txt'] then
+        local meta=wanted['meta.txt']
+        wanted['meta.txt']={maximum=meta.maximum,validate=function(raw) return Crypto.sha256_hex(raw)==meta.sha256 end}
+        assert(Archive.verify_members(case.path,wanted)==case.success,'mixed metadata verification differed')
+    end
     passed=passed+1
 end
 assert(Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='safe synthetic body'}}))
@@ -39,6 +44,10 @@ assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,by
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=0,bytes=''}}))
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,sha256='not a hash'}}))
 assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='x',sha256=string.rep('0',64)}}))
+assert(not Archive.verify_members(request.warm.path,{['meta.txt']={maximum=64,validate=function() return false end}}))
+assert(not Archive.verify_members(request.warm.path,{['meta.txt']={maximum=64,validate=function() error('synthetic validator failure') end}}))
+assert(not Archive.verify_members(request.warm.path,{['meta.txt']={maximum=64,validate=true}}))
+assert(not Archive.verify_members(request.warm.path,{['meta.txt']={maximum=64,validate=function() return true end,bytes='safe metadata'}}))
 local pattern={}
 for i=0,255 do pattern[#pattern+1]=string.char((i*73+19)%256) end
 pattern=table.concat(pattern)
@@ -53,6 +62,10 @@ for _,case in ipairs(request.byte_cases or {}) do
     if case.success then
         assert(Archive.verify_members(case.path,{['body.bin']={maximum=8*1024*1024,sha256=case.valid_hash}}),
             'digest verification changed')
+    end
+    if case.size==65537 then
+        assert(Archive.verify_members(case.path,{['body.bin']={maximum=65537,validate=function(raw) return raw==value end}})==case.success,
+            'bounded validator accepted duplicate, corrupt or mismatched content')
     end
 end
 -- A runtime without the C byte comparator must retain the bounded Lua

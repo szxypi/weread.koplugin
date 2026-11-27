@@ -72,6 +72,31 @@ if input.rotate then
     print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,rotated=true,requests=requests})
     return
 end
+if input.damage_receipt then
+    local content=require('weread.lib.content');local save=content.save_chapter_epub
+    local damaged_path,damage_written
+    content.save_chapter_epub=function(...)
+        damaged_path=save(...)
+        return damaged_path
+    end
+    local rename=os.rename
+    rawset(os,'rename',function(source,target)
+        local ok,err=rename(source,target)
+        if ok and damaged_path and target==damaged_path:match('^(.*)/[^/]+$')..'/receipt.txt' then
+            local file=assert(io.open(damaged_path,'ab'))
+            assert(file:write('synthetic damage after receipt') and file:close())
+            damage_written=true
+        end
+        return ok,err
+    end)
+    local result,reason=build()
+    rawset(os,'rename',rename)
+    assert(not result and reason=='storage' and requests==4)
+    local cache=require('weread.lib.native_direct_cache')
+    assert(damage_written and #assert(cache.list(settings,scope.vid,'42',function() return true end))==0)
+    print('WEREAD_DIRECT_RESULT='..json.encode{ok=true,damaged_after_receipt=true,requests=requests})
+    return
+end
 local first=assert(build());assert(not first.reused and first.path:find('/native%-reader%-v1/')
     and first.missing_images==(input.missing and 1 or 0))
 local lfs=require('libs/libkoreader-lfs');local before=assert(lfs.attributes(first.path))
