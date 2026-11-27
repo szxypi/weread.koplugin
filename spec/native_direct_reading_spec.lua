@@ -187,7 +187,7 @@ local old_list,old_valid,old_mark=cache.list,cache.valid_entry,pending.mark
 local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0}
 cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
 pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end
-host,s=fixture();host.isNetworkConnected=function() return false end
+host,s=fixture();host.isNetworkConnected=function() error('saved chapter menu probed network state') end
 expect(UI.start(host,{book_id='456'},s.view,{cached=true}),'saved chapter list did not start')
 s.finish(1)
 expect(s.items and s.items[1].text:find('Offline position to review',1,true),
@@ -195,5 +195,15 @@ expect(s.items and s.items[1].text:find('Offline position to review',1,true),
 host._native_direct_reading.menu:onLeftButtonTap();s.input.input='Saved';s.input.buttons[1][2].callback()
 expect(#s.items==1 and s.items[1].text:find('Offline position to review',1,true) and #s.jobs==1,
     'offline filter lost the pending position or reloaded the catalog')
+local other_copy={};for key,value in pairs(saved_entry) do other_copy[key]=value end
+other_copy.copy=1
+cache.list=function() return {saved_entry,other_copy} end
+host,s=fixture();host.isNetworkConnected=function() error('alternative chooser probed network state') end
+expect(UI.start(host,{book_id='456'},s.view,{cached=true,failed_copy=saved_entry}),'alternative chooser did not start')
+s.finish(1)
+expect(#s.items==1 and s.opened==0 and s.subtitle:find('Choose another saved chapter',1,true),
+    'alternative chooser opened automatically or offered a failed copy')
+s.select(1)
+expect(host._native_direct_reading.entry==other_copy,'alternative chooser discarded another copy of the same chapter')
 cache.list,cache.valid_entry,pending.mark=old_list,old_valid,old_mark
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')

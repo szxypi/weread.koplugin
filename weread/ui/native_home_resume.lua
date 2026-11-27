@@ -146,12 +146,21 @@ local function open(host,book,id,view,view_current,detail)
     host:showBusy(_('Checking saved E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
     local ok,started=pcall(w.start,w,function()
         if not Cache.valid_entry(pointer.entry,id,scope.vid) then return {error='invalid'} end
-        return Cache.open(host.settings,scope.vid,id,pointer.entry,current) or {error='invalid'}
+        return Cache.open(host.settings,scope.vid,id,pointer.entry,current) or {error='unavailable'}
     end,function(value)
         if not current() then if host._native_home_resume==ctx then M.cancel(host) end;return end
         local latest=host.settings:get_book(id)
-        if not M.can_resume(host,latest,id) or not same(pointer,latest.native_home_resume)
-            or type(value)~='table' or not Path.contains(host.settings,value.path)
+        if not M.can_resume(host,latest,id) or not same(pointer,latest.native_home_resume) then fail();return end
+        if type(value)=='table' and value.error=='unavailable' then
+            M.cancel(host)
+            -- Use the stored metadata directly; recovery only reads this account's saved chapters.
+            local owner_view=detail and view or host:showBookMenu(latest)
+            if owner_view then
+                require('weread.ui.native_direct_reading').start(host,latest,owner_view,{cached=true,failed_copy=pointer.entry})
+            end
+            return
+        end
+        if type(value)~='table' or not Path.contains(host.settings,value.path)
             or value.file_id~=pointer.entry.file_id or value.book_version~=pointer.entry.book_version
             or value.source_sha256~=pointer.entry.source_sha256 then fail();return end
         local path=value.path;M.cancel(host);host:openFile(path)

@@ -13,13 +13,15 @@ local id=input.book_id or '42';local vid=input.vid or '12345678'
 assert(type(id)=='string' and type(vid)=='string')
 local settings=require('weread.lib.settings'):new()
 local suspend_record=input.mode=='record_suspended'
-local record=input.mode=='record' or suspend_record
+local record_alternative=input.mode=='record_alternative'
+local record=input.mode=='record' or record_alternative or suspend_record
 if record then
     settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
     settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
     local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report)
     settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}});settings:flush()
+    if suspend_record then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
 elseif input.mode=='switch' then
     assert(vid=='12345678' and id=='42')
     settings:update_auth({account={user_vid='87654321',name='Other'},cookies={wr_vid='87654321',wr_skey='synthetic-other'}},
@@ -71,7 +73,8 @@ if record then
     reader.rolling:onGotoPage(2);UI:forceRePaint()
     local anchor=assert(reader.document:getXPointer())
     assert(anchor~=first,'page navigation did not advance')
-    local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));file:close()
+    local anchor_path=record_alternative and '/alternative-anchor' or '/anchor'
+    local file=assert(io.open(home..anchor_path,'wb'));assert(file:write(anchor));file:close()
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
     reader.weread:onFlushSettings();reader:onClose(false)
     assert(not Reader.instance)
@@ -90,7 +93,7 @@ else
             'native search book not listed on home')
     else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
     local message
-    local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage'
+    local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage' or input.mode=='no_alternative'
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
     local downloads=input.mode=='downloads' or input.mode=='downloads_choose'
     local quick=input.mode=='quick_home' or input.mode=='quick_shelf' or input.mode=='quick_store' or input.mode=='quick_choose'
@@ -157,8 +160,33 @@ else
         action:onTapFooterAction()
     else view.on_select(selected,'books') end
     if damage then
-        pump(function() return message~=nil end)
-        assert(not Reader.instance,'damaged native chapter opened')
+        local function picker()
+            local job=host._native_direct_reading
+            return job and job.menu
+        end
+        pump(function() return message or Reader.instance or picker() end)
+        assert(not Reader.instance,'fallback opened a chapter without a selection')
+        local tr=require('weread.lib.plugin_util').tr
+        if input.mode=='no_alternative' then
+            assert(message==tr('No usable saved E-Ink chapters for this book and account. Existing files are kept.')
+                and not picker(),'missing alternatives were not reported')
+        else
+            local menu=assert(picker(),'saved alternatives were not offered')
+            assert(#menu.item_table==1 and menu.item_table[1].select_enabled,'the failed copy was still offered')
+            local original=assert(host.settings:get_book(id).native_home_resume)
+            assert(original.entry.chapter_uid=='37','showing alternatives changed the recent chapter')
+            if input.mode=='detail_damage' then
+                menu:onMenuSelect(menu.item_table[1])
+                pump(function() return Reader.instance and Reader.instance.document.file==input.alternative end)
+                local alternative_file=assert(io.open(home..'/alternative-anchor','rb'))
+                local alternative_anchor=assert(alternative_file:read('*a'));alternative_file:close()
+                assert(Reader.instance.document:isXPointerInCurrentPage(alternative_anchor),'alternative did not restore its local page')
+                assert(not Reader.instance.weread:detectWeReadBook())
+            else
+                UI:close(menu);menu:onMenuSelect(menu.item_table[1])
+                assert(not Reader.instance and not host._native_direct_reading,'closed chooser started a chapter open')
+            end
+        end
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         os.exit(0)
     end

@@ -73,8 +73,10 @@ function M.start(host,book,view,options)
     local cleanup=package.loaded['weread.ui.native_direct_cleanup'];if cleanup then cleanup.cancel(host) end
     local id=Protocol.id(book.book_id or book.bookId)
     if not id then return false end
-    local online=host.isNetworkConnected and host:isNetworkConnected() or not host.isNetworkConnected and host:isNetworkOnline()
-    local offline=not online or type(options)=='table' and options.cached==true
+    local cached=type(options)=='table' and options.cached==true
+    local online=not cached and (host.isNetworkConnected and host:isNetworkConnected()
+        or not host.isNetworkConnected and host:isNetworkOnline())
+    local offline=not online
     local batch=type(options)=='table' and options.batch==true
     if batch and offline then host:showOffline(_('Download E-Ink chapters'));return false end
     local target=type(options)=='table' and options.target or nil
@@ -88,6 +90,8 @@ function M.start(host,book,view,options)
         host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'))
         return false
     end
+    local failed_copy=type(options)=='table' and options.failed_copy or nil
+    if failed_copy and (not cached or not require('weread.lib.native_direct_cache').valid_entry(failed_copy,id,scope.vid)) then return false end
     local selected=not offline and capture(host.settings) or nil
     if not offline and (not selected or selected.native.renewal_pending) then
         host:showInfo(_('E-Ink authorization is required to read these chapters.'))
@@ -143,6 +147,7 @@ function M.start(host,book,view,options)
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
         local subtitle=picker and picker.subtitle
+            or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
         local search=''
@@ -355,6 +360,11 @@ function M.start(host,book,view,options)
                     seen[identity]=true
                 end
                 if count~=#rows then fail();return end
+                if failed_copy then
+                    for index,row in ipairs(rows) do
+                        if row.key==failed_copy.key and row.copy==failed_copy.copy then table.remove(rows,index);break end
+                    end
+                end
                 show_chapter_menu(rows);return
             end
             if phase=='catalog' then

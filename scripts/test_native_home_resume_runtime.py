@@ -56,21 +56,31 @@ def run(runtime):
                     child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_nav_prepare.lua'),
                                             str(REPO)], input=json.dumps(payload), text=True, env=env, cwd=runtime,
                                            capture_output=True, timeout=150)
-                    path = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')['37']
-                    for mode in ('record_suspended', 'quick_home', 'quick_shelf', 'quick_store', 'reopen', 'detail', 'shelf_detail',
-                                 'damage', 'detail_damage', 'shelf_damage', 'detail_closed', 'downloads',
-                                 'downloads_choose', 'quick_choose', 'switch'):
-                        receipt = Path(path).parent/'receipt.txt'
-                        original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'shelf_damage') else None
+                    prepared = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')
+                    path, alternative = Path(prepared['37']), Path(prepared['38'])
+                    for mode in ('record_alternative', 'record_suspended', 'quick_home', 'quick_shelf', 'quick_store',
+                                 'reopen', 'detail', 'shelf_detail',
+                                 'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
+                                 'detail_damage', 'downloads_choose', 'quick_choose', 'switch'):
+                        receipt = path.parent/'receipt.txt'
+                        original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'no_alternative') else None
+                        missing = path if mode == 'shelf_damage' else alternative if mode == 'no_alternative' else None
                         if original is not None:
                             receipt.write_bytes(original+b'corrupt')
+                        if missing:
+                            missing.rename(missing.with_suffix('.hidden'))
+                        case = dict(mode=mode, path=str(alternative if mode == 'record_alternative' else path),
+                                    alternative=str(alternative))
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),
-                                                str(REPO)], input=json.dumps(dict(mode=mode, path=path)), text=True,
+                                                str(REPO)], input=json.dumps(case), text=True,
                                                env=env, cwd=runtime, capture_output=True, timeout=150)
                         assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode=mode, network_blocked=True)
                         if original is not None:
                             assert receipt.read_bytes() == original+b'corrupt'
                             receipt.write_bytes(original)
+                        if missing:
+                            assert not missing.exists()
+                            missing.with_suffix('.hidden').rename(missing)
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:

@@ -16,6 +16,11 @@ package.preload['weread.lib.native_direct_cache']=function() return {
     end,
 } end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function(doc) return doc.identity end} end
+package.preload['weread.ui.native_direct_reading']=function() return {start=function(host,book,view,options)
+    assert(host._book_detail_view==view and options.cached==true)
+    host.alternatives={book=book,view=view,failed_copy=options.failed_copy}
+    return true
+end} end
 local Resume=require('weread.ui.native_home_resume')
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
@@ -35,6 +40,7 @@ local function fixture()
         showBusy=function(self,_,cancel) self.busy_message={};state.cancel=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_,message) state.message=message end,
+        showBookMenu=function(self) self._book_detail_view={};return self._book_detail_view end,
         openFile=function(_,file) state.path=file end,
         _native_home_resume_worker={start=function(_,task,callback)
             state.jobs[#state.jobs+1]={task=task,callback=callback};return true end,cancel=function() end}}
@@ -57,7 +63,8 @@ host,s=fixture();Resume.record(host);s.book.home_recent_at=os.time()+10;s.finish
 expect(not s.patches,'older worker replaced a newer home event')
 host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
 Resume.open(host,s.book,'42',view,function() return true end);exists=false;s.finish(2)
-expect(not s.path and s.message and not host.busy_message,'damaged chapter was opened or failed silently')
+expect(not s.path and host.alternatives and host.alternatives.failed_copy==entry and not host.busy_message,
+    'damaged chapter was opened or did not offer local alternatives')
 host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
 Resume.open(host,s.book,'42',view,function() return true end);local value=s.jobs[2].task();s.owner='other';s.jobs[2].callback(value)
 expect(not s.path,'account change opened a cached chapter')
@@ -83,7 +90,13 @@ host._book_detail_view={};detail_job.callback(detail_result)
 expect(not s.path,'closed or replaced detail opened the old chapter')
 host,s=fixture();Resume.record(host);s.finish(1);host._book_detail_view=view
 Resume.open_detail(host,s.book,'42',view);exists=false;s.finish(2)
-expect(not s.path and s.message and not host.busy_message,'damaged detail chapter was opened or failed silently')
+expect(not s.path and host.alternatives and host.alternatives.view==view and not host.busy_message,
+    'damaged detail chapter did not offer local alternatives in the existing details')
+host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
+Resume.open(host,s.book,'42',view,function() return true end);exists=false
+local damaged_job=s.jobs[2];local damaged=damaged_job.task()
+host.shelf_view={};damaged_job.callback(damaged)
+expect(not host.alternatives and not host._book_detail_view and not s.path,'closed home view started an alternative chooser')
 local function sleep(reader_host)
     reader_host._weread_suspended=true
     Resume.suspend(reader_host)
