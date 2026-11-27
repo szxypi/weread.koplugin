@@ -43,9 +43,9 @@ class ResumeHandler(fixture.Handler):
         self.wfile.write(body)
 
 
-def frame(child, marker):
+def frame(child, marker, case=None):
     if child.returncode:
-        raise AssertionError(child.stdout[-5000:] + child.stderr[-5000:])
+        raise AssertionError(f'{case or marker}\n{child.stdout[-5000:]}{child.stderr[-5000:]}')
     lines = [line for line in child.stdout.splitlines() if line.startswith(marker)]
     assert len(lines) == 1
     return json.loads(lines[0][len(marker):])
@@ -193,7 +193,8 @@ def run(runtime, read_entries_only=False):
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),
                                                 str(REPO)], input=json.dumps(case), text=True,
                                                env=env, cwd=runtime, capture_output=True, timeout=150)
-                        assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode=mode, network_blocked=True)
+                        assert frame(child, 'WEREAD_NATIVE_HOME=', f'{width}x{height} {mode}') == dict(
+                            ok=True, mode=mode, network_blocked=True)
                         if original is not None:
                             assert receipt.read_bytes() == original+b'corrupt'
                             receipt.write_bytes(original)

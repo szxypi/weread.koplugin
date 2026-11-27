@@ -77,9 +77,10 @@ if record then
     end
     assert(reader.document:getPageCount()>=2,'sample does not cover page navigation')
     local first=assert(reader.document:getXPointer())
-    reader.rolling:onGotoPage(2);UI:forceRePaint()
+    local next_page=reader:getCurrentPage()==2 and 1 or 2
+    reader.rolling:onGotoPage(next_page);UI:forceRePaint()
     local anchor=assert(reader.document:getXPointer())
-    assert(anchor~=first,'page navigation did not advance')
+    assert(reader:getCurrentPage()==next_page and anchor~=first,'page navigation did not move')
     local anchor_path=record_alternative and '/alternative-anchor' or '/anchor'
     local file=assert(io.open(home..anchor_path,'wb'));assert(file:write(anchor));file:close()
     if close_home then
