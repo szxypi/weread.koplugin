@@ -29,7 +29,13 @@ local store={read=function() return input.credentials,1,nil,false end}
 local Access=require('weread.lib.native_read_access');local capture=Access.capture
 Access.capture=function(s,existing) return capture(s,existing or store) end
 local Common=require('weread.ui.common')
-Common.isNetworkOnline=function() return input.offline~=true end;Common.isNetworkConnected=Common.isNetworkOnline
+local offline=input.offline==true
+Common.isNetworkOnline=function() return not offline end;Common.isNetworkConnected=Common.isNetworkOnline
+local function count_reads(name)
+    local stream=io.open(home..'/'..name,'rb')
+    if not stream then return end
+    local reads=#assert(stream:read('*a'));assert(stream:close());return reads
+end
 local function diagnostic(name,value)
     local file=assert(io.open(home..'/native-home-'..name,'wb'));assert(file:write(value));assert(file:close())
 end
@@ -53,7 +59,7 @@ end
 local Client=require('weread.lib.client');local previous=Client.request
 Client.request=function(self,options)
     local count=assert(io.open(home..'/request-count','ab'));assert(count:write('1'));assert(count:close())
-    assert(input.offline~=true,'offline shelf reading used the network')
+    assert(not offline,'offline reading used the network')
     local url,headers=options.url,options.headers or {};local base='https://i.weread.qq.com'
     local query=input.store_search_keyword and require('weread.lib.protocol').sorted_query{
         keyword=input.store_search_keyword,scope=10,count=20,maxIdx=0}
@@ -333,16 +339,31 @@ if input.quick_search then
         'closing bookstore search changed the open reading page')
 end
 local file=assert(io.open(home..'/anchor','wb'));assert(file:write(anchor));assert(file:close())
-while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
-reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
-local function count_reads(name)
-    local stream=io.open(home..'/'..name,'rb')
-    if not stream then return end
-    local reads=#assert(stream:read('*a'));assert(stream:close());return reads
+if live_cloud then
+    local before=count_reads('request-count')
+    offline=true;stage='close_home'
+    assert(reader.weread:onShowWeReadQuickMenu())
+    local button
+    pump(function()
+        local dialog=UI:getTopmostVisibleWidget()
+        button=dialog and type(dialog.getButtonById)=='function' and dialog:getButtonById('close_book')
+        return button
+    end)
+    assert(button.text==require('weread.lib.plugin_util').tr('Close book and return home'))
+    UI:forceRePaint();button:onTapSelectButton()
+    pump(function()
+        local next_host=FM.instance and FM.instance.weread
+        return not Reader.instance and next_host and next_host.shelf_view and next_host.shelf_view._discovery_tab=='home'
+    end)
+    assert(count_reads('request-count')==before)
+else
+    while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+    reader.weread:onFlushSettings();reader:onClose(false)
 end
+assert(not Reader.instance)
 local requests=count_reads('request-count') or 0
 assert(input.offline~=true or requests==0)
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
     cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,
-    cloud_reads=count_reads('cloud-count'),chapter_reads=count_reads('chapter-count')})
+    cloud_reads=count_reads('cloud-count'),chapter_reads=count_reads('chapter-count'),home_return_verified=live_cloud})

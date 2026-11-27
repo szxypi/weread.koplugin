@@ -1,8 +1,8 @@
 -- Deferred quick-menu actions must not use an old book, account or catalog.
 package.path='./?.lua;'..package.path
-local callbacks
+local callbacks,options
 local searches=0
-package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(_,value) callbacks=value end} end
+package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(opts,value) options,callbacks=opts,value end} end
 package.preload['weread.ui.book_search']=function() return {open=function() searches=searches+1 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.protocol']=function() return {is_mp_book=function() return false end} end
@@ -57,4 +57,25 @@ assert(not opened and not details and not sync and searches==0,'changed authoriz
 epoch=1;c=menu();host._reader_session_gen=8;c.on_next();assert(not opened,'new session accepted an old action')
 host._reader_session_gen=7;c=menu();doc.file='/synthetic/other.epub';c.on_next();c.on_book_details();c.on_sync_progress()
 assert(not opened and not details and not sync,'changed file accepted an old action')
+doc.file='/synthetic/2.epub'
+local home_opens,browser_opens,reader_closes,after_scope=0,0,0,'one'
+local fm={showFiles=function(self)
+    self.instance={weread={settings={auth_scope_matches=function(_,scope) return scope.account==after_scope end},
+        library_db={accountKey=function() return after_scope end},showHome=function() home_opens=home_opens+1 end}}
+end}
+package.loaded['apps/filemanager/filemanager']=fm
+host.library_db={accountKey=function() return account end}
+host.ui.onClose=function(reader,refresh)
+    assert((refresh==false)==options.close_to_home)
+    reader_closes=reader_closes+1;reader.document=nil
+end
+host.ui.showFileManager=function(_,path)
+    assert(path==doc.file);browser_opens=browser_opens+1
+end
+c=menu();assert(options.close_to_home);c.on_close_book()
+assert(home_opens==1 and reader_closes==1 and browser_opens==0,'WeRead book closed to the file browser')
+host.ui.document=doc;fm.instance=nil;after_scope='two';c=menu();c.on_close_book()
+assert(home_opens==1 and reader_closes==2,'a different account opened the old book home')
+host.ui.document=doc;assert(host:showEndOfBookDialog(nil));assert(not options.close_to_home);callbacks.on_close_book()
+assert(browser_opens==1 and reader_closes==3,'ordinary book did not keep KOReader close behavior')
 print('reader_quick_navigation_spec: fresh chapters and deferred session guards passed')

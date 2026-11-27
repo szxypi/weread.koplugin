@@ -14,14 +14,15 @@ assert(type(id)=='string' and type(vid)=='string')
 local settings=require('weread.lib.settings'):new()
 local suspend_record=input.mode=='record_suspended'
 local record_alternative=input.mode=='record_alternative'
-local record=input.mode=='record' or record_alternative or suspend_record
+local close_home=input.mode=='close_home'
+local record=input.mode=='record' or record_alternative or suspend_record or close_home
 if record then
     settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
     settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
     local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report)
     settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}});settings:flush()
-    if suspend_record then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
+    if suspend_record or close_home then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
 elseif input.mode=='switch' then
     assert(vid=='12345678' and id=='42')
     settings:update_auth({account={user_vid='87654321',name='Other'},cookies={wr_vid='87654321',wr_skey='synthetic-other'}},
@@ -49,6 +50,10 @@ if record then
             return identify(...)
         end
     end
+    if close_home then
+        G_reader_settings:saveSetting('lastdir',home)
+        require('weread.ui.native_home_resume').record=function() return false end
+    end
     Reader:showReader(input.path)
     pump(function() return Reader.instance and Reader.instance.weread end)
     local reader=Reader.instance
@@ -63,7 +68,9 @@ if record then
         assert(active._native_home_resume and active._native_home_resume~=interrupted,
             'waking on the same chapter did not restart its home verification')
     end
-    pump(function() local b=reader.weread.settings:get_book(id);return b and b.native_home_resume end)
+    if not close_home then
+        pump(function() local b=reader.weread.settings:get_book(id);return b and b.native_home_resume end)
+    end
     assert(not reader.weread:detectWeReadBook())
     if reader.document:getPageCount()<2 then
         assert(reader.font:onSetFontSize(48));UI:forceRePaint()
@@ -75,8 +82,35 @@ if record then
     assert(anchor~=first,'page navigation did not advance')
     local anchor_path=record_alternative and '/alternative-anchor' or '/anchor'
     local file=assert(io.open(home..anchor_path,'wb'));assert(file:write(anchor));file:close()
-    while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
-    reader.weread:onFlushSettings();reader:onClose(false)
+    if close_home then
+        local active=reader.weread
+        assert(not active.settings:get_book(id).native_home_resume,'the open-time check hid the close-time fallback')
+        assert(active:onShowWeReadQuickMenu())
+        local action
+        pump(function()
+            local top=UI:getTopmostVisibleWidget()
+            action=top and type(top.getButtonById)=='function' and top:getButtonById('close_book')
+            return action
+        end)
+        local tr=require('weread.lib.plugin_util').tr
+        assert(action.text==tr('Close book and return home'))
+        UI:forceRePaint();action:onTapSelectButton()
+        pump(function()
+            local host=FM.instance and FM.instance.weread
+            return not Reader.instance and host and host.shelf_view and host.shelf_view._discovery_tab=='home'
+        end)
+        local host=assert(FM.instance.weread);local view=assert(host.shelf_view)
+        assert(FM.instance.file_chooser.path==home and host.settings:get_auth_scope().vid==vid)
+        local selected
+        for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
+        view.on_select(assert(selected,'the closed chapter was missing from the home page'))
+        pump(function() return Reader.instance and Reader.instance.document.file==input.path end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(anchor),'the quit action did not save the page')
+        Reader.instance:onClose(false)
+    else
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        reader.weread:onFlushSettings();reader:onClose(false)
+    end
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)

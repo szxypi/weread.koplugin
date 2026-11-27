@@ -222,6 +222,7 @@ function M.start(host,direction,notes)
         require('weread.ui.end_of_book_dialog').show({show_chapter_nav=true,show_previous_chapter=true,
             show_next_chapter=true,enable_chapter_list=true,enable_previous_chapter=not known_order or ctx.entry.catalog_prev~=nil,
             enable_next_chapter=not known_order or ctx.entry.catalog_next~=nil,enable_book_details=true,show_sync_row=false,
+            close_to_home=ctx.account~=nil,
             enable_search_current=type(reader.search)=='table' and type(reader.search.onShowFulltextSearchInput)=='function',
             enable_search_book=true,enable_search_cached=true}, {
             on_chapter_list=function() choose_chapter({anchor=ctx.entry}) end,
@@ -309,8 +310,9 @@ function M.start(host,direction,notes)
             on_delayed_screenshot=function() if current() then host:onShowWeReadDelayedScreenshot() end end,
             on_close_book=function()
                 if not current() then return end
-                M.cancel(host);reader:onClose()
-                if path and reader.showFileManager then reader:showFileManager(path) end
+                require('weread.ui.native_home_resume').remember(host,ctx.entry,scope)
+                M.cancel(host)
+                require('weread.ui.reader_exit').close(host,reader,ctx.account and scope or nil)
             end,
         })
     end

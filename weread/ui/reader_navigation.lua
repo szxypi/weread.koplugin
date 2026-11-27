@@ -121,6 +121,7 @@ function M:showEndOfBookDialog(book_id)
     local cache = self.settings:get("cache", {})
     local annotations_visible = cache.show_annotations ~= false
     local location=self._native_account_location and require('weread.lib.native_account_location')
+    local close_scope=book and self.library_db and self.library_db:accountKey() and search_scope or nil
     EndOfBookDialog.show({
         show_chapter_nav = true,
         show_next_chapter = true,
@@ -133,6 +134,7 @@ function M:showEndOfBookDialog(book_id)
         enable_search_cached = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
         show_claim_location = location and location.can_claim(self) or false,
         annotations_visible = annotations_visible,
+        close_to_home = close_scope~=nil,
     }, {
         on_bookshelf = function()
             self:showBookshelf()
@@ -290,16 +292,7 @@ function M:showEndOfBookDialog(book_id)
         end,
         on_close_book = function()
             if not valid_reader() then return end
-            -- Mirror KOReader's ReaderStatus:openFileBrowser(): closing the
-            -- reader alone exits the app when there is no file-manager stack, so
-            -- reopen the file browser right after (positioned on the book file).
-            local ui = self.ui
-            if not ui then return end
-            local file = ui.document and ui.document.file
-            ui:onClose()
-            if file and ui.showFileManager then
-                ui:showFileManager(file)
-            end
+            require('weread.ui.reader_exit').close(self,reader_ui,close_scope)
         end,
     })
     return true

@@ -360,13 +360,23 @@ if not reopen then
     local last=assert(reader.document:getNextVisibleChar(xpointer))
     reader.annotation:addItem({page=xpointer,pos0=xpointer,pos1=last,drawer='underscore',text='synthetic text',
         note='synthetic note preserved across account reads',datetime='2026-11-11 12:00:00'})
-    close_reader()
+    assert(reader.weread:onShowWeReadQuickMenu())
+    local dialog=assert(UI:getTopmostVisibleWidget())
+    local close=assert(dialog:getButtonById('close_book'))
+    assert(close.text==require('weread.lib.plugin_util').tr('Close book and return home'))
+    UI:forceRePaint();close:onTapSelectButton()
+    pump(function()
+        local next_host=FM.instance and FM.instance.weread
+        return not Reader.instance and next_host and next_host.shelf_view and next_host.shelf_view._discovery_tab=='home'
+    end)
+    assert(FM.instance.file_chooser.path==home,'closing a WeRead EPUB revealed its cache directory')
     local f=assert(io.open(evidence..'/home-recent-xpointer.txt','wb'));f:write(xpointer);f:close()
 else
     local f=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'));xpointer=f:read('*a');f:close()
     path=assert(settings:get_book(id).cached_full_book)
 end
-plugin=host();plugin:closeWeReadUI();plugin:showHome()
+plugin=host()
+if reopen then plugin:closeWeReadUI();plugin:showHome() end
 local view=assert(plugin.shelf_view);local selected
 for _i,row in ipairs(view.books) do
     local row_id=tostring(row.bookId or row.book_id)

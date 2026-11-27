@@ -143,7 +143,7 @@ def main(argv=None):
                 match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
                 if match:
                     report['probe_line'] = int(match.group(1))
-                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|cloud_position|home_record|quick_menu|quick_input|quick_results)$',out)
+                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|cloud_position|home_record|quick_menu|quick_input|quick_results|close_home)$',out)
                 if stage:
                     report['probe_stage'] = stage.group(1).decode()
                 reason = re.search(rb'(?m)^WEREAD_DIRECT_HOME_REASON=(not_entitled|auth_expired|rate_limited|service_rejected|session_changed|catalog_changed|unavailable|invalid_source|invalid_image|remote_unsupported|storage|resource_[a-z_]+)$',out)
@@ -180,6 +180,7 @@ def main(argv=None):
                     or args.cloud_resume and (prepared.get('cloud_position_verified') is not True
                         or prepared.get('cloud_reads') != 3)
                     or args.start_unread and (prepared.get('first_page_verified') is not True or prepared.get('cloud_reads') != 2)
+                    or cloud_entry and prepared.get('home_return_verified') is not True
                     or args.resume_missing_source and prepared.get('chapter_reads') != 2
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
@@ -317,6 +318,8 @@ def main(argv=None):
                 report.update(original_recovered=True, chapter_reads=2)
             if args.start_unread:
                 report.update(first_page_verified=True, cloud_reads=2)
+            if cloud_entry:
+                report['home_return_verified'] = True
             if args.store_search:
                 report['store_search'] = True
                 report['inline_style_verified'] = True

@@ -31,6 +31,32 @@ local function same(a,b)
         and a.entry.source_sha256==b.entry.source_sha256
 end
 
+local function matches_document(document,entry)
+    local identity=Identity.read_document(document,entry.book_id)
+    return identity.book_id==entry.book_id and identity.file_id==entry.file_id
+        and identity.book_version==entry.book_version
+end
+
+local function save_recent(host,book,entry,owner,at)
+    if not owned(book,entry.book_id,owner) or type(book.home_recent_at)=='number' and book.home_recent_at>at then return false end
+    return host.settings:patch_reading_state(entry.book_id,{home_recent_at=at,home_recent_account=owner,
+        native_home_resume={at=at,entry=entry}})
+end
+
+-- The quick menu already verified the cached chapter. Keep its shortcut even
+-- when the book is closed before the background open-time check has finished.
+function M.remember(host,entry,scope)
+    local document=host.ui and host.ui.document
+    local owner=account(host,scope)
+    if host._weread_suspended or not owner or not Path.contains(host.settings,document and document.file)
+        or type(entry)~='table' or not Cache.valid_entry(entry,entry.book_id,scope.vid)
+        or not matches_document(document,entry) then return false end
+    local book=host.settings:get_book(entry.book_id)
+    if M.can_resume(host,book,entry.book_id)
+        and same(book.native_home_resume,{at=book.home_recent_at,entry=entry}) then return true end
+    return save_recent(host,book,entry,owner,os.time())
+end
+
 function M.cancel(host)
     host._native_home_resume_after_wake=nil
     local ctx=host._native_home_resume
@@ -90,17 +116,10 @@ local function record(host,opened_at)
         if not current() then if host._native_home_resume==ctx then M.cancel(host) end;return end
         local entry=type(value)=='table' and value.entry
         if type(entry)~='table' or not Cache.valid_entry(entry,entry.book_id,scope.vid) then M.cancel(host);return end
-        local identity=Identity.read_document(document,entry.book_id)
-        if identity.book_id~=entry.book_id or identity.file_id~=entry.file_id
-            or identity.book_version~=entry.book_version then M.cancel(host);return end
+        if not matches_document(document,entry) then M.cancel(host);return end
         local reconnect=package.loaded['weread.ui.native_direct_reconnect']
         if reconnect and host._native_direct_reconnect then reconnect.bind(host,entry,value.pending) end
-        local book=host.settings:get_book(entry.book_id)
-        if owned(book,entry.book_id,owner)
-            and (type(book.home_recent_at)~='number' or book.home_recent_at<=ctx.at) then
-            host.settings:patch_reading_state(entry.book_id,{home_recent_at=ctx.at,home_recent_account=owner,
-                native_home_resume={at=ctx.at,entry=entry}})
-        end
+        save_recent(host,host.settings:get_book(entry.book_id),entry,owner,ctx.at)
         M.cancel(host)
     end)
     if not ok or not started then M.cancel(host);return false end

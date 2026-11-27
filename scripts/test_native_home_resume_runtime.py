@@ -166,7 +166,7 @@ def run(runtime, read_entries_only=False):
                                            capture_output=True, timeout=150)
                     prepared = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')
                     path, alternative = Path(prepared['37']), Path(prepared['38'])
-                    for mode in ('record_alternative', 'record_suspended', 'quick_home', 'quick_shelf', 'quick_store',
+                    for mode in ('record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
                                  'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
@@ -212,6 +212,7 @@ def run(runtime, read_entries_only=False):
         print('PASS: precise cloud continuation reuses the saved EPUB without its original at both sizes')
         if not read_entries_only:
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
+            print('PASS: quick menu closes to WeRead home and reopens the same offline page at both sizes')
     finally:
         server.shutdown()
         server.server_close()

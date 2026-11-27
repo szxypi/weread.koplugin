@@ -2043,6 +2043,7 @@ local zh = {
     ["WeRead · Search"] = "微信读书·搜索",
     ["Next chapter"] = "下一章",
     ["Close book"] = "关闭书籍",
+    ["Close book and return home"] = "关书并返回首页",
     ["You have reached the last chapter."] = "已经是最后一章了。",
     ["WIP"] = "开发中",
     ["Change private reading"] = "修改私密阅读",

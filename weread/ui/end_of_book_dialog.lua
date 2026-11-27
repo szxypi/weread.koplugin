@@ -210,7 +210,7 @@ function M.show(opts, callbacks)
         },
         {
             id = 'close_book',
-            text = _("Close book"),
+            text = _(opts.close_to_home and "Close book and return home" or "Close book"),
             callback = function() dismiss_then(callbacks.on_close_book) end,
         },
     })
