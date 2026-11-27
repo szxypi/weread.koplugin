@@ -409,6 +409,7 @@ s.jobs[2].callback(valid_result)
 expect(not host._native_direct_reading and s.cancelled and s.opened==0,'closing the list left a saved file able to open')
 local function same_catalog(entry)
     entry.catalog_sha256=digest
+    entry.chapter_idx=1
     entry.catalog_order,entry.catalog_count,entry.catalog_next=1,2,'2'
     return entry
 end
@@ -419,6 +420,35 @@ cache.list=function(_,_,id,current,chapter_uid)
     expect(id=='456' and chapter_uid=='1' and current(),'saved lookup was not limited to the selected chapter and account')
     return {wrong_catalog,matching}
 end
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+build_error='rate_limited'
+s.select(1);s.finish(2)
+expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
+    'a complete, matching online chapter was requested from the server again')
+local matching_list,open_copy=cache.list,cache.open
+local alternate={}
+for key,value in pairs(matching) do alternate[key]=value end
+alternate.copy=matching.copy+1
+cache.list=function() return {matching,alternate} end
+cache.open=function(settings,vid,id,entry,current)
+    if entry==alternate then
+        return {path='/tmp/settings/native-reader-v1/account/book/alternate.epub',book_version=7,
+            source_sha256=digest,missing_images=0}
+    end
+    return open_copy(settings,vid,id,entry,current)
+end
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+build_error='rate_limited';s.select(1);s.finish(2)
+expect(host._native_direct_reading.copy_menu and #s.items==2 and s.opened==0
+    and s.subtitle=='Each copy keeps its own reading position.',
+    'online catalog ignored the separate reading positions of complete copies')
+s.select(2);s.finish(3)
+expect(s.opened==1 and s.path:find('/alternate.epub',1,true),'complete copy chooser did not open the selected file')
+cache.list=matching_list;cache.open=function() return nil end
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);s.finish(2)
+expect(s.opened==1 and s.path:find('/file.epub',1,true),'a damaged matching copy blocked a fresh download')
+cache.open=open_copy
+matching.missing_images=1
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 host.isNetworkConnected=function() return false end
 selected=nil

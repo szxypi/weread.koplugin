@@ -582,6 +582,7 @@ local zh = {
     ["Continue in new copy"] = "在新副本续读",
     ["Finding this page in the new copy..."] = "正在新副本中查找当前位置……",
     ["Could not match this page in the new copy. Your current page was kept."] = "无法在新副本中准确匹配当前页，原页面保持不变。",
+    ["Each copy keeps its own reading position."] = "每个副本单独保存阅读位置。",
     ["Each copy keeps its own reading position. Reopen online to retry missing images."] = "每个副本单独保存阅读位置；联网重新选章可尝试补齐图片。",
     ["Choose a saved chapter copy"] = "选择已保存的章节副本",
     ["E-Ink authorization is required to read these chapters."] = "阅读墨水屏章节需要先完成墨水屏授权。",

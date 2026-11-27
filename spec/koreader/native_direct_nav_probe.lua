@@ -172,22 +172,22 @@ else
         search=catalog_action(1)
         search:setInputText('Chapter')
         search.buttons[1][2].callback()
-        menu:onGotoPage(2)
+        menu:onGotoPage(3)
         local filtered=menu.item_table
-        local item=assert(filtered[2])
+        local item=assert(filtered[3])
         local Reader=require('weread.lib.native_direct_reader')
         local build=Reader.build
         Reader.build=function() return nil,'rate_limited' end
         menu:onMenuSelect(item)
         assert(ctx.menu==menu and host._native_direct_worker.job and host.busy_message)
         host.busy_message:onTapClose()
-        assert(ctx.menu==menu and menu.item_table==filtered and menu.page==2 and not host._native_direct_worker.job
+        assert(ctx.menu==menu and menu.item_table==filtered and menu.page==3 and not host._native_direct_worker.job
             and UI:getTopmostVisibleWidget()==menu and host.opened==second,
             'cancelling preparation did not keep the online search and its page')
         menu:onMenuSelect(item)
         wait(function() return host.message or not host.busy_message end)
         assert(host.message==tr('WeRead is limiting requests. Please try again later.') and ctx.menu==menu
-            and menu.item_table==filtered and menu.page==2 and UI:getTopmostVisibleWidget()==menu and host.opened==second,
+            and menu.item_table==filtered and menu.page==3 and UI:getTopmostVisibleWidget()==menu and host.opened==second,
             'failed preparation did not keep the online search and its page')
         Reader.build=build
         host.message=nil
@@ -245,6 +245,18 @@ else
             'closing the copy chooser lost the chapter catalog')
         connected=true
         assert(assert(io.open(home..'/interrupt-download','wb')):close())
+        menu:onMenuSelect(menu.item_table[1])
+        wait(function() return host.message or host.opened or host._native_direct_reading and host._native_direct_reading.copy_menu end)
+        assert(not host.message and host.opened==input.first and not host._native_direct_reading and not host.busy_message,
+            'online catalog did not immediately reuse the complete saved copy')
+        host:openFile(second)
+        host.opened=nil
+        press('chapter_list')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+        menu=assert(host._native_direct_reading.menu)
+        local damaged=assert(io.open(input.first,'ab'))
+        assert(damaged:write('synthetic damage'));assert(damaged:close())
+        menu:onGotoPage(1)
         menu:onMenuSelect(menu.item_table[1])
         wait(function() return host.message or host.opened or host._native_direct_reading and host._native_direct_reading.copy_menu end)
         assert(not host.message and not host.opened and host._native_direct_reading

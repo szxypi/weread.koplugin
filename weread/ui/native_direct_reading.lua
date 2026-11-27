@@ -277,13 +277,14 @@ function M.start(host,book,view,options)
         busy=host.busy_message;ctx.busy=busy
         launch()
     end
-    local function show_saved_copies(rows)
+    local function show_saved_copies(rows,complete_only)
         close_busy()
         local labels=require('weread.ui.native_direct_copies').labels(rows)
         local items,menu={}
         for index,label in ipairs(labels) do items[index]={text=label,copy_index=index} end
         menu=host:showList(_('Choose a saved chapter copy'),items,nil,{
-            subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.'),
+            subtitle=_(complete_only and 'Each copy keeps its own reading position.'
+                or 'Each copy keeps its own reading position. Reopen online to retry missing images.'),
             on_choice=function(item)
                 local index=type(item)=='table' and item.copy_index
                 if not menu or ctx.copy_menu~=menu or ctx.busy or not index or items[index]~=item then return end
@@ -590,6 +591,31 @@ function M.start(host,book,view,options)
         }
         show_confirmation(dialog)
     end
+    local function lookup_saved(is_current,complete_only)
+        local cache=require('weread.lib.native_direct_cache')
+        local chapter=ctx.chapter
+        local rows=cache.list(host.settings,scope.vid,id,is_current,chapter.chapterUid)
+        if not rows then return nil,'storage' end
+        local matches,saved={}
+        for _,entry in ipairs(rows) do
+            if matches_catalog(entry,chapter,ctx.catalog) then
+                if not complete_only then
+                    matches[#matches+1]=entry
+                elseif entry.missing_images==0 and entry.chapter_idx==chapter.chapterIdx then
+                    local verified=cache.open(host.settings,scope.vid,id,entry,is_current)
+                    if verified then
+                        matches[#matches+1]=entry
+                        saved=verified
+                    end
+                end
+            end
+        end
+        if #matches>1 then return {copies=matches} end
+        if #matches==0 then return nil,'not_saved' end
+        saved=saved or cache.open(host.settings,scope.vid,id,matches[1],is_current)
+        if saved then return saved end
+        return nil,'damaged'
+    end
     launch=function()
         local phase,saved_entry=ctx.phase,ctx.entry
         local is_current=phase_guard(phase)
@@ -629,16 +655,8 @@ function M.start(host,book,view,options)
                 local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,is_current)
                 return result or {error='damaged'}
             elseif phase=='saved_matches' then
-                local cache=require('weread.lib.native_direct_cache')
-                local rows=cache.list(host.settings,scope.vid,id,is_current,ctx.chapter.chapterUid)
-                if not rows then return {error='storage'} end
-                local matches={}
-                for _,entry in ipairs(rows) do
-                    if matches_catalog(entry,ctx.chapter,ctx.catalog) then matches[#matches+1]=entry end
-                end
-                if #matches>1 then return {copies=matches} end
-                if #matches==0 then return {error='not_saved'} end
-                return cache.open(host.settings,scope.vid,id,matches[1],is_current) or {error='damaged'}
+                local saved,reason=lookup_saved(is_current,false)
+                return saved or {error=reason}
             end
             if phase=='catalog' then
                 local auth=require('weread.lib.native_authorization'):new(host.client,{
@@ -659,6 +677,10 @@ function M.start(host,book,view,options)
                     result.batch_record=ctx.batch_store:read(id,current)
                 end
                 return result or {error='unavailable'}
+            end
+            if phase=='chapter' and ctx.menu then
+                local saved=lookup_saved(current,true)
+                if saved then return saved end
             end
             local expected={book_id=id,chapter_uid=ctx.chapter.chapterUid,book_version=ctx.catalog.version,
                 reading_catalog_sha256=ctx.catalog.reading_digest,access_fingerprint=ctx.selected.native.fingerprint}
@@ -779,17 +801,20 @@ function M.start(host,book,view,options)
                 end
                 show_chapter_menu(checked.chapters);return
             end
-            if phase=='saved_matches' and type(result)=='table' then
-                if result.error=='not_saved' then
+            if (phase=='saved_matches' or phase=='chapter') and type(result)=='table' then
+                if phase=='saved_matches' and result.error=='not_saved' then
                     fail('No saved copy matches this chapter. Connect to download it.');return
                 end
                 if result.copies~=nil then
                     local rows=result.copies
                     if not valid_saved_rows(rows,id,scope.vid) or #rows<2 then fail();return end
                     for _,entry in ipairs(rows) do
-                        if not matches_catalog(entry,ctx.chapter,ctx.catalog) then fail();return end
+                        if not matches_catalog(entry,ctx.chapter,ctx.catalog)
+                            or phase=='chapter' and (entry.missing_images~=0 or entry.chapter_idx~=ctx.chapter.chapterIdx) then
+                            fail();return
+                        end
                     end
-                    show_saved_copies(rows);return
+                    show_saved_copies(rows,phase=='chapter');return
                 end
             end
             local version=phase=='offline_open' and saved_entry.book_version or ctx.catalog.version
