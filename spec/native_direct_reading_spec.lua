@@ -606,4 +606,66 @@ select_chapter(1);s.finish(6);s.select(2);s.finish(7)
 expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
     'the selected local copy did not open from the online catalog')
 cache.list,cache.valid_entry,cache.open,pending.mark=old_list,old_valid,old_open,old_mark
+do
+    local web_live=true
+    local shelf_source=require('weread.lib.shelf_source')
+    local previous_web,previous_list,previous_entry=shelf_source.web_access,cache.list,cache.valid_entry
+    shelf_source.web_access=function() return web_live and {} or nil end
+    cache.valid_entry=function() return true end
+    cache.list=function() return {} end
+    local function fallback(error_code,shelf_owner)
+        local options={cloud_chapter=true,standard_read=function() s.standard=(s.standard or 0)+1 end}
+        host,s=fixture();web_live=true
+        if shelf_owner then
+            host._book_detail_view=nil;host.shelf_view=s.view
+            options.shelf_current=function() return host.shelf_view==s.view end
+        end
+        catalog_error='native_auth/native_catalog_catalog/'..error_code
+        UI.start(host,{book_id='456'},s.view,options);s.finish(1);s.finish(2)
+        local ctx=host._native_direct_reading
+        return ctx and ctx.confirm
+    end
+    local dialog=fallback('timeout',true)
+    expect(dialog and dialog.ok_text=='Use standard reading' and not s.standard and not host.busy_message,
+        'catalog timeout did not offer an explicit choice')
+    dialog.ok_callback();dialog.ok_callback()
+    expect(s.standard==1 and not host._native_direct_reading,'standard fallback did not complete only once')
+    expect(fallback('http_503')~=nil,'native service outage did not offer standard reading')
+    UI.cancel(host)
+    host,s=fixture()
+    local before_renewal=renewal_count
+    catalog_error='native_auth/native_catalog_catalog/http_401'
+    UI.start(host,{book_id='456'},s.view,{cloud_chapter=true,standard_read=function() s.standard=1 end})
+    s.finish(1);s.finish(2);s.finish(3)
+    expect(renewal_count==before_renewal+1 and host._native_direct_reading.confirm and not s.standard,
+        'persistent native authorization expiry did not stop at the backup choice')
+    UI.cancel(host)
+    dialog=assert(fallback('transport'));dialog.cancel_callback();dialog.ok_callback()
+    expect(not s.standard and not host._native_direct_reading,'cancelled fallback started reading')
+    dialog=assert(fallback('transport'));account_valid=false;dialog.ok_callback()
+    expect(not s.standard and not host._native_direct_reading,'fallback crossed an account change')
+    dialog=assert(fallback('transport',true));host.shelf_view={};dialog.ok_callback()
+    expect(not s.standard and not host._native_direct_reading,'fallback crossed a shelf replacement')
+    dialog=assert(fallback('transport'));web_live=false;dialog.ok_callback()
+    expect(not s.standard and not host._native_direct_reading,'fallback used an unavailable Web authorization')
+    expect(not fallback('http_429') and not s.standard,'rate limit offered a retry through another channel')
+    cache.list=function() return {saved_entry} end
+    expect(not fallback('transport') and host._native_direct_reading.menu and #s.items==1,
+        'catalog failure did not prefer the saved chapter list')
+    UI.cancel(host)
+    cache.list=function() return {} end
+    for _,reason in ipairs({'unsupported_format','transport','not_entitled','catalog_changed'}) do
+        host,s=fixture();web_live=true
+        cloud_progress={book={bookId='456',chapterUid=1,chapterIdx=1,chapterOffset=12,progress=10,summary='Synthetic summary'}}
+        UI.start(host,{book_id='456'},s.view,{cloud_chapter=true,standard_read=function() s.standard=1 end})
+        s.finish(1);build_error=reason;s.finish(2)
+        if reason=='transport' then s.finish(3) end
+        local ctx=host._native_direct_reading
+        expect((ctx and ctx.confirm~=nil or false)==(reason=='unsupported_format' or reason=='transport'),
+            'wrong backup choice for '..reason)
+        if ctx and ctx.confirm then ctx.confirm.ok_callback();expect(s.standard==1,'chapter fallback could not continue') end
+        UI.cancel(host)
+    end
+    shelf_source.web_access,cache.list,cache.valid_entry=previous_web,previous_list,previous_entry
+end
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')

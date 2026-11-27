@@ -10,7 +10,8 @@ local Crypto=require('weread.lib.crypto')
 local PluginUtil=require('weread.lib.plugin_util')
 local _,T=PluginUtil.tr,PluginUtil.T
 local M={}
-local catalog_errors={http_401='auth_expired',http_429='rate_limited',transport='transport',timeout='transport'}
+local catalog_errors={http_401='auth_expired',http_429='rate_limited',transport='transport',timeout='transport',
+    http_500='server_unavailable',http_502='server_unavailable',http_503='server_unavailable',http_504='server_unavailable'}
 
 local function capture(settings,store)
     local native=Access.capture(settings,store)
@@ -214,12 +215,14 @@ function M.start(host,book,view,options)
     local anchor=type(options)=='table' and options.anchor or nil
     if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
     local want_cloud_chapter=not anchor and not batch and not target and type(options)=='table' and options.cloud_chapter==true
+    local standard_read=want_cloud_chapter and not from_reader and type(options.standard_read)=='function' and options.standard_read
     local selected=not offline and capture(host.settings) or nil
-    local fallback_reason
+    local fallback_reason,offer_standard
     if not offline and (not selected or selected.native.renewal_pending) then
         fallback_reason='E-Ink authorization is required to read these chapters.'
         if batch or target then host:showInfo(_(fallback_reason));return false end
         offline,selected=true,nil
+        offer_standard=true
     end
     local title=text(book.title,2048) and book.title or id
     local author=text(book.author,2048) and book.author or ''
@@ -233,14 +236,17 @@ function M.start(host,book,view,options)
     if resume_plan and (not ctx.batch_store or not ctx.batch_store:verified(resume_plan,id)) then return false end
     M.cancel(host)
     host._native_direct_reading=ctx
-    local function view_current()
+    local function origin_current()
         local now=host.ui and host.ui.document
-        return host._native_direct_reading==ctx and not host._weread_suspended and host[owner_key]==view
+        return not host._weread_suspended and host[owner_key]==view
             and (not from_shelf or shelf_current())
             and (host.discovery_epoch or 0)==ctx.epoch and host._reader_session_gen==ctx.session
             and now==ctx.document and (not now or now.file==ctx.file)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)
             and host.settings:auth_scope_matches(ctx.scope)
+    end
+    local function view_current()
+        return host._native_direct_reading==ctx and origin_current()
     end
     local current=offline and view_current or Access.guard(host.settings,view_current,selected.native)
     local function phase_guard(phase)
@@ -271,15 +277,49 @@ function M.start(host,book,view,options)
         end
         if after_close then UIManager:nextTick(show) else show() end
     end
-    local function fail(message,close_catalog)
+    local function show_confirmation(dialog)
+        ctx.confirm=dialog
+        local closed=dialog.onCloseWidget
+        dialog.onCloseWidget=function(widget,...)
+            if ctx.confirm==widget then ctx.confirm=nil;M.cancel(host) end
+            if closed then return closed(widget,...) end
+        end
+        UIManager:show(dialog)
+    end
+    local function can_read_standard()
+        return standard_read and view_current() and connected(host)
+            and require('weread.lib.shelf_source').web_access(host.settings)~=nil
+    end
+    local function fail(message,close_catalog,try_standard)
         if host._native_direct_reading~=ctx then return end
+        local notice=_(message or 'Could not prepare the E-Ink chapter. Please try again.')
+        if try_standard and can_read_standard() then
+            ctx.generation=(ctx.generation or 0)+1
+            close_busy()
+            local dialog
+            dialog=require('ui/widget/confirmbox'):new{
+                text=notice..'\n\n'.._('Continue with standard reading?'),
+                ok_text=_('Use standard reading'),cancel_text=_('Cancel'),keep_dialog_open=true,
+                ok_callback=function()
+                    if ctx.confirm~=dialog then return end
+                    local allowed=can_read_standard()
+                    M.cancel(host)
+                    if allowed and origin_current() then standard_read() end
+                end,
+                cancel_callback=function()
+                    if ctx.confirm==dialog then ctx.confirm=nil;M.cancel(host) end
+                end,
+            }
+            show_confirmation(dialog)
+            return
+        end
         local live=view_current()
         if live and not close_catalog and ctx.busy and phase_guard(ctx.phase)() then
             if ctx.auto_open then show_resume_catalog()
             elseif ctx.menu then stop_chapter_open()
             else M.cancel(host) end
         else M.cancel(host) end
-        if live then host:showInfo(_(message or 'Could not prepare the E-Ink chapter. Please try again.')) end
+        if live then host:showInfo(notice) end
     end
     if not host._native_direct_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
@@ -298,11 +338,12 @@ function M.start(host,book,view,options)
         busy=host.busy_message;ctx.busy=busy
         launch()
     end
-    local function catalog_unavailable(message)
+    local function catalog_unavailable(message,try_standard)
         if ctx.phase~='catalog' or ctx.batch or ctx.target or ctx.catalog or not view_current() then
-            fail(message,true);return
+            fail(message,true,try_standard);return
         end
         fallback_reason=message or 'Could not prepare the E-Ink chapter. Please try again.'
+        offer_standard=try_standard
         offline,ctx.offline,ctx.selected=true,true,nil
         current=view_current
         load_chapters('offline_list')
@@ -351,15 +392,16 @@ function M.start(host,book,view,options)
             stale=function() if host._native_direct_reading==ctx then M.cancel(host) end end,
             complete=function(ok,fresh)
                 ctx.selected=fresh
-                if not ok then catalog_unavailable('E-Ink authorization expired. Please authorize again.');return end
+                if not ok then catalog_unavailable('E-Ink authorization expired. Please authorize again.',true);return end
                 current=Access.guard(host.settings,view_current,fresh.native)
                 launch()
             end})
-        if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.') end
+        if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.',true) end
     end
     show_chapter_menu=function(rows,picker,saved_catalog,cloud_chapter)
         if #rows==0 then
-            fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.');return
+            fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.',
+                nil,offer_standard);return
         end
         close_busy()
         local orders,sections,depths,headings
@@ -534,15 +576,6 @@ function M.start(host,book,view,options)
         ctx.confirm=nil
         if current() then return true end
         M.cancel(host);return false
-    end
-    local function show_confirmation(dialog)
-        ctx.confirm=dialog
-        local closed=dialog.onCloseWidget
-        dialog.onCloseWidget=function(widget,...)
-            if ctx.confirm==widget then ctx.confirm=nil;M.cancel(host) end
-            if closed then return closed(widget,...) end
-        end
-        UIManager:show(dialog)
     end
     local function confirm_image_repair()
         local dialog
@@ -774,7 +807,7 @@ function M.start(host,book,view,options)
                 ctx.auto_open=result.cloud_chapter or ctx.auto_open
                 show_resume_catalog();return
             end
-            if phase=='chapter' and (ctx.menu or ctx.auto_open) and reason=='transport' then
+            if phase=='chapter' and (ctx.menu or ctx.auto_open) and (reason=='transport' or reason=='timeout') then
                 begin_open('saved_matches');return
             end
             if reason=='auth_expired' then renew();return end
@@ -783,7 +816,9 @@ function M.start(host,book,view,options)
                 show_batch_retry(reason);return
             end
             if phase=='catalog' and reason then
-                catalog_unavailable(reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.' or nil)
+                local interrupted=reason=='transport' or reason=='server_unavailable'
+                catalog_unavailable(reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+                    or interrupted and 'Could not load the E-Ink chapter list. Check the connection and try again.' or nil,interrupted)
                 return
             end
             if reason=='rate_limited' then
@@ -889,7 +924,12 @@ function M.start(host,book,view,options)
             end
             if (phase=='saved_matches' or phase=='chapter') and type(result)=='table' then
                 if phase=='saved_matches' and result.error=='not_saved' then
-                    fail('No saved copy matches this chapter. Connect to download it.');return
+                    if standard_read and ctx.auto_open then fail(nil,nil,true)
+                    else fail('No saved copy matches this chapter. Connect to download it.') end
+                    return
+                end
+                if reason=='unsupported_format' then
+                    fail('This book format is unavailable in E-Ink reading.',nil,true);return
                 end
                 if result.copies~=nil then
                     local rows=result.copies

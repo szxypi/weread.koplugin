@@ -66,6 +66,7 @@ local reopen = os.getenv("WEREAD_READING_REOPEN") == "1"
 local reconnect = os.getenv("WEREAD_READING_RECONNECT") == "1"
 local offline_progress = os.getenv("WEREAD_TEST_OFFLINE_PROGRESS") == "1"
 local shelf_tap_layout=os.getenv('WEREAD_TEST_SHELF_TAP_READ')
+local eink_fallback=os.getenv('WEREAD_TEST_EINK_STANDARD_FALLBACK')=='1'
 local offline = reopen or reconnect
 plugin.isNetworkOnline = function() return not offline end
 plugin.isNetworkConnected = function() return not offline end
@@ -234,39 +235,42 @@ if os.getenv('WEREAD_TEST_DELAYED_SCREENSHOT')=='1' then
     screenshot_smoke=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'delayed_screenshot_smoke.lua')
     screenshot_smoke.home(plugin,fm,evidence)
 end
-local books = plugin.library_db:getShelf()
-local selected
-for _, book in ipairs(books) do if tostring(book.bookId or book.book_id) == "900001" then selected = book end end
-assert(selected, "synthetic shelf book missing")
-plugin.shelf_view.on_select(selected)
-pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
-shot("reading-uncached-detail")
-press(plugin._book_detail_view, "▤ Read")
-assert(plugin.book_reading_context and not Reader.instance, "uncached Read skipped async preparation")
-shot("reading-preparing")
-plugin:cancelBookReading()
-for _i = 1, 4 do tick() end
-assert(not Reader.instance and not plugin.downloader._active_job, "cancelled preparation opened reader")
+if not eink_fallback then
+    local selected
+    for _, book in ipairs(plugin.library_db:getShelf()) do
+        if tostring(book.bookId or book.book_id) == "900001" then selected = book end
+    end
+    assert(selected, "synthetic shelf book missing")
+    plugin.shelf_view.on_select(selected)
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    shot("reading-uncached-detail")
+    press(plugin._book_detail_view, "▤ Read")
+    assert(plugin.book_reading_context and not Reader.instance, "uncached Read skipped async preparation")
+    shot("reading-preparing")
+    plugin:cancelBookReading()
+    for _i = 1, 4 do tick() end
+    assert(not Reader.instance and not plugin.downloader._active_job, "cancelled preparation opened reader")
 
-plugin:closeWeReadUI(); plugin:showBookshelf()
-plugin.shelf_view.on_select(selected, "books")
-pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
-press(plugin._book_detail_view, "▤ Read")
-plugin:onSuspend()
-for _i = 1, 4 do tick() end
-assert(not plugin.book_reading_context and not Reader.instance, "suspended preparation opened reader")
+    plugin:closeWeReadUI(); plugin:showBookshelf()
+    plugin.shelf_view.on_select(selected, "books")
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    press(plugin._book_detail_view, "▤ Read")
+    plugin:onSuspend()
+    for _i = 1, 4 do tick() end
+    assert(not plugin.book_reading_context and not Reader.instance, "suspended preparation opened reader")
 
-press(plugin._book_detail_view, "▤ Read")
-pump(function() return plugin.downloader._active_job ~= nil end)
-shot("reading-download-cancel")
-plugin:cancelBookReading()
-pump(function() return not plugin.downloader._active_job end)
-assert(not Reader.instance, "cancelled download opened reader")
+    press(plugin._book_detail_view, "▤ Read")
+    pump(function() return plugin.downloader._active_job ~= nil end)
+    shot("reading-download-cancel")
+    plugin:cancelBookReading()
+    pump(function() return not plugin.downloader._active_job end)
+    assert(not Reader.instance, "cancelled download opened reader")
 
-press(plugin._book_detail_view, "▤ Read")
-plugin._book_detail_view:onClose()
-for _i = 1, 4 do tick() end
-assert(not plugin.book_reading_context and not Reader.instance, "closed detail reopened reader")
+    press(plugin._book_detail_view, "▤ Read")
+    plugin._book_detail_view:onClose()
+    for _i = 1, 4 do tick() end
+    assert(not plugin.book_reading_context and not Reader.instance, "closed detail reopened reader")
+end
 
 plugin:closeWeReadUI(); plugin:showBookstore()
 press(plugin.shelf_view, "For you")
@@ -279,6 +283,33 @@ local auth_case,auth_reset
 if os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY') then
     local run_auth=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'book_reading_renewal_case.lua')
     auth_case,auth_reset=run_auth(plugin,os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY'))
+end
+local fallback_error
+local function arm_eink_fallback()
+    if not eink_fallback then return end
+    assert(plugin.settings.mock_endpoint and require('weread.lib.shelf_source').web_access(plugin.settings))
+    local scope=assert(plugin.settings:get_auth_scope())
+    assert(scope.vid=='900000')
+    local Access=require('weread.lib.native_read_access')
+    local capture=Access.capture
+    local credential_store={read=function()
+        return {vid = scope.vid,accessToken = 'mock-native-access',refreshToken = 'mock-native-refresh',
+            deviceId = 'eink334691225'..string.rep('0',19)},1,nil,false
+    end}
+    Access.capture=function(settings,store) return capture(settings,store or credential_store) end
+    local show_info=plugin.showInfo
+    plugin.showInfo=function(self,message,...)
+        fallback_error=message
+        return show_info(self,message,...)
+    end
+    plugin.settings:set('prefer_eink_chapters',true);plugin.settings:flush()
+    local payload=json.encode{match='/book/chapterInfos',times=1,status=503}
+    local _,code=require('socket.http').request{
+        url=plugin.settings.mock_endpoint..'/__control',method='POST',
+        source=require('ltn12').source.string(payload),
+        headers={['Content-Type']='application/json',['Content-Length']=tostring(#payload)},
+    }
+    assert(code==200,'could not configure the isolated catalog failure')
 end
 if shelf_tap_layout then
     local tr=require('weread.lib.plugin_util').tr
@@ -316,9 +347,10 @@ if shelf_tap_layout then
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     assert(not Reader.instance and not plugin.book_reading_context,'hold no longer offered details')
     local selected_view,selected_row=show_shelf()
+    arm_eink_fallback()
     shelf_gesture(selected_row,'tap')
     assert(not plugin._book_detail_view,'direct shelf reading opened book details')
-    assert(plugin.book_reading_context,'shelf tap did not start uncached reading')
+    assert(eink_fallback and plugin._native_direct_reading or plugin.book_reading_context,'shelf tap did not start uncached reading')
     require('weread.ui.shelf_popup').redrawForMetadata(plugin,selected_view,function()
         error('automatic shelf refresh interrupted direct reading')
     end)
@@ -341,7 +373,22 @@ elseif os.getenv('WEREAD_TEST_QUICK_READ')=='1' then
 else
     plugin.shelf_view.on_select(store_book)
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    arm_eink_fallback()
     press(plugin._book_detail_view, "▤ Read")
+end
+if eink_fallback then
+    local dialog
+    assert(plugin._native_direct_reading,'the preferred read action did not choose the E-Ink channel')
+    pump(function()
+        local job=plugin._native_direct_reading
+        dialog=job and job.confirm
+        return dialog~=nil or fallback_error~=nil or not job
+    end)
+    assert(dialog,fallback_error or 'native recovery did not show its standard reading choice')
+    assert(dialog.ok_text==require('weread.lib.plugin_util').tr('Use standard reading') and not Reader.instance
+        and not plugin.book_reading_context,'standard reading did not wait for confirmation')
+    UI:forceRePaint();dialog.ok_callback()
+    assert(not plugin._native_direct_reading and plugin.book_reading_context,'standard reading did not take over')
 end
 local auth_mode=os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY')
 if auth_mode=='repeat401' or auth_mode=='forbidden' or auth_mode=='limited' then

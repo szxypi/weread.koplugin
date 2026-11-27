@@ -482,6 +482,9 @@ do
     prefer_eink=true;choice=nil
     expect(host:readFromBookList(uncached,shelf,current) and choice.cloud_chapter and not choice.cached,
         'the E-Ink preference did not choose native continuation with Web access')
+    local continue_standard=choice.standard_read;choice,preparation=nil,nil
+    expect(continue_standard and continue_standard() and preparation and preparation.book==uncached and not choice,
+        'standard reading restarted native selection or lost the original book')
     opened_path,choice=nil,nil
     expect(host:readFromBookList(partial,shelf,current) and opened_path==partial.full_path and not choice,
         'the E-Ink preference bypassed an existing ordinary EPUB')

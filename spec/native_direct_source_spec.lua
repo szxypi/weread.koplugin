@@ -48,6 +48,10 @@ assert(missing.missing_images==1 and missing.xhtml:find('placeholders',1,true)
     and missing.xhtml:find('<p>Native</p>',1,true),'missing-image warning was not embedded')
 remote_missing=nil
 local remote_before_stale=remote_calls
+source.is_text=true
+local unsupported,format_error=fetch()
+assert(not unsupported and format_error=='unsupported_format' and remote_calls==remote_before_stale)
+source.is_text=false
 local changed={};for key,value in pairs(expected) do changed[key]=value end
 changed.reading_catalog_sha256=string.rep('d',64)
 local value,reason=Direct.fetch({}, {},'42','37',changed,options)

@@ -31,6 +31,7 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
         or source.reading_catalog_sha256~=expected.reading_catalog_sha256 then return nil,'catalog_changed' end
     if source.source_channel~='eink' or source.coordinate_source_authoritative~=false
         or type(source.body)~='string' or not hash(source.catalog_sha256) then return nil,'invalid_source' end
+    if source.is_text==true then return nil,'unsupported_format' end
     local prepared
     prepared,why=Remote.complete(client,source,{is_current=current,allow_missing_images=options.allow_missing_images==true})
     if not prepared then return nil,why or 'unavailable' end

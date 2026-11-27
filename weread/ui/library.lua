@@ -2905,7 +2905,7 @@ function M:readFromBookList(book, view, current, cached_only, native_cached)
     return false
 end
 
-function M:startBookReading(book, view, origin)
+function M:startBookReading(book, view, origin, mode)
     if view and self._book_detail_view ~= view then return false end
     if origin and not origin.current() then return false end
     local warning=package.loaded['weread.ui.missing_resume']
@@ -2920,7 +2920,7 @@ function M:startBookReading(book, view, origin)
     local shelf_view=origin and origin.owner
     local owner=view or shelf_view
     local selected_id=ShelfSnapshot.persisted_id(book)
-    if owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
+    if mode~='standard' and owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
         and require('weread.lib.native_position_protocol').id(selected_id) then
         local native=online and (not exact or prefer_eink_chapters(self,latest,reason))
             and has_native_read_access(self.settings)
@@ -2932,8 +2932,20 @@ function M:startBookReading(book, view, origin)
                 latest=store_book_record(self,book,selected_id)
                 if not latest then return false end
             end
+            local standard_read
+            if native and exact then
+                standard_read=function()
+                    local record,conflict=ReadAccess.load_cached_book(self.settings,selected_id)
+                    if conflict then
+                        self:showInfo(_('Saved book information does not match. Check the local cache before opening.'))
+                        return false
+                    end
+                    return self:startBookReading(record or latest,view,origin,'standard')
+                end
+            end
             return require('weread.ui.native_direct_reading').start(self,latest,owner,{
                 cached=saved_native,cloud_chapter=native,shelf_current=not view and origin.current or nil,
+                standard_read=standard_read,
             })
         end
     end
