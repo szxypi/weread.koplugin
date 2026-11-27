@@ -113,6 +113,18 @@ if record then
         reader.weread:onFlushSettings();reader:onClose(false)
     end
     assert(not Reader.instance)
+elseif input.mode=='record_standard' then
+    local checkpoint=assert(settings:get_book(id).native_home_resume)
+    Reader:showReader(input.path)
+    pump(function() return Reader.instance and Reader.instance.document end)
+    local reader=Reader.instance
+    assert(reader.document:getPageCount()>=2)
+    reader.rolling:onGotoPage(2);UI:forceRePaint()
+    local proof={anchor=assert(reader.document:getXPointer()),native=checkpoint}
+    assert(reader:getCurrentPage()==2)
+    reader:onClose(false)
+    local file=assert(io.open(home..'/standard-record','wb'))
+    assert(file:write(json.encode(proof)));assert(file:close())
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
     if input.mode=='shelf_close' or input.mode=='shelf_close_prior' then
@@ -183,6 +195,18 @@ else
         assert(reader.document:isXPointerInCurrentPage(anchor),'saved chapter lost its local reading page')
         print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
         return
+    end
+    local standard_record
+    if input.standard then
+        local file=assert(io.open(home..'/standard-record','rb'))
+        standard_record=json.decode(assert(file:read('*a')));file:close()
+        local books=host.settings:get('books',{})
+        local book=assert(books[id])
+        book.cached_full_book=input.standard
+        book._library_account_key=host.library_db:accountKey()
+        host.settings:set('books',books);host.settings:flush()
+        assert(host.settings:patch_reading_state(id,{native_home_resume=standard_record.native,
+            home_recent_at=standard_record.native.at,home_recent_account=book._library_account_key}))
     end
     host:showHome();local view=assert(host.shelf_view);local selected
     for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
@@ -302,10 +326,11 @@ else
             'native search book not listed on home')
     else assert(selected and selected.title=='Synthetic book','native chapter not listed on home') end
     local message
-    local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage' or input.mode=='no_alternative'
-    local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
+    local damage=standard_record or input.mode=='damage' or input.mode=='detail_damage'
+        or input.mode=='shelf_damage' or input.mode=='no_alternative'
+    local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage' or input.mode=='standard_shelf'
     local repair=input.mode=='downloads_repair' or input.mode=='downloads_repair_unwritable'
-    local downloads=input.mode=='downloads' or input.mode=='downloads_choose' or repair
+    local downloads=input.mode=='downloads' or input.mode=='downloads_choose' or input.mode=='standard_downloads' or repair
     local quick=input.mode=='quick_home' or input.mode=='quick_shelf' or input.mode=='quick_store' or input.mode=='quick_choose'
     local choose=input.mode=='downloads_choose' or input.mode=='quick_choose' or repair
     if damage then host.showInfo=function(_,text) message=text end end
@@ -392,10 +417,28 @@ else
             local job=host._native_direct_reading
             return job and job.menu
         end
-        pump(function() return message or Reader.instance or picker() end)
+        local function alternative_confirmation()
+            local job=host._native_direct_reading
+            return job and job.confirm
+        end
+        pump(function() return message or Reader.instance or picker() or standard_record and alternative_confirmation() end)
         assert(not Reader.instance,'fallback opened a chapter without a selection')
         local tr=require('weread.lib.plugin_util').tr
-        if input.mode=='no_alternative' then
+        if standard_record then
+            local dialog=assert(alternative_confirmation(),'other downloaded EPUB was not offered')
+            assert(dialog.ok_text==tr('Read cached copy') and not picker())
+            if input.mode=='standard_cancel' then
+                UI:close(dialog);dialog.ok_callback()
+                local after=assert(host.settings:get_book(id).native_home_resume)
+                assert(after.entry.file_id==standard_record.native.entry.file_id and not Reader.instance
+                    and not host._native_direct_reading,'cancelling changed the previous resume or allowed the old button')
+            else
+                dialog.ok_callback()
+                pump(function() return Reader.instance and Reader.instance.document.file==input.standard end)
+                assert(Reader.instance.document:isXPointerInCurrentPage(standard_record.anchor),
+                    'standard download lost its own saved reading position')
+            end
+        elseif input.mode=='no_alternative' then
             assert(message==tr('No usable saved E-Ink chapters for this book and account. Existing files are kept.')
                 and not picker(),'missing alternatives were not reported')
         else

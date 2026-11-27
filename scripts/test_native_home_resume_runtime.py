@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 import test_native_full_book_runtime as fixture
 from test_native_chapter_archive_runtime import plain_tar
 from run_persistent_ui_probe import extract_candidate
+from synthetic_upload_epub import build_reading
 from verify_source_coordinates import FilteredSource
 
 REPO = Path(__file__).resolve().parent.parent
@@ -240,19 +241,24 @@ def run(runtime, read_entries_only=False):
                                            capture_output=True, timeout=150)
                     prepared = frame(child, 'WEREAD_DIRECT_NAV_PREPARED=')
                     path, alternative = Path(prepared['37']), Path(prepared['38'])
+                    standard_path = root/'standard.epub'
+                    standard_bytes = build_reading()
+                    standard_path.write_bytes(standard_bytes)
                     for mode in ('record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
                                  'shelf_close', 'shelf_close_prior', 'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
                                  'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all',
-                                 'downloads_pending', 'downloads_discard', 'switch'):
+                                 'downloads_pending', 'downloads_discard', 'record_standard', 'standard_cancel',
+                                 'standard_home', 'standard_shelf', 'standard_downloads', 'switch'):
+                        standard = mode.startswith('standard_')
                         receipt = path.parent/'receipt.txt'
-                        original = receipt.read_bytes() if mode in ('damage', 'detail_damage', 'no_alternative') else None
+                        original = receipt.read_bytes() if standard or mode in ('damage', 'detail_damage', 'no_alternative') else None
                         repair = mode in ('downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all')
                         missing = []
                         if mode in ('shelf_damage', 'downloads_missing_all'):
                             missing.append(path)
-                        if mode == 'no_alternative' or repair:
+                        if standard or mode == 'no_alternative' or repair:
                             missing.append(alternative)
                         marker = alternative.parents[2] / ('.native-presence-' + alternative.parents[1].name)
                         stale = 'native-presence-v1\nkey=' + alternative.parent.name + '\ncopy=0\n'
@@ -264,6 +270,10 @@ def run(runtime, read_entries_only=False):
                             hidden.rename(hidden.with_suffix('.hidden'))
                         case = dict(mode=mode, path=str(alternative if mode == 'record_alternative' else path),
                                     alternative=str(alternative))
+                        if mode == 'record_standard':
+                            case['path'] = str(standard_path)
+                        if standard:
+                            case['standard'] = str(standard_path)
                         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'),
                                                 str(REPO)], input=json.dumps(case), text=True,
                                                env=env, cwd=runtime, capture_output=True, timeout=150)
@@ -279,6 +289,7 @@ def run(runtime, read_entries_only=False):
                             expected = stale if mode != 'downloads_repair' else stale.replace(
                                 alternative.parent.name, path.parent.name)
                             assert marker.read_text() == expected
+                    assert standard_path.read_bytes() == standard_bytes
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native-only reading and catalogs from details and bookshelf, and offline details reopening at both sizes')
         print('PASS: preferred E-Ink reading with both authorizations from bookstore details and bookshelf at both sizes')
@@ -293,6 +304,7 @@ def run(runtime, read_entries_only=False):
             print('PASS: quick menu closes to WeRead home and reopens the same offline page at both sizes')
             print('PASS: normal KOReader close preserves the verified chapter chosen from the offline shelf at both sizes')
             print('PASS: quick offline turns save a reminder on close and preserve prior reminders at both sizes')
+            print('PASS: missing E-Ink resume can open the standard downloaded page or cancel at both sizes')
     finally:
         server.shutdown()
         server.server_close()

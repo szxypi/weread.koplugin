@@ -446,6 +446,29 @@ expect(#s.items==1 and s.items[1].text:find('Offline position to review',1,true)
     'offline filter lost the pending position or reloaded the catalog')
 local other_copy={};for key,value in pairs(saved_entry) do other_copy[key]=value end
 other_copy.copy=1
+for _,mode in ipairs({'open','cancel','account','missing','other_book','other_owner'}) do
+    host,s=fixture();local record={book_id='456',_library_account_key='owner',cached_full_book='/tmp/standard.epub'}
+    host.settings.get_book=function(_,id) assert(id=='456');return record end
+    host.bookRecordHasDownload=function(_,saved) return saved and saved.cached_full_book~=nil end
+    host.readCachedCopy=function(_,saved,owner_view)
+        expect(saved==record and owner_view==s.view,'standard fallback lost the selected book or page')
+        s.standard_cached=true
+    end
+    host.isNetworkConnected=function() error('checking a standard copy queried the network') end
+    expect(UI.start(host,{book_id='456'},s.view,{cached=true,failed_copy=saved_entry}),'failed copy chooser did not start')
+    s.finish(1)
+    local dialog=host._native_direct_reading and host._native_direct_reading.confirm
+    expect(dialog and dialog.ok_text=='Read cached copy' and not s.standard_cached and not host.busy_message,
+        'missing E-Ink copy did not offer the standard download')
+    if mode=='cancel' then dialog.cancel_callback() end
+    if mode=='account' then account_valid=false end
+    if mode=='missing' then record.cached_full_book=nil end
+    if mode=='other_book' then record.book_id='789' end
+    if mode=='other_owner' then record._library_account_key='other' end
+    dialog.ok_callback();dialog.ok_callback()
+    expect((s.standard_cached==true)==(mode=='open') and not host._native_direct_reading and #s.jobs==1,
+        'standard cached fallback used a stale confirmation or started another worker')
+end
 cache.list=function() return {saved_entry,other_copy} end
 host,s=fixture();UI.start(host,{book_id='456'},s.view,{cached=true,anchor=other_copy});s.finish(1)
 expect(s.page==2 and marked(s.items[2]) and not marked(s.items[1]),

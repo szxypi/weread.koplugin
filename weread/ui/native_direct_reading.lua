@@ -290,27 +290,37 @@ function M.start(host,book,view,options)
         return standard_read and view_current() and connected(host)
             and require('weread.lib.shelf_source').web_access(host.settings)~=nil
     end
+    local function confirm_alternative(notice,question,label,available,open)
+        ctx.generation=(ctx.generation or 0)+1
+        close_busy()
+        local dialog
+        dialog=require('ui/widget/confirmbox'):new{
+            text=notice..'\n\n'..question,
+            ok_text=label,cancel_text=_('Cancel'),keep_dialog_open=true,
+            ok_callback=function()
+                if ctx.confirm~=dialog then return end
+                local choice=available()
+                M.cancel(host)
+                if choice and origin_current() then open(choice) end
+            end,
+            cancel_callback=function()
+                if ctx.confirm==dialog then ctx.confirm=nil;M.cancel(host) end
+            end,
+        }
+        show_confirmation(dialog)
+    end
+    local function cached_standard_copy()
+        if not failed_copy or not view_current() then return end
+        local record=require('weread.lib.read_access').load_cached_book(host.settings,id)
+        if record and (not record._library_account_key or record._library_account_key==ctx.account)
+            and host:bookRecordHasDownload(record) then return record end
+    end
     local function fail(message,close_catalog,try_standard)
         if host._native_direct_reading~=ctx then return end
         local notice=_(message or 'Could not prepare the E-Ink chapter. Please try again.')
         if try_standard and can_read_standard() then
-            ctx.generation=(ctx.generation or 0)+1
-            close_busy()
-            local dialog
-            dialog=require('ui/widget/confirmbox'):new{
-                text=notice..'\n\n'.._('Continue with standard reading?'),
-                ok_text=_('Use standard reading'),cancel_text=_('Cancel'),keep_dialog_open=true,
-                ok_callback=function()
-                    if ctx.confirm~=dialog then return end
-                    local allowed=can_read_standard()
-                    M.cancel(host)
-                    if allowed and origin_current() then standard_read() end
-                end,
-                cancel_callback=function()
-                    if ctx.confirm==dialog then ctx.confirm=nil;M.cancel(host) end
-                end,
-            }
-            show_confirmation(dialog)
+            confirm_alternative(notice,_('Continue with standard reading?'),_('Use standard reading'),
+                can_read_standard,standard_read)
             return
         end
         local live=view_current()
@@ -400,6 +410,12 @@ function M.start(host,book,view,options)
     end
     show_chapter_menu=function(rows,picker,saved_catalog,cloud_chapter)
         if #rows==0 then
+            if cached_standard_copy() then
+                confirm_alternative(_('The last E-Ink chapter is unavailable.'),
+                    _('Open the standard downloaded copy at its saved reading position?'),_('Read cached copy'),
+                    cached_standard_copy,function(record) host:readCachedCopy(record,view) end)
+                return
+            end
             fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.',
                 nil,offer_standard);return
         end
