@@ -260,6 +260,76 @@ assert(restored_results.kind=='search' and restored_results.cursor==previous_res
     'closing after returning left the related list as the last saved position')
 plugin.isNetworkConnected=function() return true end
 plugin:showBookstore()
+do
+    local store = plugin.discovery_state
+    local connected = plugin.isNetworkConnected
+    local db = plugin.library_db
+    local saved_books, saved_groups = db:getShelfSnapshot()
+    local saved_group_key, saved_multi_groups = plugin.shelf_group_key, plugin.shelf_multi_groups
+    local function open_related(book, online)
+        plugin.isNetworkConnected = function() return online end
+        plugin:showBookMenu(book)
+        press(plugin._book_detail_view, 'Similar books');flush_tasks()
+        assert(plugin.discovery_state.kind == 'similar' and not plugin._book_detail_view)
+    end
+
+    plugin:showHome();flush_tasks()
+    if plugin.shelf_view.page_count > 1 then plugin.shelf_view.on_page_changed(2);flush_tasks() end
+    local home_view = plugin.shelf_view
+    local home_page = home_view.page
+    local home_seed = assert(home_view:getVisibleBooks()[1])
+    for y, row in ipairs(home_view.layout) do
+        if row[1].book == home_seed then
+            home_view:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break
+        end
+    end
+    for _, online in ipairs({true,false}) do
+        open_related(home_seed, online)
+        plugin.shelf_view._header_buttons[1].callback();flush_tasks()
+        home_view = assert(plugin.shelf_view, 'return from related books closed the home page')
+        assert(home_view._discovery_tab == 'home' and home_view.page == home_page
+            and home_view:getFocusedBookId() == home_seed.bookId and plugin.discovery_state == store,
+            'return from related books lost the home page, focus, or independent bookstore results')
+    end
+
+    local prefs = plugin.settings:get('shelf')
+    local old_mode, old_paged, old_sort = prefs.view_mode, prefs.paginated, prefs.sort_order
+    prefs.view_mode, prefs.paginated, prefs.sort_order = 'list', false, 'default'
+    plugin.settings:set('shelf', prefs)
+    local group = {archiveId='71',name='合成返回组',bookIds={}}
+    for _, book in ipairs(saved_books) do group.bookIds[#group.bookIds + 1] = book.bookId end
+    assert(db:cacheShelf(saved_books,{group}))
+    plugin:applyShelfSnapshot(saved_books,{group})
+    plugin.shelf_group_key, plugin.shelf_multi_groups = 'archive:71', {}
+    plugin:showShelfView('books','合成读物')
+    local shelf = plugin.shelf_view
+    UIManager:forceRePaint()
+    shelf.scroll:_scrollBy(0, shelf._item_rows[1]:getSize().h + 5);UIManager:forceRePaint()
+    local shelf_seed = assert(shelf:getVisibleBooks()[1])
+    local offset = shelf:getScrollOffset().y
+    assert(offset > 0 and shelf_seed.bookId ~= shelf.books[1].bookId)
+    open_related(shelf_seed, true)
+    local new_book = {bookId='998800',title='合成读物 插入'}
+    local updated = {new_book}
+    for _, book in ipairs(saved_books) do updated[#updated + 1] = book end
+    table.insert(group.bookIds,1,new_book.bookId)
+    assert(db:cacheShelf(updated,{group}))
+    plugin.shelf_group_key = nil
+    plugin.isNetworkConnected = function() return false end
+    plugin.shelf_view._header_buttons[1].callback();flush_tasks()
+    shelf = assert(plugin.shelf_view)
+    assert(shelf.group_key == 'archive:71' and shelf.keyword == '合成读物' and not shelf.paged
+        and shelf.books[1].bookId == new_book.bookId and shelf:getVisibleBooks()[1].bookId == shelf_seed.bookId
+        and shelf:getScrollOffset().y > offset and plugin.discovery_state == store,
+        'return from related books lost the group, query, or visible anchor after a shelf update')
+    plugin:closeWeReadUI()
+    prefs.view_mode, prefs.paginated, prefs.sort_order = old_mode, old_paged, old_sort
+    plugin.settings:set('shelf',prefs)
+    plugin.shelf_group_key, plugin.shelf_multi_groups = saved_group_key, saved_multi_groups
+    assert(db:cacheShelf(saved_books,saved_groups));plugin:applyShelfSnapshot(saved_books,saved_groups)
+    plugin.isNetworkConnected = connected
+    plugin:showBookstore()
+end
 -- Public category browsing must also work without a configured login.
 plugin.requireLogin = function() error("public bookstore requested login") end
 press(plugin.shelf_view, "Browse books")

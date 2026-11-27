@@ -165,4 +165,24 @@ Navigation.show(plugin,continued,plugin.shelf_view)
 local separate={kind='recommend',account='a',cursor=0}
 Navigation.show(plugin,separate)
 expect(not Navigation.back(plugin,separate),'a different search retained the related-book history')
+
+do
+    local shown_home, shown_shelf
+    plugin.showHome=function(self) shown_home=self._home_browse_position end
+    plugin.showBookshelf=function(_,_,position) shown_shelf=position end
+    plugin.discovery_state=nil
+    plugin.shelf_view={_discovery_tab='home',_browse_account='a',page=2,page_size=6,
+        getFocusedBookId=function() return '900001' end}
+    local related={kind='similar',account='a',book_id='900002'}
+    Navigation.show(plugin,related,plugin.shelf_view)
+    expect(Navigation.back(plugin,related) and not plugin.discovery_state and shown_home.anchor==7
+        and shown_home.focus=='900001' and shown_home.book_id=='900002',
+        'home return required an existing bookstore query or lost its book')
+    local position={account='a',group_key='archive:7',group_keys={},keyword='Test',scroll_offset={y=480}}
+    plugin.discovery_state=separate
+    plugin.shelf_view={_shelf_return_position=function() return position end}
+    Navigation.show(plugin,related,plugin.shelf_view)
+    expect(Navigation.back(plugin,related) and plugin.discovery_state==separate and shown_shelf==position,
+        'shelf return lost its browsing position or the independent bookstore query')
+end
 print("discovery_similar_spec: " .. checks .. " checks")

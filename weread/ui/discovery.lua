@@ -267,10 +267,15 @@ function M:showHome(refresh_progress, refreshed_shelf)
     self:applyShelfSnapshot(cached or {}, archives,
         volatile ~= nil and volatile.books == cached and volatile.archives == archives)
     local preferences = self:homePreferences()
-    self:showDiscoveryPage("home", home_recent(self,account,preferences.recent_limit), {
+    local recent = home_recent(self,account,preferences.recent_limit)
+    local anchor = position and position.anchor
+    if position and position.book_id then
+        anchor = require('weread.ui.library_view').bookIndex(recent, position.book_id) or anchor
+    end
+    self:showDiscoveryPage("home", recent, {
         title = _("WeRead home"),
         home = preferences,
-        rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,
+        rotation_anchor=anchor,focus_book_id=position and position.focus,
         refresh_progress = refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
         actions = self:homeShortcuts(preferences),
@@ -352,7 +357,7 @@ function M:showSimilarBooks(book)
     if not id or tostring(id) == "" then return end
     local view = self.shelf_view
     local origin = self._book_detail_view and view and not view._shelf_closed
-        and self.discovery_state and view._bookstore_state == self.discovery_state and view or nil
+        and (view._bookstore_state or view._discovery_tab == 'home' or view._shelf_return_position) and view or nil
     self:loadDiscoveryBatch("similar", nil, 0, false, false, {
         book_id = tostring(id), book_title = book.title or tostring(id),
         return_view = origin,

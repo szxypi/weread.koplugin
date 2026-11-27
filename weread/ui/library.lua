@@ -156,19 +156,23 @@ local function list_items_per_page()
     return math.max(4, perpage)
 end
 
-function M:showBookshelf(restore_browse_position)
+function M:showBookshelf(restore_browse_position, return_position)
     if self._profile_view then self:closeWeReadUI() end
+    local position = return_position or restore_browse_position == true and self._shelf_browse_position
+    if position and position.account ~= group_owner(self) then
+        self._shelf_browse_position, self.shelf_view_pages = nil, nil
+        position, return_position = nil, nil
+    end
+    if return_position then
+        load_group_selection(self)
+        self.shelf_group_key, self.shelf_multi_groups = position.group_key, position.group_keys
+    end
     local volatile = VolatileShelf.get(self)
     local cached, archives
     if volatile then cached, archives = volatile.books, volatile.archives
     elseif self.library_db then cached, archives = self.library_db:getShelfSnapshot() end
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil)
-        local position = restore_browse_position == true and self._shelf_browse_position
-        if position and position.account ~= group_owner(self) then
-            self._shelf_browse_position, self.shelf_view_pages = nil, nil
-            position = nil
-        end
         if position then
             self:showShelfView(position.mode, position.keyword, nil, { browse_position = position })
         else
@@ -196,6 +200,10 @@ function M:showBookshelf(restore_browse_position)
             self.settings:set("shelf", shelf)
             self.settings:flush()
         end
+        return
+    end
+    if return_position then
+        self:showShelfView(position.mode, position.keyword, nil, { browse_position = position })
         return
     end
     self:refreshBookshelf()
@@ -1032,12 +1040,17 @@ function M:showShelfView(mode, keyword, old_view, options)
             return snapshots, times
         end
     end
+    local function browse_position()
+        if not recent_account then return end
+        local browse = view:getBrowsePosition()
+        browse.account, browse.mode, browse.keyword = recent_account, mode, keyword
+        browse.group_key = view.group_key
+        browse.group_keys = ShelfGroups.normalize(view.group_keys) or {}
+        return browse
+    end
     if navigation then
         navigation = self:discoveryNavigation("shelf", current, function()
-            if not recent_account then return end
-            local browse = view:getBrowsePosition()
-            browse.account, browse.mode, browse.keyword = recent_account, mode, keyword
-            self._shelf_browse_position = browse
+            self._shelf_browse_position = browse_position()
         end)
     end
     view = LibraryView.show({
@@ -1219,6 +1232,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    if navigation then view._shelf_return_position = browse_position end
     view._rotation_redraw=function()
         if not current() or self._book_detail_view then return end
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
