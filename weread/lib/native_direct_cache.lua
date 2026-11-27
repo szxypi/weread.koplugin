@@ -351,11 +351,14 @@ function M.list(settings,account,book_id,current)
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return {} end
     local ok,result=pcall(function()
+        if type(current)~='function' or current()~=true then return nil end
         local rows,count={},0
         for name in lfs.dir(book_dir) do
             if name~='.' and name~='..' and name~=OPERATION then
                 count=count+1;if count>M.MAX_ENTRIES then return nil end
-                if type(current)~='function' or current()~=true then return nil end
+                -- Metadata reads are local; recheck the live grant in bounded
+                -- groups and before delivering any rows to the caller.
+                if count%32==0 and current()~=true then return nil end
                 local key,suffix=name:match('^([a-f0-9]+)%-(%d+)$')
                 if not key then key=name;suffix='0' end
                 local copy=tonumber(suffix)
@@ -378,13 +381,15 @@ function M.list(settings,account,book_id,current)
             if a.key~=b.key then return a.key<b.key end
             return a.copy<b.copy
         end)
-        return rows
-    end)
-    if ok and result and not M.present(settings,account,book_id) then
-        for _,entry in ipairs(result) do
-            if candidate_present(lfs,book_dir,entry) then save_presence(settings,account,book_id,entry,current);break end
+        if not M.present(settings,account,book_id) then
+            if current()~=true then return nil end
+            for index,entry in ipairs(rows) do
+                if index%32==0 and current()~=true then return nil end
+                if candidate_present(lfs,book_dir,entry) then save_presence(settings,account,book_id,entry,current);break end
+            end
         end
-    end
+        return current()==true and rows or nil
+    end)
     return ok and result or nil
 end
 

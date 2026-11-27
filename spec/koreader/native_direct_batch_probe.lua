@@ -366,6 +366,22 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
             end)
             assert(cancelled==nil and checked==expired_at,'capacity scan accepted a changed account')
         end
+        calls=0
+        local listed=assert(cache.list(settings,scope.vid,'42',counted))
+        assert(#listed==#rows,'metadata scan included non-chapter entries')
+        for index,entry in ipairs(listed) do
+            local expected=rows[index]
+            assert(entry.key==expected.key and entry.copy==expected.copy
+                and entry.catalog_sha256==expected.catalog_sha256,'metadata scan changed chapter order or catalog')
+        end
+        assert(calls==2+math.floor((cache.MAX_ENTRIES-room)/32),'metadata scan repeated authorization checks')
+        for _,expired_at in ipairs({1,3,calls}) do
+            local checked=0
+            local cancelled=cache.list(settings,scope.vid,'42',function()
+                checked=checked+1;return checked<expired_at
+            end)
+            assert(cancelled==nil and checked==expired_at,'metadata scan returned rows for a changed account')
+        end
         for _,path in ipairs(fake_entries) do assert(lfs.rmdir(path)) end
     end
     cache.MAX_ENTRIES=3
@@ -374,7 +390,9 @@ if input.mode=='offline' or input.mode=='offline_locked' or input.mode=='offline
         local path=cache_dir..'/synthetic-damaged-'..index
         assert(lfs.mkdir(path));added[#added+1]=path
         local remaining=cache.remaining(settings,scope.vid,'42',function() return true end)
-        if index==4-#rows then assert(remaining==nil,'overfull cache accepted')
+        if index==4-#rows then
+            assert(remaining==nil,'overfull cache accepted')
+            assert(cache.list(settings,scope.vid,'42',function() return true end)==nil,'overfull metadata list accepted')
         else assert(remaining==3-#rows-index,'incorrect cache capacity') end
     end
     for _,path in ipairs(added) do assert(lfs.rmdir(path)) end
