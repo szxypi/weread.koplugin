@@ -146,7 +146,8 @@ function M:showOffline(label)
 end
 
 function M:runOnlineTask(label, callback, delay, options)
-    if not self:isNetworkOnline() then
+    local check = options and options.link_only and self.isNetworkLinkAvailable or self.isNetworkOnline
+    if not check(self) then
         if not (options and options.silent_offline) then
             self:showOffline(label)
         end

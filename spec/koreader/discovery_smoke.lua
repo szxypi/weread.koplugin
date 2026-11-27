@@ -159,7 +159,9 @@ local store_button
 for _,button in ipairs(plugin.shelf_view._navigation_buttons) do
     if button.text==require('weread.lib.plugin_util').tr('Bookstore') then store_button=button end
 end
-assert(store_button);store_button.callback();flush_tasks()
+assert(store_button)
+plugin.isNetworkOnline=function() error('public chart performed a synchronous Internet check') end
+store_button.callback();flush_tasks()
 assert(plugin.discovery_state and plugin.discovery_state.kind=='category'
     and plugin.discovery_state.category_id=='rising' and plugin.discovery_state.rank
     and plugin.discovery_state.category_title==require('weread.lib.plugin_util').tr('Rising · Published')
@@ -192,6 +194,8 @@ assert(store_cell._store_details[1].text:find('8.6',1,true)
     and store_cell._store_details[2].text=='合成推荐理由','offline store lost its cover details')
 plugin:closeWeReadUI();plugin.discovery_state=nil
 plugin.settings:set('account',initial_account);plugin.settings:flush()
+plugin.isNetworkOnline=function() return true end
+plugin.isNetworkConnected=function() return true end
 plugin.requireLogin=require_login
 plugin:showBookMenu(response.books[1])
 UIManager:forceRePaint()
@@ -250,6 +254,25 @@ flush_tasks()
 assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_state.rank
     and #plugin.discovery_state.books == 15 and #plugin.discovery_state.history == 0)
 paint("store-subcategory-books")
+do
+    local body=plugin.client:json_encode{match='/web/bookListInCategory/rising',times=1,status=503,delay=0.3}
+    local endpoint=plugin.settings.mock_endpoint
+    local ltn12=require('ltn12')
+    local _,code=require('socket.http').request{url=endpoint..'/__control',proxy=endpoint,method='POST',
+        source=ltn12.source.string(body),sink=ltn12.sink.null(),headers={['content-type']='application/json',['content-length']=#body}}
+    assert(code==200)
+    local online=plugin.isNetworkOnline
+    plugin.isNetworkOnline=function() error('bookstore request performed a synchronous Internet check') end
+    plugin:loadDiscoveryBatch('category',nil,0,false,false,{category_id='rising',category_title='Rising',rank=true})
+    assert(plugin.discovery_state.category_id=='100001' and plugin.discovery_loading,
+        'request replaced the current list before the background response')
+    flush_tasks()
+    plugin.isNetworkOnline=online
+    assert(plugin.discovery_state.cached and plugin.discovery_state.category_id=='rising' and plugin.discovery_state.cursor==0
+        and #plugin.discovery_state.books==20 and not plugin.discovery_state.session_id,
+        'failed category request did not open its own saved batch')
+    paint('store-rankings-cached-after-failure')
+end
 dofile(debug.getinfo(1,"S").source:match("^@(.*/)").."category_catalog_smoke.lua")(plugin,evidence)
 -- Search through native widgets and the public read-only endpoint.
 plugin:showBookstore()

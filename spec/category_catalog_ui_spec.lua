@@ -10,8 +10,12 @@ local function fixture()
     local state={account=nil,jobs={},notices={},writes=0,cancels=0,online=true}
     local host={settings={},client={get_store_categories=function() return source end},
         library_db={accountKey=function() return state.account end},
-        isNetworkOnline=function() return state.online end,
-        runOnlineTask=function(_self,_label,callback) state.scheduled=callback;return not state.offline_schedule end,
+        isNetworkConnected=function() return state.online end,
+        isNetworkOnline=function() error('category directory requested DNS on the UI thread') end,
+        runOnlineTask=function(_self,_label,callback,_delay,options)
+            assert(options.link_only and options.silent_offline)
+            state.scheduled=callback;return not state.offline_schedule
+        end,
         showBusy=function(self,_label,cancel) self.busy_message={};state.dismiss=cancel end,
         closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_self,text) state.notices[#state.notices+1]=text end,
@@ -72,6 +76,9 @@ host,state=fixture();state.online=false
 expect(not UI.open(host) and not state.shown and #state.notices==1,'guest offline state launched or invented categories')
 host,state=fixture();state.offline_schedule=true
 expect(not UI.open(host) and not host.discovery_loading and not host.busy_message,'failed schedule retained loading state')
+state.saved=Catalog.project(source)
+expect(not UI.open(host,true) and state.shown and #state.jobs==0 and not host.busy_message,
+    'link loss before scheduling did not restore saved categories')
 host,state=fixture();UI.open(host);state.scheduled();host.discovery_request_context={};UI.cancel(host)
 expect(host.discovery_loading,'category cancellation cleared another bookstore request lock')
 print('PASS: public category UI ('..checks..' checks)')

@@ -33,6 +33,8 @@ return function(plugin,evidence)
         if widget and widget~=plugin._discovery_menu and widget~=plugin.shelf_view then UIManager:close(widget) end
     end
     plugin:closeWeReadUI()
+    local online,connected=plugin.isNetworkOnline,plugin.isNetworkConnected
+    plugin.isNetworkOnline=function() error('category directory performed a synchronous Internet check') end
     local native_request=client.request
     client.request=function(self,options)
         if options.url=='https://weread.qq.com/web/categories?rank=1&synckey=0' then
@@ -59,7 +61,7 @@ return function(plugin,evidence)
     -- it too. No personal library/account database is opened for this cache.
     plugin:closeWeReadUI();plugin.discovery_categories=nil
     local account=settings:get('account');settings:set('account',{});settings:flush()
-    plugin.isNetworkOnline=function() return false end
+    plugin.isNetworkConnected=function() return false end
     plugin.category_catalog_store=Catalog:new(Settings:new(),client)
     assert(plugin:showDiscoveryCategories() and plugin._discovery_menu and count()==before+1,'guest offline reopen fetched HTTP or lost cache')
     local stale=plugin._discovery_menu
@@ -81,7 +83,7 @@ return function(plugin,evidence)
     close_notice();plugin.discovery_categories.loaded_at=os.time()+3600
     assert(plugin:showDiscoveryCategories() and plugin._discovery_menu.title:find(require('weread.lib.plugin_util').tr('Cached'),1,true),
         'clock rollback discarded public labels or marked them fresh')
-    close_notice();plugin.isNetworkOnline=function() return true end
+    close_notice();plugin.isNetworkOnline,plugin.isNetworkConnected=online,connected
     plugin:closeWeReadUI()
     control{match='/web/categories',times=1,status=429,delay=0}
     assert(plugin:showDiscoveryCategories(true));pump(function() return not plugin.category_catalog_request end)

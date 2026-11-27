@@ -22,9 +22,13 @@ package.preload['weread.lib.discovery_source']=function() return {
 local Request=require('weread.ui.discovery_request')
 local task,callback,message,rendered,started=nil,nil,nil,0,0
 local host={library_db={accountKey=function() return account end},settings={},client={},
-    isNetworkOnline=function() return not offline end,
+    isNetworkConnected=function() return not offline end,
+    isNetworkOnline=function() error('bookstore requested DNS on the UI thread') end,
     showBookstore=function() rendered=rendered+1 end,showInfo=function(_self,text) message=text end,
-    runOnlineTask=function(_self,_label,fn) started=started+1;fn();return true end,
+    runOnlineTask=function(_self,_label,fn,_delay,options)
+        assert(options.link_only and options.silent_offline)
+        started=started+1;fn();return true
+    end,
     discovery_worker={start=function(_self,fn,done) task=fn;callback=done;return true end,cancel=function() end}}
 host._book_detail_view={}
 Request.load(host,'search','三体',0)
@@ -55,6 +59,19 @@ expect(host.discovery_state==live and captures==4,'failed refresh discarded curr
 host.discovery_state=nil
 Request.load(host,'search','三体',0);callback({ok=false})
 expect(host.discovery_state.cached and captures==5 and message:find('Cached books',1,true),'initial failure did not open matching saved batch')
+local earlier_query=host.discovery_state
+Request.load(host,'search','新词',0);callback({ok=false})
+expect(host.discovery_state~=earlier_query and host.discovery_state.cached and read_query.keyword=='新词' and read_cursor==0,
+    'failed new search did not restore its own saved results')
+local cached=host.discovery_state
+available=false
+Request.load(host,'search','无缓存',0);callback({ok=false})
+expect(host.discovery_state==cached,'missing cache replaced the visible query on network failure')
+available=true
+host.runOnlineTask=function() return false end
+Request.load(host,'search','断网',0)
+expect(not host.discovery_loading and host.discovery_state.cached and read_query.keyword=='断网',
+    'link loss before background scheduling did not reopen the saved search')
 local old={account='other'};local before=captures
 Request.load(host,'recommend',nil,0,false,false,old)
 expect(captures==before,'stale cached widget started request')

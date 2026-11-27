@@ -364,7 +364,7 @@ function M:openBookstore()
     UIManager:nextTick(function()
         if not current or not current() or self.shelf_view ~= owner or self.discovery_state
             or self.discovery_loading or owner._shelf_popup or self.category_catalog_request
-            or self.isNetworkConnected and not self:isNetworkConnected() then return end
+            or not require('weread.lib.network_link').available(self) then return end
         self:loadDiscoveryBatch("category", nil, 0, false, false, initialChart())
     end)
 end

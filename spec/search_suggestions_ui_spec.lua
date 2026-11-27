@@ -27,7 +27,8 @@ local worker={start=function(self,task,callback) self.task=task;self.callback=ca
     cancel=function() cancelled=cancelled+1 end}
 local host={shelf_view=owner,discovery_epoch=0,library_db={accountKey=function() return account end},
     settings={get=function() return {source='auto'} end},client={},search_suggestions_worker=worker,
-    isNetworkOnline=function() return online end,showOffline=function() info='offline' end,
+    isNetworkConnected=function() return online end,showOffline=function() info='offline' end,
+    isNetworkOnline=function() error('suggestions checked Internet on the UI thread') end,
     showBusy=function(self,_message,cancel) self.busy_message={cancel=cancel} end,
     closeBusy=function(self) self.busy_message=nil end,showInfo=function(_self,text) info=text end,
     showList=function(_self,title,rows) menu={title=title,item_table=rows};return menu end,

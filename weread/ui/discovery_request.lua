@@ -2,9 +2,17 @@
 local Source=require("weread.lib.discovery_source")
 local Recovery=require("weread.lib.native_read_recovery")
 local Cache=require("weread.ui.discovery_cache")
+local NetworkLink=require("weread.lib.network_link")
 local UIManager=require("ui/uimanager")
 local _=require("weread.lib.plugin_util").tr
 local M={}
+
+local function is_visible_batch(state,query,cursor)
+    return state and state.cursor==cursor and state.kind==query.kind
+        and state.keyword==query.keyword and state.book_id==query.book_id
+        and state.category_id==query.category_id and state.rank==query.rank
+        and (not query.public_only or state.source_kind=='public')
+end
 
 function M.cancel(host)
     local context=host.discovery_request_context
@@ -24,10 +32,11 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     local public_search=kind=='search' and (context.public_search==true or context.source_kind=='public')
     local query={kind=kind,keyword=keyword,book_id=context.book_id,book_title=context.book_title,
         category_id=context.category_id,category_title=context.category_title,rank=context.rank,public_only=public_search}
-    if context.cached and not refresh or host.isNetworkOnline and not host:isNetworkOnline() then
+    local function offline()
         if Cache.open(host,query,cursor) then return true end
         host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
     end
+    if context.cached and not refresh or not NetworkLink.available(host) then return offline() end
     local selected,reason
     if kind~="category" and not public_search then
         selected,reason=Source.capture(host.settings)
@@ -108,8 +117,14 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host.discovery_request_context=nil;host.discovery_loading=nil
         if operation.busy and host.busy_message==operation.busy then host:closeBusy() end
         if type(value)~="table" or value.ok~=true or type(value.page)~="table" then
-            if not source_state then Cache.open(host,query,cursor) end
-            host:showInfo(_("Bookstore request failed. Cached books are still available."));return
+            local message=_("Bookstore request failed. Cached books are still available.")
+            if not is_visible_batch(source_state,query,cursor) and Cache.open(host,query,cursor)
+                and host.showTransientInfo then
+                host:showTransientInfo(message,3)
+            else
+                host:showInfo(message)
+            end
+            return
         end
         local result=value.page
         if kind=="similar" then
@@ -161,8 +176,11 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
             if not ok or not running then complete(nil) end
         end
         launch(false)
-    end)
-    if started==false and host.discovery_request_context==operation then M.cancel(host) end
+    end,nil,{link_only=true,silent_offline=true})
+    if started==false and host.discovery_request_context==operation then
+        M.cancel(host)
+        return offline()
+    end
 end
 
 return M

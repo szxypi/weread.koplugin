@@ -2,6 +2,7 @@
 local Model=require('weread.lib.search_suggestions')
 local Access=require('weread.lib.native_gateway_access')
 local Recovery=require('weread.lib.native_read_recovery')
+local NetworkLink=require('weread.lib.network_link')
 local Popup=require('weread.ui.shelf_popup')
 local Scope=require('weread.ui.page_scope')
 local UI=require('ui/uimanager')
@@ -22,7 +23,7 @@ function M.open(host,input)
     if not owner or owner._shelf_closed or not input or not Popup.current(owner,input) then return false end
     local keyword=Model.keyword(input:getInputText())
     if not keyword then host:showInfo(_('Enter a search term first.'));return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Search suggestions'));return false end
+    if not NetworkLink.available(host) then host:showOffline(_('Search suggestions'));return false end
     local selected=Access.capture(host.settings)
     if not selected or not selected.native then
         host:showInfo(_('Search suggestions need E-Ink authorization.'));return false

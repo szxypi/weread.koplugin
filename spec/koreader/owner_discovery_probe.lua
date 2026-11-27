@@ -135,7 +135,8 @@ local ok,reason=pcall(function()
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home..'/books');local browser=assert(FM.instance)
     plugin=assert(browser.weread);assert(plugin.ui==browser and not browser.document)
     report.native_filemanager_host=true
-    plugin.isNetworkOnline,plugin.isNetworkConnected=function() return mode=='live' end,function() return mode=='live' end
+    plugin.isNetworkConnected=function() return mode=='live' end
+    plugin.isNetworkOnline=function() error('bookstore used a synchronous Internet check') end
     assert(Credentials:new(plugin.settings):read().vid==grant.vid)
     local UI=require('ui/uimanager');local socket=require('socket')
     local function same(a,b)

@@ -82,6 +82,18 @@ eq(host:runOnlineTask("manual", function() end), false,
     "regular offline task does not start")
 eq(offline_notices, 1, "regular offline task still shows a notice")
 
+network.isOnline=function() error('link-only scheduling called the DNS probe') end
+network.isConnected=function() return true end
+local ran_link_job=false
+eq(host:runOnlineTask('background read',function() ran_link_job=true end,nil,{link_only=true}),true,
+    'connected background read was not scheduled')
+eq(ran_link_job,true,'scheduled link-only task did not run')
+network.isConnected=function() return false end
+eq(host:runOnlineTask('background read',function() error('offline task ran') end,nil,
+    {link_only=true,silent_offline=true}),false,'disconnected background read was scheduled')
+eq(offline_notices,1,'offline fallback must own the notice')
+network.isConnected=nil;network.isOnline=prior_online
+
 local notices,qr_starts,login_continuation=0,0,nil
 local cookie,key,valid=true,false,true
 local scope={vid="900000",epoch=1}

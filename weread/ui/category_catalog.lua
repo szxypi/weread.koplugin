@@ -1,5 +1,6 @@
 -- Public category requests share the bookstore lifecycle, not its auth flow.
 local Catalog=require('weread.lib.category_catalog')
+local NetworkLink=require('weread.lib.network_link')
 local UIManager=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -28,13 +29,14 @@ function M.open(host,refresh)
     if host.discovery_loading then return false end
     local previous=cached(host)
     if previous and not refresh then host:showDiscoveryCategoryPicker(previous);return true end
-    if host.isNetworkOnline and not host:isNetworkOnline() then
+    local function offline()
         if previous then
             host:showDiscoveryCategoryPicker(previous)
             host:showTransientInfo(_('Offline. Showing saved rankings and categories.'),3)
         else host:showInfo(_('No saved categories. Connect to Wi-Fi to load them.')) end
         return false
     end
+    if not NetworkLink.available(host) then return offline() end
     local job={account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,session=host._reader_session_gen,started=os.time()}
     host.category_catalog_request=job;host.discovery_loading=true
     local function current()
@@ -79,9 +81,9 @@ function M.open(host,refresh)
             return {ok=true,catalog=catalog}
         end,complete)
         if not launched or not running then complete(nil) end
-    end)
+    end,nil,{link_only=true,silent_offline=true})
     if not ok then complete(nil)
-    elseif started==false and host.category_catalog_request==job then M.cancel(host) end
+    elseif started==false and host.category_catalog_request==job then M.cancel(host);return offline() end
     return ok and started~=false
 end
 return M
