@@ -8,6 +8,7 @@ local Dom=require('weread.lib.source_dom')
 local Task=require('weread.lib.personal_mark_task')
 local Contract=require('weread.lib.mark_edit_contract')
 local Overlay=require('weread.ui.xpointer_overlay')
+local Chapters=require('weread.lib.personal_mark_chapters')
 local M={KEY='weread_personal_marks',BOOKMARK_KEY='weread_cloud_bookmarks'}
 local NETWORK_RECHECK_SECONDS=30
 local function current(host,s)
@@ -213,16 +214,16 @@ function M.update(host)
     cancel_work(s);s.metadata=m.metadata;s.complete=false;clear(host,s)
     if not s.snapshot and not s.thought_snapshot then return end
     local uid=m.chapter_uid;local rows,ranges,styles,thoughts={},{},{},{}
-    for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
-        if (row.type==1 or row.type==0) and tostring(row.chapterUid)==uid then
+    for _i,row in ipairs(Chapters.rows(s,'snapshot',uid)) do
+        if row.type==1 or row.type==0 then
             rows[#rows+1]=row;ranges[row.bookmarkId]=row.range
             styles[row.bookmarkId]=(row.style==1 or row.style==2) and row.style or 0
         end
     end
     -- Prefix with a control byte: validated bookmark IDs cannot contain one,
     -- so a thought and a mark can never alias in worker results.
-    if s.direct then for _i,row in ipairs(s.thought_snapshot and s.thought_snapshot.reviews or {}) do
-        if tostring(row.chapterUid)==uid and require('weread.lib.my_thought_target').can_locate(row) then
+    if s.direct then for _i,row in ipairs(Chapters.rows(s,'thought_snapshot',uid)) do
+        if require('weread.lib.my_thought_target').can_locate(row) then
             local key='\1'..row.reviewId
             rows[#rows+1]={bookmarkId=key,type=1,chapterUid=row.chapterUid,markText=row.abstract,range=row.range}
             ranges[key]=row.range;styles[key]=3;thoughts[key]=row.reviewId
@@ -260,7 +261,8 @@ load=function(host,s,online)
             local entry=type(result)=='table' and result.entry
             if not entry or not require('weread.lib.native_direct_cache').valid_entry(entry,s.book,s.scope.vid)
                 or entry.file_id~=s.identity.file_id or entry.book_version~=s.identity.book_version then
-                s.loaded=false;s.entry=nil;s.snapshot=nil;s.thought_snapshot=nil;clear(host,s);return
+                s.loaded=false;s.entry=nil;s.snapshot=nil;s.thought_snapshot=nil
+                s._mark_chapters=nil;s._thought_chapters=nil;clear(host,s);return
             end
             s.entry=entry
         end
@@ -274,7 +276,7 @@ load=function(host,s,online)
             local ok;ok,value=pcall(Marks.validate,host.client,type(result)=='table' and result.snapshot,s.book)
             if not ok then value=nil end
         end
-        s.snapshot=value
+        s.snapshot=value;s._mark_chapters=nil
         if s.direct then
             -- Fetch separately so two independently bounded note sets cannot
             -- overflow the worker pipe when both contain many entries. Bind
@@ -299,7 +301,7 @@ load=function(host,s,online)
                     valid,thoughts=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,
                         type(result_thoughts)=='table' and result_thoughts.snapshot,s.book)
                 end
-                if valid then s.thought_snapshot=thoughts end
+                if valid then s.thought_snapshot=thoughts;s._thought_chapters=nil end
                 s.metadata=nil;M.update(host)
             end)
             if started_thoughts then return end
@@ -367,13 +369,13 @@ function M.changed(host,snapshot)
     local s=host._personal_marks
     if not s or not current(host,s) or type(snapshot)~='table' or snapshot.book_id~=s.book then return end
     local ok,value=pcall(Marks.validate,host.client,snapshot,s.book);if not ok then return end
-    cancel_work(s);s.loading=false;s.loaded=true;s.snapshot=value;s.metadata=nil;s.editing=false;s.complete=false;clear(host,s);M.update(host)
+    cancel_work(s);s.loading=false;s.loaded=true;s.snapshot=value;s._mark_chapters=nil;s.metadata=nil;s.editing=false;s.complete=false;clear(host,s);M.update(host)
 end
 function M.thoughts_changed(host,snapshot)
     local s=host._personal_marks
     if not s or not s.direct or not current(host,s) or type(snapshot)~='table' or snapshot.book_id~=s.book then return end
     local ok,value=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,snapshot,s.book);if not ok then return end
-    cancel_work(s);s.loading=false;s.thought_snapshot=value;s.metadata=nil;s.complete=false;clear(host,s);M.update(host)
+    cancel_work(s);s.loading=false;s.thought_snapshot=value;s._thought_chapters=nil;s.metadata=nil;s.complete=false;clear(host,s);M.update(host)
 end
 function M.resume(host)
     local s=host._personal_marks;if not s or not s.editing then return end
@@ -404,12 +406,12 @@ function M.available(host)
     if #s.records>0 or #s.bookmarks>0 then return true end
     if s.complete then return false end
     local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then return false end
-    for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
-        if tostring(row.chapterUid)==m.chapter_uid and (require('weread.lib.my_mark_target').can_locate(row)
-            or require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book) or m.record.format=='web_txt')) then return true end
+    for _i,row in ipairs(Chapters.rows(s,'snapshot',m.chapter_uid)) do
+        if require('weread.lib.my_mark_target').can_locate(row)
+            or require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book) or m.record.format=='web_txt') then return true end
     end
-    if s.direct then for _i,row in ipairs(s.thought_snapshot and s.thought_snapshot.reviews or {}) do
-        if tostring(row.chapterUid)==m.chapter_uid and require('weread.lib.my_thought_target').can_locate(row) then return true end
+    if s.direct then for _i,row in ipairs(Chapters.rows(s,'thought_snapshot',m.chapter_uid)) do
+        if require('weread.lib.my_thought_target').can_locate(row) then return true end
     end end
     return false
 end
