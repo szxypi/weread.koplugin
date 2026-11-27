@@ -35,7 +35,7 @@ local host={settings=settings,client=client,discovery_epoch=1,_reader_session_ge
     isNetworkConnected=function() return online end,
     showBusy=Common.showBusy,closeBusy=Common.closeBusy,refreshUI=function() end,
     showInfo=function(self,message) self.message=message end,showOffline=function() error('unexpected offline') end,
-    showList=Common.showList,showBookMenu=require('weread.ui.library').showBookMenu,
+    showList=Common.showList,showInputDialog=Common.showInputDialog,showBookMenu=require('weread.ui.library').showBookMenu,
     getFullBookCachePath=function() return home..'/missing.epub' end,bookRecordHasDownload=function() return false end,
     safeCallback=function(_,_,callback) return callback end,
     openFile=function(self,path) self.opened=path;self.ui.document={file=path};self._reader_session_gen=self._reader_session_gen+1 end,
@@ -132,6 +132,29 @@ else
         assert(not host.message and not ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
             and not menu.item_table[1].text:find(prefix,1,true) and host.opened==second,
             'online reader did not open the catalog at its current chapter')
+        menu:onLeftButtonTap()
+        local search=assert(menu._shelf_popup)
+        search:setInputText(tr('Untitled chapter'))
+        search.buttons[1][2].callback()
+        menu:onGotoPage(2)
+        local filtered=menu.item_table
+        local item=assert(filtered[2])
+        local Reader=require('weread.lib.native_direct_reader')
+        local build=Reader.build
+        Reader.build=function() return nil,'rate_limited' end
+        menu:onMenuSelect(item)
+        assert(ctx.menu==menu and host._native_direct_worker.job and host.busy_message)
+        host.busy_message:onTapClose()
+        assert(ctx.menu==menu and menu.item_table==filtered and menu.page==2 and not host._native_direct_worker.job
+            and UI:getTopmostVisibleWidget()==menu and host.opened==second,
+            'cancelling preparation did not keep the online search and its page')
+        menu:onMenuSelect(item)
+        wait(function() return host.message or not host.busy_message end)
+        assert(host.message==tr('WeRead is limiting requests. Please try again later.') and ctx.menu==menu
+            and menu.item_table==filtered and menu.page==2 and UI:getTopmostVisibleWidget()==menu and host.opened==second,
+            'failed preparation did not keep the online search and its page')
+        Reader.build=build
+        host.message=nil
         menu:onClose()
         assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
             and UI:getTopmostVisibleWidget()==base and host.ui.document.file==second,

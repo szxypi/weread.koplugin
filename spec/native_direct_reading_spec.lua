@@ -152,7 +152,28 @@ expect(not s.page and not marked(s.items[2]),'a different catalog version inheri
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);local stale=s.jobs[2].task();account_valid=false;s.jobs[2].callback(stale)
 expect(s.opened==0 and host._native_direct_reading==nil,'stale account opened chapter')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1);s.select(1);build_error='catalog_changed';s.finish(2)
-expect(s.opened==0 and s.message=='The chapter list changed. Please open it again.','catalog change not reported')
+expect(s.opened==0 and not host._native_direct_reading and s.message=='The chapter list changed. Please open it again.',
+    'older catalog stayed active after detecting a change')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+menu=host._native_direct_reading.menu
+menu:onLeftButtonTap();s.input.input='First';s.input.buttons[1][2].callback()
+local online_filtered=s.items
+s.select(1)
+local cancel_prepare=s.cancel
+local stopped=s.jobs[2];local stopped_result=stopped.task()
+s.select(1)
+expect(#s.jobs==2 and host._native_direct_reading.menu==menu,'preparation hid the filtered catalog or ran twice')
+cancel_prepare()
+expect(host._native_direct_reading.menu==menu and s.items==online_filtered and not host.busy_message and s.cancelled,
+    'cancelling an online chapter lost the filtered catalog')
+s.select(1);cancel_prepare();stopped.callback(stopped_result)
+expect(#s.jobs==3 and s.opened==0 and host.busy_message,'late cancellation or result affected the retry')
+build_error='rate_limited';s.finish(3)
+expect(host._native_direct_reading.menu==menu and s.items==online_filtered and not host.busy_message
+    and s.message=='WeRead is limiting requests. Please try again later.',
+    'a temporary chapter failure lost the filtered catalog')
+build_error=nil;s.select(1);s.finish(4)
+expect(s.opened==1 and not host._native_direct_reading and not host.busy_message,'the selected chapter did not open after retry')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);catalog_error='native_auth/native_catalog_info/http_401';s.finish(1)
 expect(#s.jobs==2 and renewal_count==1,'catalog 401 not renewed once')
 catalog_error=nil;s.finish(2);expect(s.items~=nil,'renewal did not reload catalog')

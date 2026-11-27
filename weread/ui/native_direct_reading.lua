@@ -137,16 +137,19 @@ function M.start(host,book,view,options)
         if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
         ctx.busy=nil
     end
-    local function finish_saved_check()
+    local function stop_chapter_open()
         ctx.generation=ctx.generation+1
         ctx.entry=nil
+        ctx.chapter=nil
+        ctx.recovery_attempted=nil
         host._native_direct_worker:cancel()
         close_busy()
     end
-    local function fail(message)
+    local function fail(message,close_catalog)
         if host._native_direct_reading~=ctx then return end
         local live=view_current()
-        if live and ctx.entry and ctx.menu then finish_saved_check() else M.cancel(host) end
+        if live and not close_catalog and ctx.menu and ctx.busy and current() then stop_chapter_open()
+        else M.cancel(host) end
         if live then host:showInfo(_(message or 'Could not prepare the E-Ink chapter. Please try again.')) end
     end
     if not host._native_direct_worker then
@@ -161,11 +164,11 @@ function M.start(host,book,view,options)
             stale=function() if host._native_direct_reading==ctx then M.cancel(host) end end,
             complete=function(ok,fresh)
                 ctx.selected=fresh
-                if not ok then fail('E-Ink authorization expired. Please authorize again.');return end
+                if not ok then fail('E-Ink authorization expired. Please authorize again.',true);return end
                 current=Access.guard(host.settings,view_current,fresh.native)
                 launch()
             end})
-        if not started then fail('E-Ink authorization expired. Please authorize again.') end
+        if not started then fail('E-Ink authorization expired. Please authorize again.',true) end
     end
     local function show_chapter_menu(rows,picker)
         if #rows==0 then fail('No usable saved E-Ink chapters for this book and account. Existing files are kept.');return end
@@ -202,21 +205,22 @@ function M.start(host,book,view,options)
         menu=host:showList(menu_title,items(),nil,
             {subtitle=subtitle,left_icon='appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
-                if ctx.menu~=menu or not index or by_index[index]~=item or not item.select_enabled then return end
+                if ctx.menu~=menu or ctx.busy or not index or by_index[index]~=item or not item.select_enabled then return end
                 if not current() then M.cancel(host);return end
-                if ctx.entry then return end
+                if picker then
+                    ctx.menu=nil;UIManager:close(menu)
+                    picker.choose(index);return
+                end
                 local busy
                 local function cancel_open()
                     if host._native_direct_reading~=ctx or ctx.busy~=busy then return end
-                    if ctx.entry and ctx.menu==menu and current() then finish_saved_check()
+                    if ctx.menu==menu and not ctx.renewing and current() then stop_chapter_open()
                     else M.cancel(host) end
                 end
-                if offline and not picker then
-                    Popup.close(menu)
+                Popup.close(menu)
+                if offline then
                     ctx.entry=rows[index];ctx.phase='offline_open'
                 else
-                    ctx.menu=nil;UIManager:close(menu)
-                    if picker then picker.choose(index);return end
                     ctx.chapter=rows[index];ctx.phase='chapter'
                 end
                 host:showBusy(_(offline and 'Checking saved E-Ink chapter...' or 'Preparing E-Ink chapter...'),
@@ -235,7 +239,7 @@ function M.start(host,book,view,options)
         end
         menu.onLeftButtonTap=function()
             ChapterSearch.prompt(host,menu,search,function()
-                return ctx.menu==menu and not ctx.entry and current()
+                return ctx.menu==menu and not ctx.busy and current()
             end,function(query)
                 search=query
                 menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
@@ -438,7 +442,8 @@ function M.start(host,book,view,options)
                 or not Protocol.integer(result.missing_images,0,64) then
                 local reason=type(result)=='table' and result.error
                 fail(reason=='damaged' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
-                    or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil);return
+                    or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil,
+                    reason=='catalog_changed');return
             end
             local path=result.path
             M.cancel(host)
