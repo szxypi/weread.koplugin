@@ -14,9 +14,22 @@ from run_persistent_ui_probe import extract_candidate
 
 class Handler(fixture.Handler):
     def dispatch(self):
+        target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (self.server.hierarchical and self.command == 'POST'
+                and target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos'):
+            incoming = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            self.server.valid &= incoming == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
+            chapters = [dict(chapterUid=37+index, title=title, level=level, wordCount=250, price=0)
+                        for index, (title, level) in enumerate((('Chapter group', 0), ('Chapter inside group', 2),
+                                                               ('Chapter outside group', 0)))]
+            data = json.dumps({'data': [dict(bookId='42', updated=chapters)]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         marker = self.server.interrupt_download
         if marker is not None and marker.is_file() and self.command == 'GET':
-            target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
             if target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterdownload':
                 assert parse_qs(target.query).get('chapters') == ['0,37']
                 self.server.chapters.append('37')
@@ -66,6 +79,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                     server.valid=True;server.leaked=False;server.image_requests=server.tar_requests=0
                     server.interrupt_download=Path(root)/'interrupt-download' if mode=='online' else None
                     server.interruptions=0
+                    server.hierarchical=mode=='online'
                     payload=dict(credentials=credentials,mock_endpoint=endpoint,mode=mode,plugin_profile=mode=='full')
                     if mode=='full':
                         (Path(root)/'settings').mkdir();(Path(root)/'plugins').mkdir()

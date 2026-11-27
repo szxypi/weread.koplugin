@@ -583,6 +583,19 @@ if range_mode then
     confirm.choice1_callback();UI:close(confirm)
     local start=assert(ctx.menu)
     assert(start.page_num==2 and start.item_table[3].select_enabled)
+    if not first_range then
+        assert(start.title_bar.left_icon=='appbar.menu' and start.item_table[2].indent,
+            'range selection lost the catalog hierarchy')
+        start:onGotoPage(2)
+        start:onLeftButtonTap()
+        local actions=assert(start._shelf_popup)
+        actions.buttons[2][1].callback()
+        pump(function() return start._shelf_popup and start._shelf_popup~=actions end)
+        local sections=start._shelf_popup
+        sections:onMenuSelect(sections.item_table[1])
+        assert(start.page==1 and not start._shelf_popup and not host._native_direct_worker.job,
+            'section navigation started a download instead of moving the range picker')
+    end
     local page=first_range and 1 or 2
     start:onGotoPage(page);UI:forceRePaint();start:onMenuSelect(start.item_table[first_range and 1 or 3])
     local ending=assert(ctx.menu)

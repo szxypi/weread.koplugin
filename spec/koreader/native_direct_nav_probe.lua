@@ -136,9 +136,27 @@ else
         assert(not host.message and not ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
             and not menu.item_table[1].text:find(prefix,1,true) and host.opened==second,
             'online reader did not open the catalog at its current chapter')
-        menu:onLeftButtonTap()
-        local search=assert(menu._shelf_popup)
-        search:setInputText(tr('Untitled chapter'))
+        assert(menu.title_bar.left_icon=='appbar.menu' and menu.item_table[1].bold
+            and menu.item_table[2].indent==Device.screen:scaleBySize(16) and not menu.item_table[3].indent,
+            'section titles or normalized indentation were not shown')
+        local function catalog_action(index)
+            menu:onLeftButtonTap()
+            local actions=assert(menu._shelf_popup)
+            actions.buttons[index][1].callback()
+            wait(function() return menu._shelf_popup and menu._shelf_popup~=actions end)
+            return menu._shelf_popup
+        end
+        local search=catalog_action(1)
+        search:setInputText('inside')
+        search.buttons[1][2].callback()
+        assert(#menu.item_table==1 and menu.item_table[1].chapter_index==2)
+        local sections=catalog_action(2)
+        assert(sections.title==tr('Sections') and #sections.item_table==1 and sections.item_table[1].text:find('Chapter group',1,true))
+        sections:onMenuSelect(sections.item_table[1])
+        assert(menu.page==1 and #menu.item_table==3 and not menu._shelf_popup and not host._native_direct_worker.job
+            and menu.item_table[2].text:find(prefix,1,true)==1,'section jump did not restore the catalog at the heading')
+        search=catalog_action(1)
+        search:setInputText('Chapter')
         search.buttons[1][2].callback()
         menu:onGotoPage(2)
         local filtered=menu.item_table

@@ -40,10 +40,11 @@ local function project(model,id)
             or row.wordCountKnown~=nil and type(row.wordCountKnown)~='boolean'
             or row.wordCountKnown==true and not Protocol.integer(row.wordCount,0,100000000)
             or row.wordCountKnown==false and row.wordCount~=nil and row.wordCount~=0
+            or row.level~=nil and not Protocol.integer(row.level,0,100)
             or row.chapterIdx~=nil and not Protocol.integer(row.chapterIdx,0,1000000) then return nil end
         seen[row.chapterUid]=true
         rows[index]={chapterUid=row.chapterUid,title=row.title,chapterIdx=row.chapterIdx,downloadable=row.downloadable,
-            wordCount=row.wordCountKnown and row.wordCount or nil,wordCountKnown=row.wordCountKnown,
+            wordCount=row.wordCountKnown and row.wordCount or nil,wordCountKnown=row.wordCountKnown,level=row.level,
             catalog_order=index,catalog_count=#model.reading_chapters}
     end
     for index,row in ipairs(rows) do
@@ -53,6 +54,24 @@ local function project(model,id)
     return {book_id=id,version=model.version,reading_digest=model.reading_digest,chapters=rows}
 end
 M.project=project
+
+-- A section starts where the next chapter is deeper. Count actual ancestors
+-- so a catalog that skips level numbers does not over-indent its titles.
+local function chapter_outline(rows)
+    local sections,depths,headings,parents={},{},{},{}
+    for index,row in ipairs(rows) do
+        local level=row.level or 1
+        while #parents>0 and parents[#parents]>=level do parents[#parents]=nil end
+        if #parents>0 then depths[index]=math.min(#parents,3) end
+        local following=rows[index+1]
+        if following and (following.level or 1)>level then
+            sections[#sections+1]=index
+            headings[index]=true
+            parents[#parents+1]=level
+        end
+    end
+    if #sections>0 then return sections,depths,headings end
+end
 
 local function current_row(rows,entry,catalog)
     if not entry or catalog and entry.book_version~=catalog.version then return nil end
@@ -267,6 +286,13 @@ function M.start(host,book,view,options)
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or _('Online: sync position or save selected highlights and private thoughts.')
         local current_index=not picker and current_row(rows,anchor,ctx.catalog)
+        local sections,depths,headings
+        if not offline then sections,depths,headings=chapter_outline(rows) end
+        local screen=sections and require('device').screen
+        local indent=screen and screen:scaleBySize(16)
+        -- A single item per page can otherwise make the keyboard shortcut
+        -- as wide as the screen, leaving no room for indented chapter titles.
+        local shortcut_width=screen and screen:scaleBySize(24)
         local search=''
         local by_index,menu
         local function items()
@@ -282,7 +308,9 @@ function M.start(host,book,view,options)
                 if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
                 if index==current_index then label=_('Current chapter')..' · '..label end
-                local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index}
+                local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index,
+                    bold=headings and headings[index],indent=depths and depths[index] and depths[index]*indent,
+                    shortcut_icon_width=shortcut_width}
                 result[number],by_index[index]=item,item
             end
             if #result==0 then result[1]={text=_('No matching chapters.'),select_enabled=false} end
@@ -290,7 +318,7 @@ function M.start(host,book,view,options)
         end
         local menu_title=picker and picker.title or _(offline and 'Saved E-Ink chapters' or 'E-Ink chapters')
         menu=host:showList(menu_title,items(),nil,
-            {subtitle=subtitle,left_icon='appbar.search',on_choice=function(item)
+            {subtitle=subtitle,left_icon=sections and 'appbar.menu' or 'appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
                 if ctx.menu~=menu or ctx.busy or ctx.copy_menu or not index
                     or by_index[index]~=item or not item.select_enabled then return end
@@ -318,14 +346,57 @@ function M.start(host,book,view,options)
             if ctx.menu==widget and host._native_direct_reading==ctx then ctx.menu=nil;M.cancel(host) end
             if closed then return closed(widget,...) end
         end
-        menu.onLeftButtonTap=function()
-            ChapterSearch.prompt(host,menu,search,function()
-                return ctx.menu==menu and not ctx.busy and not ctx.copy_menu and view_current()
-            end,function(query)
-                search=query
-                menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
-                menu:switchItemTable(nil,items(),search=='' and current_index or nil,nil,menu.subtitle)
+        local function menu_current()
+            return ctx.menu==menu and not ctx.busy and not ctx.copy_menu and view_current()
+        end
+        local function filter(query,index)
+            search=query
+            menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
+            menu:switchItemTable(nil,items(),index,nil,menu.subtitle)
+        end
+        local function search_titles()
+            ChapterSearch.prompt(host,menu,search,menu_current,function(query)
+                filter(query,query=='' and current_index or nil)
             end)
+        end
+        local function select_section()
+            local choices,sections_menu={}
+            for number,index in ipairs(sections) do
+                local row=rows[index]
+                choices[number]={text=T('%1. %2',index,row.title~='' and row.title or empty_title),section_index=number,
+                    indent=depths[index] and depths[index]*indent,shortcut_icon_width=shortcut_width}
+            end
+            sections_menu=host:showList(_('Sections'),choices,nil,{on_choice=function(item)
+                local number=type(item)=='table' and item.section_index
+                if not number or choices[number]~=item or not menu_current() or not Popup.current(menu,sections_menu) then return end
+                local index=sections[number]
+                Popup.close(menu)
+                if search~='' then filter('',index)
+                else menu:onGotoPage(menu:getPageNumber(index)) end
+            end})
+            if sections_menu then Popup.show(menu,sections_menu,function() end) end
+        end
+        menu.onLeftButtonTap=function()
+            if not sections then search_titles();return true end
+            if not menu_current() or menu._shelf_popup then return true end
+            local actions
+            local function action(callback)
+                return function()
+                    UIManager:nextTick(function()
+                        if not menu_current() or not Popup.current(menu,actions) then return end
+                        Popup.close(menu)
+                        if callback then callback() end
+                    end)
+                end
+            end
+            actions=require('ui/widget/buttondialog'):new{
+                title=_('E-Ink chapters'),buttons={
+                    {{text=_('Find chapter'),callback=action(search_titles)}},
+                    {{text=_('Go to section'),callback=action(select_section)}},
+                    {{text=_('Cancel'),callback=action()}},
+                },
+            }
+            Popup.show(menu,actions)
             return true
         end
         local initial_index=picker and picker.start or current_index

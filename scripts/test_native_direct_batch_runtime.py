@@ -41,7 +41,8 @@ class Handler(fixture.Handler):
         if self.server.locked and self.command == 'POST' and target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos':
             request = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
             self.server.valid &= request == dict(bookIds=['42'], synckeys=[0], updateTimes=[0], maxfreeIdx=[0])
-            rows = [dict(chapterUid=int(uid), wordCount=250, price=1 if uid == '39' else 0)
+            rows = [dict(chapterUid=int(uid), title=f'Chapter {uid}', level=2 if uid == '38' else 1,
+                         wordCount=250, price=1 if uid == '39' else 0)
                     for uid in ('37', '38', '39')]
             data = json.dumps({'data': [dict(bookId='42', updated=rows)]}).encode()
             self.send_response(200)

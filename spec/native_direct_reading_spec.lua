@@ -57,9 +57,16 @@ local function clone() return {book_id='456',version=7,reading_digest=digest,rea
 for _,mutate in ipairs({function(v) v.book_id='457' end,function(v) v.reading_digest='bad' end,
     function(v) v.reading_chapters[2].chapterUid='1' end,function(v) v.reading_chapters[1].title='bad\n' end,
     function(v) v.reading_chapters[1].downloadable='yes' end,function(v) v.reading_chapters[1].chapterIdx=-1 end,
+    function(v) v.reading_chapters[2].level=101 end,
     function(v) v.reading_chapters[4]={} end}) do
     local bad=clone();mutate(bad);expect(not UI.project(bad,'456'),'invalid catalog accepted')
 end
+local hierarchy=clone()
+hierarchy.reading_chapters[1].level=0
+hierarchy.reading_chapters[2].level=3
+local projected=assert(UI.project(hierarchy,'456'))
+expect(projected.chapters[1].level==0 and projected.chapters[2].level==3 and projected.chapters[2].catalog_order==2,
+    'worker projection lost the catalog depth or order')
 local function fixture()
     selected=initial_access;account_valid=true;catalog_error=nil;build_error=nil
     local state={jobs={},opened=0,info=0,view={}}
