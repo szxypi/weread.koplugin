@@ -1793,16 +1793,23 @@ function LibraryView:onShow()
     return true
 end
 
--- KOReader delivers rotation before the file manager has resized the screen.
--- Reflow on the next tick, once, and only while this page is still visible.
-function LibraryView:onSetRotationMode()
+local function rotation_foreground(view)
     local top=UIManager:getTopmostVisibleWidget()
-    if self._shelf_closed or self._rotation_task or not self._rotation_redraw
-        or top~=self and (not self._shelf_popup or top~=self._shelf_popup) then return false end
+    if top==view then return true end
+    local popup=view._shelf_popup
+    if not top or not popup then return false end
+    -- KOReader shows the input widget's virtual keyboard in its own window.
+    local input=popup._input_widget
+    return top==popup or input and top==input.keyboard
+end
+
+-- KOReader delivers rotation before the file manager has resized the screen.
+-- Reflow on the next tick, once, and only while this page owns the foreground.
+function LibraryView:onSetRotationMode()
+    if self._shelf_closed or self._rotation_task or not self._rotation_redraw or not rotation_foreground(self) then return false end
     self._rotation_task=function()
         self._rotation_task=nil
-        local visible=UIManager:getTopmostVisibleWidget()
-        if self._shelf_closed or visible~=self and (not self._shelf_popup or visible~=self._shelf_popup) then return end
+        if self._shelf_closed or not rotation_foreground(self) then return end
         local rotation=Screen.getRotationMode and Screen:getRotationMode()
         if self.screen_w~=Screen:getWidth() or self.screen_h~=Screen:getHeight() or self.screen_rotation~=rotation then
             require('weread.ui.shelf_popup').redraw(self,function()

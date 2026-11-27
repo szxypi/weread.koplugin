@@ -181,6 +181,26 @@ local ok,reason=pcall(function()
     end
     expect(plugin.shelf_view.screen_w==Screen:getWidth() and not plugin._home_controls_menu
         and plugin.shelf_view:getFocusedBookId()==popup_focus)
+    report.phase='search_keyboard'
+    view=assert(plugin.shelf_view)
+    local keyboard_setting=G_reader_settings:readSetting('virtual_keyboard_enabled')
+    G_reader_settings:saveSetting('virtual_keyboard_enabled',true)
+    plugin:showDiscoverySearch('合成旋转测试')
+    local search=assert(view._shelf_popup)
+    expect(search:isKeyboardVisible() and UI:getTopmostVisibleWidget()==search._input_widget.keyboard)
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_UPRIGHT))
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    expect(Screen:getRotationMode()==Screen.DEVICE_ROTATED_UPRIGHT and plugin.shelf_view==view)
+    expect(search:getInputText()=='合成旋转测试' and view._shelf_popup==search)
+    require('weread.ui.shelf_popup').close(view)
+    G_reader_settings:saveSetting('virtual_keyboard_enabled',keyboard_setting)
+    deadline=socket.gettime()+5
+    while plugin.shelf_view==view do
+        assert(socket.gettime()<deadline,'rotation after search keyboard closed did not reflow')
+        UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
+    end
+    expect(not view._shelf_popup and plugin.shelf_view.screen_w==Screen:getWidth()
+        and plugin.shelf_view.screen_h==Screen:getHeight() and plugin.shelf_view:getFocusedBookId()==popup_focus)
     report.phase='rapid';view=assert(plugin.shelf_view)
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_UPSIDE_DOWN))
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE))
