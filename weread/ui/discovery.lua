@@ -65,6 +65,9 @@ function M:showDiscoveryPage(tab, books, options)
     if self.shelf_view then UIManager:close(self.shelf_view) end
     local view, scope
     local function current() return scope and scope() end
+    local hold = options.on_hold or not downloads and function(book, owner, page_current)
+        require('weread.ui.book_quick_actions').open(self, owner, book, page_current)
+    end
     local function redraw(next_page)
         if not current() then return end
         options.page = next_page
@@ -105,9 +108,7 @@ function M:showDiscoveryPage(tab, books, options)
                 else self:showBookRecord(book) end
             else self:showBookRecord(book) end
         end),
-        on_hold = not downloads and Scope.guard(current, function(book)
-            require('weread.ui.book_quick_actions').open(self, view, book, current)
-        end),
+        on_hold = hold and Scope.guard(current, function(book) hold(book, view, current) end),
         on_page_changed = redraw,
         on_close = function()
             if self.shelf_view == view then

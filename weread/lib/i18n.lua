@@ -515,6 +515,7 @@ local zh = {
     ["No saved reading records for this article."] = "这篇文章没有已保留的阅读记录。",
     ["Read cached article"] = "阅读缓存文章",
     ["Read cached copy"] = "阅读已缓存章节",
+    ["Read downloaded copy"] = "阅读已下载内容",
     ["Read saved E-Ink chapter"] = "阅读已保存墨水屏章节",
     ["Continue saved E-Ink chapter"] = "继续阅读上次墨水屏章节",
     ["▤ Continue reading"] = "▤ 继续阅读",

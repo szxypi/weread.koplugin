@@ -389,7 +389,7 @@ def main():
                     assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
                     value=json.loads(content.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',reopen=reopened,home_selection=True,account_isolation=True,
-                                       shelf_unchanged=True,saved_page=True,requests=0), 'native home result mismatch'
+                                       shelf_unchanged=True,saved_page=True,downloads_resume=True,requests=0), 'native home result mismatch'
                 marker=b'\nWEREAD_HOME_ACCOUNT_SWITCH='
                 for reopened,filename in ((False,'account-switch.log'),(True,'account-reopen.log')):
                     content=(root/'evidence'/filename).read_bytes()

@@ -405,9 +405,29 @@ downloads.on_select(downloads.books[1]);assert(plugin._book_detail_view):onClose
 pump(function() return plugin.shelf_view and plugin.shelf_view~=downloads and plugin.shelf_view._discovery_tab=='downloads' end)
 downloads=plugin.shelf_view
 assert(#downloads.books==1 and downloads.books[1].bookId==id,'return from details lost the downloaded search')
-downloads.on_select(downloads.books[1]);press(assert(plugin._book_detail_view),'▤ Read')
+local function download_action()
+    downloads.on_hold(downloads.books[1])
+    local popup=assert(downloads._shelf_popup)
+    assert(popup.buttons[1][1].text==tr('Read downloaded copy'))
+    return popup.buttons[1][1].callback
+end
+local stale_action=download_action()
+require('weread.ui.shelf_popup').close(downloads)
+stale_action();tick()
+assert(not Reader.instance and not plugin._book_detail_view,'closed shortcut opened the book')
+local blocked_action=download_action()
+local backup=path..'.fixture'
+assert(os.rename(path,backup))
+local show_info=plugin.showInfo
+local missing
+plugin.showInfo=function(_self,text) missing=text end
+blocked_action()
+pump(function() return missing or Reader.instance end)
+assert(os.rename(backup,path));plugin.showInfo=show_info
+assert(not Reader.instance and missing==tr('No cached file.'),'shortcut opened a removed download')
+download_action()()
 pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
-assert(Reader.instance.document:isXPointerInCurrentPage(xpointer),'download selection lost the saved page')
+assert(Reader.instance.document:isXPointerInCurrentPage(xpointer),'download shortcut lost the saved page')
 close_reader();plugin=host()
 require('weread.ui.download_library').show(plugin)
 local previous_job=assert(plugin._download_library_job)
@@ -426,8 +446,8 @@ assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()
 local legacy=assert(plugin.settings:get_book('1',true))
 assert(not legacy.home_recent_at and not legacy.last_local_position and not legacy.pending_upload_position,
     'reading wrote a position to the legacy sibling book')
-print('PASS: downloaded books, offline search and open, account isolation')
+print('PASS: downloaded books, offline search and resume shortcut, account isolation')
 assert(requests[0]==0,'local home attempted network')
 print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,
-    account_isolation=true,shelf_unchanged=true,saved_page=true,requests=0}))
+    account_isolation=true,shelf_unchanged=true,saved_page=true,downloads_resume=true,requests=0}))
 os.exit(0)

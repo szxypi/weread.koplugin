@@ -436,6 +436,27 @@ press(view,'▤ Read');fallback_warning(true)
 pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
 report.offline_missing_target_fallback=true;close_reader();offline=false
 omit_target()
+host=assert(FM.instance.weread)
+require('weread.ui.download_library').show(host)
+pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+local downloads=host.shelf_view
+local cached
+for _,row in ipairs(downloads.books) do if row.bookId==id then cached=row end end
+assert(cached,'partial download missing from the downloads list')
+local function choose_local_copy()
+    downloads.on_hold(cached)
+    local button=assert(downloads._shelf_popup).buttons[1][1]
+    assert(button.text==tr('Read downloaded copy'))
+    button.callback()
+    pump(function() return host._missing_resume_confirmation or Reader.instance end)
+    assert(not Reader.instance,'shortcut skipped the missing-chapter confirmation')
+end
+choose_local_copy();fallback_warning(false)
+assert(not Reader.instance and book(host).pending_upload_position.chapter_uid==4,'cancelled shortcut changed the pending chapter')
+choose_local_copy();fallback_warning(true)
+pump(function() return Reader.instance and Reader.instance.document.file==first end)
+report.downloads_missing_target_fallback=true;close_reader()
+omit_target()
 current=select(2,read_from_shelf(second))
 assert(book(current).cached_chapters['4']==second,'missing target chapter was not added to the cache')
 report.missing_resume_chapter_downloaded=true;close_reader()

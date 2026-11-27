@@ -70,6 +70,7 @@ else
     local message
     local damage=input.mode=='damage' or input.mode=='detail_damage' or input.mode=='shelf_damage'
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
+    local downloads=input.mode=='downloads' or input.mode=='downloads_choose'
     if damage then host.showInfo=function(_,text) message=text end end
     if shelf then
         -- Book details use the device link state, without a live DNS probe.
@@ -85,7 +86,26 @@ else
     elseif input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
         host:showBookMenu(assert(host.settings:get_book(id)))
     end
-    if shelf or input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
+    if downloads then
+        if input.mode=='downloads_choose' then
+            assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
+        end
+        require('weread.ui.download_library').show(host)
+        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        view=assert(host.shelf_view);local cached
+        for _,book in ipairs(view.books) do if book.bookId==id then cached=book end end
+        assert(cached,'native chapter missing from the downloads page')
+        view.on_hold(cached)
+        local button=assert(view._shelf_popup).buttons[1][1]
+        assert(button.text==require('weread.lib.plugin_util').tr('Read downloaded copy'))
+        button.callback()
+        if input.mode=='downloads_choose' then
+            pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+            local menu=host._native_direct_reading.menu
+            assert(#menu.item_table>=1,'no saved E-Ink chapter offered')
+            menu:onMenuSelect(menu.item_table[1])
+        end
+    elseif shelf or input.mode=='detail' or input.mode=='detail_damage' or input.mode=='detail_closed' then
         local detail=assert(host._book_detail_view);local action
         for _,button in ipairs(detail._footer_actions) do
             if button.text==require('weread.lib.plugin_util').tr('▤ Continue reading') then action=button end
