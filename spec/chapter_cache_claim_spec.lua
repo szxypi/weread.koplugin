@@ -61,4 +61,12 @@ book.cached_chapters={['2']='/shared.epub',[2]='/shared.epub'}
 assert(not Claims.shared(book,'/shared.epub') and Claims.usable(book,'/shared.epub','2'),'numeric alias treated as another chapter')
 book.cached_full_book='/shared.epub'
 assert(Claims.shared(book,'/shared.epub') and not Claims.usable(book,'/shared.epub','2'),'full-file collision not checked')
+book.cached_chapters={ ['2']='/single.epub' }
+files['/single.epub']={
+    [Identity.PATH]=identity({{chapterUid='2'}}),
+    ['OEBPS/content.opf']=opf(Protocol.reader_url('123','2'),'<itemref idref="chapter"/>'),
+}
+assert(Claims.usable(book,'/single.epub','2',{},true),'saved list did not verify a matching single chapter')
+files['/single.epub']['OEBPS/content.opf']=opf(Protocol.reader_url('123','4'),'<itemref idref="chapter"/>')
+assert(not Claims.usable(book,'/single.epub','2',{},true),'saved list trusted an unrelated single-chapter file')
 print('chapter_cache_claim_spec: shared single, combined and unknown EPUB identities passed')

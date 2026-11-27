@@ -71,8 +71,9 @@ local function inspect(book,path)
     return ok and result or {kind='unknown'}
 end
 
-function M.inspect(book,path,cache)
-    if not M.shared(book,path,cache) then return {kind='unshared'} end
+function M.inspect(book,path,cache,verify_source)
+    -- The offline picker explicitly verifies the source of a sole mapping.
+    if not verify_source and not M.shared(book,path,cache) then return {kind='unshared'} end
     if cache and cache[path] then return cache[path] end
     local result=inspect(book,path)
     if cache then cache[path]=result end
@@ -121,8 +122,8 @@ function M.document_complete(info,document,book_id,catalog)
     return ok and result==true
 end
 
-function M.usable(book,path,uid,cache)
-    local info=M.inspect(book,path,cache)
+function M.usable(book,path,uid,cache,verify_source)
+    local info=M.inspect(book,path,cache,verify_source)
     if info.kind=='unshared' then return true end
     local ok,id=pcall(Context.identifier,uid,true)
     if not ok then return false end

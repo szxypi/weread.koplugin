@@ -125,6 +125,46 @@ local function check_full_chapter_status(current)
     assert(dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'owner_full_cache_status_case.lua')(
         {book_id=id,full_manifest=manifest},current,current.ui,pump))
 end
+local function check_saved_chapter_picker(reader)
+    local full,current=reader.document.file,reader.weread
+    local saved=book(current)
+    local single=assert(saved.cached_chapters['2'])
+    local function picker()
+        clean(reader)
+        local detail_view=assert(current:showBookMenu(book(current)))
+        press(detail_view,'Downloaded chapters')
+        local menu=assert(UI:getTopmostVisibleWidget())
+        assert(menu.title==tr('Downloaded chapters'))
+        return menu
+    end
+    patch(current,{cached_full_book=false,cached_file=false,cached_chapters={['2']=single,['4']=single..'.missing'}})
+    local menu=picker()
+    assert(#menu.item_table==1 and menu.item_table[1].text=='合成重复章节','offline picker included a missing chapter')
+    menu:onMenuSelect(menu.item_table[1])
+    pump(function() return Reader.instance and Reader.instance.document.file==single end)
+    reader=assert(Reader.instance);current=assert(reader.weread)
+    assert(Source.read_document(reader.document,id,2),'saved chapter opened a different EPUB')
+    patch(current,{cached_full_book=full,cached_file=full,cached_chapters={}})
+    assert(current.library_db:putChapters(id,{}))
+    local catalog_path=assert(require('weread.lib.content').catalog_cache_path(current.settings,book(current)))
+    assert(os.remove(catalog_path))
+    menu=picker()
+    assert(#menu.item_table==6 and menu.item_table[4].text==tr('Chapter ID %1'):gsub('%%1','4'),
+        'the combined file could not supply its chapter order without the catalog')
+    UI:forceRePaint()
+    assert(menu.title_bar.left_button).callback()
+    local search=assert(menu._shelf_popup);search:setInputText(menu.item_table[4].text);search.buttons[1][2].callback()
+    assert(#menu.item_table==1)
+    shot('downloaded-chapter-picker')
+    menu:onMenuSelect(menu.item_table[1])
+    pump(function() return Reader.instance and Reader.instance.document.file==full end)
+    reader=assert(Reader.instance)
+    local target=assert(Dom.chapter_start(reader.document,id,'4'))
+    pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    assert(reader.weread.progress_sync.file_resume and reader.weread.progress_sync.file_resume.preserve_only,
+        'unindexed whole-book position must not replace pending progress')
+    print('PASS: downloaded chapter picker, offline single and catalog-free combined')
+end
 local function check_cb_notes(reader,current,seed)
     local Cache=require('weread.lib.my_cloud_marks_store')
     if seed then
@@ -192,6 +232,7 @@ if offline then
     if cb_edit then dofile('/source/spec/koreader/cb_highlight_edit_smoke.lua')(reader,reader.weread,pump,clean,true)
     elseif cb_resume then check_cb_notes(reader,reader.weread,false) end
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-offline.png')
+    if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then check_saved_chapter_picker(reader) end
     close_reader()
     print('PASS: fresh offline plugin selection -> full cached EPUB -> saved page and chapter; zero HTTP')
     os.exit(0)

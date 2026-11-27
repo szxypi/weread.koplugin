@@ -570,6 +570,17 @@ navigated=nil;single_valid=false;proof.items={chapter_4=true};single_download_op
 host:openChapter(selected_book,selected_chapter)
 expect(not navigated and single_download_options and single_download_options.single_chapter,
     'combined book without the target bypassed the ambiguous-cache warning')
+local old_info, unavailable = host.showInfo
+host.showInfo=function(_,text) unavailable=text end
+single_download_options=nil;opened_path=nil;promoted=nil
+for _,exists in ipairs({true,false}) do
+    existing_paths['/cache/missing.epub']=exists
+    expect(not host:openChapter(selected_book,selected_chapter,nil,{cached_only=true})
+        and not navigated and not opened_path and not single_download_options and not promoted
+        and unavailable=='The downloaded chapter is unavailable or could not be verified.',
+        'unavailable saved chapter proceeded to a download or opened an unverified file')
+end
+host.showInfo=old_info
 package.loaded['weread.lib.chapter_cache_claim']=old_claims
 package.loaded['weread.ui.combined_chapter_navigation']=old_navigation
 package.loaded['weread.lib.source_context']=old_context

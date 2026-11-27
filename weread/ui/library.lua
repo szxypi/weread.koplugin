@@ -271,6 +271,7 @@ function M:closeWeReadUI()
         "_profile_goal_dialog",
         "_read_stats_view",
         "_profile_view",
+        "_saved_chapter_menu",
         "_chapter_list_view",
         "_book_detail_view",
         "shelf_view",
@@ -1684,6 +1685,13 @@ function M:showBookMenu(book)
             self:readCachedCopy(latest,view)
         end)}
     end
+    if any_cached_chapter or is_full_cached then
+        actions[#actions+1]={text=_('Downloaded chapters'),callback=self:safeCallback(_('Downloaded chapters'),function()
+            if cache_scope and cache_scope() and self._book_detail_view==view then
+                self:showSavedChapters(book_id,view)
+            end
+        end)}
+    end
     local native_resume_action
     if require('weread.lib.native_position_protocol').id(book_id) then
         local resume=saved.native_home_resume and require('weread.ui.native_home_resume')
@@ -2196,6 +2204,94 @@ local function chapter_cache_lookup(host,book)
         if cached and file_exists(cached) and claims.usable(book,cached,uid,cache) then return true end
         local ok,id=pcall(identity.identifier,uid,true)
         return ok and combined and combined.items['chapter_'..id]==true or false
+    end, combined
+end
+
+local function saved_chapter_rows(host, book, catalog)
+    local identity = require('weread.lib.reader_context')
+    local is_cached, combined = chapter_cache_lookup(host, book)
+    local rows, seen = {}, {}
+    local function append(uid, title, position)
+        local ok, id = pcall(identity.identifier, uid, true)
+        if not ok or seen[id] or not is_cached(id) then return end
+        seen[id] = true
+        rows[#rows + 1] = { chapterUid = id, position = position,
+            title = type(title)=='string' and title~='' and title or T(_('Chapter ID %1'), id) }
+    end
+    for index, chapter in ipairs(type(catalog)=='table' and catalog or {}) do
+        if type(chapter)=='table' then append(chapter.chapterUid or chapter.chapterId, chapter.title, index) end
+    end
+    for _, member in ipairs(combined and combined.order or {}) do
+        append(member:match('^chapter_(.+)$'))
+    end
+    local other_ids = {}
+    for uid in pairs(type(book.cached_chapters)=='table' and book.cached_chapters or {}) do
+        local ok, id = pcall(identity.identifier, uid, true)
+        if ok and not seen[id] then other_ids[#other_ids + 1] = id end
+    end
+    table.sort(other_ids, function(a,b) return #a < #b or #a == #b and a < b end)
+    for _, uid in ipairs(other_ids) do append(uid) end
+    return rows
+end
+
+function M:showSavedChapters(book_id, detail)
+    if self._book_detail_view ~= detail then return end
+    if self._saved_chapter_menu then UIManager:close(self._saved_chapter_menu) end
+    local latest = ReadAccess.load_cached_book(self.settings, book_id)
+    if not latest then self:showInfo(_('No downloaded chapters found.')); return end
+    local catalog = self.library_db and self.library_db:getChapters(book_id)
+    if type(catalog)~='table' or #catalog==0 then
+        catalog = Content.load_catalog_cache(self.client, self.settings, latest)
+    end
+    local rows = saved_chapter_rows(self, latest, catalog)
+    local ChapterSearch = require('weread.ui.chapter_search')
+    local Popup = require('weread.ui.shelf_popup')
+    local page_current = require('weread.ui.page_scope').capture(self, detail, '_book_detail_view')
+    local query, menu, visible = '', nil, nil
+    local function current()
+        return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
+    end
+    local function items()
+        local matches, counts = ChapterSearch.filter(rows, query)
+        local entries = {}
+        visible = {}
+        for index=1,(matches and #matches or #rows) do
+            local row = rows[matches and matches[index] or index]
+            local text = ChapterSearch.label(row.title, row.position, counts)
+            local entry = { text = text }
+            visible[entry] = row
+            entries[index] = entry
+        end
+        if matches and #matches==0 then entries[1]={text=_('No matching chapters.'),select_enabled=false} end
+        return entries
+    end
+    menu = self:showList(_('Downloaded chapters'), items(), _('No downloaded chapters found.'), {
+        left_icon='appbar.search', subtitle='', on_choice=function(entry)
+            local chapter = visible[entry]
+            if not current() or not chapter then return end
+            local fresh = ReadAccess.load_cached_book(self.settings, book_id)
+            if not fresh then self:showInfo(_('No downloaded chapters found.')); return end
+            if self:openChapter(fresh, chapter, nil, { cached_only = true }) and self._saved_chapter_menu == menu then
+                UIManager:close(menu)
+            end
+        end,
+    })
+    if not menu then return end
+    self._saved_chapter_menu = menu
+    menu.onLeftButtonTap = function()
+        ChapterSearch.prompt(self, menu, query, current, function(value)
+            query = value
+            menu.subtitle = query~='' and T(_('Chapter filter: %1'), query) or ''
+            menu:switchItemTable(nil, items(), nil, nil, menu.subtitle)
+        end)
+        return true
+    end
+    local on_close = menu.onCloseWidget
+    menu.onCloseWidget = function(widget,...)
+        if self._saved_chapter_menu == widget then self._saved_chapter_menu = nil end
+        widget._shelf_closed = true
+        Popup.close(widget)
+        if on_close then return on_close(widget,...) end
     end
 end
 
@@ -2618,7 +2714,7 @@ function M:cancelBookReading()
 end
 
 -- Open a chapter, preferring its cached file and falling back to a download.
-function M:openChapter(book, chapter, on_downloaded)
+function M:openChapter(book, chapter, on_downloaded, options)
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     local intent={};self._chapter_open_intent=intent
     local document=self.ui and self.ui.document
@@ -2649,15 +2745,16 @@ function M:openChapter(book, chapter, on_downloaded)
     local full=self:getFullBookCachePath(book)
     local combined,proof
     local claim_cache={}
+    local cached_only=options and options.cached_only
     if full and file_exists(full) and document and document.file==full then
         local info=claims.combined(book,full)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end
     if not combined and cached_exists then
-        local info=claims.inspect(book,cached,claim_cache)
+        local info=claims.inspect(book,cached,claim_cache,cached_only)
         if info.kind=='combined' and info.items['chapter_'..chapter_id] then combined,proof=cached,info end
     end
-    local ambiguous=not combined and cached_exists and not claims.usable(book,cached,chapter_uid,claim_cache)
+    local ambiguous=not combined and cached_exists and not claims.usable(book,cached,chapter_uid,claim_cache,cached_only)
     if not combined and (not cached_exists or ambiguous) and full and file_exists(full) then
         local info=claims.combined(book,full)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
@@ -2671,6 +2768,10 @@ function M:openChapter(book, chapter, on_downloaded)
     end
     if cached_exists and not ambiguous then
         self:openFile(cached,nil,book)
+        return true
+    elseif cached_only then
+        self:showInfo(_('The downloaded chapter is unavailable or could not be verified.'))
+        return false
     elseif ambiguous then
         self:confirmAndDownloadChapters(book,{chapter},'chapter',{
             single_chapter=true,recovery_current=current,
