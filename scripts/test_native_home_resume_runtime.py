@@ -23,6 +23,19 @@ fixture.body = lambda uid: '<html><body>' + ''.join(
 class ResumeHandler(fixture.Handler):
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
+        if (target.hostname, target.path) == ('i.weread.qq.com', '/store/search'):
+            server = self.server
+            server.search_requests += 1
+            server.valid &= self.command == 'GET' and parse_qs(target.query) == dict(
+                keyword=['Synthetic'], scope=['10'], count=['20'], maxIdx=['0'])
+            server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
+            body = json.dumps(dict(books=[dict(bookId='42', title='Synthetic book', author='Fixture', searchIdx=1)],
+                                   hasMore=0)).encode()
+            self.send_response(200 if server.valid else 400)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if (target.hostname, target.path) != ('i.weread.qq.com', '/book/getProgress'):
             return super().dispatch()
         server = self.server
@@ -71,11 +84,13 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         legacy = entry == 'shelf_legacy'
         offline_shelf = entry == 'shelf_partial_offline'
         unread = entry in ('details_new', 'shelf_new')
-        server.cloud_chapter = '38' if entry in ('details', 'details_exact', 'shelf', 'shelf_partial', 'shelf_legacy') else None
+        prefer_eink = entry in ('details_preferred', 'shelf_preferred')
+        server.cloud_chapter = '38' if prefer_eink or entry in (
+            'details', 'details_exact', 'shelf', 'shelf_partial', 'shelf_legacy') else None
         if unread:
             server.cloud_chapter = '0'
-        server.exact_resume = entry in ('details_exact', 'shelf_partial', 'shelf_legacy')
-        server.progress_requests = 0
+        server.exact_resume = prefer_eink or entry in ('details_exact', 'shelf_partial', 'shelf_legacy')
+        server.progress_requests = server.search_requests = 0
         uid = '37' if unread else server.cloud_chapter or '37'
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
@@ -105,10 +120,15 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             payload['start_unread'] = True
         if entry == 'catalog_pending':
             payload['close_pending'] = True
+        if prefer_eink:
+            payload['prefer_eink_chapters'] = True
+        if entry == 'details_preferred':
+            payload['store_search_keyword'] = 'Synthetic'
         child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
                                input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
         result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
         assert result['ok'] and result['source_matches'] and Path(result['path']).is_file()
+        assert server.search_requests == int(entry == 'details_preferred')
         assert server.chapters == ([] if offline_shelf else [uid]) and server.valid and not server.leaked
         if partial:
             assert (Path(result['path']) == saved) == offline_shelf
@@ -139,8 +159,8 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details', 'details_exact', 'details_new', 'catalog', 'catalog_pending',
-                              'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline', 'shelf_legacy'):
+                for entry in ('details_preferred', 'shelf_preferred', 'details', 'details_exact', 'details_new',
+                              'catalog', 'catalog_pending', 'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline', 'shelf_legacy'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 server.cloud_chapter = None
                 if read_entries_only:
@@ -209,6 +229,7 @@ def run(runtime, read_entries_only=False):
                             assert marker.read_text() == expected
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
         print('PASS: native-only reading and catalogs from details and bookshelf, and offline details reopening at both sizes')
+        print('PASS: preferred E-Ink reading with both authorizations from bookstore details and bookshelf at both sizes')
         print('PASS: partial downloads keep cloud chapter selection online and are selectable offline at both sizes')
         print('PASS: one-tap read from details and bookshelf to a verified cloud location at both sizes')
         print('PASS: one-tap read opens the first chapter of a confirmed unread book at both sizes')

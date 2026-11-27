@@ -93,6 +93,7 @@ local available_version
 local annotations_visible = false
 local annotation_menu_updates = 0
 local prefetch_cancellations = 0
+local prefer_eink_chapters
 local host = {
     ui = {},
     _xpointerOverlayPrototypeAvailable = function() return true end,
@@ -103,10 +104,12 @@ local host = {
             if key == "cache" then return cache end
             if key == "shelf" then return shelf end
             if key == "thought_popup" then return thought_popup end
+            if key == "prefer_eink_chapters" then return prefer_eink_chapters end
             return default
         end,
         set = function(_self, key, value)
             if key == "shelf" then shelf = value end
+            if key == "prefer_eink_chapters" then prefer_eink_chapters = value end
         end,
         flush = function() flush_count = flush_count + 1 end,
     },
@@ -379,9 +382,22 @@ expect(not menu_has(mp_reader_items, "Sync progress now")
     "public-account menu exposed unsupported progress or local-book actions")
 local download_settings
 local cache_management
+local eink_preference
 for _, item in ipairs(settings_items) do
     if item.text == "Download settings" then download_settings = item end
     if item.text == "Cache management" then cache_management = item end
+    if item.text == "Prefer reading E-Ink chapters" then eink_preference = item end
+end
+expect(eink_preference and not eink_preference.checked_func(), "legacy settings opted into E-Ink chapters")
+do
+    local before=flush_count
+    local updates=0
+    local touchmenu={updateItems=function() updates=updates+1 end}
+    eink_preference.callback(touchmenu)
+    expect(eink_preference.checked_func() and prefer_eink_chapters==true,"E-Ink preference did not turn on")
+    eink_preference.callback(touchmenu)
+    expect(not eink_preference.checked_func() and prefer_eink_chapters==false and flush_count==before+2 and updates==2,
+        "E-Ink preference did not persist both states and update the menu")
 end
 local cache_items = cache_management and cache_management.sub_item_table_func() or {}
 expect(cache_items[1] and cache_items[1].keep_menu_open == true

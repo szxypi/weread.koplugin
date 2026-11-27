@@ -462,6 +462,17 @@ function M:getSettingsMenuItems()
             callback = self:safeCallback(_("Home layout"), function() self:showHomeLayoutSettings() end),
         },
         {
+            text = _("Prefer reading E-Ink chapters"),
+            help_text = _("Use E-Ink chapters when opening a book without a local reading position or usable copy. E-Ink authorization is required."),
+            keep_menu_open = true,
+            checked_func = function() return self.settings:get('prefer_eink_chapters') == true end,
+            callback = self:safeCallback(_("Prefer reading E-Ink chapters"), function(touchmenu_instance)
+                self.settings:set('prefer_eink_chapters', self.settings:get('prefer_eink_chapters') ~= true)
+                self.settings:flush()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end),
+        },
+        {
             text = _("Cache management"),
             sub_item_table_func = function()
                 return {

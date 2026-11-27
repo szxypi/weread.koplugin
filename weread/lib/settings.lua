@@ -24,6 +24,7 @@ local defaults = {
     },
     books = {},
     downloads = {},
+    prefer_eink_chapters = false,
     sync = {
         pull_on_open = false,
         upload_on_close = false,

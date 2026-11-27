@@ -1484,6 +1484,14 @@ local function book_link_connected(host)
     return host.isNetworkOnline and host:isNetworkOnline() or false
 end
 
+local function prefer_eink_chapters(host,book,reason)
+    if reason or book.unindexed_resume or ReadAccess.book_id(book.chapter_uid) or book.chapter_idx~=nil
+        or host.settings:get('prefer_eink_chapters')~=true then return false end
+    local account=host.library_db and host.library_db:accountKey()
+    local positions=require('weread.ui.book_reading').local_positions(book,account)
+    return next(positions[1])==nil and next(positions[2])==nil
+end
+
 local function store_book_record(self, book, book_id)
     local books = self.settings:get("books", {})
     local account_key = self.library_db and self.library_db:accountKey() or nil
@@ -2914,7 +2922,8 @@ function M:startBookReading(book, view, origin)
     local selected_id=ShelfSnapshot.persisted_id(book)
     if owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
         and require('weread.lib.native_position_protocol').id(selected_id) then
-        local native=online and not exact and has_native_read_access(self.settings)
+        local native=online and (not exact or prefer_eink_chapters(self,latest,reason))
+            and has_native_read_access(self.settings)
         local saved_native=not native and (not online or origin and origin.allow_saved_native)
             and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
         if native or saved_native then

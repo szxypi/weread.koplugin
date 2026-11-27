@@ -72,11 +72,13 @@ local opened_path
 local single_download_options
 local single_download_refreshed = false
 local current_owner='account-a'
+local prefer_eink=false
 local host = {
     settings = {
         get = function(_self, key, default)
             if key == "books" then return books end
             if key == 'account' then return {user_vid='raw-owner-id'} end
+            if key == 'prefer_eink_chapters' then return prefer_eink end
             return default
         end,
         set = function(_self, key, value)
@@ -477,6 +479,28 @@ do
     authenticated=true;choice=nil
     expect(host:readFromBookList(uncached,shelf,current) and choice.cached and not choice.cloud_chapter,
         'an available downloaded copy was bypassed when the Web account was present')
+    prefer_eink=true;choice=nil
+    expect(host:readFromBookList(uncached,shelf,current) and choice.cloud_chapter and not choice.cached,
+        'the E-Ink preference did not choose native continuation with Web access')
+    opened_path,choice=nil,nil
+    expect(host:readFromBookList(partial,shelf,current) and opened_path==partial.full_path and not choice,
+        'the E-Ink preference bypassed an existing ordinary EPUB')
+    host.nativeChapterCachePresent=function() return false end
+    choice,preparation=nil,nil;uncached.pending_upload_position={book_id='99',chapter_uid='4'}
+    expect(host:readFromBookList(uncached,shelf,current) and preparation and not choice,
+        'the E-Ink preference bypassed an unsynced ordinary reading position')
+    uncached.pending_upload_account='another-owner';choice,preparation=nil,nil
+    expect(host:readFromBookList(uncached,shelf,current) and choice and not preparation,
+        'a foreign pending position blocked the E-Ink preference')
+    uncached.pending_upload_position,uncached.pending_upload_account=nil,nil
+    uncached.last_local_position={book_id='99',chapter_uid='4'};choice,preparation=nil,nil
+    expect(host:readFromBookList(uncached,shelf,current) and preparation and not choice,
+        'the E-Ink preference bypassed an ordinary local position')
+    uncached.last_local_position=nil;access.capture=function() return {renewal_pending=true} end
+    choice,preparation=nil,nil
+    expect(host:readFromBookList(uncached,shelf,current) and preparation and not choice,
+        'an unavailable native authorization blocked regular reading')
+    prefer_eink=false
     host.shelf_view=nil;host.nativeChapterCachePresent=nil;host.bookRecordHasDownload=nil
     package.loaded[module]=previous;access.capture=capture
     source.web_access=old_web_access;host.isNetworkConnected=nil

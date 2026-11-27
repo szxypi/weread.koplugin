@@ -12,6 +12,7 @@ if input.close_pending then
     assert(input.mock_endpoint and input.read_entry=='catalog' and os.getenv('WEREAD_SYNTHETIC')=='1')
     require('weread.ui.native_home_resume').record=function() return false end
 end
+if input.prefer_eink_chapters then assert(input.mock_endpoint and input.read_entry and os.getenv('WEREAD_SYNTHETIC')=='1') end
 if live_cloud then
     assert(not input.mock_endpoint and input.read_entry=='shelf')
     if input.exact_resume then
@@ -24,7 +25,7 @@ end
 if input.missing_resume_source then assert(live_cloud and input.exact_resume) end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',{})
+settings:set('cookies',input.prefer_eink_chapters and {wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'} or {})
 local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
 local cache=settings:get('cache');cache.show_annotations=false;cache.auto_prefetch_next_chapter=false
 cache.download_book_images=false;cache.download_underlines_and_thoughts=false;settings:set('cache',cache)
@@ -134,6 +135,15 @@ local function pump(fn)
 end
 FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
+if input.prefer_eink_chapters then
+    local preference
+    local label=require('weread.lib.plugin_util').tr('Prefer reading E-Ink chapters')
+    for _,item in ipairs(host:getSettingsMenuItems()) do if item.text==label then preference=item;break end end
+    assert(preference and not preference.checked_func())
+    preference.callback()
+    assert(preference.checked_func() and Settings:new():get('prefer_eink_chapters')==true)
+    assert(require('weread.lib.shelf_source').web_access(host.settings),'fixture did not have both authorizations')
+end
 local failure,ui_failed,resume_message,cloud_xpointer
 local direct=input.exact_resume or input.start_unread
 if direct then
@@ -166,7 +176,8 @@ if input.exact_resume then
 end
 local shelf_owner
 if input.read_entry then
-    assert((live_cloud or os.getenv('WEREAD_SYNTHETIC')=='1') and not next(host.settings:get('cookies',{})))
+    assert(live_cloud or os.getenv('WEREAD_SYNTHETIC')=='1')
+    if not input.prefer_eink_chapters then assert(not next(host.settings:get('cookies',{}))) end
     host.qr_login.start=function() error('native-only reading tried to start Web login') end
     if input.cloud_chapter_uid then G_reader_settings:saveSetting('items_per_page',1) end
 end
@@ -292,7 +303,7 @@ if input.exact_resume then
     assert(assert(normalize(doc:getTextFromXPointers(cloud_xpointer,last))):sub(1,#quote)==quote,
         'the reader did not open at the original cloud text')
 end
-if input.store_search_keyword then
+if input.store_search_keyword and not input.prefer_eink_chapters then
     local css=assert(reader.document:getDocumentFileContent('OEBPS/style.css'))
     assert(type(input.inline_style)=='string' and #input.inline_style>0 and css:find(input.inline_style,1,true),
         'inline stylesheet not present in rendered EPUB')
