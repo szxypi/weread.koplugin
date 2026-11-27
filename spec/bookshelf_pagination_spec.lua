@@ -695,11 +695,12 @@ expect(#legacy_items==8 and legacy_items[3].text=='E'
     'legacy shelf failed to render a numeric-string timestamp')
 for index=5,8 do expect(legacy_items[index].mandatory=='','legacy shelf displayed an invalid date') end
 local progress_values={a=50,b=0,c=50,e=100}
+local redraw_progress
 host.prepareShelfProgress=function(_self,values)
     for _,book in ipairs(values) do book._shelf_progress=progress_values[book.bookId] end
     return {}
 end
-host.refreshVisibleShelfProgress=function() end
+host.refreshVisibleShelfProgress=function(_,_,_,_,options) redraw_progress=options.on_redraw end
 host.shelf_regular={{bookId='p',title='Pinned',isTop=1},{bookId='a',title='A'},{bookId='b',title='B'},
     {bookId='c',title='C'},{bookId='d',title='D'},{bookId='e',title='E'}}
 for _,case in ipairs({{'progress_desc',{'p','e','a','c','b','d'}},
@@ -711,8 +712,8 @@ for _,case in ipairs({{'progress_desc',{'p','e','a','c','b','d'}},
 end
 shelf_settings.sort_order='progress_desc';host:showShelfView('books')
 local ordered=shown[#shown].data.books
-progress_values.e=0;shown[#shown].callbacks.on_page_changed(1)
-expect(shown[#shown].data.books==ordered and ordered[2].bookId=='e',
+progress_values.e=0;assert(redraw_progress)()
+expect(shown[#shown].data.books==ordered and ordered[2].bookId=='e' and ordered[2]._shelf_progress==0,
     'background progress changed the order while browsing')
 host:showShelfView('books')
 expect(shown[#shown].data.books[2].bookId=='a','fresh view did not sort the latest cached progress')
@@ -723,6 +724,25 @@ expect(shown[#shown].data.books[2].bookId=='a',
 host.shelf_books=host.shelf_regular;host:showShelfPage()
 expect(legacy_items[2].text=='A' and legacy_items[2].mandatory=='50%',
     'legacy progress ordering did not show the sorted percentage')
+do
+    local Popup=require('weread.ui.shelf_popup')
+    local former_filters,former_match=host.shelf_filters,host.bookMatchesFilters
+    host.shelf_filters={reading='progress_zero'}
+    host.bookMatchesFilters=function(_self,book) return book._shelf_progress==0 end
+    host:showShelfView('books')
+    local view=host.shelf_view
+    expect(#shown[#shown].data.books==2,'progress filter fixture did not start with two unread books')
+    Popup.show(view,{})
+    progress_values.e=10;assert(redraw_progress)()
+    expect(host.shelf_view==view,'a progress refresh replaced the shelf while its menu was open')
+    shown[#shown].callbacks.on_page_changed(1)
+    local replacement=host.shelf_view
+    local filtered=shown[#shown].data.books
+    expect(#filtered==1 and filtered[1].bookId=='b','page change reused a stale progress-filtered list')
+    Popup.close(view)
+    expect(host.shelf_view==replacement,'deferred progress replaced a newer shelf view')
+    host.shelf_filters,host.bookMatchesFilters=former_filters,former_match
+end
 host.prepareShelfProgress=nil;host.refreshVisibleShelfProgress=nil
 local authors={
     {bookId='missing-pin',title='Pinned without author',isTop=1},

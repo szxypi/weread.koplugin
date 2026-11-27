@@ -840,12 +840,14 @@ function M:showShelfView(mode, keyword, old_view, options)
     if options.prepared_shelf and (prior_owner~=self.shelf_pins_owner or not pin_model.same(prior_pins,self.shelf_pins_state)) then
         options.prepared_shelf,options.scroll_offset,options.rotation_anchor=nil,nil,nil;options.page=1
     end
+    local refilter_progress = old_view and old_view._shelf_progress_filter_dirty
+    if refilter_progress then options.prepared_shelf = nil end
     local local_pins=self.shelf_pins_owner==group_owner(self)
         and pin_model.index(self.shelf_pins_state) or nil
     mode = mode or "books"
     options.mode = mode
     options.keyword = keyword
-    local skip_cover_fetch_once = options.skip_cover_fetch_once == true
+    local skip_cover_fetch_once = options.skip_cover_fetch_once == true and not refilter_progress
     options.skip_cover_fetch_once = nil
     local skip_progress_fetch_once = options.skip_progress_fetch_once == true
     options.skip_progress_fetch_once = nil
@@ -860,8 +862,8 @@ function M:showShelfView(mode, keyword, old_view, options)
     local filters = self.shelf_filters or {}
     local order = shelf_settings.sort_order
     local reading_filter = filters.reading
-    local needs_progress = order == 'progress_asc' or order == 'progress_desc'
-        or reading_filter == 'progress_zero' or reading_filter == 'progress_active'
+    local progress_filtered = reading_filter == 'progress_zero' or reading_filter == 'progress_active'
+    local needs_progress = order == 'progress_asc' or order == 'progress_desc' or progress_filtered
     local needle = ShelfSearch.prepare(keyword)
     local terms = ShelfSearch.terms(needle)
     local progress_by_id
@@ -1056,7 +1058,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         browse_scroll = not paged and first_index and { index = first_index, inset = position.inset } or nil,
         focus_book_index = focus_book_index,
         keyword = keyword,
-        empty_text = mode=='books' and #books==0 and (reading_filter=='progress_zero' or reading_filter=='progress_active')
+        empty_text = mode=='books' and #books==0 and progress_filtered
             and _('No known progress matches. Update all bookshelf progress from the filter menu.') or nil,
         sort_label = self:shelfSortSummary(),
         filter_label = self:shelfFilterSummary(),
@@ -1262,15 +1264,14 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:refreshVisibleShelfProgress(view, progress_books, snapshots, {
                 force = refresh,
                 on_redraw = function()
+                    if not current() then return end
+                    -- A later cover redraw or page change can replace this deferred redraw.
+                    view._shelf_progress_filter_dirty = progress_filtered or nil
                     require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()
                         if not current() or self._book_detail_view then return end
                         local next_options = {}
                         for key, value in pairs(options) do next_options[key] = value end
-                        if reading_filter~='progress_zero' and reading_filter~='progress_active' then
-                            next_options.prepared_shelf = { books = books, accounts = accounts }
-                        else
-                            next_options.prepared_shelf = nil
-                        end
+                        next_options.prepared_shelf = { books = books, accounts = accounts }
                         next_options.page = view.page
                         next_options.scroll_offset = view:getScrollOffset()
                         self:showShelfView(mode, keyword, view, next_options)

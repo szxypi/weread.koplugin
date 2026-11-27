@@ -71,10 +71,33 @@ return function(plugin,mode,pump,evidence)
     plugin:showShelfView('books','合成筛选书 902002');view=plugin.shelf_view
     assert(#view.books==1 and view.books[1].bookId=='902002','search failed within a progress-filtered group')
     assert(#queries==1 and queries[1]=='902002','progress search read unrelated or repeated book records')
+    view.on_sort()
+    local Popup=require('weread.ui.shelf_popup')
+    local dialog=assert(view._shelf_popup)
     assert(db:putShelfProgress({{book_id='902002',percent=0,exact_percent=0,fetched_at=1001}}))
-    local callback=assert(redraw);callback();view=plugin.shelf_view
+    assert(redraw)()
+    local progress_redraw=assert(view._shelf_redraw)
+    local book=view.books[1]
+    book.cover='https://cover.example.invalid/progress-filter.png'
+    local cache=plugin:getShelfCoverCache()
+    assert(cache:_ensureDir())
+    local BB=require('ffi/blitbuffer')
+    local bitmap=BB.new(32,48,BB.TYPE_BB8)
+    bitmap:fill(BB.COLOR_GRAY)
+    local original=cache.dir..'/'..cache:key(book)..'.png'
+    bitmap:writePNG(original);bitmap:free()
+    plugin:fetchVisibleShelfCovers(view,view.books,{mode='books',keyword='合成筛选书 902002',
+        prepared_books=view.books,prepared_accounts={}})
+    pump(function() return not plugin.shelf_cover_job and view._shelf_redraw~=progress_redraw end)
+    local thumbnail=assert(cache:pathFor(book))
+    assert(Popup.current(view,dialog) and plugin.shelf_view==view,
+        'cover completion did not wait behind the open sort menu')
+    Popup.close(view)
+    pump(function() return plugin.shelf_view~=view end)
+    view=plugin.shelf_view
     assert(#view.books==0,'visible progress update failed to refilter the old page')
     assert(view.empty_text and view.empty_text~='','empty filtered view lacks a recovery hint')
+    assert(os.remove(thumbnail));book.cover=nil
     queries={}
     plugin:showShelfView('books','No matching book')
     assert(#plugin.shelf_view.books==0 and #queries==0,'empty search read progress for other books')
