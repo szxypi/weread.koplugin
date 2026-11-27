@@ -79,12 +79,8 @@ function M.prepare(input,reader)
     if not target then result.reason=target_reason;return result end
     if source.identity.book_version>0 and target.identity.book_version>0
         and source.identity.book_version~=target.identity.book_version then return failure('version_mismatch') end
-    local target_scan=Footnotes.scan_links(target.html,{chapterUid=planned.uid})
     if planned.anchor and planned.anchor~='' then
-        local count=0
-        for anchor,number in pairs(target_scan.anchor_counts) do
-            if Links.attribute(anchor)==planned.anchor then count=count+number end
-        end
+        local count=Footnotes.count_link_anchor(target.html,planned.anchor)
         if count~=1 then return failure(count==0 and 'anchor_missing' or 'anchor_ambiguous') end
     end
     result.kind,result.target_path,result.target_file_id='ready',path,target.identity.file_id

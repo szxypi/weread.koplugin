@@ -77,6 +77,15 @@ input,read=fresh(nil,'<p id="another">没有目标</p>')
 expect(Worker.prepare(input,read).reason=='anchor_missing','missing actual target rejected')
 input,read=fresh(nil,'<p id="note">甲</p><p id="note">乙</p>')
 expect(Worker.prepare(input,read).reason=='anchor_ambiguous','duplicate actual target rejected')
+local fake_anchors='<!-- <p id="note">伪锚点</p> --><![CDATA[<p id="note">伪锚点</p>]]>'
+    .. '<SCRIPT><p id="note">伪锚点</p></SCRIPT><STYLE><p id="note">伪锚点</p></STYLE>'
+    .. '<a id="different" name="note">另一个锚点</a>'
+input,read=fresh(nil,fake_anchors)
+expect(Worker.prepare(input,read).reason=='anchor_missing','ignored markup and shadowed names cannot prove the target anchor')
+input,read=fresh(nil,fake_anchors .. [[<a title="甲 > 乙" name='note'>命名锚点</a>]])
+expect(Worker.prepare(input,read).kind=='ready','a single real named anchor with a quoted angle bracket is recognized')
+input,read=fresh(nil,'<p id="note">甲</p><span id="n&#111;te"/>')
+expect(Worker.prepare(input,read).reason=='anchor_ambiguous','literal and entity-encoded IDs both count as matches')
 input,read=fresh();input.native_uri='OEBPS/text/forged.xhtml#note'
 expect(Worker.prepare(input,read).reason=='link_unavailable','URI must occur in the actual source chapter')
 input,read=fresh();input.native_uri='https://example.org/notes.xhtml#note'

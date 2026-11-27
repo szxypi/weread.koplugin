@@ -541,9 +541,11 @@ for _i, tag in ipairs(BLOCK_TAGS) do NOTE_BLOCK_TAGS[tag] = true end
 
 -- Ranges must be balanced, even with quoted '>' or nested same-name tags.
 -- A malformed fragment never authorizes deleting an enclosing body block.
-source_blocks = function(html,wanted_tag)
-    local blocks, anchors, links, images, stack, pos = {}, {}, {}, {}, {}, 1
-    local lower = html:lower()
+-- A single-anchor lookup uses the same markup rules and only counts matches.
+source_blocks = function(html,wanted_tag,target_anchor)
+    local blocks, anchors, links, images, stack
+    if not target_anchor then blocks, anchors, links, images, stack = {}, {}, {}, {}, {} end
+    local count, pos, lower = 0, 1
     while true do
         local first = html:find("<", pos, true)
         if not first then break end
@@ -556,50 +558,65 @@ source_blocks = function(html,wanted_tag)
             if not last then break end
             pos = last + 3
         else
-            local at, quote = first + 1, nil
-            while at <= #html do
-                local char = html:sub(at, at)
-                if quote then if char == quote then quote = nil end
-                elseif char == '"' or char == "'" then quote = char
-                elseif char == ">" then break end
-                at = at + 1
+            local at = html:find("[\"'>]", first + 1)
+            while at do
+                local delimiter = html:sub(at, at)
+                if delimiter == ">" then break end
+                local close = html:find(delimiter, at + 1, true)
+                at = close and html:find("[\"'>]", close + 1)
             end
-            if at > #html then break end
+            if not at then break end
             local raw = html:sub(first, at)
             local closing, tag = raw:match("^<%s*(/?)%s*([%w:_%-]+)")
             tag = tag and tag:lower()
             pos = at + 1
             if tag and closing == "/" then
-                local node = stack[#stack]
-                if node and node.tag == tag then
-                    stack[#stack] = nil
-                    node.close_first, node.last = first, at
-                    if NOTE_BLOCK_TAGS[tag] or tag==wanted_tag then blocks[#blocks + 1] = node end
-                    if tag == "a" then
-                        node.inner = html:sub(node.open_last + 1, first - 1)
-                        links[#links + 1] = node
-                    end
-                else stack = {} end
+                if not target_anchor then
+                    local node = stack[#stack]
+                    if node and node.tag == tag then
+                        stack[#stack] = nil
+                        node.close_first, node.last = first, at
+                        if NOTE_BLOCK_TAGS[tag] or tag==wanted_tag then blocks[#blocks + 1] = node end
+                        if tag == "a" then
+                            node.inner = html:sub(node.open_last + 1, first - 1)
+                            links[#links + 1] = node
+                        end
+                    else stack = {} end
+                end
             elseif tag and (tag == "script" or tag == "style") then
+                lower = lower or html:lower()
                 local _, last = lower:find("</" .. tag .. "%s*>", pos)
                 if not last then break end
                 pos = last + 1
             elseif tag then
-                local node = { first = first, open_last = at, tag = tag,
-                    attrs = raw:match("^<%s*[%w:_%-]+(.-)>$") or "" }
                 local anchor = get_attr(raw, "id") or get_attr(raw, "name")
-                if anchor then
-                    anchors[anchor] = anchors[anchor] or {}
-                    anchors[anchor][#anchors[anchor] + 1] = node
+                if target_anchor then
+                    if anchor and BookLinks.attribute(anchor) == target_anchor then
+                        count = count + 1
+                        if count == 2 then break end
+                    end
+                else
+                    local node = { first = first, open_last = at, tag = tag,
+                        attrs = raw:match("^<%s*[%w:_%-]+(.-)>$") or "" }
+                    if anchor then
+                        anchors[anchor] = anchors[anchor] or {}
+                        anchors[anchor][#anchors[anchor] + 1] = node
+                    end
+                    if VOID_TAGS[tag] or raw:match("/%s*>$") then node.last = at
+                    else stack[#stack + 1] = node end
+                    if tag == "img" then images[#images + 1] = node end
                 end
-                if VOID_TAGS[tag] or raw:match("/%s*>$") then node.last = at
-                else stack[#stack + 1] = node end
-                if tag == "img" then images[#images + 1] = node end
             end
         end
     end
+    if target_anchor then return count end
     table.sort(links, function(a, b) return a.first < b.first end)
     return blocks, anchors, links, images
+end
+
+-- Zero, one and multiple matching anchors have distinct meanings to callers.
+function Footnotes.count_link_anchor(html, expected)
+    return source_blocks(html, nil, expected)
 end
 
 local function rewrite_nodes(html, nodes, transform)
