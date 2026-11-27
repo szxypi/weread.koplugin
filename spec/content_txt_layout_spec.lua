@@ -24,4 +24,9 @@ expect(spaced:find(' ',1,true)~=nil,'long whitespace lacks a line-break opportun
 expect(Content.txt_to_xhtml('literal &amp; <tag>'):find('literal &amp;amp; &lt;tag&gt;',1,true), 'literal markup interpreted')
 local bom=paragraphs(Content.txt_to_xhtml('\239\187\191 Indented'))[1]
 expect(bom=='\239\187\191&#160;Indented','BOM-prefixed indentation collapsed')
+expect(Content.txt_to_xhtml(raw,#xhtml)==xhtml,'rendered text rejected at the byte limit')
+expect(not Content.txt_to_xhtml(raw,#xhtml-1),'rendered paragraphs exceeded the byte limit')
+local whitespace='x'..string.rep(' ',512)..'y'
+expect(not Content.txt_to_xhtml(whitespace,1024),'expanded whitespace exceeded the byte limit')
+expect(not Content.txt_to_xhtml(string.rep('\n',512),1024),'expanded blank lines exceeded the byte limit')
 print(('content_txt_layout_spec: %d checks'):format(checks))

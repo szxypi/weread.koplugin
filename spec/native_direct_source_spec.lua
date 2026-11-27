@@ -25,7 +25,9 @@ package.loaded['weread.lib.native_chapter_remote']={complete=function(_,value,op
     return {xhtml='<p>Native</p>',css='raw-style',assets={{href='images/a.png',data='fixture'}},missing_images=remote_missing and 1 or nil,
         coordinate_source_authoritative=false}
 end}
-package.loaded['weread.lib.content']={sanitize_book_css=function(css) assert(css=='raw-style');return 'safe-style' end}
+local Content=require('weread.lib.content')
+local sanitize=Content.sanitize_book_css
+Content.sanitize_book_css=function(css) return css=='raw-style' and 'safe-style' or sanitize(css) end
 local Direct=require('weread.lib.native_direct_source')
 local expected={book_id='42',chapter_uid='37',book_version=1,reading_catalog_sha256=string.rep('c',64),
     access_fingerprint=selected.fingerprint}
@@ -49,8 +51,21 @@ assert(missing.missing_images==1 and missing.xhtml:find('placeholders',1,true)
 remote_missing=nil
 local remote_before_stale=remote_calls
 source.is_text=true
-local unsupported,format_error=fetch()
-assert(not unsupported and format_error=='unsupported_format' and remote_calls==remote_before_stale)
+local original=source.body
+source.body='\239\187\191\t原文 & <tag>  \r\n\rNext'
+local txt=assert(fetch())
+assert(txt.xhtml:find('&#160;&#160;&#160;&#160;原文 &amp; &lt;tag&gt;&#160;&#160;',1,true)
+    and txt.xhtml:find('<p class="wr-txt-line">&#160;</p>',1,true)
+    and not txt.xhtml:find('\239\187\191',1,true))
+assert(txt.source_sha256==require('weread.lib.crypto').sha256_hex(source.body) and not txt.source_raw
+    and txt.css==Content.TXT_STYLE and #txt.assets==0 and txt.coordinate_source_authoritative==false
+    and txt.missing_images==0 and remote_calls==remote_before_stale)
+for _,invalid in ipairs({'\239\187\191','Invalid \255','Invalid \1','Invalid \239\191\190','Invalid \239\191\191'}) do
+    source.body=invalid
+    local unsupported,format_error=fetch()
+    assert(not unsupported and format_error=='unsupported_format' and remote_calls==remote_before_stale)
+end
+source.body=original
 source.is_text=false
 local changed={};for key,value in pairs(expected) do changed[key]=value end
 changed.reading_catalog_sha256=string.rep('d',64)

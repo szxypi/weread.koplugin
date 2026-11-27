@@ -289,6 +289,19 @@ assert(require('weread.lib.native_direct_path').contains(reader.weread.settings,
 if input.start_unread then
     assert(reader.document:getCurrentPage()==1,'unread book did not open at its first page')
 end
+if input.plain_text then
+    assert(input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
+    local doc=reader.document
+    local xhtml=assert(doc:getDocumentFileContent('OEBPS/text/chapter.xhtml'))
+    assert(xhtml:find('<p class="wr-txt-line">&#160;&#160;&#160;&#160;原文 &amp; &lt;tag&gt;&#160;&#160;</p>\n'
+        ..'<p class="wr-txt-line">&#160;</p>\n<p class="wr-txt-line">Synthetic plain text line 0',1,true))
+    assert(not xhtml:find('\239\187\191',1,true))
+    assert(doc:getDocumentFileContent('OEBPS/style.css'):find('white-space: pre-wrap',1,true))
+    local p='/body/DocFragment[1]/body/p[1]/text().'
+    local quote=doc:getTextFromXPointers(p..'4',p..'14')
+    doc:clearSelection()
+    assert(quote=='原文 & <tag>','KOReader did not render the plain text or preserve its indentation')
+end
 if input.exact_resume then
     stage='cloud_position';pump(function()
         return resume_message~=nil or cloud_xpointer and not reader.weread._native_direct_cloud_open

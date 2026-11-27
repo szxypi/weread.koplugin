@@ -2158,7 +2158,16 @@ function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
     return text
 end
 
-function Content.txt_to_xhtml(text)
+Content.TXT_STYLE = '.wr-txt-line { white-space: pre-wrap; }'
+local TXT_PREFIX = '<?xml version="1.0" encoding="utf-8"?>\n'
+    .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title>'
+    .. '<style type="text/css">' .. Content.TXT_STYLE .. '</style></head>\n<body>\n'
+local TXT_SUFFIX = '\n</body></html>'
+local TXT_PARAGRAPH = '<p class="wr-txt-line">'
+
+function Content.txt_to_xhtml(text, max_bytes)
+    local remaining = max_bytes and max_bytes - #TXT_PREFIX - #TXT_SUFFIX or math.huge
+    if remaining < 0 then return nil end
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
     local parts = {}
     -- Preserve leading/trailing whitespace and empty lines; HTML's default
@@ -2167,29 +2176,35 @@ function Content.txt_to_xhtml(text)
     if text ~= "" then
         if text:sub(-1) ~= "\n" then text = text .. "\n" end
         for line in text:gmatch("(.-)\n") do
+            remaining = remaining - #TXT_PARAGRAPH - #'</p>' - (#parts > 0 and 1 or 0)
+            if #line > remaining then return nil end
             -- CRE's HTML parser collapses whitespace before applying CSS.
             -- Encode indentation and repeated spaces explicitly, keeping a
             -- regular break opportunity within long runs and between words.
             local body = xml_escape(line:gsub("\t", "    "))
+            local blank = line:match("^%s*$") and "&#160;" or ""
+            remaining = remaining - #body - #blank
+            if remaining < 0 then return nil end
             body = body:gsub("()( +)", function(at, spaces)
                 local leading = at == 1 or at == 4 and body:sub(1, 3) == "\239\187\191"
                 local trailing = at + #spaces - 1 == #body
                 if #spaces == 1 and not leading and not trailing then return spaces end
                 local groups, rest = math.floor(#spaces / 8), #spaces % 8
+                local keep_break = rest > 0 and not leading and not trailing
+                local entities = groups * 7 + rest - (keep_break and 1 or 0)
+                remaining = remaining - entities * (#'&#160;' - 1)
+                if remaining < 0 then return nil end
                 local encoded = (string.rep("&#160;", 7) .. " "):rep(groups)
-                if rest > 0 and not leading and not trailing then
+                if keep_break then
                     return encoded .. string.rep("&#160;", rest - 1) .. " "
                 end
                 return encoded .. string.rep("&#160;", rest)
             end)
-            if line:match("^%s*$") then body = body .. "&#160;" end
-            table.insert(parts, '<p class="wr-txt-line">' .. body .. '</p>')
+            if remaining < 0 then return nil end
+            table.insert(parts, TXT_PARAGRAPH .. body .. blank .. '</p>')
         end
     end
-    return '<?xml version="1.0" encoding="utf-8"?>\n'
-        .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title>'
-        .. '<style type="text/css">.wr-txt-line { white-space: pre-wrap; }</style></head>\n'
-        .. '<body>\n' .. table.concat(parts, "\n") .. '\n</body></html>'
+    return TXT_PREFIX .. table.concat(parts, "\n") .. TXT_SUFFIX
 end
 
 function Content.fetch_txt_as_xhtml(client, settings, book, chapter)

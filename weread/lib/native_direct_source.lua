@@ -4,11 +4,24 @@ local Access=require('weread.lib.native_read_access')
 local Source=require('weread.lib.native_chapter_source')
 local Remote=require('weread.lib.native_chapter_remote')
 local Protocol=require('weread.lib.native_position_protocol')
+local Text=require('weread.lib.protocol')
 local Crypto=require('weread.lib.crypto')
 local M={}
+local MAX_XHTML_BYTES=8*1024*1024
+local BOM='\239\187\191'
 
 local function hash(value)
     return type(value)=='string' and #value==64 and value:match('^[0-9a-f]+$')~=nil
+end
+
+local function prepare_text(Content,raw)
+    local text=raw:sub(1,3)==BOM and raw:sub(4) or raw
+    if text=='' or text:find('[%z\1-\8\11\12\14-\31]') or text:find('\239\191[\190\191]')
+        or Text.utf8_substr(text,#text)~=text then return nil end
+    local xhtml=Content.txt_to_xhtml(text,MAX_XHTML_BYTES)
+    if xhtml then
+        return {xhtml=xhtml,css=Content.TXT_STYLE,assets={},coordinate_source_authoritative=false}
+    end
 end
 
 function M.fetch(client,settings,book_id,chapter_uid,expected,options)
@@ -31,9 +44,16 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
         or source.reading_catalog_sha256~=expected.reading_catalog_sha256 then return nil,'catalog_changed' end
     if source.source_channel~='eink' or source.coordinate_source_authoritative~=false
         or type(source.body)~='string' or not hash(source.catalog_sha256) then return nil,'invalid_source' end
-    if source.is_text==true then return nil,'unsupported_format' end
-    local prepared
-    prepared,why=Remote.complete(client,source,{is_current=current,allow_missing_images=options.allow_missing_images==true})
+    local Content=require('weread.lib.content')
+    local prepared,source_raw
+    if source.is_text==true then
+        prepared=prepare_text(Content,source.body)
+        why='unsupported_format'
+        -- Native TXT has no verified XHTML anchor map; only XHTML goes in the resume sidecar.
+    else
+        prepared,why=Remote.complete(client,source,{is_current=current,allow_missing_images=options.allow_missing_images==true})
+        source_raw=source.body
+    end
     if not prepared then return nil,why or 'unavailable' end
     if not current() then return nil,'session_changed' end
     if type(prepared.xhtml)~='string' or type(prepared.css)~='string' or type(prepared.assets)~='table'
@@ -50,11 +70,11 @@ function M.fetch(client,settings,book_id,chapter_uid,expected,options)
         if ending then xhtml=xhtml:sub(1,ending)..banner..xhtml:sub(ending+1)
         else xhtml=banner..xhtml end
     end
-    local css=require('weread.lib.content').sanitize_book_css(prepared.css)
+    local css=Content.sanitize_book_css(prepared.css)
     if not current() then return nil,'session_changed' end
     return {book_id=book_id,chapter_uid=chapter_uid,book_version=source.book_version,
         catalog_sha256=source.catalog_sha256,reading_catalog_sha256=source.reading_catalog_sha256,
-        source_sha256=Crypto.sha256_hex(source.body),source_raw=source.body,xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
+        source_sha256=Crypto.sha256_hex(source.body),source_raw=source_raw,xhtml=xhtml,css=css,assets=prepared.assets,missing_images=missing,
         source_channel='eink',coordinate_source_authoritative=false}
 end
 return M

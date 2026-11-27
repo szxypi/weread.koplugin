@@ -18,9 +18,16 @@ from verify_source_coordinates import FilteredSource
 REPO = Path(__file__).resolve().parent.parent
 fixture.body = lambda uid: '<html><body>' + ''.join(
     f'<p>Chapter {uid}, synthetic paragraph {index} for pagination.</p>' for index in range(100)) + '</body></html>'
+TXT_BODY = ('\ufeff\t原文 & <tag>  \r\n\r' + '\r\n'.join(
+    f'Synthetic plain text line {index} for pagination.' for index in range(100)))
 
 
 class ResumeHandler(fixture.Handler):
+    def chapter_archive(self, uid):
+        if self.server.txt_chapter:
+            return fixture.archive([(f'text/{uid}.txt', TXT_BODY)])
+        return super().chapter_archive(uid)
+
     def dispatch(self):
         target = urlsplit(parse_qs(urlsplit(self.path).query).get('url', [''])[0])
         if (target.hostname, target.path) == ('i.weread.qq.com', '/store/search'):
@@ -83,7 +90,8 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         partial = entry in ('shelf_partial', 'shelf_partial_offline')
         legacy = entry == 'shelf_legacy'
         offline_shelf = entry == 'shelf_partial_offline'
-        unread = entry in ('details_new', 'shelf_new')
+        server.txt_chapter = entry in ('details_txt', 'shelf_txt')
+        unread = server.txt_chapter or entry in ('details_new', 'shelf_new')
         prefer_eink = entry in ('details_preferred', 'shelf_preferred')
         server.cloud_chapter = '38' if prefer_eink or entry in (
             'details', 'details_exact', 'shelf', 'shelf_partial', 'shelf_legacy') else None
@@ -95,8 +103,10 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
             mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid, book_version=1,
-            source_sha256=hashlib.sha256(fixture.body(uid).encode()).hexdigest(),
+            source_sha256=hashlib.sha256((TXT_BODY if server.txt_chapter else fixture.body(uid)).encode()).hexdigest(),
             read_entry=entry.split('_', 1)[0])
+        if server.txt_chapter:
+            payload['plain_text'] = True
         if partial or legacy:
             seed = dict(credentials=payload['credentials'], mock_endpoint=payload['mock_endpoint'],
                         mode='two' if legacy else 'single', plugin_profile=True)
@@ -135,10 +145,13 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         if legacy:
             assert Path(result['path']) == saved and hashlib.sha256(saved.read_bytes()).hexdigest() == epub_sha256
             assert not original.exists()
+        if server.txt_chapter:
+            assert server.image_requests == server.tar_requests == 0
+            assert not Path(result['path']).with_name('native-source.txt').exists()
         expected_reads = 3 if server.exact_resume else 2 if unread else int(server.cloud_chapter is not None)
         assert server.progress_requests == expected_reads
-        if payload['read_entry'] in ('details', 'catalog'):
-            mode = 'detail_catalog_saved' if payload['read_entry'] == 'catalog' else 'detail_read_saved'
+        if payload['read_entry'] in ('details', 'catalog') or server.txt_chapter:
+            mode = {'details': 'detail_read_saved', 'catalog': 'detail_catalog_saved', 'shelf': 'reopen'}[payload['read_entry']]
             offline = dict(mode=mode, path=result['path'])
             child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
                                    input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
@@ -149,6 +162,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
 def run(runtime, read_entries_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), ResumeHandler)
     server.cloud_chapter = None
+    server.txt_chapter = False
     server.exact_resume = False
     server.progress_requests = 0
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -159,8 +173,9 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details_preferred', 'shelf_preferred', 'details', 'details_exact', 'details_new',
-                              'catalog', 'catalog_pending', 'shelf', 'shelf_new', 'shelf_partial', 'shelf_partial_offline', 'shelf_legacy'):
+                for entry in ('details_txt', 'shelf_txt', 'details_preferred', 'shelf_preferred', 'details', 'details_exact',
+                              'details_new', 'catalog', 'catalog_pending', 'shelf', 'shelf_new', 'shelf_partial',
+                              'shelf_partial_offline', 'shelf_legacy'):
                     check_read_entry(runtime, candidate, server, width, height, dpi, entry)
                 server.cloud_chapter = None
                 if read_entries_only:

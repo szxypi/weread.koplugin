@@ -35,6 +35,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.dispatch()
 
+    def chapter_archive(self, uid):
+        color = 'black' if uid == '37' else 'gray'
+        css = ('html,body{font-size:0}' if uid == '37' else '') + f'p{{color:{color}}}'
+        if uid != '39':
+            css += 'p{background:url("' + REMOTE_URL + '")}'
+        return archive([(f'text/{uid}.html', body(uid)), ('style/book.css', css)])
+
     def dispatch(self):
         server = self.server
         server.leaked |= any(key.lower() in ('vid', 'accesstoken', 'cookie') for key in self.headers)
@@ -75,11 +82,7 @@ class Handler(BaseHTTPRequestHandler):
             elif server.resume and uid == '38' and not server.resume_marker.exists():
                 code, data = 429, b'{}'
             elif uid in ('37', '38', '39'):
-                color = 'black' if uid == '37' else 'gray'
-                css = ('html,body{font-size:0}' if uid == '37' else '') + f'p{{color:{color}}}'
-                if uid != '39':
-                    css += 'p{background:url("' + REMOTE_URL + '")}'
-                data = archive([(f'text/{uid}.html', body(uid)), ('style/book.css', css)])
+                data = self.chapter_archive(uid)
                 headers['encryptkey'] = 'vwSvXMONEDngLYTAXw3olg=='
             else:
                 code, data = 400, b''
