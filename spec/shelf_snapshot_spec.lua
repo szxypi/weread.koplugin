@@ -60,6 +60,52 @@ assert(saved and refreshed['12'] and refreshed.CB_Imported and not refreshed['10
 local display=db:getShelfProgress({'10','11','12','13','CB_Imported'})
 assert(display['10'].percent==57 and display['11'].percent==11 and display['12'].exact_percent==7.25
     and display['13'].percent==61 and display.CB_Imported.exact_percent==0,'summary overwrote newer or conflicting progress')
+do
+    local ids, progress = {}, {}
+    for i=1,520 do
+        local id=tostring(200000+i)
+        ids[i]=id
+        progress[i]=summary(id,(i%100)+0.25,190)
+    end
+    local exact_id='9007199254740993'
+    ids[521],ids[522],ids[523],ids[524]='CB_Imported',exact_id,'missing',200001
+    progress[#progress+1]=summary(exact_id,5,190)
+    assert(db:putShelfProgress(progress))
+    local writer=LibraryDB:new(settings)
+    local writable=assert(writer:open())
+    writable:exec("UPDATE shelf_progress SET payload='invalid JSON' WHERE book_id='200519'")
+    writable:close()
+    local old_open,opens,queries,committed=db.openRead,0,0,false
+    function db:openRead()
+        opens=opens+1
+        local reader=assert(old_open(self))
+        local prepare=reader.prepare
+        reader.prepare=function(read_connection,query)
+            local stmt=prepare(read_connection,query)
+            if query:find('FROM shelf_progress',1,true) then
+                local bind=stmt.bind
+                stmt.bind=function(statement,...)
+                    queries=queries+1
+                    if queries==2 then
+                        committed=writer:putShelfProgress({summary('200520',99,240)})
+                        assert(committed,'concurrent progress write failed')
+                    end
+                    return bind(statement,...)
+                end
+            end
+            return stmt
+        end
+        return reader
+    end
+    local history=db:getShelfProgress(ids)
+    db.openRead=old_open
+    assert(committed and opens==1 and queries==3,'full shelf progress did not use bounded queries on one connection')
+    assert(history['200520'].exact_percent==20.25 and db:getShelfProgress({'200520'})['200520'].exact_percent==99,
+        'a concurrent update mixed progress generations or disappeared on reopen')
+    assert(not history['200519'] and not history.missing and history.CB_Imported.exact_percent==0
+        and history[exact_id].exact_percent==5 and history['200001'].exact_percent==1.25,
+        'batch read lost exact identities, known zero or valid siblings of unavailable progress')
+end
 local numeric_book={bookId=100000000000001,title='Exact'}
 local numeric_archives={{archiveId=100000000000002,name='Exact group',bookIds={100000000000001}}}
 assert(db:cacheShelf({numeric_book},numeric_archives),'numeric shelf did not save')

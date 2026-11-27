@@ -488,18 +488,44 @@ function LibraryDB:deleteProfileStateIf(name, expected)
     return ok and removed==true
 end
 
+local PROGRESS_QUERY_BATCH = 256
+
 function LibraryDB:getShelfProgress(ids)
     local result = {}
     if type(ids) ~= "table" or #ids == 0 then return result end
     local db = self:openRead()
     if not db then return result end
-    local stmt
-    local ok = pcall(function()
-        stmt = db:prepare("SELECT payload FROM shelf_progress WHERE book_id=?")
-        for _, id in ipairs(ids) do
-            local row = stmt:reset():bind(tostring(id)):step()
-            if row then result[tostring(id)] = decode(row[1]) end
+    local stmt, statement_size
+    local function read_batch(batch)
+        if statement_size ~= #batch then
+            close_statement(stmt)
+            stmt = nil
+            -- Keep the number of parameters bounded on older SQLite builds.
+            local placeholders = string.rep('?,', #batch - 1) .. '?'
+            stmt = db:prepare('SELECT book_id, payload FROM shelf_progress WHERE book_id IN (' .. placeholders .. ')')
+            statement_size = #batch
         end
+        local row = stmt:reset():bind(unpack(batch)):step()
+        while row do
+            result[row[1]] = decode(row[2])
+            row = stmt:step()
+        end
+    end
+    local ok = pcall(function()
+        -- All batches must see the same progress when a refresh writes in
+        -- parallel. A single SELECT already has a consistent read snapshot.
+        local multi_batch = #ids > PROGRESS_QUERY_BATCH
+        if multi_batch then db:exec('BEGIN') end
+        local batch = {}
+        for _, id in ipairs(ids) do
+            batch[#batch + 1] = tostring(id)
+            if #batch == PROGRESS_QUERY_BATCH then
+                read_batch(batch)
+                batch = {}
+            end
+        end
+        if #batch > 0 then read_batch(batch) end
+        if multi_batch then db:exec('COMMIT') end
     end)
     close_statement(stmt)
     pcall(function() db:close() end)
