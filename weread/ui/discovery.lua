@@ -181,8 +181,10 @@ function M:showDiscoveryPage(tab, books, options)
     view._discovery_current = current
     view._finish_current = current
     local function return_to_page(current_books)
+        local position=view_position(view)
         options.page=view.page
-        options.focus_book_id=not options.on_return and view:getFocusedBookId() or nil
+        options.focus_book_id=not options.on_return and position.focus or nil
+        options.rotation_anchor=not options.on_return and position.anchor or nil
         local function render()
             if options.on_return then options.on_return(view.page)
             else self:showDiscoveryPage(tab,current_books,options) end

@@ -95,6 +95,62 @@ local ok,reason=pcall(function()
     report.phase='external_store';view=external(Screen.DEVICE_ROTATED_UPRIGHT)
     expect(view._discovery_tab=='store' and plugin.discovery_state.keyword=='合成')
     Screen:shot(assert(os.getenv('WEREAD_ROTATION_SHOTS'))..'/store-portrait.png')
+    report.phase='detail';plugin:showHome();view=assert(plugin.shelf_view)
+    view.on_page_changed(2);view=assert(plugin.shelf_view)
+    local chosen=assert(view:getVisibleBooks()[2]);local id=tostring(chosen.bookId or chosen.book_id)
+    local Focus=require('ui/widget/focusmanager')
+    for row_index,row in ipairs(view.layout) do
+        for column_index,widget in ipairs(row) do
+            if widget==view._item_rows[2] then view:moveFocusTo(column_index,row_index,Focus.FORCED_FOCUS) end
+        end
+    end
+    expect(view:getFocusedBookId()==id)
+    local detail=assert(plugin:showBookMenu({book_id=id,title=chosen.title,author=chosen.author,
+        intro=string.rep('合成简介用于核对旋转后内容仍可浏览。',140),chapters={}}))
+    UI:forceRePaint()
+    local action=assert(detail._footer_actions[2]);local focus_row=#detail.layout
+    expect(detail:moveFocusTo(2,focus_row,Focus.FORCED_FOCUS))
+    detail._nav_scroll:setScrolledOffset{x=0,y=100}
+    local dialog=require('ui/widget/buttondialog'):new{title='合成提示',buttons={{{text='关闭'}}}}
+    UI:show(dialog)
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_CLOCKWISE))
+    local detail_deadline=socket.gettime()+5
+    while detail.screen_w~=Screen:getWidth() or detail.screen_h~=Screen:getHeight() do
+        assert(socket.gettime()<detail_deadline,'detail did not reflow')
+        UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
+    end
+    expect(plugin._book_detail_view==detail and UI:getTopmostVisibleWidget()==dialog)
+    expect(detail._footer_actions[2]~=action and detail._footer_actions[2].callback==action.callback)
+    expect(detail.selected.x==2 and detail.selected.y==focus_row and detail:getFocusItem().frame.invert)
+    expect(detail._nav_scroll:getScrolledOffset().y==100)
+    UI:close(dialog);UI:forceRePaint()
+    local laid_out=detail._nav_scroll
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE))
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    expect(detail._nav_scroll==laid_out and detail._nav_scroll:getScrolledOffset().y==100)
+    detail:onClose()
+    local returned=assert(plugin.shelf_view)
+    expect(not plugin._book_detail_view and returned~=view and returned:getFocusedBookId()==id
+        and returned.screen_w==Screen:getWidth() and returned.screen_h==Screen:getHeight())
+    report.phase='close_detail_rotation';view=external(Screen.DEVICE_ROTATED_UPRIGHT)
+    view.on_page_changed(view.page_count);view=assert(plugin.shelf_view)
+    local anchor=(view.page-1)*view.page_size+1
+    for row_index,row in ipairs(view.layout) do
+        for column_index,widget in ipairs(row) do
+            if widget==view._navigation_buttons[1] then view:moveFocusTo(column_index,row_index,Focus.FORCED_FOCUS) end
+        end
+    end
+    expect(not view:getFocusedBookId())
+    detail=assert(plugin:showBookMenu({book_id=id,title=chosen.title,author=chosen.author,chapters={}}))
+    local original_width=detail.screen_w
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_CLOCKWISE))
+    expect(detail._rotation_task)
+    detail:onClose()
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    returned=assert(plugin.shelf_view)
+    expect(detail.screen_w==original_width and not detail._rotation_task and not plugin._book_detail_view)
+    expect((returned.page-1)*returned.page_size+1<=anchor and returned.page*returned.page_size>=anchor)
+    external(Screen.DEVICE_ROTATED_UPRIGHT)
     plugin:showHome();view=assert(plugin.shelf_view);plugin:showHomeQuickSettings()
     menu=assert(plugin._home_controls_menu);expect(UI:getTopmostVisibleWidget()==menu)
     report.phase='popup';UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_CLOCKWISE))

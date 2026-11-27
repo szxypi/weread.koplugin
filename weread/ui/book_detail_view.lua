@@ -301,7 +301,7 @@ function BookDetailView:content()
     return content
 end
 
-function BookDetailView:init()
+function BookDetailView:buildLayout()
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
     self.dimen = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
@@ -309,7 +309,6 @@ function BookDetailView:init()
     self.outer_margin = Size.padding.large
     self.content_width = self.screen_w - 2 * self.outer_margin
         - 3 * Screen:scaleBySize(6)
-    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
 
     self.title_bar = TitleBar:new{
         width = self.screen_w,
@@ -351,8 +350,6 @@ function BookDetailView:init()
         outside_scroll[footer_action] = true
     end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
-    -- The footer holds the primary actions (download / chapter list / read).
-    FocusNav.initialFocus(self, 1, #rows)
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = 0, padding = 0, margin = 0,
@@ -361,12 +358,50 @@ function BookDetailView:init()
     }
 end
 
+function BookDetailView:init()
+    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    self:buildLayout()
+    -- The footer holds the primary actions (download / chapter list / read).
+    FocusNav.initialFocus(self, 1, #self.layout)
+end
+
 function BookDetailView:onShow()
     UIManager:setDirty(self, function() return "ui", self.dimen end)
     return true
 end
 
+function BookDetailView:onSetRotationMode()
+    if self._detail_closed or self._rotation_task then return false end
+    -- The file manager updates the screen after broadcasting the rotation.
+    self._rotation_task = function()
+        self._rotation_task = nil
+        if self._detail_closed or self.screen_w == Screen:getWidth() and self.screen_h == Screen:getHeight() then return end
+        local x, y = self.selected.x, self.selected.y
+        local focused = self:getFocusItem()
+        local highlighted = focused and focused.frame and focused.frame.invert
+        local offset = self._nav_scroll:getScrolledOffset()
+        self._nav_scroll:reset()
+        self:clear()
+        self:buildLayout()
+        if offset.x > 0 or offset.y > 0 then
+            local scroll = self._nav_scroll
+            scroll:initState()
+            scroll:setScrolledOffset{
+                x = math.min(offset.x, scroll._max_scroll_offset_x),
+                y = math.min(offset.y, scroll._max_scroll_offset_y),
+            }
+        end
+        if highlighted then self:moveFocusTo(x, y, FocusManager.FORCED_FOCUS)
+        else FocusNav.initialFocus(self, x, y) end
+        self:onShow()
+    end
+    UIManager:nextTick(self._rotation_task)
+    return false
+end
+
 function BookDetailView:onCloseWidget()
+    self._detail_closed = true
+    if self._rotation_task then UIManager:unschedule(self._rotation_task); self._rotation_task = nil end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
     if self.on_close then self.on_close() end
 end
