@@ -1,7 +1,7 @@
 -- Small device-wide layout preferences. Account data remains in LibraryDB.
 local M = { HEIGHTS = { status = 28, summary = 54, shortcuts = 54, recent_label = 28 } }
 M.SECTIONS = { "status", "summary", "shortcuts", "recent" }
-M.SHORTCUTS = { "shelf", "store", "search", "profile", "notebooks", "settings", "refresh" }
+M.SHORTCUTS = { "shelf", "store", "search", "profile", "notebooks", "downloads", "settings", "refresh" }
 local defaults = { "shelf", "store", "search", "settings" }
 
 local function ordered(values, allowed, fallback, append, maximum)

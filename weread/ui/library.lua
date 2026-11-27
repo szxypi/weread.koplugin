@@ -206,6 +206,8 @@ function M:closeWeReadUI()
     if offline_changes then offline_changes.cancel(self) end
     local saved_searches=package.loaded['weread.ui.saved_searches']
     if saved_searches then saved_searches.cancel(self) end
+    local downloads=package.loaded['weread.ui.download_library']
+    if downloads then downloads.cancel(self) end
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     local selection=package.loaded['weread.ui.selection_thought']
     if selection then selection.cancel(self) end

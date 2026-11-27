@@ -332,10 +332,19 @@ if not reopen then
     path=assert(Content.save_book_epub(settings,book,chapters,{['1']=body},'home-recent',{},nil,nil,Identity.capture(book),source))
     book.cached_full_book=path;book.cached_file=path;book.cached_chapters['1']=path
     assert(Content.save_catalog_cache(plugin.client,settings,book,chapters))
-    local books=settings:get('books',{});books[id]=book
+    local books=plugin.settings:get('books',{});books[id]=book
     books['900098']={book_id='900098',title='其他账号',recent_read_at=os.time()+10,recent_read_account='other-owner'}
     books['900097']={book_id='900097',title='其他账号资料',recent_read_at=os.time()+20,recent_read_account=account,_library_account_key='other-owner'}
-    settings:set('books',books);settings:flush()
+    local foreign_dir=plugin.settings.cache_dir..'/900097'
+    assert(require('util').makePath(foreign_dir))
+    local foreign_path=foreign_dir..'/foreign-cache.epub'
+    local foreign=assert(io.open(foreign_path,'wb'));assert(foreign:write('Synthetic foreign cache'));assert(foreign:close())
+    books['900097'].cached_file=foreign_path
+    local shelf_book={book_id='900001',bookVersion=1,title='合成书架',author='不同作者',chapters=chapters}
+    shelf_book.cached_full_book=assert(Content.save_book_epub(settings,shelf_book,chapters,{['1']=body},'shelf-download',{},nil,nil,
+        Identity.capture(shelf_book),{['1']=assert(Source.capture(shelf_book,chapters[1],body,'web_xhtml'))}))
+    books['900001']=shelf_book
+    plugin.settings:set('books',books);plugin.settings:flush()
     assert(plugin.library_db:cacheShelf({{bookId='900001',title='合成书架',readUpdateTime=1}},{}))
     plugin:showHome();assert(#plugin.shelf_view.books==1,'unread off-shelf book appeared')
     plugin:closeWeReadUI();plugin:showBookRecord(book,{verified_metadata=true})
@@ -371,6 +380,48 @@ pump(function() return reader.weread.progress_sync.current_book_id==id end)
 assert(reader.document:isXPointerInCurrentPage(xpointer),'home selection lost the saved page')
 close_reader();plugin=host()
 assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()[1].bookId=='900001','reading altered cloud shelf')
+plugin:showHome()
+plugin:showHomeQuickSettings()
+local tr=require('weread.lib.plugin_util').tr
+local quick=assert(plugin._home_controls_menu)
+local opened_downloads
+for _,item in ipairs(quick.item_table) do
+    if item.text==tr('Downloaded books') then item.callback();opened_downloads=true;break end
+end
+assert(opened_downloads and plugin._download_library_job and plugin._download_library_job.worker.job)
+pump(function() return plugin.shelf_view and plugin.shelf_view._discovery_tab=='downloads' end)
+local downloads=plugin.shelf_view
+local downloaded, ids={},{}
+for _,row in ipairs(downloads.books) do downloaded[row.bookId]=true;ids[#ids+1]=row.bookId;assert(row._cached) end
+assert(#downloads.books==2 and downloaded['900001'] and downloaded[id], 'unexpected synthetic downloads: '..table.concat(ids,','))
+downloads.on_search()
+local query=assert(downloads._shelf_popup);query:setInputText('合成作者');query.buttons[1][2].callback()
+downloads=assert(plugin.shelf_view)
+assert(#downloads.books==1 and downloads.books[1].bookId==id,'download search missed the off-shelf book')
+UI:forceRePaint();Device.screen:shot(evidence..'/downloaded-books.png')
+downloads.on_select(downloads.books[1]);assert(plugin._book_detail_view):onClose()
+pump(function() return plugin.shelf_view and plugin.shelf_view~=downloads and plugin.shelf_view._discovery_tab=='downloads' end)
+downloads=plugin.shelf_view
+assert(#downloads.books==1 and downloads.books[1].bookId==id,'return from details lost the downloaded search')
+downloads.on_select(downloads.books[1]);press(assert(plugin._book_detail_view),'▤ Read')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
+assert(Reader.instance.document:isXPointerInCurrentPage(xpointer),'download selection lost the saved page')
+close_reader();plugin=host()
+require('weread.ui.download_library').show(plugin)
+local previous_job=assert(plugin._download_library_job)
+plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
+    cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+plugin:onWeReadAccountChanged()
+assert(not previous_job.worker.job and not plugin._download_library_job,'account change did not stop the old download scan')
+require('weread.ui.download_library').show(plugin)
+pump(function() return plugin.shelf_view and plugin.shelf_view._discovery_tab=='downloads' end)
+assert(#plugin.shelf_view.books==0,'another account saw a private off-shelf download')
+plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
+    cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
+plugin:onWeReadAccountChanged()
+assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()[1].bookId=='900001',
+    'downloaded list altered cloud shelf membership')
+print('PASS: downloaded books, offline search and open, account isolation')
 assert(requests[0]==0,'local home attempted network')
 print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,
     account_isolation=true,shelf_unchanged=true,saved_page=true,requests=0}))

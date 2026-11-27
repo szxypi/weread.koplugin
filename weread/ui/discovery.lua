@@ -38,11 +38,13 @@ function M:showDiscoveryPage(tab, books, options)
     if previous and previous._finish_dirty and previous._finish_current and previous._finish_current()
         and not require('weread.ui.finish_offline').reconcile_view(self,previous) then carry_dirty=previous._finish_dirty end
     local home = options.home
+    local downloads = tab == 'downloads'
     local show_reason=false
     if tab=='store' then for _,book in ipairs(books) do
         if type(book.reason)=='string' and book.reason~='' then show_reason=true;break end
     end end
     local cover_mode = not home or home.view_mode ~= "list"
+    if downloads then cover_mode = self.settings:get('shelf').view_mode == 'cover' end
     local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home, store = tab=='store' })
     local target_page=options.rotation_anchor and math.floor((options.rotation_anchor-1)/layout.page_size)+1 or options.page or 1
     options.rotation_anchor=nil
@@ -50,11 +52,11 @@ function M:showDiscoveryPage(tab, books, options)
     options.page=page
     local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
-    local saved, downloaded = self.settings:get("books", {}), {}
+    local saved, downloaded = not downloads and self.settings:get("books", {}) or nil, {}
     for index = (page - 1) * layout.page_size + 1, math.min(#books, page * layout.page_size) do
         local book = books[index]
         cover_paths[book] = cache:pathFor(book)
-        book._cached = self:isBookDownloaded(book, saved, downloaded)
+        if not downloads then book._cached = self:isBookDownloaded(book, saved, downloaded) end
         visible[#visible + 1] = book
     end
     local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
@@ -83,12 +85,15 @@ function M:showDiscoveryPage(tab, books, options)
         page_size = layout.page_size, cover_columns = layout.columns,
         cover_rows = layout.rows, cover_paths = cover_paths,
     }, {
-        on_search = Scope.guard(current, function() self:showDiscoverySearch() end),
-        on_refresh = Scope.guard(current, options.on_refresh),
+        on_search = Scope.guard(current, function()
+            if options.on_search then options.on_search(view, current) else self:showDiscoverySearch() end
+        end),
+        on_refresh = Scope.guard(current, downloads and function() options.on_refresh(view.page) end or options.on_refresh),
         on_settings = home and Scope.guard(current, function() self:showHomeQuickSettings() end) or nil,
         on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
         on_select = Scope.guard(current, function(book)
-            if tab == "home" then
+            if options.on_select then options.on_select(book)
+            elseif tab == "home" then
                 local saved_books=self.settings:get("books", {})
                 local id=ShelfSnapshot.persisted_id(book)
                 local stored=id and ReadAccess.cached_book(saved_books,id)
@@ -100,7 +105,7 @@ function M:showDiscoveryPage(tab, books, options)
                 else self:showBookRecord(book) end
             else self:showBookRecord(book) end
         end),
-        on_hold = Scope.guard(current, function(book)
+        on_hold = not downloads and Scope.guard(current, function(book)
             require('weread.ui.book_quick_actions').open(self, view, book, current)
         end),
         on_page_changed = redraw,
@@ -134,7 +139,8 @@ function M:showDiscoveryPage(tab, books, options)
                 self.library_db and self.library_db:accountKey(),prefs.recent_limit)
         end
         require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
-            options.page=view.page;self:showDiscoveryPage(tab,updated,options)
+            if options.on_return then options.on_return(view.page)
+            else options.page=view.page;self:showDiscoveryPage(tab,updated,options) end
         end)
     end
     view._finish_redraw = function()
@@ -154,7 +160,7 @@ function M:showDiscoveryPage(tab, books, options)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
                 options.page = view.page
-                self:showDiscoveryPage(tab, books, options)
+                if options.on_return then options.on_return(view.page) else self:showDiscoveryPage(tab, books, options) end
             end
         end
     end
@@ -168,7 +174,7 @@ function M:showDiscoveryPage(tab, books, options)
             end,
         })
     elseif self.cancelShelfProgress then self:cancelShelfProgress() end
-    if cover_mode then self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw }) end
+    if cover_mode and not downloads then self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw }) end
 end
 
 function M:recordRecentReading(book_id)
