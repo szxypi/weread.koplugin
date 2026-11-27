@@ -475,6 +475,35 @@ expect(downloaded['book/42']._library_account_key==owner_b and not downloaded['5
     and downloaded['52'].cached_chapters['7']==chapter_path,
     'download listing borrowed the first account checkpoint or lost the shared cache path')
 indexes['book/42'],indexes['54']=nil,nil
+
+active=owner_a
+expect(BookStore.patch_reading(scoped,'52',current_home,{pending_upload_account=owner_a,
+    pending_upload_position={book_id='52',percent=0.3}}), 'could not prepare fractional pending progress')
+expect(BookStore.patch_reading(settings,'51',legacy_home,{pending_upload_position={book_id='51',percent=18}}),
+    'could not prepare legacy pending progress')
+local without_pending=0
+rawset(io,'open',function(path,...)
+    expect(not path:match('/articles%.json$'), 'progress preparation opened an article cache')
+    if path:sub(1,#numeric.cache_dir+1)==numeric.cache_dir..'/' then
+        expect(path:match('/reading_state%.json$'), 'a checkpoint without pending progress loaded metadata')
+        without_pending=without_pending+1
+    end
+    return original_open(path,...)
+end)
+local local_progress=BookStore.load_pending_progress(scoped,'52',current_home,owner_a)
+local legacy_progress=BookStore.load_pending_progress(scoped,'51',legacy_home,owner_a)
+local none=BookStore.load_pending_progress(scoped,53,numeric,owner_a)
+rawset(io,'open',original_open)
+local display=require('weread.lib.shelf_progress').display
+local value,is_local,exact=display(local_progress,nil,owner_a,'52')
+expect(value==0 and is_local and exact==0.3 and not local_progress.title and not local_progress.mp_articles,
+    'progress preparation lost precise pending progress or loaded unrelated book data')
+expect(display(legacy_progress,nil,owner_a,'51')==18 and not none and without_pending==1,
+    'progress preparation lost legacy state or loaded display data without pending progress')
+active=owner_b
+expect(not BookStore.load_pending_progress(scoped,'51',legacy_home,owner_b)
+    and not BookStore.load_pending_progress(scoped,'book/42',index,owner_b),
+    'another account or a damaged checkpoint inherited legacy pending progress')
 for _,record in pairs(indexes) do
     local directory=record.cache_dir
     os.remove(directory..'/.weread-accounts/'..owner_a..'/reading_state.json')

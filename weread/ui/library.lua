@@ -899,7 +899,10 @@ function M:showShelfView(mode, keyword, old_view, options)
                 end
                 source, query = matches, nil
             end
-            progress_by_id = self:prepareShelfProgress(source, saved_books)
+            -- Reuse full records when another filter or sort already needs
+            -- them. Otherwise only visible rows will need full book metadata.
+            local needs_records = filters.download or order == 'time_asc' or order == 'time_desc'
+            progress_by_id = self:prepareShelfProgress(source, needs_records and saved_books or nil)
         end
         local result = {}
         for _, book in ipairs(source) do

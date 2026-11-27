@@ -287,10 +287,9 @@ function Settings:download_books()
     return BookStore.download_books(self,self:get_book_indexes() or {})
 end
 
--- Load only the records needed by one view update. Retain the stored key
--- when loading a legacy numeric index.
-function Settings:book_lookup()
-    local indexes = self:get_book_indexes() or {}
+-- Retain the stored key when loading a legacy numeric index.
+local function indexed_book_lookup(settings, load_book, scope)
+    local indexes = settings:get_book_indexes() or {}
     local loaded = {}
     local cached_key = require("weread.lib.read_access").cached_key
     return function(id)
@@ -299,10 +298,18 @@ function Settings:book_lookup()
         local index = cached_key(indexes, id)
         if index == nil then return nil end
         local key = indexes[id] ~= nil and id or tonumber(id)
-        book = BookStore.load(self, key, index)
+        book = load_book(settings, key, index, scope)
         loaded[id] = book
         return book
     end
+end
+
+function Settings:book_lookup()
+    return indexed_book_lookup(self, BookStore.load)
+end
+
+function Settings:pending_progress_lookup()
+    return indexed_book_lookup(self, BookStore.load_pending_progress, self:account_state_scope())
 end
 
 function Settings:find_book_by_file(path)

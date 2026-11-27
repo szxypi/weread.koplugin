@@ -215,10 +215,15 @@ local function legacy_state(dir,metadata,scope)
     return require('weread.lib.account_book_state').legacy(metadata,legacy,reading_fields,scope)
 end
 
-local function scoped_state(dir,metadata,path,scope)
+local function read_scoped_state(path)
     local state=read_json(path)
-    if state then return state end
-    if exists(path) then return nil,'invalid account reading state' end
+    if not state and exists(path) then return nil,'invalid account reading state' end
+    return state
+end
+
+local function scoped_state(dir,metadata,path,scope)
+    local state,err=read_scoped_state(path)
+    if state or err then return state,err end
     return legacy_state(dir,metadata,scope)
 end
 
@@ -262,6 +267,36 @@ function BookStore.load(settings, book_id, index)
     merge(book, read_json(dir .. "/articles.json"))
     book.book_id = book.book_id or book.bookId or tostring(book_id)
     book.cache_dir = dir
+    return book
+end
+
+local progress_fields = {'book_id', 'bookId', 'recent_read_account', 'pending_upload_account', 'pending_upload_position'}
+
+-- Shelf progress can use the cloud snapshot without hydrating a local book
+-- whose current account checkpoint has no pending upload.
+function BookStore.load_pending_progress(settings, book_id, index, known_scope)
+    local dir = resolved_dir(settings, book_id, index)
+    local path, scope = scoped_path(settings, dir, known_scope)
+    if path == false then return end
+    local state
+    if path then
+        local err
+        state, err = read_scoped_state(path)
+        if err or state and type(state.pending_upload_position) ~= 'table' then return end
+    else
+        state = read_json(dir .. '/reading_state.json')
+    end
+    local metadata = read_json(dir .. '/metadata.json')
+    local book = {}
+    merge_fields(book, index, progress_fields)
+    merge_fields(book, metadata, progress_fields)
+    if path then
+        book.pending_upload_account, book.pending_upload_position = nil, nil
+        if not state then state = legacy_state(dir, metadata, scope) end
+    end
+    merge_fields(book, state, progress_fields)
+    if type(book.pending_upload_position) ~= 'table' then return end
+    book.book_id = book.book_id or book.bookId or tostring(book_id)
     return book
 end
 

@@ -37,10 +37,8 @@ local local_settings={data_dir=evidence,get=function(_,key,default)
     return default
 end}
 plugin.library_db=require('weread.lib.library_db'):new(local_settings)
-local owner=assert(plugin.library_db:accountKey())
-plugin.settings.book_lookup=function()
-    return {['901001']={book_id='901001',pending_upload_account=owner,
-        pending_upload_position={book_id='901001',percent=90}}}
+plugin.settings.get_book_indexes=function()
+    return {['901001']={cache_dir=evidence..'/progress-sort-book'}}
 end
 local books={}
 for i=1,26 do books[i]={bookId=tostring(901000+i),title='合成进度书 '..i,isTop=i==7 and 1 or 0} end

@@ -17,7 +17,8 @@ function M:prepareShelfProgress(books,saved_books)
         local snapshot=type(raw)=='table' and raw[id]
         if type(snapshot)=='table' and Identity.persisted_identity(snapshot.book_id)==id then snapshots[id]=snapshot end
     end
-    local saved = saved_books or Access.book_lookup(self.settings)
+    local saved = saved_books or self.settings.pending_progress_lookup and self.settings:pending_progress_lookup()
+        or Access.book_lookup(self.settings)
     local account = self.library_db and self.library_db:accountKey()
     for _, book in ipairs(books) do
         local id = Identity.persisted_id(book)

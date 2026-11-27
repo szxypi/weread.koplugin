@@ -1,7 +1,7 @@
 -- Synthetic, offline native filter tests with real account-scoped SQLite.
 return function(plugin,mode,pump,evidence)
     local UI=require('ui/uimanager')
-    local old_db,old_lookup=plugin.library_db,plugin.settings.book_lookup
+    local old_db,old_indexes=plugin.library_db,plugin.settings.get_book_indexes
     local old_filters=plugin.shelf_filters
     local old_refresh,old_notice=plugin.refreshVisibleShelfProgress,plugin.showTransientInfo
     local shelf=plugin.settings:get('shelf')
@@ -31,9 +31,15 @@ return function(plugin,mode,pump,evidence)
         assert(db:putShelfProgress({{book_id='902002',percent=0,exact_percent=0,fetched_at=1000}}))
         vid='progress-filter-account-a'
     end
-    local saved={['902008']={book_id='902008',pending_upload_account=owner,
-        pending_upload_position={book_id='902008',percent=0.3}}}
-    plugin.settings.book_lookup=function() return saved end
+    local dir=evidence..'/progress-filter-book'
+    local cached=dir..'/cached.epub'
+    if mode=='live' then
+        assert(require('weread.lib.book_store').save(plugin.settings,'902008',{book_id='902008',cache_dir=dir,
+            cached_file=cached,
+            pending_upload_account=owner,pending_upload_position={book_id='902008',percent=0.3}}))
+        local file=assert(io.open(cached,'wb'));assert(file:write('Synthetic download'));assert(file:close())
+    end
+    plugin.settings.get_book_indexes=function() return {['902008']={cache_dir=dir}} end
     local redraw,notices
     plugin.refreshVisibleShelfProgress=function(_,_,_,_,options) redraw=options.on_redraw end
     plugin.showTransientInfo=function() notices=(notices or 0)+1 end
@@ -60,6 +66,11 @@ return function(plugin,mode,pump,evidence)
         'fractional progress is not labelled correctly on covers')
     UI:forceRePaint()
     if mode=='live' then require('device').screen:shot(evidence..'/progress-filter-reading.png') end
+    plugin.shelf_filters.download='downloaded';plugin:showShelfView('books')
+    view=plugin.shelf_view
+    assert(#view.books==1 and view.books[1].bookId=='902008' and view.books[1]._cached
+        and view.books[1]._shelf_progress_exact==0.3,'combined filters lost downloaded or pending progress')
+    plugin.shelf_filters.download=nil;plugin:showShelfView('books');view=plugin.shelf_view
     local old=view;old.on_select_group('archive:2');pump(function() return plugin.shelf_view~=old end)
     view=plugin.shelf_view;assert(#view.books==1 and view.books[1].bookId=='902002','group filter lost the fractional book')
     local get_progress=db.getShelfProgress
@@ -137,7 +148,7 @@ return function(plugin,mode,pump,evidence)
     assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1]==second)
     cache_finished(1,1);Finish.refresh_view(plugin,second.bookId)
     assert(#plugin.shelf_view.books==0,'a confirmed finished book remained in the in-progress list')
-    plugin:closeWeReadUI();plugin.settings.book_lookup=old_lookup;plugin.library_db=old_db;plugin.shelf_filters=old_filters
+    plugin:closeWeReadUI();plugin.settings.get_book_indexes=old_indexes;plugin.library_db=old_db;plugin.shelf_filters=old_filters
     plugin.refreshVisibleShelfProgress=old_refresh;plugin.showTransientInfo=old_notice
     shelf=plugin.settings:get('shelf');shelf.sort_order=old_sort;shelf.view_mode=old_view;shelf.paginated=old_paged
     shelf.filter_reading=old_reading;shelf.filter_download=old_download
