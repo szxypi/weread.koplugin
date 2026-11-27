@@ -6,7 +6,8 @@ import io
 import json
 import unittest
 from unittest.mock import Mock,patch
-from bookmark_trial_model import TXT_HASHES,bind,bind_txt,observe,txt_request,validate_plan
+from bookmark_trial_model import bind,bind_txt,observe,txt_request,validate_plan
+from highlight_trial_model import TXT_HASHES
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_highlight_trial import HighlightTrialStore
 from secure_weread_session import StoreError

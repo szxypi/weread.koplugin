@@ -3,27 +3,20 @@ from copy import deepcopy
 import re
 from annotation_experiment_model import digest,valid_key
 from selection_trial_model import validate_plan as selection_plan
-from highlight_trial_model import PendingObservation
+from highlight_trial_model import PendingObservation,validate_txt_plan
 from bookmark_point import project,point_range
-from my_cloud_marks_model import identifier,integer
 from txt_coordinates import PlainSource
 
 PROTOCOL='source-point-bookmark-create-remove-v1'
 NATIVE_PROTOCOL='native-source-point-bookmark-create-remove-v1'
 NATIVE_TXT_PROTOCOL='native-txt-point-bookmark-create-remove-v1'
-TXT_HASHES={key+'_sha256' for key in ('source','catalog','baseline','web_position','grant')}
 
 
 def validate_plan(value,*,native=False):
     if not isinstance(value,dict) or not isinstance(value.get('request_sha256'),str) \
             or not re.fullmatch('[a-f0-9]{64}',value['request_sha256']):raise ValueError('bookmark_trial/plan')
     if native and value.get('protocol')==NATIVE_TXT_PROTOCOL:
-        if (set(value)!={'protocol','owner','book_id','chapter_uid','chapter_idx','request_sha256'}|TXT_HASHES
-                or any(not identifier(value[key]) for key in ('owner','book_id','chapter_uid'))
-                or not integer(value['chapter_idx'],1000000)
-                or any(not isinstance(value[key],str) or not re.fullmatch('[a-f0-9]{64}',value[key]) for key in TXT_HASHES)):
-            raise ValueError('bookmark_trial/txt_plan')
-        return value
+        return validate_txt_plan(value,NATIVE_TXT_PROTOCOL)
     if set(value)!={'protocol','selection','request_sha256'} or value['protocol']!=(NATIVE_PROTOCOL if native else PROTOCOL):
         raise ValueError('bookmark_trial/plan')
     selection_plan(value['selection']);return value

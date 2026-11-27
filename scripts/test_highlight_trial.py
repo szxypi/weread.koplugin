@@ -6,7 +6,7 @@ import json
 import unittest
 from unittest.mock import Mock,patch
 from annotation_experiment_model import digest
-from highlight_trial_model import bind,observe,PendingObservation,validate_plan
+from highlight_trial_model import TXT_HASHES,bind,bind_txt,observe,PendingObservation,txt_request,validate_plan
 from secure_highlight_trial import HighlightTrialStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
@@ -40,6 +40,28 @@ class HighlightTests(unittest.TestCase):
         p,_s,_store,_plan=self.setup_probe();bad=deepcopy(p.bound);bad['protocol']='native-fresh-selection-three-notes-optional-new-mark-cleanup-v1'
         with self.assertRaises(ValueError):validate_plan(bad)
         with self.assertRaises(ValueError):validate_plan(dict(p.bound,extra=True))
+
+    def test_txt_selection_is_utf16_without_bom_and_skips_existing_marks(self):
+        raw='\ufeff已有😀段落的文本用于验证坐标单位。\r\n\t另一段正文保留了英文 <tag> 和 &amp; 字样。\r\n第三段用于验证已有的划线和想法排除。'
+        baseline=dict(marks={'updated':{}},thoughts={})
+        body=txt_request('42','37',raw,baseline)
+        first,last=map(int,body['range'].split('-'))
+        source=raw[1:].encode('utf-16-le')
+        self.assertEqual(source[2*first:2*last].decode('utf-16-le'),body['markText'])
+        self.assertTrue(body['markText'].startswith('另一段'))
+        self.assertEqual(first,raw[1:].index('另一段')+1)
+        for key in ('marks','thoughts'):
+            existing=deepcopy(baseline)
+            rows=existing['marks']['updated'] if key=='marks' else existing[key]
+            rows['original']={'chapterUid':37,'type':1,'range':body['range']}
+            self.assertNotEqual(txt_request('42','37',raw,existing)['range'],body['range'])
+        hashes=dict.fromkeys(TXT_HASHES,'a'*64)
+        bound=bind_txt(dict(hashes,owner='12',book_id='42',chapter_uid='37',chapter_idx=1),body)
+        store=HighlightTrialStore(Backend(),native=True)
+        store.reserve(bound)
+        self.assertEqual(store.read()[0]['plan'],bound)
+        with self.assertRaises(ValueError):validate_plan(bound)
+        with self.assertRaises(ValueError):bind_txt(bound,dict(body,range='01-25'))
 
     def test_exact_new_mark_and_removal(self):
         p,_s,_store,plan=self.setup_probe();added=state(plan,p.body);target=observe(plan.baseline,added,p.body)

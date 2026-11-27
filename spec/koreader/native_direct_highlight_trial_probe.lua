@@ -8,7 +8,7 @@ local json=require('json');local size=assert(tonumber(io.stdin:read('*l')));asse
 local input=json.decode(assert(io.stdin:read(size)));local trial=assert(input.trial)
 local bookmark=trial.bookmark==true
 local txt=input.plain_text==true
-assert(not txt or bookmark and input.book_version==0)
+assert(not txt or input.book_version==0)
 local cfg=not txt and assert(input.selection_preview)
 _G._direct_trial_error_token=trial.rpc_token
 local ffi=require('ffi');local parent=tonumber(ffi.C.getpid())
@@ -105,11 +105,13 @@ if bookmark then
         assert(Selection.open_bookmark(host),'direct bookmark entry unavailable')
     end
 else
-    local matches=assert(reader.document:findAllText(cfg.reference.markText,false,0,3,false,0))
+    local text=txt and trial.create_body.markText or cfg.reference.markText
+    local matches=assert(reader.document:findAllText(text,false,0,3,false,0))
     assert(#matches==1 and matches[1].start and matches[1]['end'])
     local first,last=matches[1].start,matches[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
-    assert(reader.document:getTextFromXPointers(first,last)==cfg.reference.markText)
-    reader.highlight.selected_text={text=cfg.reference.markText,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
+    local selected=reader.document:getTextFromXPointers(first,last)
+    assert(selected==text,'selected native text differs from source')
+    reader.highlight.selected_text={text=selected,pos0=first,pos1=last};reader.highlight:onShowHighlightMenu();UI:forceRePaint()
     assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
 end
 wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
@@ -119,7 +121,7 @@ if txt then
     assert(row.range==trial.create_body.range and row.markText==trial.create_body.markText
         and row.chapterUid==tonumber(input.uid) and row.chapterIdx==input.chapter_idx and row.source.book_id==input.book_id
         and row.source.chapter_uid==input.uid and row.source.raw_sha256==input.source_sha256
-        and row.source.raw_bytes==input.source_bytes,'TXT bookmark differs from the independent raw-source check')
+        and row.source.raw_bytes==input.source_bytes,'TXT mark differs from the independent raw-source check')
 else
     local expected=cfg.reference
     assert(row.range==(bookmark and trial.create_body.range or expected.range)
@@ -163,15 +165,16 @@ if txt then
     Selection.cancel(host);host.checked_message=nil
     local Marks=require('weread.ui.my_cloud_marks')
     host.showMyCloudBookmarks=function(self,id) return Marks.show(self,id,'bookmarks') end
-    assert(require('weread.ui.native_direct_navigation').open_notes(host,'bookmarks'))
+    host.showMyCloudMarks=Marks.show
+    assert(require('weread.ui.native_direct_navigation').open_notes(host,bookmark and 'bookmarks' or 'marks'))
     wait(function() return host._my_marks_owner or host.checked_message~=nil end)
     owner=assert(host._my_marks_owner)
     local selected
     for _,item in ipairs(owner.menu.item_table) do
         if item.my_note_id==target.bookmarkId then selected=item;break end
     end
-    assert(selected,'new TXT bookmark missing from the list').callback()
-    tap('delete_bookmark')
+    assert(selected,'new TXT mark missing from the list').callback()
+    tap(bookmark and 'delete_bookmark' or 'delete_highlight')
     wait(function() return not owner.mark_editor or owner.mark_editor.service.preview end)
     assert(owner.mark_editor and owner.mark_editor.service.preview)
     tap('confirm_highlight_change');wait(function() return not owner.mark_editor end)

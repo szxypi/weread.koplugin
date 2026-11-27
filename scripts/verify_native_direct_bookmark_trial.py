@@ -7,7 +7,7 @@ import resource
 from native_direct_highlight_trial_broker import execute
 from native_direct_cross_bookmark_trial import prepare_origin,verify as verify_cross
 from native_direct_selection_preflight import bind_native_source
-from native_direct_txt_bookmark import TxtBookmarkProbe
+from native_direct_txt_marks import TxtMarkProbe
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_highlight_trial import HighlightTrialStore
 from secure_native_session import NativeSessionStore
@@ -49,7 +49,7 @@ def main(argv=None):
         offset=args.book_offset if args.book_offset is not None else 0 if args.txt else 15
         phase='sample'
         if args.txt:
-            probe=TxtBookmarkProbe();source=probe.prepare(saved,credentials,offset)
+            probe=TxtMarkProbe(bookmark=True);source=probe.prepare(saved,credentials,offset)
         else:
             sample,_,_=ChapterProbe().inspect(credentials,offset)
             probe=NativeBookmarkProbe();probe.source.web.requested_book=sample['book_id']
@@ -81,8 +81,8 @@ def main(argv=None):
         elif 'HTTP 429' in str(error) or str(error)=='chapter/http_429':report['reason']='rate_limited'
         elif str(error) in {'direct_bookmark_trial/other_pending','direct_bookmark_trial/source','native_bookmark/existing',
                 'direct_selection_preflight/chapter','direct_selection_preflight/source',
-                'direct_txt_bookmark/format','direct_txt_bookmark/chapter','direct_txt_bookmark/existing',
-                'direct_txt_bookmark/baseline_changed','direct_txt_bookmark/source_changed','bookmark_trial/txt_preview',
+                'direct_txt_mark/format','direct_txt_mark/chapter','direct_txt_mark/existing',
+                'direct_txt_mark/baseline_changed','direct_txt_mark/source_changed','bookmark_trial/txt_preview',
                 'direct_roundtrip/changed','direct_roundtrip/catalog','direct_roundtrip/source'}:report['reason']=str(error)
         if type(error).__name__ in {'ValueError','PreflightError','ProbeError','StoreError','KeyError','TypeError'}:report['error_type']=type(error).__name__
         try:

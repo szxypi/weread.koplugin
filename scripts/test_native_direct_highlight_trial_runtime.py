@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real KOReader highlight UI against a closed synthetic service."""
 import argparse
+import hashlib
 from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -11,10 +12,10 @@ import threading
 from urllib.parse import parse_qs,urlsplit
 
 from annotation_experiment_model import digest
-from highlight_trial_model import request
+from highlight_trial_model import TXT_HASHES,bind_txt,request,txt_request
 from native_direct_highlight_trial_broker import execute
 from secure_highlight_trial import HighlightTrialStore
-from test_native_direct_position_runtime import Handler,REPO
+from test_native_direct_position_runtime import Handler,REPO,TXT
 from test_native_direct_selection_trial_runtime import Probe as SourceProbe
 from test_secure_native_session import Backend
 
@@ -52,7 +53,15 @@ class Probe:
         self.source.baseline=baseline
         self.source.plan.web_position=dict(chapter='37',offset=10,percent=50)
         context=self.source.payload['selection_preview']['body']
-        self.body=request(context);self.target=None;self.server=server;server.expected=self.body
+        if server.plain_text:
+            self.body=txt_request('42','37',TXT,self.source.plan.baseline)
+            source_hash=hashlib.sha256(TXT.encode()).hexdigest()
+            binding=dict.fromkeys(TXT_HASHES,'b'*64)
+            binding.update(owner='12345678',book_id='42',chapter_uid='37',chapter_idx=1,source_sha256=source_hash)
+            self.source.plan.bound=bind_txt(binding,self.body)
+            self.source.payload['source_raw_sha256']=source_hash
+        else:self.body=request(context)
+        self.target=None;self.server=server;server.expected=self.body
     def current(self):self.source.current()
     def read(self,_credentials,*,deleted=False):
         row=self.server.mark
@@ -63,8 +72,10 @@ class Probe:
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True);args=parser.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
+    parser.add_argument('--txt',action='store_true');args=parser.parse_args()
+    server=ThreadingHTTPServer(('127.0.0.1',0),TrialHandler);server.plain_text=args.txt
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='weread-direct-highlight-test-',dir='/dev/shm') as directory:
             candidate=Path(directory)/'candidate.zip'
@@ -73,8 +84,9 @@ def main():
                 for armed,case in ((False,'normal'),(True,'normal'),(True,'lost_ack'),(True,'no_effect')):
                     server.case=case;server.mode='selection_direct_trial';server.calls=[];server.leaked=False;server.valid=True;server.mark=None;server.review=None
                     probe=Probe(server);store=HighlightTrialStore(Backend(),native=True);report={}
-                    source=dict(book_id='42',uid='37',book_version=1,source_sha256=probe.source.payload['source_raw_sha256'],
+                    source=dict(book_id='42',uid='37',book_version=0 if args.txt else 1,source_sha256=probe.source.payload['source_raw_sha256'],
                         mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                    if args.txt:source.update(plain_text=True,chapter_idx=1,source_bytes=len(TXT.encode()))
                     command=[sys.executable,str(REPO/'scripts/run_native_direct_selection_trial.py'),'--highlight','--koreader',str(args.koreader),
                         '--candidate',str(candidate),'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
                     credentials=probe.source.payload['selection_preview']['credentials']

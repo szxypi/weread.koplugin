@@ -4,7 +4,7 @@ import secrets
 import subprocess
 
 from annotation_experiment_model import digest,valid_key
-from highlight_trial_model import bind_native
+from highlight_trial_model import bind_native,bind_txt as bind_highlight_txt
 from native_trial_pipe import Frames,reply,stop,write_initial
 from verify_owner_reading import reading_position
 from verify_web_source_progress import BASE
@@ -19,13 +19,14 @@ def execute(probe,credentials,store,command,*,source,armed,report,on_final=None,
     txt=source.get('plain_text') is True
     if (source['book_id']!=p.bound['book_id'] or source['uid']!=p.bound['chapter_uid']
             or source['source_sha256']!=selection.payload['source_raw_sha256']
-            or txt and (not bookmark or source['book_version']!=0 or source['chapter_idx']!=p.bound['chapter_idx']
-                or source['source_sha256']!=p.bound['source_sha256'])):raise ValueError('direct_highlight_trial/source')
+            or txt and (source['book_version']!=0 or source['chapter_idx']!=p.bound['chapter_idx']
+                or source['source_sha256']!=p.bound['source_sha256'] or on_created is not None)):
+        raise ValueError('direct_highlight_trial/source')
     selection.baseline(credentials,'direct_highlight_before_launch')
     if bookmark:
         from bookmark_trial_model import bind,bind_txt
         bound=bind_txt(p.bound,probe.body) if txt else bind(p.bound,probe.body,native=True)
-    else:bound=bind_native(p.bound,probe.body)
+    else:bound=bind_highlight_txt(p.bound,probe.body) if txt else bind_native(p.bound,probe.body)
     token=secrets.token_hex(16)
     payload=dict(credentials=credentials,book_id=source['book_id'],uid=source['uid'],book_version=source['book_version'],
         source_sha256=source['source_sha256'],web_cookies=selection.payload['cookies'],

@@ -14,7 +14,8 @@ from urllib.parse import parse_qs,urlsplit
 
 from annotation_experiment_model import digest
 from bookmark_point import first_position
-from bookmark_trial_model import TXT_HASHES,bind_txt,request,txt_request
+from bookmark_trial_model import bind_txt,request,txt_request
+from highlight_trial_model import TXT_HASHES
 from native_direct_highlight_trial_broker import execute
 from native_direct_cross_bookmark_trial import verify as verify_cross
 from secure_bookmark_trial import BookmarkTrialStore
