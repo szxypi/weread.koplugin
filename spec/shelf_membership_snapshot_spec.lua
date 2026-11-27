@@ -55,6 +55,10 @@ do
     local new_books={{bookId='43',title='New list'}}
     local new_groups={{archiveId='2',name='New group',bookIds={'43'}}}
     expect(db:cacheShelf(old_books,old_groups),'combined read setup')
+    expect(db:putProfileState('shelf_multi_groups_v1',{keys={'archive:1'}})
+        and db:putProfileState('shelf_local_groups_v1',{generation='original'})
+        and db:putProfileState('shelf_local_pins_v1',{generation='original'})
+        and db:putProfileState('statistics',{generation='unrelated'}),'book preference read setup')
     local writer=DB:new(settings)
     local open_read,reads,committed=db.openRead,0,false
     function db:openRead()
@@ -65,23 +69,29 @@ do
             if not committed and query:find("name='archives'",1,true) then
                 committed=writer:cacheShelf(new_books,new_groups)
                 assert(committed,'other connection could not commit during the read')
+                assert(writer:putProfileState('shelf_local_pins_v1',{generation='new'}))
             end
             return prepare(reader,query)
         end
         return connection
     end
-    local books,groups=db:getShelfSnapshot()
+    local books,groups,preferences=db:getShelfSnapshot(true)
     expect(committed and reads==1,'snapshot read did not share one connection with a concurrent commit')
-    expect(#books==1 and books[1].bookId=='42' and groups[1].bookIds[1]=='42',
-        'snapshot mixed old books with newly committed groups')
-    books,groups=db:getShelfSnapshot()
+    expect(#books==1 and books[1].bookId=='42' and groups[1].bookIds[1]=='42'
+        and preferences.account==db:accountKey() and preferences.values.shelf_local_pins_v1.generation=='original'
+        and preferences.values.shelf_local_groups_v1.generation=='original'
+        and preferences.values.shelf_multi_groups_v1.keys[1]=='archive:1' and not preferences.values.statistics,
+        'snapshot mixed generations or included an unrelated profile row')
+    books,groups,preferences=db:getShelfSnapshot(true)
     expect(reads==2 and books[1].bookId=='43' and groups[1].bookIds[1]=='43',
         'reopening did not read both parts of the new snapshot')
+    expect(preferences.values.shelf_local_pins_v1.generation=='new','new snapshot retained old preferences')
     db.openRead=open_read
     local legacy=db:open()
     legacy:exec("DELETE FROM shelf_state WHERE name='archives'");legacy:close()
-    books,groups=db:getShelfSnapshot()
-    expect(books[1].bookId=='43' and groups==nil,'legacy shelf with missing groups lost its books')
+    books,groups,preferences=db:getShelfSnapshot(true)
+    expect(books[1].bookId=='43' and groups==nil and preferences.values.shelf_local_pins_v1.generation=='new',
+        'legacy shelf with missing groups lost its books or preferences')
     expect(db:cacheShelf({},{}),'empty snapshot setup')
     books,groups=db:getShelfSnapshot()
     expect(type(books)=='table' and #books==0 and type(groups)=='table' and #groups==0,
@@ -104,6 +114,8 @@ expect(db:getShelfStatus('42').present==true and db:getShelfStatus('99').present
 owner={user_vid=first_owner.user_vid..'-other'};local other_path=db:databasePath()
 local other=db:getShelfStatus('42')
 expect(not other or other.present==nil,'membership leaked across accounts')
+local preferences=db:getShelfPreferences()
+expect(not preferences or not next(preferences.values),'shelf preferences leaked across accounts')
 owner=first_owner
 expect(db:getShelfStatus('42').present==true,'switching back lost legacy positive evidence')
 for _i,path in ipairs({first_path,other_path}) do os.remove(path);os.remove(path..'-wal');os.remove(path..'-shm') end

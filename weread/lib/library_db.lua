@@ -313,20 +313,49 @@ function LibraryDB:getShelf()
     return books
 end
 
-function LibraryDB:getShelfSnapshot()
+local function read_shelf_preferences(db, account)
+    local stmt, values = nil, {}
+    local ok = pcall(function()
+        stmt = db:prepare([[
+            SELECT name, payload FROM profile_state
+            WHERE name IN ('shelf_multi_groups_v1', 'shelf_local_groups_v1', 'shelf_local_pins_v1')
+        ]])
+        local row = stmt:reset():step()
+        while row do
+            values[row[1]] = decode(row[2])
+            row = stmt:step()
+        end
+    end)
+    close_statement(stmt)
+    if ok then return { account = account, values = values } end
+end
+
+function LibraryDB:getShelfSnapshot(with_preferences)
+    local account = with_preferences and self:accountKey()
     local db = self:openRead()
     if not db then return nil, nil end
-    local ok, books, archives = pcall(function()
+    local ok, books, archives, preferences = pcall(function()
         -- Retain the same read generation if a sync commits between queries.
         db:exec('BEGIN')
         local rows = read_shelf_books(db)
         local groups = read_shelf_archives(db)
+        local profile = account and read_shelf_preferences(db, account)
         db:exec('COMMIT')
-        return rows, groups
+        return rows, groups, profile
     end)
     pcall(function() db:close() end)
-    if ok then return books, archives end
+    if ok and (not account or self:accountKey() == account) then return books, archives, preferences end
     return nil, nil
+end
+
+function LibraryDB:getShelfPreferences()
+    local account = self:accountKey()
+    if not account then return nil end
+    local db = self:openRead()
+    if not db then return nil end
+    local preferences = read_shelf_preferences(db, account)
+    pcall(function() db:close() end)
+    if self:accountKey() == account then return preferences end
 end
 
 function LibraryDB:getProfileState(name)

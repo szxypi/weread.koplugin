@@ -31,27 +31,33 @@ local GROUP_SELECTION_KEY = 'shelf_multi_groups_v1'
 local LOCAL_GROUPS_KEY = 'shelf_local_groups_v1'
 local group_owner
 
-local function load_local_groups(host)
+local function read_shelf_preference(host,key,preferences,account)
+    if preferences and preferences.account==account then return true,preferences.values[key] end
+    local db=host.library_db
+    if not db or type(db.getProfileState)~='function' then return false end
+    return pcall(db.getProfileState,db,key)
+end
+
+local function load_local_groups(host,preferences)
     local model=require('weread.lib.local_shelf_groups')
     local account=group_owner(host)
-    local db=host.library_db
-    if not account or not db or type(db.getProfileState)~='function' then
+    if not account then
         host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=nil,nil,nil;return
     end
-    local ok,state=pcall(db.getProfileState,db,LOCAL_GROUPS_KEY)
+    local ok,state=read_shelf_preference(host,LOCAL_GROUPS_KEY,preferences,account)
     if not ok or group_owner(host)~=account or state~=nil and not model.valid(state) then
         host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=nil,nil,nil;return
     end
     host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=state or model.empty(),state,account
 end
 
-local function load_local_pins(host)
+local function load_local_pins(host,preferences)
     local model=require('weread.lib.local_shelf_pins')
-    local account=group_owner(host);local db=host.library_db
-    if not account or not db or type(db.getProfileState)~='function' then
+    local account=group_owner(host)
+    if not account then
         host.shelf_pins_state,host.shelf_pins_original,host.shelf_pins_owner=nil,nil,nil;return
     end
-    local ok,state=pcall(db.getProfileState,db,model.KEY)
+    local ok,state=read_shelf_preference(host,model.KEY,preferences,account)
     if not ok or group_owner(host)~=account or state~=nil and not model.valid(state) then
         host.shelf_pins_state,host.shelf_pins_original,host.shelf_pins_owner=nil,nil,nil;return
     end
@@ -75,14 +81,13 @@ local function project_local_groups(host)
     host.shelf_groups=groups
 end
 
-local function load_group_selection(host)
+local function load_group_selection(host,preferences)
     local account=group_owner(host)
     if host._shelf_multi_loaded and host._shelf_multi_owner==account then return end
     if host._shelf_multi_loaded and host._shelf_multi_owner~=account then host.shelf_group_key=nil end
     host._shelf_multi_loaded=true;host._shelf_multi_owner=account;host.shelf_multi_groups={}
-    local db=host.library_db
-    if account and type(db.getProfileState)=='function' then
-        local ok,state=pcall(db.getProfileState,db,GROUP_SELECTION_KEY)
+    if account then
+        local ok,state=read_shelf_preference(host,GROUP_SELECTION_KEY,preferences,account)
         if ok and group_owner(host)==account and type(state)=='table' then
             host.shelf_multi_groups=ShelfGroups.normalize(state.keys) or {}
         end
@@ -163,20 +168,21 @@ function M:showBookshelf(restore_browse_position, return_position)
         self._shelf_browse_position, self.shelf_view_pages = nil, nil
         position, return_position = nil, nil
     end
+    local volatile = VolatileShelf.get(self)
+    local cached, archives, preferences
+    if volatile then cached, archives = volatile.books, volatile.archives
+    elseif self.library_db then cached, archives, preferences = self.library_db:getShelfSnapshot(true) end
     if return_position then
-        load_group_selection(self)
+        load_group_selection(self,preferences)
         self.shelf_group_key, self.shelf_multi_groups = position.group_key, position.group_keys
     end
-    local volatile = VolatileShelf.get(self)
-    local cached, archives
-    if volatile then cached, archives = volatile.books, volatile.archives
-    elseif self.library_db then cached, archives = self.library_db:getShelfSnapshot() end
     if cached and (#cached > 0 or archives ~= nil) then
-        self:applyShelfSnapshot(cached, archives, volatile ~= nil)
+        self:applyShelfSnapshot(cached, archives, volatile ~= nil, preferences)
+        local options = { browse_position = position, shelf_preferences = preferences }
         if position then
-            self:showShelfView(position.mode, position.keyword, nil, { browse_position = position })
+            self:showShelfView(position.mode, position.keyword, nil, options)
         else
-            self:showShelfView("books")
+            self:showShelfView("books", nil, nil, options)
         end
         if volatile and volatile.groups_incomplete then
             self:showTransientInfo(_("The bookshelf did not include group information. This temporary list is not saved; refresh again later."), 5)
@@ -365,14 +371,19 @@ function M:onWeReadAccountChanged()
     if personal then personal.attach(self) end
 end
 
-function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
+function M:applyShelfSnapshot(all_books, archives, preserve_volatile, preferences)
     local owner=self.shelf_view
     local metadata=self.book_metadata_context
     local rebase=metadata and metadata.begin_shelf_update and metadata.begin_shelf_update()
     local owned_status=owner and self._shelf_state_menu and owner._shelf_popup==self._shelf_state_menu
         and not self._book_detail_view and owner._shelf_snapshot_redraw
     if not preserve_volatile then VolatileShelf.clear(self) end
-    load_group_selection(self)
+    local db=self.library_db
+    if not preferences and db and db.getShelfPreferences then
+        local ok,result=pcall(db.getShelfPreferences,db)
+        if ok then preferences=result end
+    end
+    load_group_selection(self,preferences)
     local shelf = self.settings:get("shelf")
     self.shelf_filters = { reading = shelf.filter_reading, download = shelf.filter_download }
     self._shelf_search_fold = nil
@@ -399,8 +410,8 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
         end
     end
     self.shelf_cloud_groups=self.shelf_groups
-    load_local_groups(self)
-    load_local_pins(self)
+    load_local_groups(self,preferences)
+    load_local_pins(self,preferences)
     project_local_groups(self)
     if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
@@ -850,9 +861,11 @@ function M:showShelfView(mode, keyword, old_view, options)
     if self.shelf_local_owner~=group_owner(self) then
         load_local_groups(self);project_local_groups(self)
     end
-    -- Re-read when reopening so a concurrent writer's newer state is visible.
+    -- The opening snapshot already contains the pins. Later redraws re-read
+    -- them so a concurrent writer's newer state is visible.
     local prior_pins,prior_owner=self.shelf_pins_state,self.shelf_pins_owner
-    load_local_pins(self)
+    load_local_pins(self, options.shelf_preferences)
+    options.shelf_preferences = nil
     local pin_model=require('weread.lib.local_shelf_pins')
     if options.prepared_shelf and (prior_owner~=self.shelf_pins_owner or not pin_model.same(prior_pins,self.shelf_pins_state)) then
         options.prepared_shelf,options.scroll_offset,options.rotation_anchor=nil,nil,nil;options.page=1

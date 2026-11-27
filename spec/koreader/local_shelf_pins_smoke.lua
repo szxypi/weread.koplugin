@@ -46,6 +46,15 @@ if phase=='live' then
     view=toggle(shelf[2],'Pin on this device')
     assert(view.books[1].bookId=='102' and view:itemStatus(view.books[1]):find(text('Local pin'),1,true))
     assert(not shelf[2].isTop,'local pin modified cloud state')
+    local read_profile, separate_pins = host.library_db.getProfileState, 0
+    host.library_db.getProfileState=function(self,name)
+        if name=='shelf_local_pins_v1' then separate_pins=separate_pins+1 end
+        return read_profile(self,name)
+    end
+    host:showBookshelf();view=host.shelf_view
+    host.library_db.getProfileState=read_profile
+    assert(separate_pins==0 and view.books[1].bookId=='102',
+        'opening the cached bookshelf reread or lost the pin from the same snapshot')
     local order=settings:get('shelf');order.sort_order='author_desc';settings:set('shelf',order);settings:flush()
     host:showShelfView('books');view=host.shelf_view
     assert(view.books[1].bookId=='102' and view.books[2].bookId=='103' and view.books[3].bookId=='101',

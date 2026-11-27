@@ -256,7 +256,7 @@ function M:showHome(refresh_progress, refreshed_shelf)
     if view and view._discovery_tab=='home' and not view._shelf_closed and view._browse_account==account then
         position=view_position(view)
     end
-    local cached, archives
+    local cached, archives, shelf_preferences
     local volatile = VolatileShelf.get(self)
     if type(refreshed_shelf) == "table" and type(refreshed_shelf.books) == "table"
         and type(refreshed_shelf.archives) == "table" then
@@ -264,10 +264,10 @@ function M:showHome(refresh_progress, refreshed_shelf)
     elseif volatile then
         cached, archives = volatile.books, volatile.archives
     elseif self.library_db then
-        cached, archives = self.library_db:getShelfSnapshot()
+        cached, archives, shelf_preferences = self.library_db:getShelfSnapshot(true)
     end
     self:applyShelfSnapshot(cached or {}, archives,
-        volatile ~= nil and volatile.books == cached and volatile.archives == archives)
+        volatile ~= nil and volatile.books == cached and volatile.archives == archives, shelf_preferences)
     local preferences = self:homePreferences()
     local recent = home_recent(self,account,preferences.recent_limit)
     local anchor = position and position.anchor
