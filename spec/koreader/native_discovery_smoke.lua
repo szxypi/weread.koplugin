@@ -159,11 +159,15 @@ return function(plugin,count,flush_tasks,home,pump_until)
     plugin:closeWeReadUI()
     local online,connected=plugin.isNetworkOnline,plugin.isNetworkConnected
     plugin.isNetworkOnline,plugin.isNetworkConnected=function() return false end,function() return false end
-    local function requests()
-        return count('/store/search')+count('/book/detailinfo')+count('/book/recommend')+count('/web/search/global')
-            +count('/api/agent/gateway','/store/search')
+    -- A cancelled online request may still finish in the mock server during
+    -- the offline phase. Observe attempts by the offline client itself,
+    -- including inside any subprocess mistakenly started by this phase.
+    local prior_request=client.request
+    local offline_attempt=home..'/../evidence/discovery-offline-network-attempt'
+    client.request=function()
+        assert(io.open(offline_attempt,'wb')):close()
+        error('offline discovery attempted HTTP',0)
     end
-    local reads=requests()
     plugin.discovery_state=nil;plugin:showBookstore()
     assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.source_kind=='public'
         and plugin.discovery_state.cursor==20)
@@ -180,7 +184,10 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='similar' and not plugin._book_detail_view)
     assert(UIManager:getTopmostVisibleWidget()~=offline_detail)
     paint('native-store-offline-similar')
-    assert(reads==requests(),'offline batch used HTTP')
+    local attempt=io.open(offline_attempt,'rb')
+    if attempt then attempt:close() end
+    assert(not attempt,'offline batch attempted HTTP')
+    client.request=prior_request
     plugin:closeWeReadUI();plugin.isNetworkOnline,plugin.isNetworkConnected=online,connected
     plugin.discovery_state=nil
     plugin.fetchVisibleShelfCovers=covers
