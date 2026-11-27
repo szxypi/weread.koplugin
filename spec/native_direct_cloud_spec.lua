@@ -153,4 +153,18 @@ expect(value and value.anchor.basis=='raw_txt_utf16' and source_requests==before
     'missing TXT sidecar could not use the independently verified chapter')
 remote_source.body=original_txt..'changed'
 expect(not resume(wanted_txt),'TXT accepted a changed chapter download')
+
+txt=quote..'\r\nThe second line of this chapter.'
+checked.source_sha256=require('weread.lib.crypto').sha256_hex(txt)
+progress.chapterOffset=0
+local first=Resume.hint(progress,'42').target
+expect(Resume.valid_target(first) and first.chapter_offset==0,'explicit TXT chapter start was discarded')
+value=resume(first)
+expect(value and value.anchor.basis=='raw_txt_utf16' and value.anchor.co==0,'verified TXT chapter start did not open')
+txt='An earlier line.\n'..txt
+expect(not resume(first),'zero offset ignored the position of the quoted text')
+progress.chapterOffset=nil
+expect(not Resume.hint(progress,'42').target,'missing cloud offset was treated as an explicit zero')
+expect(Resume.hint({bookId='42',chapterUid=0,chapterOffset=0,progress=0},'42').unstarted,
+    'chapter-zero unread state was treated as a resume target')
 print('PASS: native direct cloud comparison is stable and read-only ('..n..' checks)')

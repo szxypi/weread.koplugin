@@ -23,6 +23,8 @@ TXT_EXCERPT = '独立 TXT cloud excerpt & <tag> with literal characters.'
 TXT_BODY = ('\ufeff\t原文 & <tag>  \r\n\r' + '\r\n'.join(
     TXT_EXCERPT if index == 70 else f'Synthetic plain text line {index} for pagination. 😀'
     for index in range(100)))
+TXT_START_EXCERPT = 'The unique opening words of this synthetic TXT chapter.'
+TXT_START_BODY = TXT_START_EXCERPT + '\r\n' + TXT_BODY.removeprefix('\ufeff')
 
 
 class ResumeHandler(fixture.Handler):
@@ -32,7 +34,8 @@ class ResumeHandler(fixture.Handler):
     def chapter_archive(self, uid):
         if self.server.txt_chapter:
             manifest = json.dumps(dict(bookId='42', chapters=[dict(chapterUid=int(uid))])).encode()
-            return plain_tar([('info.txt', manifest), ('chapter-body', TXT_BODY.encode())])
+            raw = TXT_START_BODY if self.server.txt_start else TXT_BODY
+            return plain_tar([('info.txt', manifest), ('chapter-body', raw.encode())])
         return super().chapter_archive(uid)
 
     def dispatch(self):
@@ -61,8 +64,8 @@ class ResumeHandler(fixture.Handler):
             point.update(chapterOffset=0, progress=0)
         if server.exact_resume:
             if server.txt_chapter:
-                summary = TXT_EXCERPT
-                offset = len(TXT_BODY[:TXT_BODY.index(summary)].encode('utf-16-le')) // 2
+                summary = TXT_START_EXCERPT if server.txt_start else TXT_EXCERPT
+                offset = 0 if server.txt_start else len(TXT_BODY[:TXT_BODY.index(summary)].encode('utf-16-le')) // 2
                 if server.wrong_txt_offset:
                     offset += 1
             else:
@@ -105,7 +108,9 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
         legacy = entry == 'shelf_legacy'
         offline_shelf = entry == 'shelf_partial_offline'
         server.txt_chapter = '_txt' in entry
-        exact_txt = server.txt_chapter and entry.endswith(('_exact', '_missing', '_wrong'))
+        server.txt_start = entry in ('shelf_txt_start', 'details_txt_start')
+        raw_txt = TXT_START_BODY if server.txt_start else TXT_BODY
+        exact_txt = server.txt_chapter and entry.endswith(('_exact', '_missing', '_wrong', '_start'))
         missing_txt = entry == 'shelf_txt_missing'
         server.wrong_txt_offset = entry == 'details_txt_wrong'
         unread = (server.txt_chapter and not exact_txt) or entry in ('details_new', 'shelf_new')
@@ -121,12 +126,13 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
             mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid=uid,
             book_version=0 if server.txt_chapter else 1,
-            source_sha256=hashlib.sha256((TXT_BODY if server.txt_chapter else fixture.body(uid)).encode()).hexdigest(),
+            source_sha256=hashlib.sha256((raw_txt if server.txt_chapter else fixture.body(uid)).encode()).hexdigest(),
             read_entry=entry.split('_', 1)[0])
         if server.txt_chapter:
             payload['plain_text'] = True
         if exact_txt:
-            payload.update(cloud_excerpt=TXT_EXCERPT, wrong_cloud_offset=server.wrong_txt_offset,
+            payload.update(cloud_excerpt=TXT_START_EXCERPT if server.txt_start else TXT_EXCERPT,
+                           txt_start_fixture=server.txt_start, wrong_cloud_offset=server.wrong_txt_offset,
                            missing_txt_resume_source=missing_txt)
         if partial or legacy:
             seed = dict(credentials=payload['credentials'], mock_endpoint=payload['mock_endpoint'],
@@ -174,7 +180,7 @@ def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
             if missing_txt:
                 assert not original.exists()
             else:
-                assert original.read_bytes() == TXT_BODY.encode()
+                assert original.read_bytes() == raw_txt.encode()
             assert result['cloud_position_verified'] == (exact_txt and not server.wrong_txt_offset)
         expected_reads = 3 if server.exact_resume else 2 if unread else int(server.cloud_chapter is not None)
         if server.wrong_txt_offset:
@@ -203,7 +209,7 @@ def run(runtime, read_entries_only=False):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
-                for entry in ('details_txt_exact', 'shelf_txt_exact', 'shelf_txt_missing', 'details_txt_wrong',
+                for entry in ('details_txt_start', 'shelf_txt_start', 'details_txt_exact', 'shelf_txt_exact', 'shelf_txt_missing', 'details_txt_wrong',
                               'details_txt', 'shelf_txt', 'details_preferred', 'shelf_preferred', 'details', 'details_exact',
                               'details_new', 'catalog', 'catalog_pending', 'shelf', 'shelf_new', 'shelf_partial',
                               'shelf_partial_offline', 'shelf_legacy'):

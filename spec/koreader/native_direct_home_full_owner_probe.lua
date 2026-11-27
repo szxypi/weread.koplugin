@@ -306,7 +306,8 @@ if input.plain_text then
         ..'<p class="wr-txt-line">&#160;</p>\n<p class="wr-txt-line">Synthetic plain text line 0',1,true))
     assert(not xhtml:find('\239\187\191',1,true))
     assert(doc:getDocumentFileContent('OEBPS/style.css'):find('white-space: pre-wrap',1,true))
-    local p='/body/DocFragment[1]/body/p[1]/text().'
+    local p=input.txt_start_fixture and '/body/DocFragment[1]/body/p[2]/text().'
+        or '/body/DocFragment[1]/body/p[1]/text().'
     local quote=doc:getTextFromXPointers(p..'4',p..'14')
     doc:clearSelection()
     assert(quote=='原文 & <tag>','KOReader did not render the plain text or preserve its indentation')

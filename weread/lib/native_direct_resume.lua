@@ -21,7 +21,7 @@ function M.hint(raw,id)
         return nil
     end
     local chapter={uid=uid,idx=provided.chapter_idx and point.chapter_idx or nil}
-    if not provided.chapter_offset or not P.integer(point.chapter_offset,1,Coordinates.MAX_BYTES*8)
+    if not provided.chapter_offset or not P.integer(point.chapter_offset,0,Coordinates.MAX_BYTES*8)
         or not P.summary(point.summary) then return chapter end
     local node=Remote.node(raw,id)
     if not node or node.summary~=point.summary then return chapter end
@@ -38,7 +38,7 @@ function M.valid_target(wanted)
     return type(wanted)=='table' and type(wanted.book_id)=='string' and P.id(wanted.book_id)==wanted.book_id
         and type(wanted.chapter_uid)=='string' and P.id(wanted.chapter_uid)==wanted.chapter_uid
         and (wanted.chapter_idx==nil or P.integer(wanted.chapter_idx,0,1000000))
-        and P.integer(wanted.chapter_offset,1,Coordinates.MAX_BYTES*8)
+        and P.integer(wanted.chapter_offset,0,Coordinates.MAX_BYTES*8)
         and type(wanted.stamp)=='string' and #wanted.stamp==64 and wanted.stamp:match('^[a-f0-9]+$')~=nil
 end
 
