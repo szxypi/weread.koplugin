@@ -76,7 +76,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                     else:
                         result=frame(child,'WEREAD_DIRECT_NAV_RESULT=')
                         assert result['ok'] and result['mode']==mode
-                        if mode=='online':assert result['path'] and Path(result['path']).is_file()
+                        if mode=='online':assert result['path']==saved['missing_copy'] and Path(result['path']).is_file()
                         if mode=='copies':
                             assert result['path']==saved['missing_copy']
                             payload['choose']='complete'
@@ -86,7 +86,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
                             assert damaged.read_bytes()==original+b'corrupt'
-                    expected=['37','38','38'] if mode=='copies' else ['37','38'] if mode in ('two','online','full') else ['37','39']
+                    expected={'copies':['37','38','38'],'online':['37','37','38'],'gap':['37','39']}.get(mode,['37','38'])
                     assert server.chapters==expected and server.valid and not server.leaked
 
 if __name__=='__main__':

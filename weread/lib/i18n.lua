@@ -636,6 +636,7 @@ local zh = {
     ["The target chapter or its verified source is unavailable offline. Connect and try again."] = "目标章节或经过核对的原文未在离线缓存中，请联网后重试。",
     ["Multiple saved versions of the target chapter disagree. Connect and try again."] = "目标章节的已保存副本内容不一致，请联网后重试。",
     ["The adjacent chapter is not saved. Connect to download it."] = "相邻章节尚未保存，请联网下载。",
+    ["No saved copy matches this chapter. Connect to download it."] = "本机没有与该章节匹配的副本，请联网下载。",
     ["The saved chapter changed or could not be verified. Existing files were kept."] = "已保存章节发生变化或无法核对，原文件已保留。",
     ["Untitled chapter"] = "无标题章节",
     ["Your last reading chapter is not cached. Opening another cached chapter may change your local reading position, even without turning a page. Continue?"] = "上次阅读的章节尚未缓存。打开其他缓存章节后，即使不翻页，也可能改变本机阅读位置。是否继续？",

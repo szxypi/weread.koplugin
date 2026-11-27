@@ -40,7 +40,7 @@ for _,index in ipairs((input.mode=='two' or input.mode=='full' or input.mode=='c
     local saved=assert(require('weread.lib.native_direct_reader').build(client,settings,
         {book_id='42',title='Synthetic',author='Fixture'},row,expected,{is_current=function() return true end}))
     output[row.chapterUid]=saved.path
-    if input.mode=='copies' and index==2 then
+    if (input.mode=='copies' and index==2) or (input.mode=='online' and index==1) then
         local prepared=assert(require('weread.lib.native_direct_source').fetch(client,settings,'42',row.chapterUid,expected,
             {is_current=function() return true end,allow_missing_images=true}))
         prepared.xhtml=prepared.xhtml:gsub('</body>','<p>One synthetic image is missing.</p></body>',1)

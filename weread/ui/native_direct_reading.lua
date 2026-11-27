@@ -65,6 +65,38 @@ local function current_row(rows,entry,catalog)
     end
 end
 
+local function connected(host)
+    return host.isNetworkConnected and host:isNetworkConnected()
+        or not host.isNetworkConnected and host:isNetworkOnline()
+end
+
+local function matches_catalog(entry,chapter,catalog)
+    return entry.chapter_uid==chapter.chapterUid and entry.book_version==catalog.version
+        and entry.catalog_sha256==catalog.reading_digest and entry.catalog_order==chapter.catalog_order
+        and entry.catalog_count==chapter.catalog_count and entry.catalog_prev==chapter.catalog_prev
+        and entry.catalog_next==chapter.catalog_next
+end
+
+local function valid_saved_rows(rows,id,vid)
+    local cache=require('weread.lib.native_direct_cache')
+    if type(rows)~='table' or #rows>cache.MAX_ENTRIES then return false end
+    local count,seen=0,{}
+    for index in pairs(rows) do
+        if not Protocol.integer(index,1,#rows) then return false end
+        count=count+1
+    end
+    if count~=#rows then return false end
+    for _,entry in ipairs(rows) do
+        if not cache.valid_entry(entry,id,vid) or entry.pending_offline~=nil and entry.pending_offline~=true then
+            return false
+        end
+        local identity=entry.key..':'..tostring(entry.copy)
+        if seen[identity] then return false end
+        seen[identity]=true
+    end
+    return true
+end
+
 function M.cancel(host)
     local ctx=host._native_direct_reading
     if not ctx then return end
@@ -74,6 +106,8 @@ function M.cancel(host)
     Recovery.cancel(host,ctx)
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
     ctx.busy=nil
+    local copies=ctx.copy_menu;ctx.copy_menu=nil
+    if copies then UIManager:close(copies) end
     local menu=ctx.menu;ctx.menu=nil
     if menu then UIManager:close(menu) end
     local confirm=ctx.confirm;ctx.confirm=nil
@@ -92,9 +126,7 @@ function M.start(host,book,view,options)
     local id=Protocol.id(book.book_id or book.bookId)
     if not id then return false end
     local cached=type(options)=='table' and options.cached==true
-    local online=not cached and (host.isNetworkConnected and host:isNetworkConnected()
-        or not host.isNetworkConnected and host:isNetworkOnline())
-    local offline=not online
+    local offline=cached or not connected(host)
     local batch=type(options)=='table' and options.batch==true
     if batch and offline then host:showOffline(_('Download E-Ink chapters'));return false end
     local target=type(options)=='table' and options.target or nil
@@ -133,6 +165,9 @@ function M.start(host,book,view,options)
             and host.settings:auth_scope_matches(ctx.scope)
     end
     local current=offline and view_current or Access.guard(host.settings,view_current,selected.native)
+    local function phase_guard(phase)
+        return (phase=='offline_open' or phase=='saved_matches') and view_current or current
+    end
     local function close_busy()
         if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
         ctx.busy=nil
@@ -148,7 +183,7 @@ function M.start(host,book,view,options)
     local function fail(message,close_catalog)
         if host._native_direct_reading~=ctx then return end
         local live=view_current()
-        if live and not close_catalog and ctx.menu and ctx.busy and current() then stop_chapter_open()
+        if live and not close_catalog and ctx.menu and ctx.busy and phase_guard(ctx.phase)() then stop_chapter_open()
         else M.cancel(host) end
         if live then host:showInfo(_(message or 'Could not prepare the E-Ink chapter. Please try again.')) end
     end
@@ -159,6 +194,43 @@ function M.start(host,book,view,options)
         host._native_direct_worker=worker
     end
     local launch
+    local function begin_open(phase)
+        ctx.phase=phase
+        local busy
+        host:showBusy(_(phase=='chapter' and 'Preparing E-Ink chapter...' or 'Checking saved E-Ink chapter...'),function()
+            if host._native_direct_reading~=ctx or ctx.busy~=busy then return end
+            if ctx.menu and not ctx.renewing and phase_guard(phase)() then stop_chapter_open()
+            else M.cancel(host) end
+        end)
+        busy=host.busy_message;ctx.busy=busy
+        launch()
+    end
+    local function show_saved_copies(rows)
+        close_busy()
+        local labels=require('weread.ui.native_direct_copies').labels(rows)
+        local items,menu={}
+        for index,label in ipairs(labels) do items[index]={text=label,copy_index=index} end
+        menu=host:showList(_('Choose a saved chapter copy'),items,nil,{
+            subtitle=_('Each copy keeps its own reading position. Reopen online to retry missing images.'),
+            on_choice=function(item)
+                local index=type(item)=='table' and item.copy_index
+                if not menu or ctx.copy_menu~=menu or ctx.busy or not index or items[index]~=item then return end
+                if not view_current() then M.cancel(host);return end
+                ctx.entry=rows[index]
+                begin_open('offline_open')
+            end,
+        })
+        if not menu then fail();return end
+        ctx.copy_menu=menu
+        local closed=menu.onCloseWidget
+        menu.onCloseWidget=function(widget,...)
+            if ctx.copy_menu==widget then
+                ctx.copy_menu=nil
+                if ctx.busy then stop_chapter_open() end
+            end
+            if closed then return closed(widget,...) end
+        end
+    end
     local function renew()
         local started=Recovery.start(host,ctx,ctx.selected,{capture=capture,is_current=view_current,
             stale=function() if host._native_direct_reading==ctx then M.cancel(host) end end,
@@ -205,28 +277,22 @@ function M.start(host,book,view,options)
         menu=host:showList(menu_title,items(),nil,
             {subtitle=subtitle,left_icon='appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
-                if ctx.menu~=menu or ctx.busy or not index or by_index[index]~=item or not item.select_enabled then return end
-                if not current() then M.cancel(host);return end
+                if ctx.menu~=menu or ctx.busy or ctx.copy_menu or not index
+                    or by_index[index]~=item or not item.select_enabled then return end
+                if not view_current() then M.cancel(host);return end
                 if picker then
+                    if not current() then M.cancel(host);return end
                     ctx.menu=nil;UIManager:close(menu)
                     picker.choose(index);return
                 end
-                local busy
-                local function cancel_open()
-                    if host._native_direct_reading~=ctx or ctx.busy~=busy then return end
-                    if ctx.menu==menu and not ctx.renewing and current() then stop_chapter_open()
-                    else M.cancel(host) end
-                end
                 Popup.close(menu)
                 if offline then
-                    ctx.entry=rows[index];ctx.phase='offline_open'
+                    ctx.entry=rows[index]
+                    begin_open('offline_open')
                 else
-                    ctx.chapter=rows[index];ctx.phase='chapter'
+                    ctx.chapter=rows[index]
+                    begin_open(connected(host) and 'chapter' or 'saved_matches')
                 end
-                host:showBusy(_(offline and 'Checking saved E-Ink chapter...' or 'Preparing E-Ink chapter...'),
-                    cancel_open)
-                busy=host.busy_message;ctx.busy=busy
-                launch()
             end})
         if not menu then M.cancel(host);return end
         ctx.menu=menu
@@ -239,7 +305,7 @@ function M.start(host,book,view,options)
         end
         menu.onLeftButtonTap=function()
             ChapterSearch.prompt(host,menu,search,function()
-                return ctx.menu==menu and not ctx.busy and current()
+                return ctx.menu==menu and not ctx.busy and not ctx.copy_menu and view_current()
             end,function(query)
                 search=query
                 menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
@@ -321,9 +387,11 @@ function M.start(host,book,view,options)
     end
     ctx.phase=offline and 'offline_list' or 'catalog'
     launch=function()
-        if not current() then M.cancel(host);return end
+        local phase,saved_entry=ctx.phase,ctx.entry
+        local is_current=phase_guard(phase)
+        if not is_current() then M.cancel(host);return end
         ctx.generation=(ctx.generation or 0)+1
-        local generation,phase,saved_entry=ctx.generation,ctx.phase,ctx.entry
+        local generation=ctx.generation
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
             if phase=='batch' then
                 return require('weread.lib.native_direct_batch').run(host.client,host.settings,ctx.book,ctx.catalog,
@@ -336,8 +404,19 @@ function M.start(host,book,view,options)
                 end
                 return rows and {rows=rows} or {error='storage'}
             elseif phase=='offline_open' then
-                local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,current)
+                local result=require('weread.lib.native_direct_cache').open(host.settings,scope.vid,id,saved_entry,is_current)
                 return result or {error='damaged'}
+            elseif phase=='saved_matches' then
+                local cache=require('weread.lib.native_direct_cache')
+                local rows=cache.list(host.settings,scope.vid,id,is_current,ctx.chapter.chapterUid)
+                if not rows then return {error='storage'} end
+                local matches={}
+                for _,entry in ipairs(rows) do
+                    if matches_catalog(entry,ctx.chapter,ctx.catalog) then matches[#matches+1]=entry end
+                end
+                if #matches>1 then return {copies=matches} end
+                if #matches==0 then return {error='not_saved'} end
+                return cache.open(host.settings,scope.vid,id,matches[1],is_current) or {error='damaged'}
             end
             if phase=='catalog' then
                 local auth=require('weread.lib.native_authorization'):new(host.client,{
@@ -363,7 +442,7 @@ function M.start(host,book,view,options)
             return result or {error=why or 'unavailable'}
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
-            if not current() then M.cancel(host);return end
+            if not is_current() then M.cancel(host);return end
             if type(result)=='table' and result.error=='auth_expired' then renew();return end
             if type(result)=='table' and result.error=='rate_limited' then
                 if phase=='batch' then
@@ -392,21 +471,7 @@ function M.start(host,book,view,options)
             end
             if phase=='offline_list' then
                 local rows=type(result)=='table' and result.rows
-                local cache=require('weread.lib.native_direct_cache')
-                if type(rows)~='table' or #rows>cache.MAX_ENTRIES then fail();return end
-                local count,seen=0,{}
-                for key in pairs(rows) do
-                    if type(key)~='number' or key%1~=0 or key<1 or key>#rows then fail();return end
-                    count=count+1
-                end
-                for _,entry in ipairs(rows) do
-                    if not cache.valid_entry(entry,id,scope.vid)
-                        or entry.pending_offline~=nil and entry.pending_offline~=true then fail();return end
-                    local identity=entry.key..':'..tostring(entry.copy)
-                    if seen[identity] then fail();return end
-                    seen[identity]=true
-                end
-                if count~=#rows then fail();return end
+                if not valid_saved_rows(rows,id,scope.vid) then fail();return end
                 if failed_copy then
                     for index,row in ipairs(rows) do
                         if row.key==failed_copy.key and row.copy==failed_copy.copy then table.remove(rows,index);break end
@@ -435,6 +500,19 @@ function M.start(host,book,view,options)
                     ctx.chapter=chapter;ctx.phase='chapter';launch();return
                 end
                 show_chapter_menu(checked.chapters);return
+            end
+            if phase=='saved_matches' and type(result)=='table' then
+                if result.error=='not_saved' then
+                    fail('No saved copy matches this chapter. Connect to download it.');return
+                end
+                if result.copies~=nil then
+                    local rows=result.copies
+                    if not valid_saved_rows(rows,id,scope.vid) or #rows<2 then fail();return end
+                    for _,entry in ipairs(rows) do
+                        if not matches_catalog(entry,ctx.chapter,ctx.catalog) then fail();return end
+                    end
+                    show_saved_copies(rows);return
+                end
             end
             local version=phase=='offline_open' and saved_entry.book_version or ctx.catalog.version
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)

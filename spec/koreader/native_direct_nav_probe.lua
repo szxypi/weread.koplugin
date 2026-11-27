@@ -8,17 +8,21 @@ G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefault
 local Device=require('device');require('document/canvascontext'):init(Device)
 local UI=require('ui/uimanager');local socket=require('socket');local home=assert(os.getenv('KO_HOME'))
 local scope={vid='12345678',epoch=1};local online=input.mode=='online'
+local connected=online
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,
     get=function(_,_,default) return default end,get_book=function() return nil end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
 local Access=require('weread.lib.native_read_access');local original=Access.capture
 if online then
     local store={read=function() return input.credentials,1,nil,false end}
-    Access.capture=function(s,existing) return original(s,existing or store) end
+    Access.capture=function(s,existing)
+        assert(connected,'offline navigation requested native credentials')
+        return original(s,existing or store)
+    end
 else Access.capture=function() error('offline navigation requested credentials') end end
 local client=require('weread.lib.client'):new(settings);local request=client.request
 client.request=function(self,options)
-    assert(online,'offline navigation requested network')
+    assert(connected,'offline navigation requested network')
     local url,headers=options.url,options.headers or {}
     assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     assert((url=='https://i.weread.qq.com/book/info?bookId=42' and options.method=='GET')
@@ -32,7 +36,7 @@ local base=require('ui/widget/infomessage'):new{text='Fixture'};base.modal=false
 local Common=require('weread.ui.common')
 local host={settings=settings,client=client,discovery_epoch=1,_reader_session_gen=1,
     library_db={accountKey=function() return 'synthetic' end,getChapters=function() return {} end},ui={document={file=input.first}},
-    isNetworkConnected=function() return online end,
+    isNetworkConnected=function() return connected end,
     showBusy=Common.showBusy,closeBusy=Common.closeBusy,refreshUI=function() end,
     showInfo=function(self,message) self.message=message end,showOffline=function() error('unexpected offline') end,
     showList=Common.showList,showInputDialog=Common.showInputDialog,showBookMenu=require('weread.ui.library').showBookMenu,
@@ -159,6 +163,38 @@ else
         assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
             and UI:getTopmostVisibleWidget()==base and host.ui.document.file==second,
             'closing the online catalog did not return to the current chapter')
+        press('chapter_list')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+        menu=assert(host._native_direct_reading.menu)
+        connected=false
+        menu:onGotoPage(3)
+        menu:onMenuSelect(menu.item_table[3])
+        wait(function() return host.message or not host.busy_message end)
+        assert(host.message==tr('No saved copy matches this chapter. Connect to download it.')
+            and menu.page==3 and UI:getTopmostVisibleWidget()==menu and host.ui.document.file==second,
+            'an uncached chapter did not keep the catalog open after disconnecting')
+        host.message,host.opened=nil,nil
+        menu:onGotoPage(1)
+        menu:onMenuSelect(menu.item_table[1])
+        wait(function() return host.message or host.opened or host._native_direct_reading and host._native_direct_reading.copy_menu end)
+        local copies=assert(host._native_direct_reading.copy_menu)
+        assert(#copies.item_table==2 and not host.busy_message and UI:getTopmostVisibleWidget()==copies,
+            'the catalog did not show both matching local copies')
+        copies:onClose()
+        assert(host._native_direct_reading.menu==menu and not host._native_direct_reading.copy_menu
+            and menu.page==1 and UI:getTopmostVisibleWidget()==menu and host.ui.document.file==second,
+            'closing the copy chooser lost the chapter catalog')
+        menu:onMenuSelect(menu.item_table[1])
+        wait(function() return host.message or host.opened or host._native_direct_reading and host._native_direct_reading.copy_menu end)
+        copies=assert(host._native_direct_reading.copy_menu)
+        local missing
+        for _,candidate in ipairs(copies.item_table) do
+            if candidate.text:find(tr('%1 images unavailable'):gsub('%%1','1'),1,true) then missing=candidate end
+        end
+        copies:onMenuSelect(assert(missing))
+        wait(function() return host.message or host.opened end)
+        assert(not host.message and host.opened==input.missing_copy and not host._native_direct_reading and not host.busy_message,
+            'a saved chapter did not open directly from the catalog after disconnecting')
     end
     if input.mode=='two' then
         host.opened=nil

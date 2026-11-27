@@ -295,5 +295,54 @@ s.select(2);valid_result=s.jobs[2].task()
 require('ui/uimanager'):close(host._native_direct_reading.menu)
 s.jobs[2].callback(valid_result)
 expect(not host._native_direct_reading and s.cancelled and s.opened==0,'closing the list left a saved file able to open')
+local function same_catalog(entry)
+    entry.catalog_sha256=digest
+    entry.catalog_order,entry.catalog_count,entry.catalog_next=1,2,'2'
+    return entry
+end
+local matching=same_catalog(other_copy)
+local wrong_catalog=same_catalog(saved_entry)
+wrong_catalog.catalog_sha256=fingerprint
+cache.list=function(_,_,id,current,chapter_uid)
+    expect(id=='456' and chapter_uid=='1' and current(),'saved lookup was not limited to the selected chapter and account')
+    return {wrong_catalog,matching}
+end
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+host.isNetworkConnected=function() return false end
+selected=nil
+build_error='network must not be used'
+s.select(1);s.finish(2)
+expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
+    'the online catalog could not open its matching saved chapter after disconnecting')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+local online_menu=host._native_direct_reading.menu
+host.isNetworkConnected=function() return false end
+cache.list=function() return {wrong_catalog} end
+s.select(1);s.finish(2)
+expect(s.opened==0 and not host.busy_message and host._native_direct_reading.menu==online_menu
+    and s.message=='No saved copy matches this chapter. Connect to download it.',
+    'a cache from a different catalog did not leave the reader in the same directory')
+local damaged_copy={}
+for key,value in pairs(matching) do damaged_copy[key]=value end
+damaged_copy.copy=2
+cache.list=function() return {damaged_copy,matching} end
+local select_chapter=s.select
+s.select(1);s.finish(3)
+local copies=assert(host._native_direct_reading.copy_menu)
+expect(s.opened==0 and s.title=='Choose a saved chapter copy' and #s.items==2 and s.items[2].text:find('Copy 2',1,true),
+    'matching copies were not offered as separate reading positions')
+select_chapter(1)
+expect(#s.jobs==3,'a covered catalog accepted a second choice')
+s.select(1);s.finish(4)
+expect(s.opened==0 and host._native_direct_reading.copy_menu==copies and not host.busy_message
+    and s.message:find('damaged',1,true),'a damaged local copy closed the chooser')
+s.select(2)
+local choice_job=s.jobs[5];local choice_result=choice_job.task()
+require('ui/uimanager'):close(copies);choice_job.callback(choice_result)
+expect(s.opened==0 and host._native_direct_reading.menu==online_menu and not host._native_direct_reading.copy_menu
+    and not host.busy_message,'closing the copy menu let its pending result leave the catalog')
+select_chapter(1);s.finish(6);s.select(2);s.finish(7)
+expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
+    'the selected local copy did not open from the online catalog')
 cache.list,cache.valid_entry,cache.open,pending.mark=old_list,old_valid,old_open,old_mark
 print('PASS: native chapter catalog, capability hint, session checks and renewal ('..checks..' checks)')
