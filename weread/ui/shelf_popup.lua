@@ -10,6 +10,8 @@ local function redraw_context(host,owner)
     if reading and reading.shelf_owner==owner then return reading end
     local resume=host._native_home_resume
     if resume and resume.shelf_owner==owner then return resume end
+    local direct=host._native_direct_reading
+    if direct and direct.shelf_owner==owner then return direct end
     return host.book_metadata_context
 end
 -- Let an in-flight detail request or read finish before replacing its shelf.

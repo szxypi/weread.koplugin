@@ -156,12 +156,16 @@ function M.cancel(host)
     if menu then UIManager:close(menu) end
     local confirm=ctx.confirm;ctx.confirm=nil
     if confirm then UIManager:close(confirm) end
+    if ctx.pending_shelf_redraw then Popup.resumeMetadata(host,ctx) end
 end
 
 function M.start(host,book,view,options)
     local from_reader=type(options)=='table' and options.from_reader==true
-    local owner_key=from_reader and 'ui' or '_book_detail_view'
+    local shelf_current=type(options)=='table' and options.shelf_current
+    local from_shelf=type(shelf_current)=='function'
+    local owner_key=from_reader and 'ui' or from_shelf and 'shelf_view' or '_book_detail_view'
     if type(book)~='table' or not view or host[owner_key]~=view then return false end
+    if from_shelf and (from_reader or not shelf_current()) then return false end
     local document=host.ui and host.ui.document
     if from_reader and not require('weread.lib.native_direct_path').contains(host.settings,document and document.file) then
         return false
@@ -202,7 +206,8 @@ function M.start(host,book,view,options)
     local author=text(book.author,2048) and book.author or ''
     local ctx={epoch=host.discovery_epoch or 0,session=host._reader_session_gen,document=document,
         file=document and document.file,account=host.library_db and host.library_db:accountKey(),selected=selected,
-        book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch}
+        book={book_id=id,title=title,author=author},scope=scope,offline=offline,target=target,batch=batch,
+        shelf_owner=from_shelf and view or nil}
     if batch and not repair_images and host.library_db then
         ctx.batch_store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
     end
@@ -212,6 +217,7 @@ function M.start(host,book,view,options)
     local function view_current()
         local now=host.ui and host.ui.document
         return host._native_direct_reading==ctx and not host._weread_suspended and host[owner_key]==view
+            and (not from_shelf or shelf_current())
             and (host.discovery_epoch or 0)==ctx.epoch and host._reader_session_gen==ctx.session
             and now==ctx.document and (not now or now.file==ctx.file)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)

@@ -80,6 +80,25 @@ if record then
     assert(not Reader.instance)
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
+    if input.mode=='detail_read_saved' then
+        assert(os.getenv('WEREAD_SYNTHETIC')=='1')
+        require('ui/network/manager').isConnected=function() return false end
+        assert(host.settings:patch_reading_state(id,{native_home_resume=false}))
+        local detail=assert(host:showBookMenu(assert(host.settings:get_book(id))))
+        for _,action in ipairs(detail._footer_actions) do
+            if action.text==require('weread.lib.plugin_util').tr('▤ Read') then action.callback();break end
+        end
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local ctx=assert(host._native_direct_reading)
+        assert(ctx.offline and #ctx.menu.item_table==1 and not Reader.instance)
+        ctx.menu:onMenuSelect(ctx.menu.item_table[1])
+        pump(function() return Reader.instance and Reader.instance.document.file==input.path end)
+        local reader=Reader.instance
+        local file=assert(io.open(home..'/anchor','rb'));local anchor=assert(file:read('*a'));file:close()
+        assert(reader.document:isXPointerInCurrentPage(anchor),'saved chapter lost its local reading page')
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        return
+    end
     host:showHome();local view=assert(host.shelf_view);local selected
     for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
     if input.mode=='switch' then

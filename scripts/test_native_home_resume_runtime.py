@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the installed native reader and home across offline processes."""
 import argparse
+import hashlib
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -25,7 +26,40 @@ def frame(child, marker):
     return json.loads(lines[0][len(marker):])
 
 
-def run(runtime):
+def check_read_entry(runtime, candidate, server, width, height, dpi, entry):
+    with tempfile.TemporaryDirectory(prefix='weread-native-read-entry-', dir='/dev/shm') as directory:
+        root = Path(directory)
+        for name in ('xdg', 'settings', 'plugins'):
+            (root/name).mkdir(mode=0o700)
+        extract_candidate(candidate, root/'plugins')
+        env = dict(os.environ, KO_HOME=str(root), XDG_RUNTIME_DIR=str(root/'xdg'),
+                   LD_LIBRARY_PATH=str(runtime/'libs'), SDL_VIDEODRIVER='dummy', EMULATE_READER='1',
+                   EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(width),
+                   EMULATE_READER_H=str(height), EMULATE_READER_DPI=str(dpi), WEREAD_SYNTHETIC='1',
+                   WEREAD_DIRECT_OWNER_TMPFS='1')
+        server.resume = server.expired = False
+        server.chapters = []
+        server.valid = True
+        server.leaked = False
+        server.image_requests = server.tar_requests = 0
+        payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
+            refreshToken='synthetic-refresh', deviceId='eink334691225'+'0'*19),
+            mock_endpoint='http://127.0.0.1:'+str(server.server_port), book_id='42', uid='37', book_version=1,
+            source_sha256=hashlib.sha256(fixture.body('37').encode()).hexdigest(), read_entry=entry)
+        child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_home_full_owner_probe.lua')],
+                               input=json.dumps(payload), text=True, env=env, cwd=runtime, capture_output=True, timeout=90)
+        result = frame(child, 'WEREAD_DIRECT_HOME_FULL=')
+        assert result['ok'] and result['source_matches'] and Path(result['path']).is_file()
+        assert server.chapters == ['37'] and server.valid and not server.leaked
+        if entry == 'details':
+            offline = dict(mode='detail_read_saved', path=result['path'])
+            child = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_home_resume_probe.lua'), str(REPO)],
+                                   input=json.dumps(offline), text=True, env=env, cwd=runtime, capture_output=True, timeout=110)
+            assert frame(child, 'WEREAD_NATIVE_HOME=') == dict(ok=True, mode='detail_read_saved', network_blocked=True)
+            assert server.chapters == ['37']
+
+
+def run(runtime, read_entries_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), fixture.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -35,6 +69,10 @@ def run(runtime):
             subprocess.run(['bash', str(REPO/'scripts/package_release.sh'), str(candidate)], cwd=REPO,
                            check=True, capture_output=True)
             for width, height, dpi in ((600, 800, 167), (1264, 1680, 300)):
+                for entry in ('details', 'shelf'):
+                    check_read_entry(runtime, candidate, server, width, height, dpi, entry)
+                if read_entries_only:
+                    continue
                 with tempfile.TemporaryDirectory(prefix='weread-native-home-', dir='/dev/shm') as root:
                     root = Path(root)
                     for directory in ('xdg', 'settings', 'plugins'):
@@ -97,7 +135,9 @@ def run(runtime):
                                 alternative.parent.name, path.parent.name)
                             assert marker.read_text() == expected
                     assert server.chapters == ['37', '38'] and server.valid and not server.leaked
-        print('PASS: installed native home resume, offline fresh process, both screen sizes')
+        print('PASS: native-only reading from details and bookshelf, and offline details reopening at both sizes')
+        if not read_entries_only:
+            print('PASS: installed native home resume, offline fresh process, both screen sizes')
     finally:
         server.shutdown()
         server.server_close()
@@ -107,4 +147,6 @@ def run(runtime):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True)
-    run(parser.parse_args().koreader.resolve())
+    parser.add_argument('--read-entries-only', action='store_true')
+    args=parser.parse_args()
+    run(args.koreader.resolve(), args.read_entries_only)

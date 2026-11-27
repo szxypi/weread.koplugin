@@ -105,7 +105,22 @@ local function pump(fn)
 end
 FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
-if input.store_search_keyword then
+local shelf_owner
+if input.read_entry then
+    assert(os.getenv('WEREAD_SYNTHETIC')=='1' and not next(host.settings:get('cookies',{})))
+    host.qr_login.start=function() error('native-only reading tried to start Web login') end
+end
+if input.read_entry=='shelf' then
+    local shelf_settings=host.settings:get('shelf')
+    shelf_settings.tap_to_read=true;host.settings:set('shelf',shelf_settings);host.settings:flush()
+    host:applyShelfSnapshot({{bookId=input.book_id,title='Synthetic book',author='Fixture'}},{})
+    host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
+    shelf_owner=assert(host.shelf_view)
+    local row=assert(shelf_owner._item_rows[1]);assert(tostring(row.book.bookId)==input.book_id)
+    UI:forceRePaint()
+    local pos=require('ui/geometry'):new{x=row.dimen.x+math.floor(row.dimen.w/2),y=row.dimen.y+math.floor(row.dimen.h/2)}
+    assert(row:handleEvent(require('ui/event'):new('Gesture',{ges='tap',pos=pos})))
+elseif input.store_search_keyword then
     host.fetchVisibleShelfCovers=function() end
     if input.quick_search then
         local entry
@@ -137,13 +152,21 @@ if input.store_search_keyword then
 else
     host:showBookRecord({book_id=input.book_id,title='Synthetic book',author='Fixture'},{verified_metadata=true})
 end
-local view=assert(host._book_detail_view);local button
-for _,item in ipairs(view._action_buttons) do
-    if item.text==require('weread.lib.plugin_util').tr('Read E-Ink chapter') then button=item end
+if not shelf_owner then
+    local view=assert(host._book_detail_view);local button
+    local actions=input.read_entry=='details' and view._footer_actions or view._action_buttons
+    local text=require('weread.lib.plugin_util').tr(input.read_entry=='details' and '▤ Read' or 'Read E-Ink chapter')
+    for _,item in ipairs(actions) do if item.text==text then button=item end end
+    assert(button and button.enabled~=false);button.callback()
 end
-assert(button and button.enabled~=false);button.callback()
 stage='catalog';pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
 local ctx=assert(host._native_direct_reading);local index
+if shelf_owner then
+    assert(ctx.shelf_owner==shelf_owner and not host._book_detail_view,'shelf tap opened details')
+    require('weread.ui.shelf_popup').redrawForMetadata(host,shelf_owner,function()
+        error('shelf refresh replaced the native chapter selector')
+    end)
+end
 for i,row in ipairs(ctx.catalog.chapters) do if row.chapterUid==input.uid then assert(not index and row.downloadable);index=i end end
 assert(index and ctx.menu.item_table[index].select_enabled)
 local failure,ui_failed

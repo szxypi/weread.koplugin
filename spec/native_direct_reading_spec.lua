@@ -117,6 +117,13 @@ host.ui.document={file=reader_path}
 s.jobs[1].callback(ready)
 expect(not host._native_direct_reading and not host.busy_message and not s.items,
     'catalog opened over a replacement document at the same path')
+host,s=fixture();host._book_detail_view=nil;host.shelf_view=s.view
+local shelf_live=true
+expect(UI.start(host,{book_id='456'},s.view,{shelf_current=function() return shelf_live end}),
+    'shelf could not start native chapter selection')
+s.finish(1);expect(s.items and host._native_direct_reading.shelf_owner==s.view,'catalog lost its bookshelf owner')
+s.select(1);ready=s.jobs[2].task();shelf_live=false;s.jobs[2].callback(ready)
+expect(s.opened==0 and not host._native_direct_reading,'stale bookshelf opened a prepared chapter')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 local menu=assert(host._native_direct_reading.menu)
 expect(s.icon=='appbar.search','native catalog has no search entry')

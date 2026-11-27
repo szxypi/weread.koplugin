@@ -1474,14 +1474,8 @@ function M:refreshShelfCacheIndicators()
     end
 end
 
-function M:showBookRecord(book, options)
+local function store_book_record(self, book, book_id)
     local books = self.settings:get("books", {})
-    local book_id = ShelfSnapshot.persisted_id(book)
-    if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
-    if WeRead.is_mp_book(book_id) then
-        self:showMPAccount(book)
-        return
-    end
     local account_key = self.library_db and self.library_db:accountKey() or nil
     local saved,conflict,legacy_key=ReadAccess.cached_book_for_update(books,book_id)
     if conflict then
@@ -1525,6 +1519,18 @@ function M:showBookRecord(book, options)
     if type(saved.chapters) ~= "table" and self.library_db then
         saved.chapters = self.library_db:getChapters(book_id)
     end
+    return saved, saved_details or has_book_details(cached)
+end
+
+function M:showBookRecord(book, options)
+    local book_id = ShelfSnapshot.persisted_id(book)
+    if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
+    if WeRead.is_mp_book(book_id) then
+        self:showMPAccount(book)
+        return
+    end
+    local saved, has_details = store_book_record(self, book, book_id)
+    if not saved then return end
     -- The bounded public excerpt is a display fallback, not full metadata.
     -- Keep it out of the book record so it cannot suppress a later refresh.
     local public_info=require('weread.lib.public_book_info').project(book._public_info)
@@ -1538,7 +1544,7 @@ function M:showBookRecord(book, options)
         end
         saved=display
     end
-    if not saved_details and not has_book_details(cached) and not (options and options.verified_metadata) then
+    if not has_details and not (options and options.verified_metadata) then
         self:refreshBookRecord(saved, nil, { automatic = true })
     else
         self:showBookMenu(saved)
@@ -2872,13 +2878,32 @@ function M:startBookReading(book, view, origin)
     local warning=package.loaded['weread.ui.missing_resume']
     if warning then warning.cancel(self) end
     local id = book.book_id or book.bookId
-    local latest = self.settings:get_book(id) or book
+    local stored = self.settings:get_book(id)
+    local latest = stored or book
     local online
     if self.isNetworkConnected then online=self:isNetworkConnected()
     elseif self.isNetworkOnline then online=self:isNetworkOnline() end
     local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
     local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
     if opened then return true end
+    local shelf_view=origin and origin.owner
+    local owner=view or shelf_view
+    local selected_id=ShelfSnapshot.persisted_id(book)
+    if owner and selected_id and selected_id==ShelfSnapshot.persisted_id(latest)
+        and require('weread.lib.native_position_protocol').id(selected_id) then
+        local native=online and not exact and require('weread.lib.native_read_access').capture(self.settings)
+        local saved_native=not online and self.nativeChapterCachePresent and self:nativeChapterCachePresent(selected_id)
+        if (native and not native.renewal_pending) or saved_native then
+            local account=self.library_db and self.library_db:accountKey()
+            if not stored or stored._library_account_key and stored._library_account_key~=account then
+                latest=store_book_record(self,book,selected_id)
+                if not latest then return false end
+            end
+            return require('weread.ui.native_direct_reading').start(self,latest,owner,{
+                cached=saved_native,shelf_current=not view and origin.current or nil,
+            })
+        end
+    end
     if reason=='resume_not_cached' and not exact then
         return require('weread.ui.missing_resume').show(self,id,view,uid)
     end

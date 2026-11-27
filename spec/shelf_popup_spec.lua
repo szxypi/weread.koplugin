@@ -156,7 +156,7 @@ do
     host.book_metadata_context=nil;Popup.resumeMetadata(host,context);flush()
     expect(value==7,'metadata cancellation lost popup-deferred redraw')
 end
-for _,key in ipairs({'book_reading_context','_native_home_resume'}) do
+for _,key in ipairs({'book_reading_context','_native_home_resume','_native_direct_reading'}) do
     local view={}
     local context={shelf_owner=view}
     local host={shelf_view=view,[key]=context}
