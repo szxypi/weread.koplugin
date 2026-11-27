@@ -12,26 +12,26 @@ local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 local metadata={'chapterUid','uid','chapterIdx','index','href','file','filename','fileName','path','chapterPath'}
+local max_chapter_files=2048
 local function dense(values,maximum)
-    if type(values)~='table' or #values>maximum then return false end
+    if type(values)~='table' then return false end
+    local length=#values
+    if length>maximum then return false end
     local count=0
     for key in pairs(values) do
-        if type(key)~='number' or key%1~=0 or key<1 or key>#values then return false end
+        if type(key)~='number' or key%1~=0 or key<1 or key>length then return false end
         count=count+1
     end
-    return count==#values
+    return count==length
 end
 local function account(host) return host.library_db and host.library_db:accountKey() end
 local function marker(host) return host.ui and host.ui.rolling and host.ui.rolling.xpointer end
 local function location(host)
     return Context.location(host.ui.document,host.ui.view and host.ui.view.view_mode or 'page')
 end
-local function catalog(host,id)
-    local book=ReadAccess.load_cached_book(host.settings,id)
-    if book and host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book,true) end
-    if type(book)~='table' or not dense(book.chapters,Task.MAX_CATALOG) or #book.chapters==0 then return end
+local function capture_catalog(host,source)
     local chapters,stamp={},{}
-    for index,chapter in ipairs(book.chapters) do
+    for index,chapter in ipairs(source) do
         if type(chapter)~='table' then return end
         local item,row={},{}
         for n,key in ipairs(metadata) do
@@ -40,7 +40,7 @@ local function catalog(host,id)
             item[key]=value
             if value==nil then row[n]=false else row[n]=value end
         end
-        if chapter.files~=nil and not dense(chapter.files,2048) then return end
+        if chapter.files~=nil and not dense(chapter.files,max_chapter_files) then return end
         item.files={};row[#metadata+1]=item.files
         for n,file in ipairs(chapter.files or {}) do
             if type(file)~='string' then return end
@@ -48,7 +48,31 @@ local function catalog(host,id)
         end
         chapters[index],stamp[index]=item,row
     end
-    return book,chapters,Crypto.sha256_hex(host.client:json_encode(stamp))
+    return chapters,Crypto.sha256_hex(host.client:json_encode(stamp))
+end
+
+-- An active job owns a copy of the link fields and file lists. Re-read
+-- the catalog at each boundary, then compare without allocating another
+-- projection or serializing it. History frames only hold the digest.
+local function matches_catalog(source,expected)
+    if #source~=#expected then return false end
+    for index,chapter in ipairs(source) do
+        if type(chapter)~='table' then return false end
+        local snapshot=expected[index]
+        for _,key in ipairs(metadata) do
+            if chapter[key]~=snapshot[key] then return false end
+        end
+        local files=chapter.files
+        if files==nil then
+            if #snapshot.files~=0 then return false end
+        else
+            if not dense(files,max_chapter_files) or #files~=#snapshot.files then return false end
+            for i,path in ipairs(files) do
+                if path~=snapshot.files[i] then return false end
+            end
+        end
+    end
+    return true
 end
 local function standalone_reader(host)
     local ui=host.ui
@@ -66,8 +90,16 @@ local function describe(host,expected)
     if not owner or expected and (owner~=expected.owner or id~=expected.book_id) then return end
     local auth=expected and expected.auth or host.settings:get_auth_scope()
     if not auth or not host.settings:auth_scope_matches(auth) then return end
-    local book,chapters,digest=catalog(host,id)
-    if not book then return end
+    local book=ReadAccess.load_cached_book(host.settings,id)
+    if book and host.ensureChaptersLoaded then book.chapters=host:ensureChaptersLoaded(book,true) end
+    if type(book)~='table' or not dense(book.chapters,Task.MAX_CATALOG) or #book.chapters==0 then return end
+    local chapters,digest
+    if expected then
+        if not matches_catalog(book.chapters,expected.chapters) then return end
+    else
+        chapters,digest=capture_catalog(host,book.chapters)
+        if not chapters then return end
+    end
     local chapter,full=select(2,host:getChapterInfoFromFile(book,ui.document.file))
     if not chapter or full then return end
     local uid=tostring(chapter.chapterUid or chapter.uid or '')
@@ -105,8 +137,7 @@ end
 local function current_book(host,job)
     if live(job) and same_view(host,job) then
         local current,book=describe(host,job)
-        if current and current.uid==job.uid and current.path==job.path
-            and current.file_id==job.file_id and current.catalog==job.catalog then return book end
+        if current and current.uid==job.uid and current.path==job.path and current.file_id==job.file_id then return book end
     end
     cancel_if_current(host,job)
 end
@@ -152,7 +183,7 @@ local function open(host,job,result,book)
         local next_host=reader and reader.weread
         if not valid or not next_host or next_host==host then return false end
         local current=describe(next_host,job)
-        if not current or current.catalog~=job.catalog or current.uid~=result.target_uid or current.path~=result.target_path
+        if not current or current.uid~=result.target_uid or current.path~=result.target_path
             or current.file_id~=result.target_file_id then return false end
         local next_sync=next_host.progress_sync
         if not next_sync or next_sync.navigation_generation~=0 or next_sync.pending_jump or next_sync.verified

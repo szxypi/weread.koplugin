@@ -100,17 +100,22 @@ expect(state.book_reads==1 and state.catalog_reads==1 and state.hashes==1 and st
     'launch or an unchanged viewport reloaded the selected book')
 workers[1].callback(ready())
 expect(state.opens==1 and state.child.ui.rolling.xpointer=='#_doc_fragment_0_ literal%2A','literal target not applied')
-expect(state.book_reads==3 and state.catalog_reads==3 and state.hashes==3,
-    'background completion or reader handoff repeated a catalog check')
+expect(state.book_reads==3 and state.catalog_reads==3 and state.hashes==1,
+    'completion and handoff should re-read the catalog without hashing it again')
 expect(state.applied and state.child.progress_sync.verified~=true,'local link must not grant cloud verification')
 local target,index=History.candidate(state.child.ui.link,'back')
 expect(target and index==1 and target.location.xpointer=='/body/start','source return frame lost')
 expect(target.sha256==string.rep('c',64) and target.location.marker_xpointer=='/body/link','source receipt/marker missing')
 local child=state.child
+book.chapters[2].href='replacement.xhtml'
+expect(child.ui.link:onGoBackLink()==true and #workers==1 and #child.ui.link.location_stack==1,
+    'Back used history after the catalog changed')
+book.chapters[2].href=nil
 child.ui.link:onGoBackLink()
 expect(state.opens==1 and #child.ui.link.location_stack==1,'Back mutated stacks before validation')
 workers[2].callback({kind='ready',source_sha256=string.rep('d',64),target_uid='1',target_path='/a.epub',target_file_id=string.rep('a',64)})
 expect(state.opens==2 and state.child.ui.rolling.xpointer=='/body/start','Back exact native location failed')
+expect(state.hashes==3,'each Back attempt should hash only its initial catalog')
 expect(History.candidate(state.child.ui.link,'forward').path=='/b.epub','reverse boundary missing')
 state.child.ui.link:onGoForwardLink()
 workers[3].callback(ready())
@@ -134,6 +139,31 @@ for _i,change in ipairs({'page','marker','account','auth','catalog','cache','ide
     workers[1].callback(ready())
     expect(state.opens==0 and not host._chapter_link_job,'stale ' .. change .. ' opened target')
 end
+for _,change in ipairs({
+    function(chapters) chapters[2].chapterUid='2' end,
+    function(chapters) chapters[2].chapterIdx=3 end,
+    function(chapters) chapters[2].href='replacement.xhtml' end,
+    function(chapters) chapters[1],chapters[2]=chapters[2],chapters[1] end,
+    function(chapters) chapters[2].files={'appendix.xhtml','notes.xhtml'} end,
+    function(chapters) chapters[2].files.extra='unexpected.xhtml' end,
+    function(chapters) chapters[2].files[1]=nil end,
+}) do
+    host,state,book,click,ready=setup()
+    book.chapters[2].files[2]='appendix.xhtml'
+    click()
+    change(book.chapters)
+    workers[1].callback(ready())
+    expect(state.opens==0 and not host._chapter_link_job and state.catalog_reads==2 and state.hashes==1,
+        'changed routing metadata passed the worker boundary')
+end
+host,state,book,click,ready=setup()
+book.chapters[1].files=nil
+click()
+book.chapters[1].files={}
+book.chapters[2].title='Updated display title'
+workers[1].callback(ready())
+expect(state.opens==1 and state.applied and state.hashes==1,
+    'equivalent empty files or display-only metadata invalidated the link')
 host,state,book,click,ready=setup();click();host.ui.document.page=2;M.view_changed(host)
 expect(workers[1].cancelled and not host._chapter_link_job,'movement did not cancel own worker')
 host,state,book,click,ready=setup();click();state.cancel();workers[1].callback(ready())
@@ -148,8 +178,8 @@ book.cached_chapters['2']='/b.epub';state.download_callback(true);pump()
 expect(#workers==1 and workers[1].task and state.opens==0 and state.catalog_reads==3,
     'download completion did not reload exactly one catalog')
 workers[1].callback(ready())
-expect(state.opens==1 and state.book_reads==5 and state.catalog_reads==5,
-    'reverified downloaded chapter did not open with one check per stage')
+expect(state.opens==1 and state.book_reads==5 and state.catalog_reads==5 and state.hashes==1,
+    'downloaded chapter should re-read once per stage and hash only at launch')
 host,state,book,click,ready=setup();click();workers[1].callback({kind='needs_download',target_uid='2'})
 book.chapters[2].files={'replacement.xhtml'};state.download_callback(true);pump()
 expect(not host._chapter_link_job and workers[1].cancelled and state.opens==0,
