@@ -25,6 +25,14 @@ return function(plugin,count,flush_tasks,home,pump_until)
     local function paint(name)
         UIManager:forceRePaint();Screen:shot(home.."/../evidence/"..name..".png")
     end
+    local function focus_book(view)
+        local chosen=assert(view._item_rows[2])
+        for y,row in ipairs(view.layout) do for x,item in ipairs(row) do
+            if item==chosen then view:moveFocusTo(x,y,require('ui/widget/focusmanager').FORCED_FOCUS) end
+        end end
+        assert(view:getFocusItem()==chosen)
+        return chosen
+    end
     local writes=count("/web/book/read")
     local gateway=count("/api/agent/gateway","/store/search")
     plugin:showBookstore()
@@ -66,11 +74,8 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(state.keyword=='测试作者','selected suggestion was not searched')
     plugin.shelf_view.on_page_changed(2)
     local list=plugin.shelf_view
-    local chosen=assert(list._item_rows[2])
-    for y,row in ipairs(list.layout) do for x,item in ipairs(row) do
-        if item==chosen then list:moveFocusTo(x,y,require('ui/widget/focusmanager').FORCED_FOCUS) end
-    end end
-    assert(list.page==2 and list:getFocusItem()==chosen)
+    local chosen=focus_book(list)
+    assert(list.page==2)
     chosen.callback()
     pump_until(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     assert(plugin._book_detail_view._excerpt_book.book_id==chosen.book.bookId)
@@ -107,6 +112,19 @@ return function(plugin,count,flush_tasks,home,pump_until)
     paint("native-store-recommend")
     press(plugin.shelf_view,"Next batch");wait()
     assert(#plugin.discovery_state.books==6 and not plugin.discovery_state.has_more)
+    local later_view,later_state=plugin.shelf_view,plugin.discovery_state
+    local later_focus,later_page=focus_book(later_view),later_view.page
+    control{match='/book/recommend',delay=0,times=1,status=503}
+    local before_failed_refresh=count('/book/recommend')
+    later_view.on_refresh();wait()
+    assert(count('/book/recommend')==before_failed_refresh+1 and plugin.shelf_view==later_view
+        and plugin.discovery_state==later_state and later_view.page==later_page
+        and later_view:getFocusItem()==later_focus,'failed store refresh discarded the active batch or its focus')
+    UIManager:close(UIManager:getTopmostVisibleWidget())
+    control{match='',delay=0,times=0}
+    later_view.on_refresh();wait()
+    assert(plugin.discovery_state~=later_state and plugin.discovery_state.cursor==0,'successful retry did not start a new first batch')
+    press(plugin.shelf_view,'Next batch');wait()
 
     -- The parent event loop remains responsive while the real HTTP child waits.
     control{match="/book/recommend",delay=0.6,times=0}
@@ -171,6 +189,13 @@ return function(plugin,count,flush_tasks,home,pump_until)
     plugin.discovery_state=nil;plugin:showBookstore()
     assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.source_kind=='public'
         and plugin.discovery_state.cursor==20)
+    local offline_view,offline_state=plugin.shelf_view,plugin.discovery_state
+    local offline_focus,offline_page=focus_book(offline_view),offline_view.page
+    offline_view.on_refresh();wait()
+    assert(plugin.shelf_view==offline_view and plugin.discovery_state==offline_state and offline_view.page==offline_page
+        and offline_view:getFocusItem()==offline_focus and not plugin.discovery_worker.job,
+        'offline store refresh discarded the active batch or its focus')
+    UIManager:close(UIManager:getTopmostVisibleWidget())
     press(plugin.shelf_view,'Previous batch');wait()
     assert(plugin.discovery_state.cursor==0 and plugin.discovery_state.cached and plugin.discovery_state.source_kind=='public')
     plugin:loadDiscoveryBatch('search','测试作者',0);wait()

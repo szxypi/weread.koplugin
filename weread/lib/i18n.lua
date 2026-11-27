@@ -836,6 +836,7 @@ local zh = {
     ["Could not load saved searches."] = "无法加载已保存的搜索。",
     ["This saved search is no longer available. Search again to refresh it."] = "这条已保存的搜索已不可用，请重新搜索。",
     ["Could not save the bookshelf for offline use. The current list is still available."] = "无法保存书架供离线使用，当前列表仍可查看。",
+    ["Connect to Wi-Fi to refresh. The current list is still available."] = "请连接 Wi-Fi 后刷新，当前列表仍可查看。",
     ["No saved books for this batch. Connect to Wi-Fi and refresh the list."] = "本批次没有已保存的书籍，请连接 Wi-Fi 后刷新列表。",
     ["Bookstore request failed. Cached books are still available."] = "书城请求失败，已缓存的书籍仍可查看。",
     ["Bookstore requests are limited. Please try again later."] = "书城请求过于频繁，请稍后重试。",

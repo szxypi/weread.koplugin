@@ -2,11 +2,12 @@ package.path='./?.lua;./?/init.lua;'..package.path
 local checks=0
 local function expect(v,m) checks=checks+1;assert(v,m) end
 local captures,writes,account,offline,read_query,read_cursor,available=0,0,'a',true,nil,nil,true
-local closed=0
+local closed,reads=0,0
 package.preload['ui/uimanager']=function() return {close=function() closed=closed+1 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(s) return s end} end
 package.preload['weread.lib.discovery_cache']=function() return {new=function() return {
     read=function(_self,query,cursor)
+        reads=reads+1
         read_query,read_cursor=query,cursor
         if available then return {kind=query and query.kind or 'recommend',cursor=cursor or 0,cached=true,books={}} end
     end,
@@ -37,6 +38,11 @@ expect(captures==0 and started==0 and rendered==1 and read_query.keyword=='三�
 local saved=host.discovery_state
 Request.load(host,'search','三体',20,false,false,saved)
 expect(read_cursor==20 and rendered==2 and captures==0,'offline next batch')
+saved=host.discovery_state
+local before_refresh=reads
+Request.load(host,'search','三体',20,false,true,saved)
+expect(host.discovery_state==saved and reads==before_refresh and captures==0 and rendered==2
+    and message:find('Connect to Wi-Fi to refresh',1,true),'offline refresh reset the visible batch')
 available=false;saved=host.discovery_state
 Request.load(host,'search','三体',40,false,false,saved)
 expect(host.discovery_state==saved and message:find('No saved books',1,true) and captures==0,'missing cache replaced current batch')
@@ -71,7 +77,16 @@ available=false
 Request.load(host,'search','无缓存',0);callback({ok=false})
 expect(host.discovery_state==cached,'missing cache replaced the visible query on network failure')
 available=true
+local later={kind='search',keyword='现有列表',account='a',source_kind='native',cursor=20,history={0},books={}}
+host.discovery_state=later
+before_refresh=reads
+Request.load(host,'search',later.keyword,20,false,true,later);callback({ok=false})
+expect(host.discovery_state==later and reads==before_refresh and message:find('Cached books',1,true),
+    'failed explicit refresh replaced the active batch from storage')
 host.runOnlineTask=function() return false end
+Request.load(host,'search',later.keyword,20,false,true,later)
+expect(host.discovery_state==later and reads==before_refresh and not host.discovery_loading
+    and message:find('Connect to Wi-Fi to refresh',1,true),'link loss while starting refresh replaced the active batch')
 Request.load(host,'search','断网',0)
 expect(not host.discovery_loading and host.discovery_state.cached and read_query.keyword=='断网',
     'link loss before background scheduling did not reopen the saved search')

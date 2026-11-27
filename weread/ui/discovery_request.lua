@@ -32,12 +32,16 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     if context.account and context~=host.discovery_state then return end
     cursor=refresh and 0 or cursor or 0
     local source_state=host.discovery_state
+    local refreshing_visible=refresh and context==source_state
     local binding=not refresh and (cursor>0 or previous) and (context.source_kind and context or source_state) or nil
     local public_search=kind=='search' and (context.public_search==true or context.source_kind=='public')
     local query={kind=kind,keyword=keyword,book_id=context.book_id,book_title=context.book_title,
         category_id=context.category_id,category_title=context.category_title,rank=context.rank,public_only=public_search,
         source_kind=kind=='search' and binding and binding.source_kind or nil}
     local function offline()
+        if refreshing_visible then
+            host:showInfo(_("Connect to Wi-Fi to refresh. The current list is still available."));return false
+        end
         if Cache.open(host,query,cursor) then return true end
         host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
     end
@@ -124,7 +128,8 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
             local limited=type(value)=="table" and value.rate_limited==true
             local message=limited and _("Bookstore requests are limited. Please try again later.")
                 or _("Bookstore request failed. Cached books are still available.")
-            local use_cached=not source_state or (not limited and not is_visible_batch(source_state,query,cursor))
+            local use_cached=not refreshing_visible
+                and (not source_state or not limited and not is_visible_batch(source_state,query,cursor))
             if use_cached and Cache.open(host,query,cursor) and host.showTransientInfo then
                 host:showTransientInfo(message,3)
             else
