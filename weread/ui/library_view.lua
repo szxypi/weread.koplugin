@@ -1803,17 +1803,25 @@ local function rotation_foreground(view)
     return top==popup or input and top==input.keyboard
 end
 
+local function rotation_changed(view)
+    local rotation=Screen.getRotationMode and Screen:getRotationMode()
+    return view.screen_w~=Screen:getWidth() or view.screen_h~=Screen:getHeight() or view.screen_rotation~=rotation
+end
+
 -- KOReader delivers rotation before the file manager has resized the screen.
 -- Reflow on the next tick, once, and only while this page owns the foreground.
 function LibraryView:onSetRotationMode()
     if self._shelf_closed or self._rotation_task or not self._rotation_redraw or not rotation_foreground(self) then return false end
     self._rotation_task=function()
         self._rotation_task=nil
-        if self._shelf_closed or not rotation_foreground(self) then return end
-        local rotation=Screen.getRotationMode and Screen:getRotationMode()
-        if self.screen_w~=Screen:getWidth() or self.screen_h~=Screen:getHeight() or self.screen_rotation~=rotation then
+        if self._shelf_closed then return end
+        self._rotation_pending=rotation_changed(self)
+        if self._rotation_pending then
             require('weread.ui.shelf_popup').redraw(self,function()
-                if not self._shelf_closed and UIManager:getTopmostVisibleWidget()==self then self._rotation_redraw() end
+                if self._rotation_pending and not self._shelf_closed and UIManager:getTopmostVisibleWidget()==self then
+                    self._rotation_pending=nil
+                    if rotation_changed(self) then self._rotation_redraw() end
+                end
             end)
         end
     end
@@ -1821,8 +1829,18 @@ function LibraryView:onSetRotationMode()
     return false
 end
 
+function LibraryView:paintTo(bb, x, y, dirty)
+    -- A dismissed popup may have opened a status dialog above this page.
+    -- KOReader repaints the uncovered view once that dialog closes.
+    if self._rotation_pending and not self._rotation_task and UIManager:getTopmostVisibleWidget()==self then
+        self:onSetRotationMode()
+    end
+    return FocusManager.paintTo(self, bb, x, y, dirty)
+end
+
 function LibraryView:onCloseWidget()
     self._shelf_closed=true
+    self._rotation_pending=nil
     if self._rotation_task then UIManager:unschedule(self._rotation_task);self._rotation_task=nil end
     require('weread.ui.shelf_popup').close(self)
     if self._visible_task then UIManager:unschedule(self._visible_task) self._visible_task = nil end

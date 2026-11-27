@@ -201,6 +201,47 @@ local ok,reason=pcall(function()
     end
     expect(not view._shelf_popup and plugin.shelf_view.screen_w==Screen:getWidth()
         and plugin.shelf_view.screen_h==Screen:getHeight() and plugin.shelf_view:getFocusedBookId()==popup_focus)
+    report.phase='search_offline_notice'
+    view=assert(plugin.shelf_view)
+    plugin.isNetworkConnected=function() return false end
+    G_reader_settings:saveSetting('virtual_keyboard_enabled',true)
+    plugin:showDiscoverySearch('没有缓存的合成检索词')
+    search=assert(view._shelf_popup)
+    expect(search:isKeyboardVisible())
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_CLOCKWISE))
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    search.buttons[1][2].callback()
+    local notice=assert(UI:getTopmostVisibleWidget())
+    expect(notice.text==tr('No saved books for this batch. Connect to Wi-Fi and refresh the list.'))
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    expect(plugin.shelf_view==view and UI:getTopmostVisibleWidget()==notice)
+    UI:close(notice)
+    G_reader_settings:saveSetting('virtual_keyboard_enabled',keyboard_setting)
+    deadline=socket.gettime()+5
+    while plugin.shelf_view==view do
+        assert(socket.gettime()<deadline,'rotation was lost after closing the offline search notice')
+        UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
+    end
+    expect(plugin.shelf_view.screen_w==Screen:getWidth() and plugin.shelf_view.screen_h==Screen:getHeight()
+        and plugin.shelf_view:getFocusedBookId()==popup_focus)
+    report.phase='search_cached_after_rotation'
+    view=assert(plugin.shelf_view)
+    local cached_query='已保存的合成检索词'
+    local cache=require('weread.ui.discovery_cache')
+    expect(cache.save(plugin,{account=plugin.library_db:accountKey(),kind='search',keyword=cached_query,
+        source_kind='public',cursor=0,next_cursor=0,has_more=false,loaded_at=os.time(),
+        books={{bookId='990994',title='合成缓存搜索结果',author='',cover='',category=''}}}))
+    plugin:showDiscoverySearch(cached_query)
+    search=assert(view._shelf_popup)
+    UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_UPRIGHT))
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    search.buttons[2][2].callback()
+    local results=assert(plugin.shelf_view)
+    expect(results~=view and view._shelf_closed and results._discovery_tab=='store')
+    for _index=1,5 do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+    expect(plugin.shelf_view==results and results.books[1].bookId=='990994' and plugin.discovery_state.keyword==cached_query
+        and plugin.discovery_state.cached and results.screen_w==Screen:getWidth()
+        and results.screen_h==Screen:getHeight())
     report.phase='rapid';view=assert(plugin.shelf_view)
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_UPSIDE_DOWN))
     UI:broadcastEvent(Event:new('SetRotationMode',Screen.DEVICE_ROTATED_COUNTER_CLOCKWISE))
