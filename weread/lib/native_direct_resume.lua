@@ -14,7 +14,12 @@ local M={}
 function M.hint(raw,id)
     local point,_,provided=Remote.project(raw,id,'native')
     local uid=point and P.id(point.chapter_uid)
-    if not uid then return end
+    if not uid then
+        if point and tostring(point.chapter_uid)=='0' and require('weread.lib.native_cloud_state').from(raw,id) then
+            return {unstarted=true}
+        end
+        return nil
+    end
     local chapter={uid=uid,idx=provided.chapter_idx and point.chapter_idx or nil}
     if not provided.chapter_offset or not P.integer(point.chapter_offset,1,Coordinates.MAX_BYTES*8)
         or not P.summary(point.summary) then return chapter end

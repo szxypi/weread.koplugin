@@ -188,6 +188,9 @@ expect(s.page==2 and cloud_marked(s.items[2]) and progress_calls==1,'clearing se
 for _,point in ipairs({{bookId='457',chapterUid=2,progress=10},
     {bookId='456',chapterUid=2,chapterIdx=1,progress=10},
     {bookId='456',chapterUid=0,progress=0},
+    {bookId='456',chapterUid=0,chapterOffset=12,progress=0},
+    {bookId='456',chapterUid=0,chapterOffset=0,progress=12},
+    {bookId='456',chapterUid=0,chapterOffset=0,progress=0,summary='Existing reading excerpt'},
     {bookId='456',chapterUid=3,chapterIdx=2,progress=10},false}) do
     host,s=fixture();cloud_progress=point and {book=point};cloud_error=not point and 'native_auth/direct_progress/http_401'
     expect(UI.start(host,{book_id='456'},s.view,{cloud_chapter=true}),'catalog required a cloud hint')
@@ -195,6 +198,26 @@ for _,point in ipairs({{bookId='457',chapterUid=2,progress=10},
     expect(progress_calls==1 and not s.page and not cloud_marked(s.items[2]) and #s.jobs==1 and s.info==0,
         'unverified cloud progress changed the normal catalog')
 end
+local fresh_book={book={bookId='456',chapterUid=0,chapterOffset=0,progress=0}}
+host,s=fixture();cloud_progress=fresh_book
+expect(UI.start(host,{book_id='456'},s.view,{cloud_chapter=true}),'new book did not start reading')
+s.finish(1)
+expect(#s.jobs==2 and not s.items,'confirmed unread book opened a chapter selector')
+s.finish(2)
+expect(s.opened==1 and not s.handoff and expected_chapter.chapterUid=='1' and progress_calls==2
+    and not host._native_direct_reading,'unread book did not open its first readable chapter at the start')
+host,s=fixture();cloud_progress=fresh_book
+UI.start(host,{book_id='456'},s.view,{cloud_chapter=true});s.finish(1)
+cloud_progress={book={bookId='456',chapterUid=2,chapterIdx=2,chapterOffset=25,progress=10}}
+s.finish(2)
+expect(s.opened==0 and s.page==2 and cloud_marked(s.items[2]) and #s.jobs==2 and progress_calls==2,
+    'new cloud progress was ignored while the first chapter was being prepared')
+host,s=fixture();cloud_progress=fresh_book
+sample.reading_chapters[1].downloadable=false;sample.reading_chapters[2].downloadable=true
+UI.start(host,{book_id='456'},s.view,{cloud_chapter=true});s.finish(1)
+expect(#s.jobs==1 and not s.items[1].select_enabled and s.items[2].select_enabled and s.opened==0,
+    'an unavailable first chapter was skipped or downloaded')
+sample.reading_chapters[1].downloadable=true;sample.reading_chapters[2].downloadable=false
 local function start_exact()
     local exact_host,exact=fixture()
     cloud_progress={book={bookId='456',chapterUid=1,chapterIdx=1,chapterOffset=40,progress=10,summary='A unique later passage'}}

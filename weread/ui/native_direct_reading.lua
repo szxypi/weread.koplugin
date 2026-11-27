@@ -116,6 +116,17 @@ local function cloud_row(rows,hint)
     end
 end
 
+local function direct_chapter(catalog,cloud)
+    if type(cloud)~='table' then return end
+    if cloud.unstarted==true then return catalog.chapters[1] end
+    local index=cloud_row(catalog.chapters,cloud)
+    local chapter=index and catalog.chapters[index]
+    local position=chapter and cloud.target
+    if position and require('weread.lib.native_direct_resume').valid_target(position)
+        and position.book_id==catalog.book_id and position.chapter_uid==chapter.chapterUid
+        and position.chapter_idx==cloud.idx then return chapter,position end
+end
+
 local function connected(host)
     return host.isNetworkConnected and host:isNetworkConnected()
         or not host.isNetworkConnected and host:isNetworkOnline()
@@ -652,6 +663,24 @@ function M.start(host,book,view,options)
         if saved then return saved end
         return nil,'damaged'
     end
+    local function read_cloud(auth,credentials)
+        local ok,raw=pcall(auth._request,auth,'direct_progress',
+            'https://i.weread.qq.com/book/getProgress?bookId='..id,nil,credentials,{2,3})
+        if ok then return require('weread.lib.native_direct_resume').hint(raw,id) end
+    end
+    local function confirm_first_chapter(result)
+        if not ctx.auto_open or ctx.auto_open.unstarted~=true or not result.path then return result end
+        local latest
+        if connected(host) and current() then
+            local native=ctx.selected.native
+            local auth=require('weread.lib.native_authorization'):new(host.client,{
+                expected_vid=native.scope.vid,is_current=current})
+            latest=read_cloud(auth,native.credentials)
+            auth:cancel()
+        end
+        if latest and latest.unstarted==true then return result end
+        return {error='new_book_position_changed',cloud_chapter=latest}
+    end
     launch=function()
         local phase,saved_entry=ctx.phase,ctx.entry
         local is_current=phase_guard(phase)
@@ -692,7 +721,7 @@ function M.start(host,book,view,options)
                 return result or {error='damaged'}
             elseif phase=='saved_matches' then
                 local saved,reason=lookup_saved(is_current,false)
-                return saved or {error=reason}
+                return saved and confirm_first_chapter(saved) or {error=reason}
             end
             if phase=='catalog' then
                 local native=ctx.selected.native
@@ -707,11 +736,7 @@ function M.start(host,book,view,options)
                 end
                 local result=project(value,id)
                 if result and want_cloud_chapter then
-                    local ok,raw=pcall(auth._request,auth,'direct_progress',
-                        'https://i.weread.qq.com/book/getProgress?bookId='..id,nil,native.credentials,{2,3})
-                    if ok then
-                        result.cloud_chapter=require('weread.lib.native_direct_resume').hint(raw,id)
-                    end
+                    result.cloud_chapter=read_cloud(auth,native.credentials)
                 end
                 auth:cancel()
                 if result and host.library_db then
@@ -725,13 +750,13 @@ function M.start(host,book,view,options)
             end
             if phase=='chapter' and (ctx.menu or ctx.auto_open) then
                 local saved=lookup_saved(current,true)
-                if saved then return saved end
+                if saved then return confirm_first_chapter(saved) end
             end
             local expected={book_id=id,chapter_uid=ctx.chapter.chapterUid,book_version=ctx.catalog.version,
                 reading_catalog_sha256=ctx.catalog.reading_digest,access_fingerprint=ctx.selected.native.fingerprint}
             local result,why=require('weread.lib.native_direct_reader').build(host.client,host.settings,
                 ctx.book,ctx.chapter,expected,{is_current=current,allow_missing_images=true})
-            return result or {error=why or 'unavailable'}
+            return result and confirm_first_chapter(result) or {error=why or 'unavailable'}
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
             if not is_current() then M.cancel(host);return end
@@ -739,6 +764,10 @@ function M.start(host,book,view,options)
                 ctx.batch_record=result.batch_record
             end
             local reason=type(result)=='table' and result.error
+            if reason=='new_book_position_changed' and ctx.auto_open and ctx.auto_open.unstarted==true then
+                ctx.auto_open=result.cloud_chapter or ctx.auto_open
+                show_resume_catalog();return
+            end
             if phase=='chapter' and (ctx.menu or ctx.auto_open) and reason=='transport' then
                 begin_open('saved_matches');return
             end
@@ -845,13 +874,8 @@ function M.start(host,book,view,options)
                     ctx.chapter=chapter;ctx.phase='chapter';launch();return
                 end
                 local cloud=result.cloud_chapter
-                local index=cloud_row(checked.chapters,cloud)
-                local chapter=index and checked.chapters[index]
-                local position=chapter and cloud.target
-                if want_cloud_chapter and chapter and chapter.downloadable and position
-                    and require('weread.lib.native_direct_resume').valid_target(position)
-                    and position.book_id==id and position.chapter_uid==chapter.chapterUid
-                    and position.chapter_idx==cloud.idx and connected(host) then
+                local chapter,position=direct_chapter(checked,cloud)
+                if want_cloud_chapter and chapter and chapter.downloadable and connected(host) then
                     ctx.auto_open,ctx.chapter,ctx.cloud_target=cloud,chapter,position
                     begin_open('chapter');return
                 end

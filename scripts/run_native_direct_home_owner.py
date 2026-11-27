@@ -35,7 +35,9 @@ def main(argv=None):
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--full-ui', action='store_true')
-    parser.add_argument('--cloud-resume', action='store_true')
+    reading_mode = parser.add_mutually_exclusive_group()
+    reading_mode.add_argument('--cloud-resume', action='store_true')
+    reading_mode.add_argument('--start-unread', action='store_true')
     parser.add_argument('--store-search', action='store_true')
     parser.add_argument('--quick-search', action='store_true')
     parser.add_argument('--progress-estimate', action='store_true')
@@ -45,9 +47,10 @@ def main(argv=None):
     parser.add_argument('--offline-time-preflight', action='store_true')
     parser.add_argument('--no-position-guidance', action='store_true')
     args = parser.parse_args(argv)
-    if args.cloud_resume and (not args.full_ui or args.store_search or args.progress_estimate
-                              or args.offline_reminder or args.offline_time):
-        parser.error('cloud resume requires full UI without other probe modes')
+    cloud_entry = args.cloud_resume or args.start_unread
+    if cloud_entry and (not args.full_ui or args.store_search or args.progress_estimate
+                        or args.offline_reminder or args.offline_time):
+        parser.error('cloud reading requires full UI without other probe modes')
     if args.store_search and not args.full_ui:
         parser.error('store search requires full UI')
     if args.quick_search and not args.store_search:
@@ -80,17 +83,19 @@ def main(argv=None):
         payload = json.loads(raw)
         if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
             raise ValueError('endpoint')
-        if 'live_cloud_resume' in payload:
-            raise ValueError('cloud_resume_mode')
+        if 'live_cloud_resume' in payload or 'start_unread' in payload:
+            raise ValueError('cloud_reading_mode')
         excerpt = payload.get('cloud_excerpt')
-        if args.cloud_resume:
+        if cloud_entry:
             if (payload.get('mock_endpoint') is not None or payload.get('web_cookies')
-                    or not isinstance(excerpt, str) or not 12 <= len(excerpt.encode()) <= 512
                     or any(not isinstance(payload.get(key), str) or re.fullmatch(r'[1-9][0-9]{0,19}', payload[key]) is None
                            for key in ('book_id', 'uid'))):
-                raise ValueError('cloud_resume_payload')
+                raise ValueError('cloud_reading_payload')
+        if args.cloud_resume:
+            if not isinstance(excerpt, str) or not 12 <= len(excerpt.encode()) <= 512:
+                raise ValueError('cloud_excerpt')
         elif excerpt is not None:
-            raise ValueError('cloud_resume_payload')
+            raise ValueError('cloud_excerpt')
         if args.store_search != (isinstance(payload.get('store_search_keyword'), str)
                 and 0 < len(payload['store_search_keyword'].encode()) <= 512):
             raise ValueError('search_keyword')
@@ -121,8 +126,9 @@ def main(argv=None):
             if args.offline_time_ui: env['TZ'] = 'Asia/Shanghai'
             phase = 'native_chapter'
             prepare = dict(payload, plugin_home=True, quick_search=args.quick_search)
-            if args.cloud_resume:
-                prepare.update(live_cloud_resume=True, read_entry='shelf', cloud_chapter_uid=payload['uid'], exact_resume=True)
+            if cloud_entry:
+                prepare.update(live_cloud_resume=True, read_entry='shelf', exact_resume=args.cloud_resume,
+                               start_unread=args.start_unread, cloud_chapter_uid=payload['uid'] if args.cloud_resume else '0')
             probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
             probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
             code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -168,6 +174,7 @@ def main(argv=None):
                     or args.full_ui and prepared.get('quick_search') is not args.quick_search
                     or args.cloud_resume and (prepared.get('cloud_position_verified') is not True
                         or prepared.get('cloud_reads') != 3)
+                    or args.start_unread and (prepared.get('first_page_verified') is not True or prepared.get('cloud_reads') != 2)
                     or not path.is_file() or profile/'weread' not in path.parents):
                 raise ValueError('prepare')
             for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
@@ -300,6 +307,8 @@ def main(argv=None):
                 report['full_ui'] = True
             if args.cloud_resume:
                 report.update(cloud_position_verified=True, cloud_reads=3)
+            if args.start_unread:
+                report.update(first_page_verified=True, cloud_reads=2)
             if args.store_search:
                 report['store_search'] = True
                 report['inline_style_verified'] = True

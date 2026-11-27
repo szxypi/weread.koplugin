@@ -9,8 +9,13 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local live_cloud=input.live_cloud_resume==true
 if live_cloud then
-    assert(not input.mock_endpoint and input.read_entry=='shelf' and input.exact_resume==true
-        and type(input.cloud_excerpt)=='string' and #input.cloud_excerpt>=12 and #input.cloud_excerpt<=512)
+    assert(not input.mock_endpoint and input.read_entry=='shelf')
+    if input.exact_resume then
+        assert(not input.start_unread and type(input.cloud_excerpt)=='string'
+            and #input.cloud_excerpt>=12 and #input.cloud_excerpt<=512)
+    else
+        assert(input.start_unread==true and input.cloud_chapter_uid=='0' and not input.cloud_excerpt)
+    end
 end
 local Settings=require('weread.lib.settings');local settings=Settings:new()
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
@@ -116,7 +121,8 @@ end
 FM:showFiles(home);local host=assert(FM.instance.weread)
 host.settings.mock_endpoint=input.mock_endpoint
 local failure,ui_failed,resume_message,cloud_xpointer
-if input.exact_resume then
+local direct=input.exact_resume or input.start_unread
+if direct then
     assert(live_cloud or input.mock_endpoint and os.getenv('WEREAD_SYNTHETIC')=='1')
     host.showInfo=function() ui_failed=true end
     local show_list=host.showList
@@ -125,6 +131,8 @@ if input.exact_resume then
             'direct continuation opened a chapter selector')
         return show_list(self,title,...)
     end
+end
+if input.exact_resume then
     local CloudOpen=require('weread.ui.native_direct_cloud_open');local receive=CloudOpen.receive
     CloudOpen.receive=function(next_host,...)
         next_host.settings.mock_endpoint=input.mock_endpoint
@@ -239,11 +247,14 @@ local function choose_chapter()
     host.showInfo=function() ui_failed=true end
     ctx.menu:onMenuSelect(ctx.menu.item_table[index])
 end
-if not input.exact_resume then choose_chapter() end
+if not direct then choose_chapter() end
 stage='reader';pump(function() return ui_failed or Reader.instance and Reader.instance.weread and Reader.instance.document end)
 if ui_failed then print('WEREAD_DIRECT_HOME_REASON='..(failure or 'unavailable'));error('chapter preparation failed') end
 local reader=Reader.instance;local path=reader.document.file
 assert(require('weread.lib.native_direct_path').contains(reader.weread.settings,path))
+if input.start_unread then
+    assert(reader.document:getCurrentPage()==1,'unread book did not open at its first page')
+end
 if input.exact_resume then
     stage='cloud_position';pump(function()
         return resume_message~=nil or cloud_xpointer and not reader.weread._native_direct_cloud_open
@@ -322,4 +333,4 @@ local cloud=io.open(home..'/cloud-count','rb');local cloud_reads
 if cloud then cloud_reads=#assert(cloud:read('*a'));assert(cloud:close()) end
 print('WEREAD_DIRECT_HOME_FULL='..json.encode{ok=true,path=path,requests=requests,source_matches=true,
     store_search=input.store_search_keyword~=nil,quick_search=input.quick_search==true,
-    cloud_position_verified=input.exact_resume==true,cloud_reads=cloud_reads})
+    cloud_position_verified=input.exact_resume==true,first_page_verified=input.start_unread==true,cloud_reads=cloud_reads})
