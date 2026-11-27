@@ -16,6 +16,12 @@ end
 assert(trim(" \227\128\128\194\160关键词\t\227\128\128") == "关键词", "mixed whitespace not trimmed")
 assert(trim("\255\227\128\128") == "\255", "malformed byte handling changed")
 assert(trim("\227\128") == "\227\128", "partial Unicode character changed")
+local punctuation = "\194\161\225\154\129\226\128\139\227\128\129"
+assert(trim("\194\160" .. punctuation .. "\226\128\128\194\133") == punctuation,
+    "similar Unicode prefixes or endings were trimmed")
+local preserved = words("\226\128\128" .. punctuation .. "\194\133\194\160tail")
+assert(#preserved == 2 and preserved[1] == punctuation and preserved[2] == "tail",
+    "similar Unicode prefixes were split as whitespace")
 assert(trim(nil) == "" and trim(42) == "", "non-string query handling changed")
 assert(#words(nil) == 0 and #words(" \t") == 0, "empty word list changed")
 local invalid = words("\255 \227\128")

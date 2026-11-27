@@ -7,42 +7,44 @@ local spaces = {
     "\226\128\136", "\226\128\137", "\226\128\138", "\226\128\168",
     "\226\128\169", "\226\128\175", "\226\129\159", "\227\128\128",
 }
+local space_width = {}
+local width_by_start = {}
+for _, space in ipairs(spaces) do
+    space_width[space] = #space
+    width_by_start[space:byte(1)] = #space
+end
 
 local function ascii_space(byte)
     return byte == 32 or (byte and byte >= 9 and byte <= 13)
 end
 
-local function space_length(value, position, remaining)
-    if ascii_space(value:byte(position)) then return 1 end
-    for _, space in ipairs(spaces) do
-        if #space <= remaining and value:sub(position, position + #space - 1) == space then
-            return #space
-        end
-    end
+local function space_length(value, position)
+    local first = value:byte(position)
+    if ascii_space(first) then return 1 end
+    local width = width_by_start[first]
+    if width then return space_width[value:sub(position, position + width - 1)] end
 end
 
 local function trim(value)
     if type(value) ~= "string" then return "" end
     local first, last = 1, #value
     while first <= last do
-        local length = space_length(value, first, last - first + 1)
+        local length = space_length(value, first)
         if not length then break end
         first = first + length
     end
     while first <= last do
-        if ascii_space(value:byte(last)) then
-            last = last - 1
-        else
-            local found = false
-            for _, space in ipairs(spaces) do
-                if last - #space + 1 >= first and value:sub(last - #space + 1, last) == space then
-                    last = last - #space
-                    found = true
-                    break
-                end
-            end
-            if not found then break end
+        local byte = value:byte(last)
+        local width
+        if ascii_space(byte) then
+            width = 1
+        elseif byte >= 128 and byte <= 191 then
+            -- A trailing Unicode separator ends in a UTF-8 continuation byte.
+            width = (last > first and space_width[value:sub(last - 1, last)])
+                or (last - first >= 2 and space_width[value:sub(last - 2, last)])
         end
+        if not width then break end
+        last = last - width
     end
     return value:sub(first, last)
 end
@@ -53,7 +55,7 @@ local function words(value)
     if type(value) ~= "string" then return {} end
     local result, first, position = {}, nil, 1
     while position <= #value do
-        local length = space_length(value, position, #value - position + 1)
+        local length = space_length(value, position)
         if length then
             if first then result[#result + 1] = value:sub(first, position - 1); first = nil end
             position = position + length
