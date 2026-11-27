@@ -1,8 +1,8 @@
 import copy
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 import io
 import json
-import time
 import unittest
 
 from cb_fixture_native_time_intent import Intent
@@ -14,13 +14,13 @@ import verify_cb_txt_native_time_fixture_ui_trial as task
 
 
 class Harness(ManualHarness):
-    def __init__(self, fail=None):
+    def __init__(self, fail=None, *, now=None):
         super().__init__(fail)
         self.current['updateTime'] = 1
         self.context['initial_observed'] = self.project()
         self.intent = Intent(backend=MemoryBackend())
         self.evidences = [Evidence(backend=MemoryBackend()), Evidence(backend=MemoryBackend())]
-        self.now = int(time.time())
+        self.now = now if now is not None else int(datetime(2024, 6, 15, 4, tzinfo=timezone.utc).timestamp())
         self.stats_value = dict(baseTime=0, readTimes={}, totalReadTime=0, readDays=0)
     def stats(self): return copy.deepcopy(self.stats_value)
     def progress(self): return self.pair()[0]
@@ -71,6 +71,14 @@ class TxtNativeTimeTrialTest(unittest.TestCase):
         self.assertFalse(task.time_trial(h.context, h.report, h.intent, h.evidences, ['manual'], h,
                                         runner=runner, attest=lambda: ['manual'], clock=lambda: h.now))
         self.assertEqual(h.calls, [(False, 600)])
+
+    def test_cst_midnight_prevents_write_after_dry_run(self):
+        now = int(datetime(2024, 6, 15, 15, 59, 30, tzinfo=timezone.utc).timestamp())
+        h = Harness(now=now)
+        self.assertFalse(h.execute())
+        self.assertEqual(h.calls, [(False, 600)])
+        self.assertEqual(h.current['readingTime'], 0)
+        self.assertIsNone(h.evidences[0].backend.load())
 
     def test_unrecognized_statistics_stops_without_second_report(self):
         h = Harness()
