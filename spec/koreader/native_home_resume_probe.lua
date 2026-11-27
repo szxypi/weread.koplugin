@@ -72,7 +72,9 @@ else
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage'
     if damage then host.showInfo=function(_,text) message=text end end
     if shelf then
-        host.isNetworkOnline=function() return false end
+        -- Book details use the device link state, without a live DNS probe.
+        local network=require('ui/network/manager')
+        network.isConnected=function() return false end
         host:applyShelfSnapshot({{bookId=id,title='Synthetic book',author='Fixture'}},{})
         host:showShelfView('books',nil,nil,{skip_cover_fetch_once=true,skip_progress_fetch_once=true})
         local shelf_view=assert(host.shelf_view);local shelf_book
