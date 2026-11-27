@@ -1,0 +1,95 @@
+-- Test the actual portal and cache in separate, network-blocked processes.
+require('ffi').log=function() end;require('setupkoenv')
+assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
+local scope,stage=assert(arg[2]),assert(arg[3])
+local personal=scope=='account'
+package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
+G_defaults=require('luadefaults'):open()
+G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+local Device=require('device');require('document/canvascontext'):init(Device)
+local PluginLoader=require('pluginloader')
+PluginLoader.enabled_plugins,PluginLoader.disabled_plugins,PluginLoader.loaded_plugins={},{},{}
+for _,entry in ipairs(PluginLoader:_discover()) do if entry.name=='weread' then PluginLoader:_load{entry} end end
+assert(#PluginLoader.enabled_plugins==1)
+local FM=require('apps/filemanager/filemanager');FM:showFiles(home)
+local host=assert(FM.instance.weread)
+host.isNetworkConnected=function() return false end
+host.isNetworkLinkAvailable=host.isNetworkConnected
+host.client.request=function() error('bookstore made an offline request') end
+local redraw_covers
+host.fetchVisibleShelfCovers=function(_,_,_,options) redraw_covers=options.on_redraw end
+local UI=require('ui/uimanager')
+local function flush_actions()
+    UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+end
+local Cache=require('weread.ui.discovery_cache')
+local account
+if personal then
+    host.settings:set('account',{name='Synthetic',user_vid='900000',login_method='qr'})
+    host.settings:set('cookies',{wr_vid='900000',wr_skey='synthetic'})
+    assert(host.settings:flush())
+    account=assert(host.library_db:accountKey())
+end
+
+local function batch(query,cursor)
+    local state={account=account,source_kind=personal and 'native' or 'public',source_revision='synthetic',
+        cursor=cursor,next_cursor=cursor+20,has_more=cursor==0,loaded_at=os.time(),books={}}
+    for key,value in pairs(query) do state[key]=value end
+    for index=1,20 do
+        state.books[index]={bookId=tostring(900000+cursor+index),title='Fixture book '..index,author='',cover='',category=''}
+    end
+    return state
+end
+local query=personal and {kind='search',keyword='Synthetic search'}
+    or {kind='category',category_id='rising',category_title='Synthetic rank',rank=true}
+local function focus(index)
+    local view=host.shelf_view
+    local focused=assert(view._item_rows[index])
+    for row,items in ipairs(view.layout) do for column,item in ipairs(items) do
+        if item==focused then view:moveFocusTo(column,row,require('ui/widget/focusmanager').FORCED_FOCUS) end
+    end end
+end
+local function assert_position(index)
+    local view=assert(host.shelf_view)
+    assert(host.discovery_state.cursor==0 and host.discovery_state.cached and view.page==2)
+    assert(view:getFocusedBookId()==tostring(900000+view.page_size+index),'focused book did not survive reopening')
+end
+if stage=='write' then
+    local first=batch(query,0);assert(Cache.save(host,first))
+    assert(Cache.save(host,batch(query,20),first,true))
+    local other=personal and {kind='search',keyword='Newer search'}
+        or {kind='category',category_id='different',category_title='Newer rank',rank=true}
+    assert(Cache.save(host,batch(other,0)))
+    assert(Cache.open(host,query,20))
+    assert(host.discovery_state.cursor==20)
+    local previous=require('weread.lib.i18n').tr('Previous batch')
+    local action
+    for _,button in ipairs(host.shelf_view._action_buttons) do if button.text==previous then action=button end end
+    assert(action,'offline previous batch unavailable');action.callback();flush_actions()
+    assert(host.discovery_state.cursor==0)
+    local writes,remember=0,Cache.remember
+    Cache.remember=function(...) writes=writes+1;return remember(...) end
+    host.shelf_view.on_page_changed(2)
+    focus(2)
+    redraw_covers(2);flush_actions()
+    assert_position(2)
+    assert(writes==0,'changing pages or repainting wrote the position')
+    local view=host.shelf_view
+    view._navigation_buttons[1].callback();flush_actions()
+    assert(host.shelf_view._discovery_tab=='home' and writes==1,'leaving the bookstore did not save once')
+    host.shelf_view._navigation_buttons[3].callback();flush_actions()
+    assert_position(2)
+    UI:flushSettings()
+    assert(writes==1,'an unchanged position was written again')
+    focus(3);UI:flushSettings()
+    assert(writes==2,'flushing settings did not save the new focus')
+else
+    assert(stage=='reopen')
+    host:openBookstore()
+    assert_position(3)
+    assert(host.discovery_state.kind==query.kind and host.discovery_state.keyword==query.keyword
+        and host.discovery_state.category_id==query.category_id and not host.discovery_state.source_revision)
+end
+print('WEREAD_BOOKSTORE_POSITION='..scope..'/'..stage)

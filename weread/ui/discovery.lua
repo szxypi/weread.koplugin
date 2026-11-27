@@ -10,6 +10,10 @@ local VolatileShelf = require("weread.lib.volatile_shelf")
 local _ = PluginUtil.tr
 local M = {}
 
+local function bookstore_position(view)
+    return {anchor=(view.page-1)*view.page_size+1,focus=view:getFocusedBookId()}
+end
+
 function M:discoveryNavigation(active, current)
     local function switch(callback)
         return function()
@@ -64,7 +68,12 @@ function M:showDiscoveryPage(tab, books, options)
     local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
-    if self.shelf_view then UIManager:close(self.shelf_view) end
+    if previous then
+        if options.bookstore_state and previous._bookstore_state==options.bookstore_state then
+            previous._bookstore_redrawing=true
+        end
+        UIManager:close(previous)
+    end
     local view, scope
     local function current() return scope and scope() end
     local hold = options.on_hold or not downloads and function(book, owner, page_current)
@@ -74,7 +83,9 @@ function M:showDiscoveryPage(tab, books, options)
         if not current() then return end
         options.page = next_page
         Popup.redraw(view, function()
-            if current() and not self._book_detail_view then self:showDiscoveryPage(tab, books, options) end
+            if not current() or self._book_detail_view then return end
+            if options.bookstore_state and options.page==view.page then options.focus_book_id=view:getFocusedBookId() end
+            self:showDiscoveryPage(tab, books, options)
         end)
     end
     view = LibraryView.show({
@@ -122,6 +133,23 @@ function M:showDiscoveryPage(tab, books, options)
     self.shelf_view = view
     view._finish_dirty=carry_dirty
     view._discovery_tab = tab
+    local state=options.bookstore_state
+    if state then
+        view._bookstore_state=state
+        local flush=view.onFlushSettings
+        view.onFlushSettings=function(widget,...)
+            if not widget._shelf_closed and not widget._bookstore_redrawing and self.discovery_state==state
+                and self.library_db:accountKey()==state.account then
+                local position=bookstore_position(widget)
+                local prior=state._browse_position
+                if not state._browse_saved or not prior or prior.anchor~=position.anchor or prior.focus~=position.focus then
+                    state._browse_position=position
+                    state._browse_saved=require('weread.ui.discovery_cache').remember(self,state,position)
+                end
+            end
+            if flush then return flush(widget,...) end
+        end
+    end
     scope = Scope.capture(self, view)
     view._rotation_redraw=function()
         if not current() then return end
@@ -420,8 +448,14 @@ function M:showBookstore()
         if state.kind == "category" then title = state.category_title end
         if state.cached or os.time() - state.loaded_at > Data.CACHE_TTL then title = _("Cached") .. " · " .. title end
     end
+    local position=state and state._browse_position
+    local view=self.shelf_view
+    if state and view and view._bookstore_state==state and not view._shelf_closed then
+        position=bookstore_position(view)
+    end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
+        bookstore_state=state,rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,
         empty_text = state and (state.kind == "similar" and _("No similar books found.")
             or state.kind == "search" and _("No search results.") or _("No books found."))
             or _("Choose For you or search to discover books."),

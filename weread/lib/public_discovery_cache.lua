@@ -30,4 +30,8 @@ function M:write(state,previous,continuation)
     if not public(state) or previous and not public(previous) then return nil end
     return self.cache:write(state,previous,continuation)
 end
+function M:remember(state,position)
+    if not public(state) then return false end
+    return self.cache:remember(state,position)
+end
 return M

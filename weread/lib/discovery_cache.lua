@@ -107,20 +107,24 @@ local function run(self,task)
     if not self.library or type(self.library.open)~='function' then return nil end
     local db=self.library:open();if not db then return nil end
     local transaction=false
-    local ok,result=pcall(function()
+    local ok,result,reference=pcall(function()
         db:exec([[CREATE TABLE IF NOT EXISTS discovery_cache (
             cache_key TEXT PRIMARY KEY,payload TEXT NOT NULL,serial INTEGER NOT NULL
+        ); CREATE TABLE IF NOT EXISTS discovery_position (
+            id INTEGER PRIMARY KEY CHECK(id=1),cache_key TEXT NOT NULL,serial INTEGER NOT NULL,
+            generation TEXT NOT NULL,cursor INTEGER NOT NULL,anchor INTEGER NOT NULL,focus TEXT
         )]])
         local function begin() db:exec('BEGIN IMMEDIATE');transaction=true end
         local function commit() db:exec('COMMIT');transaction=false end
         return task(db,begin,commit)
     end)
     if transaction then pcall(db.exec,db,'ROLLBACK') end
-    pcall(db.close,db);return ok and result or nil
+    pcall(db.close,db)
+    if ok then return result,reference end
 end
 function M:new(library,codec) return setmetatable({library=library,codec=codec},self) end
 local function read(self,db,key)
-    local sql='SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END, cache_key FROM discovery_cache'
+    local sql='SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END, cache_key, serial FROM discovery_cache'
     local row
     if key then row=statement(db,sql..' WHERE cache_key=?',M.MAX_PAYLOAD,key)
     else row=statement(db,sql..' ORDER BY serial DESC LIMIT 1',M.MAX_PAYLOAD) end
@@ -128,35 +132,78 @@ local function read(self,db,key)
     local value=M.validate(self.codec:json_decode(row[1]))
     -- Accept the original key for public searches saved by older versions.
     if M.key(value.query,value.source_kind=='public')~=row[2] and M.key(value.query)~=row[2] then fail() end
-    return value
+    return value,{key=row[2],serial=tonumber(row[3]),generation=value.generation}
 end
 local function search(self,db,query)
     local function get(key)
-        local ok,value=pcall(read,self,db,key)
-        if ok then return value end
+        local ok,value,reference=pcall(read,self,db,key)
+        if ok then return value,reference end
     end
     local standard_key=M.key(query)
     local source=query.source_kind
-    local standard
+    local standard,standard_reference
     if not query.public_only and source~='public' then
-        standard=get(standard_key)
+        standard,standard_reference=get(standard_key)
         if standard and standard.source_kind~='public' and (not source or source==standard.source_kind) then
-            return standard,standard_key
+            return standard,standard_reference
         end
         if source then return nil end
     end
     local public_key=M.key(query,true)
-    local public=get(public_key)
-    if public then return public,public_key end
-    local legacy=standard or get(standard_key)
-    if legacy and legacy.source_kind=='public' then return legacy,standard_key end
+    local public,reference=get(public_key)
+    if public then return public,reference end
+    if not standard then standard,standard_reference=get(standard_key) end
+    if standard and standard.source_kind=='public' then return standard,standard_reference end
+end
+local function valid_position(anchor,focus)
+    return integer(anchor,100) and anchor>=1 and (focus==nil or text(focus,256))
+end
+local function cached_state(value,reference,cursor)
+    local state=value and restored_state(value,cursor)
+    if state then state._cache_view=reference end
+    return state
+end
+local function resume(self,db)
+    local row=statement(db,[[SELECT cache_key,serial,generation,cursor,anchor,focus
+        FROM discovery_position WHERE id=1]])
+    if not row or not text(row[1],64) or #row[1]~=64 then return nil end
+    local cursor,anchor=tonumber(row[4]),tonumber(row[5])
+    if not integer(cursor) or not valid_position(anchor,row[6]) then return nil end
+    local ok,value,reference=pcall(read,self,db,row[1])
+    if not ok or not reference or reference.serial~=tonumber(row[2]) or reference.generation~=row[3] then return nil end
+    local state=cached_state(value,reference,cursor)
+    if not state then return nil end
+    state._browse_position={anchor=anchor,focus=row[6]}
+    state._browse_saved=true
+    return state
 end
 function M:read(query,cursor)
     return run(self,function(db)
-        local value
-        if query and query.kind=='search' then value=search(self,db,query)
-        else value=read(self,db,query and M.key(query)) end
-        return value and restored_state(value,cursor)
+        if not query and cursor==nil then
+            local ok,state=pcall(resume,self,db)
+            if ok and state then return state end
+        end
+        local value,reference
+        if query and query.kind=='search' then value,reference=search(self,db,query)
+        else value,reference=read(self,db,query and M.key(query)) end
+        return cached_state(value,reference,cursor)
+    end)
+end
+
+-- Only a batch still backed by the same cache row can remember a position.
+-- Check its serial without reading or rewriting the cached books.
+function M:remember(state,position)
+    local reference=state._cache_view
+    if not reference or not valid_position(position.anchor,position.focus) or not integer(state.cursor) then return false end
+    return run(self,function(db,begin,commit)
+        begin()
+        local row=statement(db,'SELECT serial FROM discovery_cache WHERE cache_key=?',reference.key)
+        if not row or tonumber(row[1])~=reference.serial then return false end
+        statement(db,[[INSERT INTO discovery_position(id,cache_key,serial,generation,cursor,anchor,focus)
+            VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET cache_key=excluded.cache_key,serial=excluded.serial,
+            generation=excluded.generation,cursor=excluded.cursor,anchor=excluded.anchor,focus=excluded.focus]],
+            reference.key,reference.serial,reference.generation,state.cursor,position.anchor,position.focus)
+        commit();return true
     end)
 end
 -- List only validated search queries already stored in this account's cache.
@@ -205,11 +252,12 @@ function M:remove_search(keyword,generation,source_kind)
     if not valid then return nil end
     return run(self,function(db,begin,commit)
         begin()
-        local saved,key=search(self,db,query)
+        local saved,reference=search(self,db,query)
         if not saved or saved.generation~=generation then
             commit();return 'changed'
         end
-        statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',key)
+        statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',reference.key)
+        statement(db,'DELETE FROM discovery_position WHERE cache_key=?',reference.key)
         commit();return 'deleted'
     end)
 end
@@ -247,13 +295,14 @@ function M:write(state,previous,continuation)
         if not found then saved.pages[#saved.pages+1]=projected end
         saved.updated_at=state.loaded_at;saved.query=query
         saved=M.validate(saved)
-        -- Keep last viewed batch last without trusting arbitrary persisted history.
+        -- Keep the newest online batch last, as the fallback for older caches.
         for i,row in ipairs(saved.pages) do if row.cursor==state.cursor then table.remove(saved.pages,i);saved.pages[#saved.pages+1]=row;break end end
         local payload=self.codec:json_encode(saved)
         if type(payload)~='string' or #payload>M.MAX_PAYLOAD then return nil end
-        statement(db,[[INSERT INTO discovery_cache(cache_key,payload,serial)
-            VALUES(?,?,(SELECT COALESCE(MAX(serial),0)+1 FROM discovery_cache))
-            ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,serial=excluded.serial]],key,payload)
+        local serial=assert(tonumber(statement(db,'SELECT COALESCE(MAX(serial),0)+1 FROM discovery_cache')[1]))
+        statement(db,[[INSERT INTO discovery_cache(cache_key,payload,serial) VALUES(?,?,?)
+            ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,serial=excluded.serial]],key,payload,serial)
+        db:exec('DELETE FROM discovery_position')
         local stmt=db:prepare('SELECT cache_key,length(CAST(payload AS BLOB)) FROM discovery_cache ORDER BY serial DESC')
         local remove,count,bytes={},0,0
         local iterated,reason=pcall(function()
@@ -267,7 +316,7 @@ function M:write(state,previous,continuation)
         end)
         stmt:close();if not iterated then error(reason,0) end
         for _,expired in ipairs(remove) do statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',expired) end
-        commit();return saved.generation
+        commit();return saved.generation,{key=key,serial=serial,generation=saved.generation}
     end)
 end
 return M
