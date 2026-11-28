@@ -76,6 +76,9 @@ do
     expect(item.text_func()==prefix..' 😀 ' and previews==1,'preview split Unicode, kept controls, or recomputed the label')
     item.callback()
     expect(menu._shelf_popup.text:find(notes.updated[1].markText,1,true),'truncated label replaced the original note')
+    UI:close(menu._shelf_popup)
+    row(menu,'Highlights only').callback()
+    expect(row(menu,prefix..' 😀 ').text_func()==prefix..' 😀 ' and previews==1,'filtering recomputed a displayed preview')
     Marks.cancel(host)
     protocol.utf8_substr=substr
 end
@@ -394,4 +397,45 @@ Marks.cancel(host)
 host,value=fixture(snapshot());request.book_id='900002'
 expect(not Marks.show(host,'900001',nil,{resume_draft=request}),'another book request was accepted')
 package.loaded['weread.ui.thought_editor']=original_editor
+
+do
+    local notes=snapshot();notes.updated={}
+    for index=1,5000 do
+        notes.updated[index]={bookmarkId='large-note-'..index,type=index%2,
+            markText='Unicode 示例 😀 needle '..index,createTime=index}
+    end
+    local Search=require('weread.lib.shelf_search')
+    local find,comparisons=Search.find,0
+    Search.find=function(text,...)
+        if type(text)=='string' then comparisons=comparisons+1 end
+        return find(text,...)
+    end
+    local large,state=fixture(notes)
+    expect(Marks.show(large,'900001'),'large saved list did not open')
+    local list=large._my_marks_menu
+    row(list,'Search saved notes').callback()
+    local dialog=list._shelf_popup;dialog.input='needle';dialog.buttons[1][2].callback()
+    expect(comparisons==5000,'large query did not check every row')
+    row(list,'Highlights only').callback()
+    row(list,'Sort saved notes').callback()
+    list._shelf_popup.buttons[2][1].callback()
+    row(list,'All cloud marks').callback()
+    expect(comparisons==5000,'changing type or order rescanned the same query')
+    row(list,'Search saved notes').callback()
+    dialog=list._shelf_popup;dialog.input='needle 5000';dialog.buttons[1][2].callback()
+    expect(comparisons==10000 and row(list,notes.updated[5000].markText),'new query reused outdated matches')
+    row(list,'Highlights only').callback()
+    expect(row(list,'No matching notes in this view.'),'new query lost the highlight filter')
+    row(list,'All cloud marks').callback()
+    expect(comparisons==10000,'non-matching rows were searched again')
+    state.online=true
+    row(list,'Refresh my cloud marks').callback()
+    local refreshed=snapshot()
+    refreshed.updated={{bookmarkId='large-note-5000',type=0,markText='Updated needle 5000'}}
+    state.complete(refreshed)
+    expect(comparisons==10001 and row(list,'Updated needle 5000')
+        and not pcall(row,list,notes.updated[5000].markText),'refresh retained results or a preview from the old snapshot')
+    Marks.cancel(large)
+    Search.find=find
+end
 print('PASS: own marks native UI ownership, filters, cache and cancellation ('..checks..' checks)')

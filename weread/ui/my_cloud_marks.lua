@@ -11,6 +11,7 @@ local NetworkLink=require('weread.lib.network_link')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
+local MAX_PREVIEWS=128
 local function current(host,owner)
     return host._my_marks_owner==owner and host._my_marks_menu==owner.menu and not owner.menu._shelf_closed
         and owner.account==host.library_db:accountKey() and owner.account~=nil
@@ -53,6 +54,22 @@ end
 local function preview(value)
     return (Protocol.utf8_substr(value,80):gsub('[%z%c]',' '))
 end
+local function note_preview(view,content)
+    local cache=view.previews
+    if not cache then
+        cache={labels={},keys={},next_slot=1}
+        view.previews=cache
+    end
+    local text=cache.labels[content]
+    if text~=nil then return text end
+    local slot=cache.next_slot
+    local key=cache.keys[slot]
+    if key then cache.labels[key]=nil end
+    text=preview(content)
+    cache.keys[slot],cache.labels[content]=content,text
+    cache.next_slot=slot%MAX_PREVIEWS+1
+    return text
+end
 local function search_summary(value)
     local text=preview(value);local short=Protocol.utf8_substr(text,16)
     return #short<#text and short..'…' or short
@@ -77,10 +94,16 @@ local function search_dialog(host,owner)
     Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
 end
 
-local function matches(owner,row)
-    if not owner.needle then return true end
-    return Search.contains(row.content,owner.needle) or Search.contains(row.markText,owner.needle)
-        or Search.contains(row.abstract,owner.needle) or Search.contains(chapter_title(owner,row),owner.needle)
+local function matches(owner,view,row)
+    if not view.matches then return true end
+    local found=view.matches[row]
+    if found==nil then
+        local needle=view.needle
+        found=Search.contains(row.content,needle) or Search.contains(row.markText,needle)
+            or Search.contains(row.abstract,needle) or Search.contains(chapter_title(owner,row),needle)
+        view.matches[row]=found
+    end
+    return found
 end
 
 local sort_labels={original='Original order',newest='Newest first',oldest='Oldest first',chapter='Chapter order'}
@@ -143,6 +166,11 @@ render=function(host,owner)
         owner.generation=(owner.generation or 0)+1
         local generation=owner.generation
         local rows=ordered_rows(host,owner)
+        local view=owner.note_view
+        if view.needle~=owner.needle then
+            view.needle=owner.needle
+            view.matches=owner.needle and {} or nil
+        end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if not owner.writable then
             local notice=owner.bookmarks and 'Imported book bookmarks can be saved and deleted; locating requires a unique verified preview.'
@@ -187,16 +215,12 @@ render=function(host,owner)
             for _i,row in ipairs(rows) do
                 local has_quote=row.abstract~=nil and row.abstract~=''
                 local row_type=owner.thoughts and (has_quote and 1 or 0) or row.type
-                if (owner.filter==nil or row_type==owner.filter) and matches(owner,row) then
+                if (owner.filter==nil or row_type==owner.filter) and matches(owner,view,row) then
                     count=count+1
                     local content=owner.thoughts and row.content or row.markText
                     if not content or content=='' then content=row.abstract end
                     if not content or content=='' then content=chapter(owner,row) end
-                    local label
-                    items[#items+1]={text_func=function()
-                        if label==nil then label=preview(content) end
-                        return label
-                    end,mandatory=kind(row,owner),
+                    items[#items+1]={text_func=function() return note_preview(view,content) end,mandatory=kind(row,owner),
                         my_note_id=owner.thoughts and row.reviewId or row.bookmarkId,callback=function()
                         if not current(host,owner) or owner.generation~=generation then return end
                         local parts={chapter(owner,row)}
