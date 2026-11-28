@@ -43,9 +43,14 @@ function Search.prepare(keyword)
     return needle ~= "" and needle or string.lower(keyword)
 end
 
+function Search.find(value, needle, normalize)
+    if type(value) ~= "string" or type(needle) ~= "string" then return nil end
+    local folded = (normalize or fold)(value)
+    return folded:find(needle, 1, true), folded
+end
+
 function Search.contains(value, needle)
-    return type(value) == "string" and type(needle) == "string"
-        and fold(value):find(needle, 1, true) ~= nil
+    return Search.find(value, needle) ~= nil
 end
 
 function Search.terms(needle)

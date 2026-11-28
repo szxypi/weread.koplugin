@@ -2,9 +2,41 @@
 local Marks=require('weread.lib.my_cloud_marks')
 local Search=require('weread.lib.shelf_search')
 local Crypto=require('weread.lib.crypto')
+local Protocol=require('weread.lib.protocol')
 local M={MAX_RESULTS=200}
+local PREVIEW_CHARS=80
 
-local function preview(value,needle)
+local function render_preview(text,has_before,has_after)
+    return (has_before and '…' or '')..text:gsub('[%z%c]',' ')..(has_after and '…' or '')
+end
+
+local function direct_preview(value,needle,hit,folded)
+    -- Lowercasing ASCII bytes preserves source positions. Other folds can
+    -- expand characters or combine them and need the boundary search below.
+    if folded~=value and (#folded~=#value or folded~=value:lower()) then return nil end
+    local lead=value:byte(hit)
+    if not lead or lead>=0x80 and lead<0xc0 then return nil end
+    local head=Protocol.utf8_substr(value,PREVIEW_CHARS)
+    if #head==#value then return render_preview(head,false,false) end
+    local start=hit
+    for _=1,3 do
+        if start==1 then break end
+        start=start-1
+        while start>1 do
+            local byte=value:byte(start)
+            if byte<0x80 or byte>=0xc0 then break end
+            start=start-1
+        end
+    end
+    local text=Protocol.utf8_substr(value:sub(start,start+4*PREVIEW_CHARS-1),PREVIEW_CHARS)
+    if Search.contains(text,needle) then
+        return render_preview(text,start>1,start+#text<=#value)
+    end
+end
+
+local function preview(value,needle,hit,folded)
+    local snippet=direct_preview(value,needle,hit,folded)
+    if snippet then return snippet end
     -- Keep enough context before the match to understand it, even when the
     -- saved note is much longer than a menu row. Offsets are UTF-8 boundaries.
     local offsets={}
@@ -12,7 +44,7 @@ local function preview(value,needle)
     local count=#offsets
     offsets[count+1]=#value+1
     local first=1
-    if count>80 then
+    if count>PREVIEW_CHARS then
         -- Only use bytewise matching for ASCII text. A combining character
         -- can change the normalized meaning of an otherwise identical byte.
         local direct=not value:find('[\128-\255]') and string.lower(value):find(needle,1,true)
@@ -41,8 +73,8 @@ local function preview(value,needle)
         end
     end
     local start=math.max(1,first-3)
-    local ending=math.min(count,start+79)
-    if count>80 and not Search.contains(value:sub(offsets[start],offsets[ending+1]-1),needle) then
+    local ending=math.min(count,start+PREVIEW_CHARS-1)
+    if count>PREVIEW_CHARS and not Search.contains(value:sub(offsets[start],offsets[ending+1]-1),needle) then
         -- Prefix normalization can transiently match a base character before
         -- its combining mark arrives. Fall back to a verified suffix of the
         -- full source, so a later real match is preferred over that fragment.
@@ -52,18 +84,18 @@ local function preview(value,needle)
             if Search.contains(value:sub(offsets[mid]),needle) then lo=mid else hi=mid-1 end
         end
         local candidate=math.max(1,lo-3)
-        local candidate_end=math.min(count,candidate+79)
+        local candidate_end=math.min(count,candidate+PREVIEW_CHARS-1)
         if Search.contains(value:sub(offsets[candidate],offsets[candidate_end+1]-1),needle) then
             start,ending=candidate,candidate_end
         end
     end
-    local short=value:sub(offsets[start] or 1,offsets[ending+1]-1):gsub('[%z%c]',' ')
-    return (start>1 and '…' or '')..short..(ending<count and '…' or '')
+    return render_preview(value:sub(offsets[start] or 1,offsets[ending+1]-1),start>1,ending<count)
 end
 
 function M.search(catalog,marks,thoughts,query,cursor)
     assert(type(catalog)=='table' and type(marks)=='table' and type(thoughts)=='table', 'notebook_search/input')
     local needle=assert(Search.prepare(query),'notebook_search/query')
+    local normalize=Search.cached_fold()
     local offset=0
     if cursor~=nil then
         assert(type(cursor)=='table' and type(cursor.offset)=='number' and cursor.offset>0
@@ -119,9 +151,12 @@ function M.search(catalog,marks,thoughts,query,cursor)
                     for _,row in ipairs(source.kind=='marks' and snapshot.updated or snapshot.reviews) do
                         local chapter=row.chapterName
                         if not chapter or chapter=='' then chapter=chapters[row.chapterUid] end
-                        local matched
+                        local matched,hit,folded
                         for _,value in ipairs({row.content or '',row.markText or '',row.abstract or '',chapter or ''}) do
-                            if Search.contains(value,needle) then matched=value;break end
+                            if value~='' then
+                                hit,folded=Search.find(value,needle,normalize)
+                                if hit then matched=value;break end
+                            end
                         end
                         if matched then
                             local item_id=source.kind=='marks' and row.bookmarkId or row.reviewId
@@ -131,7 +166,7 @@ function M.search(catalog,marks,thoughts,query,cursor)
                             if not advance(id,source.kind,item_id) then return {changed=true} end
                             if matched_count>offset then
                                 out.items[#out.items+1]={book_id=id,kind=source.kind,
-                                    item_id=item_id,preview=preview(matched,needle)}
+                                    item_id=item_id,preview=preview(matched,needle,hit,folded)}
                             end
                         end
                     end

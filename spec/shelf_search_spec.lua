@@ -39,6 +39,8 @@ expect(Search.matches({title="one two"},Search.prepare("one two")),"exact phrase
 expect(not Search.matches({title="one",author="other"},Search.prepare("one two")),"incomplete cross-field query matched")
 
 local normalize = Search.cached_fold()
+local offset, folded = Search.find("ＣＡＦＥ", "afe", normalize)
+expect(offset == 2 and folded == "cafe", "the match offset did not identify the folded text")
 local first_query = Search.prepare("三体 刘慈欣")
 local next_query = Search.prepare("123456 森林")
 before = calls

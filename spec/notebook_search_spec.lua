@@ -26,6 +26,21 @@ assert(not snippet:find('😀',1,true) and #require('weread.lib.protocol').utf8_
 local at_end=string.rep('前',150)..'Needle'
 out=Search.search({{bookId='1'}},store({'1'},{['1']={updated={{bookmarkId='end',markText=at_end}},chapters={}}}),store({},{}),'needle')
 assert(out.items[1].preview:sub(-6)=='Needle' and out.items[1].preview:sub(1,3)=='…')
+local function note_preview(text,query)
+    local source=store({'1'},{['1']={updated={{bookmarkId='preview',markText=text}},chapters={}}})
+    return Search.search({{bookId='1'}},source,store({},{}),query).items[1].preview
+end
+local exact_length=string.rep('先',79)..'末'
+assert(note_preview(exact_length,'末')==exact_length,'80 characters should display in full')
+local leading=string.rep('先',100)..'😀乙丙关键'..string.rep('尾',100)
+assert(note_preview(leading,'关键')=='…😀乙丙关键'..string.rep('尾',75)..'…',
+    'offset did not preserve the three original characters before the match')
+local original_case=string.rep('前',100)..'😀乙丙NEEDLE'..string.rep('后',100)
+assert(note_preview(original_case,'needle'):find('😀乙丙NEEDLE',1,true),
+    'case folding changed the text or the size of the context')
+local long_tail=string.rep('长',43685)..'😀甲乙关键'
+assert(note_preview(long_tail,'关键')=='…😀甲乙关键',
+    'the end of a maximum-sized note lost original context')
 out=Search.search({{bookId='1'}},store({'1'},{['1']={updated={{bookmarkId='chapter',chapterUid=7}},
     chapters={{chapterUid=7,title=string.rep('章',90)..' needle\n标题'}}}}),store({},{}),'needle')
 assert(out.items[1].preview:find('needle 标题',1,true) and not out.items[1].preview:find('\n',1,true))
