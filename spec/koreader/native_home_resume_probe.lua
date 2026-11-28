@@ -17,17 +17,14 @@ local record_alternative=input.mode=='record_alternative'
 local close_home=input.mode=='close_home'
 local record=input.mode=='record' or record_alternative or suspend_record or close_home
 local downloads_inventory=input.mode=='downloads_inventory'
-if record then
+if record or downloads_inventory then
     settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
     settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
     local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report)
-    settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}});settings:flush()
-    if suspend_record or close_home then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
-elseif downloads_inventory then
-    settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
-    settings:set('cookies',{wr_vid=vid,wr_skey='synthetic'})
+    if record then settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}}) end
     settings:flush()
+    if suspend_record or close_home then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
 elseif input.mode=='switch' then
     assert(vid=='12345678' and id=='42')
     settings:update_auth({account={user_vid='87654321',name='Other'},cookies={wr_vid='87654321',wr_skey='synthetic-other'}},
