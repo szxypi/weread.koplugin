@@ -90,7 +90,7 @@ function M.start(host,book,chapters,suffix,options)
     local function finish(ok,value,message)
         if host._full_download_recovery~=ctx then return end
         local valid=current()
-        M.cancel(host,true)
+        M.cancel(host,not ctx.paused_selection)
         if valid and type(options.on_complete)=='function' then pcall(options.on_complete,ok,value) end
         if valid and message then host:showInfo(_(message)) end
     end
@@ -148,6 +148,17 @@ function M.start(host,book,chapters,suffix,options)
             if changed and not adopt_auth() then return end
             if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
             ctx.busy=nil
+            if ctx.paused_selection then
+                local job=ctx.paused_selection
+                if host.downloader:resumePausedSelection(job,version) then
+                    ctx.paused_selection=nil
+                    return
+                end
+                if not host.downloader:discardPausedSelection(job) then
+                    finish(false,'unavailable',catalog_message);return
+                end
+                ctx.paused_selection=nil
+            end
             -- Unknown old versions do not authorize reuse under a newly known
             -- version. If the fresh version is unavailable, preserve the
             -- existing resumable behavior but mark the new source as unknown.
@@ -195,17 +206,31 @@ function M.start(host,book,chapters,suffix,options)
             else finish(false,'unavailable',Renewal.error_text('unavailable')) end
         elseif called and started and request then Renewal.cancel(host,request) end
     end
+    local function queue_recovery()
+        if ctx.schedule then return end
+        ctx.schedule=function() if host._full_download_recovery==ctx then recover() end end
+        UIManager:scheduleIn(0.1,ctx.schedule)
+    end
     ctx.complete=function(ok,value)
         if host._full_download_recovery~=ctx then return end
         if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
         if not ok and value=='web_expired' then
-            ctx.schedule=function() if host._full_download_recovery==ctx then recover() end end
-            UIManager:scheduleIn(0.1,ctx.schedule)
+            queue_recovery()
         else finish(ok,value) end
     end
     launch=function()
         local copy={};for key,value in pairs(options) do copy[key]=value end
         copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
+        if options.separate_chapters then
+            copy.on_selected_expired=function(job)
+                if ctx.attempted or not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then
+                    return false
+                end
+                ctx.paused_selection=job
+                queue_recovery()
+                return true
+            end
+        end
         copy.on_reading_auth_updated=function(before,after)
             if current() and ctx.fingerprint==before and Source.web_access(host.settings) then
                 ctx.fingerprint=after

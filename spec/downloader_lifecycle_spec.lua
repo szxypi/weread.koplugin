@@ -566,4 +566,50 @@ local native_job={chapters={{chapterUid=1}},index=1}
 expect(native_downloader:_retryChapterSource(native_job,'native_candidate/auth_expired\ntrace')==false
     and native_failures==1 and not native_job.chapter_source_retries,
     'expired native authorization was retried')
+
+local same_account, selected_lease_releases, pause_notifications = true,0,0
+local gated=Downloader:new{settings={auth_scope_matches=function() return same_account end},
+    refresh_ui=function() end,show_transient=function() end}
+local function paused_selection(failed)
+    local chosen={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
+    local job={book={book_id='900001',bookVersion=7},source_identity={book_id='900001',book_version=7},
+        state={},workspace={},separate_chapters=true,detect_expired_login=true,auth_scope={vid='900000'},
+        index=3,total=3,chapters=chosen,selected={chosen[2]},selected_indices={2},completed={[2]=true},
+        completed_count=1,failed=failed,operation_lease={
+            release=function() selected_lease_releases=selected_lease_releases+1 end},
+        on_complete=function(ok,reason)
+            expect(not ok and reason=='download_cancelled','paused selection returned the wrong outcome')
+            pause_notifications=pause_notifications+1
+        end,
+        on_selected_expired=function(candidate) return candidate==gated._active_job end}
+    gated._active_job=job
+    gated:_beginStandby();job.standby_guard=true
+    gated:_ensureProgressDialog(job)
+    gated:_retryChapterSource(job,'book_reading/web_expired')
+    expect(job.awaiting_renewal and not dialog.visible and not job.standby_guard
+        and gated._active_job==job and job.workspace and job.operation_lease,
+        'paused selection did not preserve its private workspace or release standby')
+    return job
+end
+local paused=paused_selection({1})
+same_account=false
+expect(not gated:resumePausedSelection(paused,7),'foreign account adopted the workspace')
+same_account=true
+expect(not gated:resumePausedSelection(paused,8),'changed version adopted the workspace')
+expect(gated:resumePausedSelection(paused,7) and paused.index==1 and #paused.failed==0
+    and #paused.selected==0 and paused.standby_guard and paused.completed[2],
+    'resume did not reopen the earlier failed chapter while preserving completed text')
+paused.index,paused.selected,paused.selected_indices=2,{paused.chapters[1]},{1}
+expect(gated:_skipCompletedChapterBatch(paused) and paused.index==3
+    and paused.selected[2]==paused.chapters[2] and paused.selected_indices[2]==2,
+    'resumed order did not combine the retried and staged chapters')
+gated:cancelJob(paused,'download_cancelled')
+gated:_step(paused)
+local cancelled_pause=paused_selection({})
+expect(gated:cancelRequest(cancelled_pause.on_complete,'download_cancelled') and not gated._active_job
+    and not cancelled_pause.workspace and not cancelled_pause.operation_lease
+    and selected_lease_releases==2 and pause_notifications==2,
+    'cancelling a paused selection left resources or missed its only completion')
+expect(not gated:resumePausedSelection(cancelled_pause,7),
+    'a stale verified version resumed an already cancelled selection')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

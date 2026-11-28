@@ -37,7 +37,17 @@ local function fixture(version,kind,owner,guard,on_auth)
     showTransientInfo=function() end,
     downloader={start=function(_,book,list,suffix,options)
         state.starts=state.starts+1;state.job={book=book,chapters=list,suffix=suffix,options=options};return true
-    end,cancelRequest=function() state.stops=state.stops+1 end},
+    end,cancelRequest=function() state.stops=state.stops+1 end,
+    resumePausedSelection=function(_,job,fresh_version)
+        assert(job==state.job)
+        state.resume_checks=(state.resume_checks or 0)+1
+        return fresh_version==7
+    end,
+    discardPausedSelection=function(_,job)
+        assert(job==state.job)
+        state.discarded=(state.discarded or 0)+1
+        return true
+    end},
     _full_download_recovery_worker={start=function(_,task,complete) state.worker={task=task,complete=complete};return true end,
         cancel=function() state.workers_cancelled=(state.workers_cancelled or 0)+1 end}}
     local book={book_id='900001',title='Book',bookVersion=version or 0}
@@ -51,8 +61,9 @@ local function fixture(version,kind,owner,guard,on_auth)
     assert(Recovery.start(host,book,targets,suffix,options))
     return host,book,cookies
 end
-local function expire()
-    state.job.options.on_complete(false,'web_expired')
+local function expire(paused)
+    if paused then assert(state.job.options.on_selected_expired(state.job))
+    else state.job.options.on_complete(false,'web_expired') end
     assert(#tasks==1 and renewals==0,'renewed before the old download was released')
     table.remove(tasks,1)()
     assert(renewals==1 and request and request.guard(),'renewal was not scoped to the original task')
@@ -147,6 +158,31 @@ for _,kind in ipairs({'single','selected'}) do
     assert(state.completed==1 and state.result[1] and state.stops==0 and not host._full_download_recovery,
         'renewed '..kind..' did not complete exactly once')
 end
+
+for _,version in ipairs({7,0,8}) do
+    host,_,cookies=fixture(7,'selected')
+    expire(true);verify(cookies)
+    state.worker.complete({book_id='900001',chapters=chapters,version=version})
+    if version==7 then
+        assert(state.resume_checks==1 and state.starts==1 and not state.discarded)
+        assert(not state.job.options.on_selected_expired(state.job),'resumed batch received a second renewal')
+        state.job.options.on_complete(false,'web_expired');table.remove(tasks,1)()
+        assert(renewals==1 and state.completed==1 and state.info==1 and state.stops==0)
+    elseif version==0 then
+        assert(state.resume_checks==1 and state.discarded==1 and state.starts==2
+            and state.job.book.bookVersion==0,'unknown source reused staged chapters')
+        Recovery.cancel(host)
+    else
+        assert(not state.resume_checks and state.starts==1 and state.completed==1 and state.stops==1,
+            'changed version retained or resumed the old job')
+    end
+end
+host,_,cookies=fixture(7,'selected');expire(true);verify(cookies)
+local paused_check=state.worker
+Recovery.cancel(host)
+paused_check.complete({book_id='900001',chapters=chapters,version=7})
+assert(not state.resume_checks and state.stops==1 and not host._full_download_recovery,
+    'cancelled version check resumed its paused selection')
 
 cookies=select(3,fixture(0,'single'));expire();verify(cookies)
 state.worker.complete({book_id='900001',chapters={chapters[1]},version=0})

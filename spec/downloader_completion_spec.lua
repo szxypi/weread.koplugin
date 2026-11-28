@@ -246,6 +246,9 @@ local separate = {
     },
     chapters = { chapter, missing, chapter_33 },
     selected = {},
+    selected_indices = {},
+    completed = {},
+    completed_count = 0,
     bodies = {},
     workspace = chapter_workspace,
     assets = {},
@@ -270,7 +273,7 @@ separate.current = { chapter = chapter_33, xhtml = "<p>33</p>" }
 downloader:_finishChapter(separate)
 downloader._scheduleGuarded = schedule
 eq(next(separate.bodies), nil, "batch chapter bodies were released before packaging")
-eq(chapter_workspace.text[2], "<p>33</p>", "a failed source did not shift the staged chapter order")
+eq(chapter_workspace.text[3], "<p>33</p>", "a failed source did not shift the staged chapter position")
 downloader:_step(separate)
 eq(packaged_text[22], "<p>22</p>", "first EPUB received its staged chapter")
 eq(packaged_text[33], "<p>33</p>", "second EPUB received its staged chapter")

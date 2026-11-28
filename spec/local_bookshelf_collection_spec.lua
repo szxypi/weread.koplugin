@@ -80,6 +80,8 @@ package.preload["weread.lib.content"] = function()
         save_chapter_epub = function(_settings, _book, chapter)
             return "/cache/book/chapter-" .. tostring(chapter.chapterUid) .. ".epub"
         end,
+        load_download_chapter_text = function(workspace,index) return workspace[index] end,
+        cleanup_download_workspace = function() end,
         save_book_epub = function()
             return "/cache/book/full.epub"
         end,
@@ -198,6 +200,7 @@ coll_adds, coll_removes, coll_writes = {}, {}, 0
 do
     local chapter_33 = { chapterUid = 33, title = "Other" }
     local downloader = make_downloader()
+    local completed
     downloader:_step({
         book = {
             book_id = "book",
@@ -207,7 +210,8 @@ do
         },
         chapters = { chapter, chapter_33 },
         selected = { chapter, chapter_33 },
-        bodies = { ["22"] = "<p>22</p>", ["33"] = "<p>33</p>" },
+        selected_indices = {1,2},
+        workspace = {"<p>22</p>", "<p>33</p>"},
         assets = {},
         assets_by_uid = { ["22"] = {}, ["33"] = {} },
         state = { css = "" },
@@ -219,7 +223,9 @@ do
         separate_chapters = true,
         silent_completion = true,
         started_at = 999,
+        on_complete = function(ok) completed = ok end,
     })
+    eq(completed, true, "separate chapters packaged successfully")
     eq(#coll_adds, 0, "separate chapters does not add")
 end
 

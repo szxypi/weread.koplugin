@@ -185,7 +185,8 @@ class MockServer(ThreadingHTTPServer):
                             empty_shelf=False, shelf_progress=False, empty_native_recommend=False, empty_annotations=False,
                             guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
-                            shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1)
+                            shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1,
+                            catalog_source_version=0)
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
         self.roundtrip_seed = None
@@ -786,7 +787,8 @@ class MockServer(ThreadingHTTPServer):
                 not any(b["bookId"] == str(book_id) for b in readable_books) for book_id in data["bookIds"]
             ):
                 raise ValueError("missing or unknown bookIds")
-            return 200, dict(data=[dict(bookId=str(b), updated=CHAPTERS) for b in data["bookIds"]])
+            version = {"bookVersion": control["catalog_source_version"]} if control["catalog_source_version"] else {}
+            return 200, dict(data=[dict(bookId=str(b), updated=CHAPTERS, **version) for b in data["bookIds"]])
         if path.startswith("/web/book/chapter/") and method == "POST":
             content_book = next((b['bookId'] for b in readable_books if weread_e(b['bookId']) == data.get('b')), None)
             if content_book is None:
@@ -987,6 +989,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('invalid finished-mark mode')
             if candidate['selection_thought_mode'] not in {'plain','empty','no_change'} or type(candidate['selection_source_revision']) is not int or candidate['selection_source_revision'] not in (1,2):
                 raise ValueError('invalid selection fixture mode')
+            if type(candidate['catalog_source_version']) is not int or not 0 <= candidate['catalog_source_version'] <= 2147483647:
+                raise ValueError('invalid catalog source version')
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
             if type(candidate['progress_offset_delta']) is not int or not 0 <= candidate['progress_offset_delta'] <= 1000000:

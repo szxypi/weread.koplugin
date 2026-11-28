@@ -222,7 +222,9 @@ for _i, mode in ipairs({'full','single','separate'}) do
             ['2']=Footnotes.scan_chapter(rich_note,note_chapter)},
         state={css='body{}'},index=3,total=2,
         progress_dialog={setTitle=function() end,reportProgress=function() end}}
-    if job.separate_chapters then job.workspace={text={source,rich_note}};job.bodies={} end
+    if job.separate_chapters then
+        job.workspace={text={source,rich_note}};job.bodies={};job.selected_indices={1,2}
+    end
     local before=#scheduled
     downloader:_startFootnotes(job)
     scheduled[before+1]();scheduled[before+2]();scheduled[before+3]()
@@ -239,6 +241,7 @@ for _i, mode in ipairs({'full','single','separate'}) do
 end
 
 local separate_note = {selected={source_chapter,note_chapter}, total=2, index=3, separate_chapters=true,
+    selected_indices={1,2},
     state={css='body{}'}, bodies={}, workspace={text={source,note}}, footnote_scans={
         ['1']=Footnotes.scan_chapter(source,source_chapter), ['2']=Footnotes.scan_chapter(note,note_chapter)}}
 local before_separate = #scheduled

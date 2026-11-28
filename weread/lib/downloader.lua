@@ -360,6 +360,38 @@ function Downloader:cancelJob(dl,reason)
     dl.cancelled,dl.cancel_reason=true,reason or "cancelled"
     if dialog then dialog:close();dl.progress_dialog=nil end
     if dismiss then dismiss() end
+    if self:discardPausedSelection(dl) then self:_notifyCompletion(dl,false,dl.cancel_reason) end
+    return true
+end
+
+-- Only the owner of the paused request can release or resume its workspace.
+function Downloader:discardPausedSelection(dl)
+    if not dl or self._active_job~=dl or not dl.awaiting_renewal then return false end
+    dl.awaiting_renewal=nil
+    self:_cleanupWorkspace(dl)
+    self:_finishJob(dl)
+    return true
+end
+
+function Downloader:resumePausedSelection(dl,version)
+    if not dl or self._active_job~=dl or not dl.awaiting_renewal or dl.cancelled
+        or not dl.auth_scope or not self.settings:auth_scope_matches(dl.auth_scope)
+        or not chapter_open_current(dl.read_current)
+        or FileIdentity.version(version)==0 or FileIdentity.check(dl.source_identity,dl.book)~=version then
+        return false
+    end
+    dl.awaiting_renewal=nil
+    if #dl.failed>0 then
+        -- Retry earlier failures too, while the original indexes keep the
+        -- staged chapters and final output in catalog order.
+        dl.index,dl.selected,dl.selected_indices,dl.failed=1,{},{},{}
+    end
+    dl.chapter_source_retries=nil
+    self:_setStage(dl,_("Resuming download…"),dl.index-1)
+    self:_ensureProgressDialog(dl)
+    self:_beginStandby()
+    dl.standby_guard=true
+    self:_scheduleGuarded(dl,function() self:_step(dl) end)
     return true
 end
 
@@ -737,6 +769,7 @@ function Downloader:start(book, chapters, suffix, options)
         index = 1,
         cancelled = false,
         selected = {},
+        selected_indices = {},
         bodies = {},
         position_sources = {},
         assets = {},
@@ -774,13 +807,15 @@ function Downloader:start(book, chapters, suffix, options)
         on_complete = options.on_complete,
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
-        auth_scope = options.prefetch and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
+        auth_scope = (options.prefetch or options.on_selected_expired)
+            and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
         full_auth_scope = resumable and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
         full_auth_recovery = options.full_auth_recovery == true and resumable,
         manual_auth_recovery = options.manual_auth_recovery == true and options.prefetch ~= true,
         detect_expired_login = options.prefetch ~= true,
         on_reading_auth_updated = options.on_reading_auth_updated,
+        on_selected_expired = options.on_selected_expired,
     }
     local download_cache = self.settings.get and self.settings:get('cache', {}) or {}
     dl.native_chapter_resources = download_cache.download_book_images == true
@@ -981,6 +1016,10 @@ function Downloader:_skipCompletedChapterBatch(dl)
     local skipped = 0
     while dl.index <= dl.total and dl.completed[dl.index]
         and skipped < RESUME_SKIP_BATCH_SIZE do
+        if dl.separate_chapters then
+            dl.selected[#dl.selected+1]=dl.chapters[dl.index]
+            dl.selected_indices[#dl.selected_indices+1]=dl.index
+        end
         dl.index = dl.index + 1
         skipped = skipped + 1
     end
@@ -1018,6 +1057,17 @@ end
 function Downloader:_retryChapterSource(dl, err)
     if (dl.detect_expired_login or dl.reading_auth_recovery) and type(err)=='string' and
         (err=='book_reading/web_expired' or err:match('^book_reading/web_expired[\r\n]')) then
+        if dl.separate_chapters and dl.completed_count>0 and dl.workspace and dl.auth_scope
+            and self.settings:auth_scope_matches(dl.auth_scope) and FileIdentity.check(dl.source_identity,dl.book)>0
+            and dl.on_selected_expired then
+            local called,accepted=pcall(dl.on_selected_expired,dl)
+            if called and accepted==true then
+                dl.awaiting_renewal=true
+                self:_releaseStandby(dl)
+                if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog=nil end
+                return false
+            end
+        end
         if dl.resumable then
             self:_preserveWorkspace(dl,'web_expired')
         else
@@ -1127,7 +1177,7 @@ function Downloader:_footnoteStep(dl)
             dl.workspace, chapter, job.index)
     elseif dl.separate_chapters then
         local reason
-        original, reason = Content.load_download_chapter_text(dl.workspace, job.index)
+        original, reason = Content.load_download_chapter_text(dl.workspace, dl.selected_indices[job.index])
         if not original then self:_chapterStagingFailed(dl, reason); return end
     end
     local started = time.now()
@@ -1154,7 +1204,7 @@ function Downloader:_footnoteStep(dl)
         Content.save_full_download_rendered_chapter(dl.workspace, chapter, job.index, output)
     elseif dl.separate_chapters then
         if output ~= original then
-            local saved, reason = Content.stage_download_chapter_text(dl.workspace, job.index, output)
+            local saved, reason = Content.stage_download_chapter_text(dl.workspace, dl.selected_indices[job.index], output)
             if not saved then self:_chapterStagingFailed(dl, reason); return end
         end
     else
@@ -1237,7 +1287,7 @@ function Downloader:_finishChapter(dl)
             local xhtml, assets = Content.finalize_single_chapter_content(
                 client or self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
             if dl.separate_chapters then
-                local saved, reason = Content.stage_download_chapter_text(dl.workspace, #dl.selected + 1, xhtml)
+                local saved, reason = Content.stage_download_chapter_text(dl.workspace, dl.index, xhtml)
                 if not saved then return { staging_error = reason or "chapter storage unavailable" } end
                 xhtml = nil
             end
@@ -1285,7 +1335,11 @@ function Downloader:_finishChapter(dl)
         if not checkpoint_ok then self:_failChapter(dl,checkpoint_error);return end
         dl.completed[dl.index] = true
         dl.completed_count = dl.completed_count + 1
-    elseif not dl.separate_chapters then
+    elseif dl.separate_chapters then
+        dl.completed[dl.index]=true
+        dl.completed_count=dl.completed_count+1
+        dl.selected_indices[#dl.selected_indices+1]=dl.index
+    else
         dl.bodies[uid] = xhtml
     end
     dl.assets_by_uid = dl.assets_by_uid or {}
@@ -1464,7 +1518,7 @@ function Downloader:_step(dl)
                     local paths = {}
                     for chapter_index, chapter in ipairs(dl.selected) do
                         local uid = tostring(chapter.chapterUid or chapter_index)
-                        local xhtml, reason = Content.load_download_chapter_text(dl.workspace, chapter_index)
+                        local xhtml, reason = Content.load_download_chapter_text(dl.workspace, dl.selected_indices[chapter_index])
                         if not xhtml then error(reason or "chapter text is missing", 0) end
                         paths[uid] = Content.save_chapter_epub(
                             self.settings, packaging_book, chapter, xhtml,
@@ -1646,7 +1700,7 @@ function Downloader:_step(dl)
         return
     end
 
-    if dl.resumable and self:_skipCompletedChapterBatch(dl) then return end
+    if (dl.resumable or dl.separate_chapters) and self:_skipCompletedChapterBatch(dl) then return end
 
     local chapter = dl.chapters[dl.index]
     self:_setStage(dl,

@@ -46,6 +46,10 @@ return function(host,kind,pump,tick)
     end
     function M.selected(book,first)
         local Util=require('weread.lib.plugin_util')
+        local with_images=os.getenv('WEREAD_TEST_CONTENT_FORMAT')~='txt'
+        local source_version=with_images and 7 or 0
+        book.bookVersion=source_version
+        request('/__control',{catalog_source_version=source_version})
         local previous_page_size=G_reader_settings:readSetting('items_per_page')
         G_reader_settings:saveSetting('items_per_page',4)
         host:showChapterList(book)
@@ -100,7 +104,6 @@ return function(host,kind,pump,tick)
         filter('')
         assert(menu.page==unfiltered_page and menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
             'clearing the filter lost the original page or the selected chapters')
-        local with_images=os.getenv('WEREAD_TEST_CONTENT_FORMAT')~='txt'
         local cache=host.settings:get('cache')
         local old_images=cache.download_book_images
         if with_images then
@@ -115,7 +118,8 @@ return function(host,kind,pump,tick)
                 and saved_book.cached_chapters['5'] and saved_book.cached_chapters['6']
         end)
         assert(count('/web/login/renewal')==initial_renewal+1,'selected download did not renew once')
-        assert(count(shard)-before==4,'selected download did not restart only the intended chapters')
+        assert(count(shard)-before==(source_version>0 and 3 or 4),
+            'selected download did not preserve staged text only for a verified matching version')
         if with_images then
             local settings=assert(Reader.instance.weread).settings
             local saved=settings:get_book(book.book_id or book.bookId)
@@ -131,6 +135,7 @@ return function(host,kind,pump,tick)
             cache=settings:get('cache');cache.download_book_images=old_images
             settings:set('cache',cache);settings:flush()
         end
+        request('/__control',{catalog_source_version=0})
         host.showInfo=old_info
         record()
     end
