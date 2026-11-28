@@ -568,10 +568,10 @@ if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
     omit_target()
     host=assert(FM.instance.weread)
     local damaged=home..'/synthetic-damaged-resume.epub'
-    local input=assert(io.open(second,'rb'))
-    local incomplete=assert(input:read('*a')):sub(1,-23);assert(input:close())
-    local output=assert(io.open(damaged,'wb'))
-    assert(output:write(incomplete));assert(output:close())
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    dofile(fixtures..'epub_member_damage.lua')(second,damaged,'OEBPS/text/chapter.xhtml',false)
+    local input=assert(io.open(damaged,'rb'))
+    local damaged_bytes=assert(input:read('*a'));assert(input:close())
     patch(host,{cached_chapters={['2']=first,['4']=damaged}})
     host,view=detail();offline=true
     local pending=book(host).pending_upload_position
@@ -582,10 +582,10 @@ if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
         'cancelling a damaged resume changed the pending position')
     press(view,'▤ Read');fallback_warning(true)
     pump(function() return Reader.instance and Reader.instance.document.file==first end)
-    input=assert(io.open(damaged,'rb'));assert(input:read('*a')==incomplete);assert(input:close())
+    input=assert(io.open(damaged,'rb'));assert(input:read('*a')==damaged_bytes);assert(input:close())
     report.damaged_resume_fallback=true
     close_reader();offline=false
-    print('PASS: corrupted resume prompted before opening a different chapter in ReaderUI')
+    print('PASS: corrupt rendered chapter prompted before opening a different chapter in ReaderUI')
 end
 omit_target()
 host=assert(FM.instance.weread)

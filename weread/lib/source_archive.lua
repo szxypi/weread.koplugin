@@ -1,4 +1,4 @@
--- Worker-only, bounded reads from a new archive descriptor. Never extract to
+-- Bounded reads from a new archive descriptor. Never extract to
 -- disk, touch the reader's inherited native DOM/ZIP handles, or log content.
 local Catalog = require('weread.lib.chapter_catalog')
 local M = { MAX_ENTRIES = 1000000, MAX_MEMBERS = 8, MAX_MEMBER_BYTES = 8 * 1024 * 1024 }
@@ -17,7 +17,7 @@ local function byte_comparator(ffi)
     end
     return compare_bytes
 end
-local function read_members(path, wanted, batch, zip_probe)
+local function read_members(path, wanted, batch, zip_probe, discard_data)
     if type(path) ~= 'string' or path == '' or #path > 4096 or path:find('%z') or type(wanted) ~= 'table' then
         return nil, 'source_archive/invalid'
     end
@@ -29,7 +29,7 @@ local function read_members(path, wanted, batch, zip_probe)
             or maximum < 1 or maximum > limit then return nil, 'source_archive/invalid' end
     end
     if count == 0 or count > (batch and M.MAX_BATCH_MEMBERS or M.MAX_MEMBERS) then return nil, 'source_archive/invalid' end
-    local archive, entry, lib, ffi, zip_supported
+    local archive, entry, lib, ffi, zip_supported, limit_exceeded
     local ok, result = pcall(function()
         ffi = require('ffi')
         require('ffi/libarchive_h')
@@ -56,30 +56,32 @@ local function read_members(path, wanted, batch, zip_probe)
             if maximum then
                 if members[name] ~= nil or lib.archive_entry_filetype(entry) ~= lib.AE_IFREG then return nil end
                 local size = tonumber(lib.archive_entry_size(entry))
+                limit_exceeded = size and size > maximum
                 if not size or size < 0 or size > maximum or size % 1 ~= 0 then return nil end
                 used = used + size
                 if batch and used > M.MAX_BATCH_BYTES then return nil end
-                local chunks, total = {}, 0
+                local chunks, total = not discard_data and {} or nil, 0
                 while true do
                     local read = tonumber(lib.archive_read_data(archive, buffer, 65536))
                     if not read or read < 0 then return nil end
                     if read == 0 then break end
                     total = total + read
                     if total > maximum or total > size then return nil end
-                    chunks[#chunks + 1] = ffi.string(buffer, read)
+                    if chunks then chunks[#chunks + 1] = ffi.string(buffer, read) end
                 end
                 if total ~= size then return nil end
-                members[name], found = table.concat(chunks), found + 1
+                members[name], found = chunks and table.concat(chunks) or total, found + 1
                 if zip_probe and found == count then return members end
             end
         end
         return nil
     end)
-    -- All paths close the independent descriptor, including malformed archives
-    -- and duplicate requested members. Do not accept an early first match.
+    -- Full reads validate through EOF. Quick ZIP probes stop after the requested
+    -- members have been read and checked by the archive reader.
     if archive ~= nil and lib then pcall(lib.archive_read_close, archive); pcall(lib.archive_free, archive) end
     if entry ~= nil and lib then pcall(lib.archive_entry_free, entry) end
     if zip_probe and not zip_supported then return nil, 'source_archive/zip_probe_unsupported' end
+    if discard_data and limit_exceeded then return nil, 'source_archive/zip_probe_limit' end
     if not ok or not result then return nil, 'source_archive/unavailable' end
     return result
 end
@@ -95,6 +97,13 @@ function M.epub_container_readable(path)
     local members, reason = read_members(path, { [name] = 1024 * 1024 }, false, true)
     if reason == 'source_archive/zip_probe_unsupported' then return nil end
     return members ~= nil and members[name] ~= ''
+end
+
+function M.epub_chapter_readable(path, member)
+    -- Reading through the member validates its ZIP checksum, using one buffer.
+    local members, reason = read_members(path, { [member] = M.MAX_MEMBER_BYTES }, false, true, true)
+    if reason == 'source_archive/zip_probe_unsupported' or reason == 'source_archive/zip_probe_limit' then return nil end
+    return members ~= nil and members[member] > 0
 end
 
 -- Missing members are checked by each snapshot consumer. Ambiguous, invalid

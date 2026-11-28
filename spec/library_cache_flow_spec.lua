@@ -916,6 +916,7 @@ package.loaded['weread.lib.chapter_cache_claim']={
     combined=function(_,path) if path=='/cache/full.epub' then return proof end end,
     inspect=function() return {kind='unknown'} end,
     usable=function() return single_valid end,
+    chapter_readable=function() return true end,
     shared=function() return false end,
     complete=function() return true end,
 }

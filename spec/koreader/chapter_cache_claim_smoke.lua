@@ -124,6 +124,41 @@ return function(reader,host,book,id,path,dir,pump)
     assert(not available and reason=='damaged_cache' and not opened,'unreadable EPUB was dispatched to the reader')
     local kept=assert(io.open(damaged,'rb'));assert(kept:read('*a')==incomplete);assert(kept:close())
     print('PASS: truncated standard EPUB resume, guarded fallback and file preservation')
+
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    local damage_member=dofile(fixtures..'epub_member_damage.lua')
+    local damaged_body=dir..'/synthetic-bad-body.epub'
+    damage_member(exact,damaged_body,'OEBPS/text/chapter.xhtml',false)
+    shadow.cached_chapters={['2']=path,['5']=damaged_body}
+    opened=nil
+    available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='resume_not_cached' and uid=='5' and not opened,
+        'a failed chapter CRC bypassed the fallback confirmation')
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true,confirmed_missing_uid='5'}) and opened==path)
+    local missing_body=dir..'/synthetic-missing-body.epub'
+    damage_member(combined,missing_body,'OEBPS/text/chapter-002.xhtml',true)
+    shadow.cached_full_book=missing_body;shadow.cached_chapters={['2']=path}
+    shadow.chapter_uid=4;shadow.chapter_idx=4;opened=nil
+    available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='resume_not_cached' and uid=='4' and not opened,
+        'the combined EPUB claimed a chapter whose rendered body was missing')
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true,confirmed_missing_uid='4'}) and opened==path)
+    confirmation=nil;opened=nil
+    assert(not host:openChapter(shadow,chapters[4],nil,{cached_only=true}) and not opened and not confirmation,
+        'manual offline chapter selection ignored a missing rendered body')
+    shadow.cached_chapters['2']=missing_body
+    available,reason=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='damaged_cache' and not opened,
+        'automatic fallback reused the combined file at the same damaged position')
+    local opened_intact=false
+    navigation.open=function(_,_,target,candidate)
+        opened_intact=target==chapters[2] and candidate==missing_body
+        return opened_intact
+    end
+    assert(host:openChapter(shadow,chapters[2],nil,{cached_only=true}) and opened_intact,
+        'manual selection could not open the intact chapter of the combined file')
+    navigation.open=open_combined
+    print('PASS: intact ZIP with a corrupt or missing rendered chapter body')
     shadow.chapters=chapters;shadow.chapter_uid=4;shadow.chapter_idx=4
     host.openFile,host.confirmAndDownloadChapters,host._chapter_open_intent=old_open,old_confirm,old_intent
     -- Confirm the real recovery download without opening another reader, then

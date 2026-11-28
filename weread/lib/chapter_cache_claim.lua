@@ -99,6 +99,21 @@ local function spine_claim(opf,identity)
     if n>0 and (not identity or identity.chapter_count==n) then return source,items,order end
 end
 
+local function rendered_paths(opf)
+    local paths={}
+    local manifest=opf:match('<manifest>(.-)</manifest>') or ''
+    for item,href in manifest:gmatch('<item%s+id="([^"]+)"%s+href="([^"]+)"') do
+        if item=='chapter' or item:match('^chapter_[%w_-]+$') then
+            if paths[item]==nil and (href=='text/chapter.xhtml' or href:match('^text/chapter%-%d+%.xhtml$')) then
+                paths[item]='OEBPS/'..href
+            else
+                paths[item]=false
+            end
+        end
+    end
+    return paths
+end
+
 function M.document_single(document,id,uid)
     local identity=Identity.read_document(document,id)
     if identity.book_id~=tostring(id) or identity.chapter_count~=1 or identity.file_id=='' then return false end
@@ -124,7 +139,7 @@ local function inspect(book,path)
             for ref in pairs(items) do
                 if ref~='cover' and not ref:match('^chapter_[%w_-]+$') then return {kind='unknown'} end
             end
-            return {kind='combined',items=items,order=order,opf_hash=Crypto.sha256_hex(opf),
+            return {kind='combined',items=items,order=order,opf_hash=Crypto.sha256_hex(opf),rendered_paths=rendered_paths(opf),
                 file_id=identity and identity.file_id or nil,book_version=identity and identity.book_version or nil}
         end
         if #order~=1 or not items.chapter then return {kind='unknown'} end
@@ -139,7 +154,7 @@ local function inspect(book,path)
                 end
             end
         end
-        if matching then return {kind='single',uid=matching,opf_hash=Crypto.sha256_hex(opf)} end
+        if matching then return {kind='single',uid=matching,opf_hash=Crypto.sha256_hex(opf),rendered_paths=rendered_paths(opf)} end
         return {kind='unknown'}
     end)
     return ok and result or {kind='unknown'}
@@ -160,6 +175,15 @@ function M.combined(book,path,cache)
     if result.kind~='combined' then return nil end
     if cache then cache[path]=result end
     return result
+end
+
+function M.chapter_readable(book,path,uid,cache,proof)
+    if not proof or proof.kind=='unshared' then proof=M.inspect(book,path,cache,true) end
+    local item=proof.kind=='combined' and ('chapter_'..tostring(uid))
+        or proof.kind=='single' and proof.uid==tostring(uid) and 'chapter'
+    local member=item and proof.rendered_paths and proof.rendered_paths[item]
+    -- Only probe member paths we recognize in WeRead's EPUB packages.
+    return not member or require('weread.lib.source_archive').epub_chapter_readable(path,member)~=false
 end
 
 -- File percentages describe a whole book only when its spine and the current
