@@ -594,8 +594,13 @@ local function load_cover(cell, path, image_width, image_height)
     end
 end
 
-local function progress_label(book)
-    return ShelfProgress.label(book._shelf_progress, book._shelf_progress_local, book._shelf_progress_exact)
+local function progress_label(book,compact)
+    local estimate=book._shelf_native_estimate
+    if not book._shelf_progress_local and type(estimate)=='number' then
+        local text='≈'..math.floor(estimate)..'%'
+        return compact and text or T(_('Local · %1'),text)
+    end
+    return ShelfProgress.label(book._shelf_progress,not compact and book._shelf_progress_local,book._shelf_progress_exact)
 end
 
 function CoverCell:setProgressBadge(progress_text)
@@ -612,12 +617,12 @@ function CoverCell:setProgressBadge(progress_text)
     local max_width=math.max(1,card.width-2*inset-2*padding-2*Size.border.thin)
     local line=TextWidget:new{text=progress_text,face=Font:getFace('cfont',14)}
     local content,labels=line,{line}
-    if line:getSize().w>max_width and self.book._shelf_progress_local then
+    if line:getSize().w>max_width and (self.book._shelf_progress_local or self.book._shelf_native_estimate) then
         if line.free then line:free() end
         local size=12
         while true do
             local local_label=TextWidget:new{text=_('Local'),face=Font:getFace('cfont',size)}
-            local number_label=TextWidget:new{text=ShelfProgress.label(self.book._shelf_progress,false,self.book._shelf_progress_exact),face=Font:getFace('cfont',size)}
+            local number_label=TextWidget:new{text=progress_label(self.book,true),face=Font:getFace('cfont',size)}
             if size<=8 or local_label:getSize().w<=max_width and number_label:getSize().w<=max_width then
                 labels={local_label,number_label};content=VerticalGroup:new{align='right',local_label,number_label};break
             end
@@ -1405,8 +1410,8 @@ function LibraryView:itemStatus(book)
         status=_(pending.desired and 'Done' or 'Not finished')..' · '.._(pending.phase=='queued' and 'Pending sync' or 'Needs review')
     elseif is_finished(book) then
         status = _("Done")
-    elseif type(book._shelf_progress) == "number" then
-        status = ShelfProgress.label(book._shelf_progress,book._shelf_progress_local,book._shelf_progress_exact) or ""
+    elseif type(book._shelf_progress) == "number" or type(book._shelf_native_estimate)=='number' then
+        status = progress_label(book) or ""
     else
         status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end

@@ -70,8 +70,15 @@ function M.checkpoint(host,replace_conflict,force)
     local lease=require('weread.lib.native_direct_cache').acquire(host.settings,ctx.scope.vid,ctx.entry.book_id)
     if not lease then return false end
     local function guard() return lease:owns() and current(host,ctx) and Context.same_location(point,location(ctx)) end
+    local estimate
+    if ctx.weights then
+        local viewport=require('weread.lib.reader_progress_context').capture(host)
+        if viewport then
+            estimate=(ctx.weights.before+ctx.weights.chapter*viewport.percent/100)/ctx.weights.total*100
+        end
+    end
     local ok,saved=pcall(require('weread.lib.native_direct_pending').save,host.library_db,host.settings,ctx.scope,
-        ctx.entry,point.xpointer,guard,ctx.record)
+        ctx.entry,point.xpointer,guard,ctx.record,estimate)
     lease:release()
     if not ok then return false end
     if not saved then return false end
@@ -139,9 +146,10 @@ function M.open_manual(host,entry,record)
     if not ctx.pending then return false end
     return M.connected(host,true)
 end
-function M.bind(host,entry,record)
+function M.bind(host,entry,record,weights)
     local ctx=host._native_direct_reconnect
     if not ctx or not current(host,ctx) then return end
+    if weights or not ctx.entry or ctx.entry.file_id~=entry.file_id then ctx.weights=weights end
     ctx.entry=entry
     if same_entry(entry,record) then ctx.record=record end
     if ctx.pending_dirty and M.checkpoint(host)==false then warn(host) end

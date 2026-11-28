@@ -1,5 +1,4 @@
 -- Local reminders only: never a grant to send a cloud position.
-local Cache=require('weread.lib.native_direct_cache')
 local P=require('weread.lib.native_position_protocol')
 local Contract=require('weread.lib.native_position_contract')
 local M={MAX_RECORDS=256}
@@ -16,7 +15,7 @@ local function current(library,settings,scope,guard)
     return ok and value==true
 end
 local function valid_entry(entry,scope)
-    return type(scope)=='table' and Cache.valid_entry(entry,entry and entry.book_id,scope.vid)
+    return type(scope)=='table' and require('weread.lib.native_direct_cache').valid_entry(entry,entry and entry.book_id,scope.vid)
         and type(entry.file_id)=='string' and #entry.file_id==64 and entry.file_id:match('^[a-f0-9]+$')~=nil
 end
 local function query(db,sql,...)
@@ -28,9 +27,45 @@ local function query(db,sql,...)
     end)
     stmt:close();if not ok then error('native_direct_pending/query',0) end;return result
 end
-local function schema(db)
-    local rows=query(db,"SELECT type FROM sqlite_master WHERE name='native_direct_offline_pending'")
+local function schema(db,name)
+    local rows=query(db,'SELECT type FROM sqlite_master WHERE name=?',name or 'native_direct_offline_pending')
     return #rows==0 and 'missing' or #rows==1 and rows[1][1]=='table' and 'present' or 'invalid'
+end
+local display_table='native_direct_offline_display'
+local function percentage(value)
+    return type(value)=='number' and value>=0 and value<=100
+end
+
+-- A hint only supplements the latest reminder for a book. Joining the exact
+-- reminder prevents a removed or replaced position leaving a stale percentage.
+function M.display_estimates(db,ids)
+    local ok,value=pcall(function()
+        if schema(db,display_table)~='present' then return {} end
+        local rows=query(db,[[SELECT d.book_id,d.percent FROM native_direct_offline_display d
+            JOIN native_direct_offline_pending p ON p.book_id=d.book_id AND p.file_id=d.file_id AND p.xpointer=d.xpointer
+            LIMIT 257]])
+        if #rows==0 or #rows>M.MAX_RECORDS then return {} end
+        local wanted={};for _,id in ipairs(ids) do wanted[id]=true end
+        local result={}
+        for _,row in ipairs(rows) do
+            local estimate=tonumber(row[2])
+            if wanted[row[1]] and percentage(estimate) then result[row[1]]=estimate end
+        end
+        return result
+    end)
+    return ok and value or {}
+end
+
+local function save_display(db,entry,xpointer,estimate)
+    if percentage(estimate) then
+        db:exec([[CREATE TABLE IF NOT EXISTS native_direct_offline_display (
+            book_id TEXT PRIMARY KEY NOT NULL,file_id TEXT NOT NULL,xpointer TEXT NOT NULL,percent REAL NOT NULL)]])
+        query(db,[[INSERT INTO native_direct_offline_display(book_id,file_id,xpointer,percent) VALUES(?,?,?,?)
+            ON CONFLICT(book_id) DO UPDATE SET file_id=excluded.file_id,xpointer=excluded.xpointer,percent=excluded.percent]],
+            entry.book_id,entry.file_id,xpointer,estimate)
+    elseif schema(db,display_table)=='present' then
+        query(db,'DELETE FROM native_direct_offline_display WHERE book_id=?',entry.book_id)
+    end
 end
 local function read_row(db,entry)
     local rows=query(db,[[SELECT book_id,chapter_uid,version,source_sha256,cache_key,copy,xpointer
@@ -67,6 +102,7 @@ end
 -- Decorate saved-chapter candidates only after reopening each matching file.
 -- The hint carries no location and grants no sync authority.
 function M.mark(library,settings,scope,book,entries,guard)
+    local Cache=require('weread.lib.native_direct_cache')
     if type(book)~='string' or P.id(book)~=book or type(entries)~='table' or #entries>Cache.MAX_ENTRIES
         or not current(library,settings,scope,guard) or type(library.openRead)~='function' then return false end
     local opened,db=pcall(library.openRead,library);if not opened or not db then return false end
@@ -103,7 +139,7 @@ function M.mark(library,settings,scope,book,entries,guard)
 end
 -- expected=nil means the caller observed no prior reminder. An existing row
 -- may only be replaced if it still matches the caller's full snapshot.
-function M.save(library,settings,scope,entry,xpointer,guard,expected)
+function M.save(library,settings,scope,entry,xpointer,guard,expected,estimate)
     if not valid_entry(entry,scope) or not pointer(xpointer) or not current(library,settings,scope,guard)
         or type(library.open)~='function' then return false end
     local opened,db=pcall(library.open,library);if not opened or not db then return false end
@@ -126,6 +162,8 @@ function M.save(library,settings,scope,entry,xpointer,guard,expected)
             VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(file_id) DO UPDATE SET xpointer=excluded.xpointer]],
             entry.file_id,entry.book_id,entry.chapter_uid,entry.book_version,entry.source_sha256,entry.key,entry.copy,xpointer)
         local saved=read_row(db,entry);assert(saved and saved.xpointer==xpointer)
+        -- A damaged display table cannot invalidate the offline page reminder.
+        pcall(save_display,db,entry,xpointer,estimate)
         assert(current(library,settings,scope,guard));db:exec('COMMIT');transaction=false
     end)
     if transaction then pcall(db.exec,db,'ROLLBACK') end
@@ -146,6 +184,9 @@ function M.remove(library,settings,scope,entry,record,guard)
         local actual=read_row(db,entry)
         assert(actual and actual.xpointer==record.xpointer and actual.file_id==record.file_id)
         query(db,'DELETE FROM native_direct_offline_pending WHERE file_id=? AND xpointer=?',entry.file_id,record.xpointer)
+        if schema(db,display_table)=='present' then
+            pcall(query,db,'DELETE FROM native_direct_offline_display WHERE book_id=? AND file_id=?',entry.book_id,entry.file_id)
+        end
         assert(not read_row(db,entry) and current(library,settings,scope,guard))
         db:exec('COMMIT');transaction=false
     end)

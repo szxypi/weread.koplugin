@@ -490,7 +490,7 @@ end
 
 local PROGRESS_QUERY_BATCH = 256
 
-function LibraryDB:getShelfProgress(ids)
+function LibraryDB:getShelfProgress(ids,include_local_estimates)
     local result = {}
     if type(ids) ~= "table" or #ids == 0 then return result end
     local db = self:openRead()
@@ -528,8 +528,9 @@ function LibraryDB:getShelfProgress(ids)
         if multi_batch then db:exec('COMMIT') end
     end)
     close_statement(stmt)
+    local estimates=ok and include_local_estimates and require('weread.lib.native_direct_pending').display_estimates(db,ids)
     pcall(function() db:close() end)
-    return ok and result or {}
+    return ok and result or {}, estimates or nil
 end
 
 local function prefer_summary(incoming, previous)

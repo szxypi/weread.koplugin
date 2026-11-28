@@ -204,12 +204,23 @@ assert(progress.whole_estimate and math.abs(progress.whole_estimate-(100+progres
     'second chapter estimate did not follow catalog weights')
 UI:close(progress.dialog)
 local db=assert(host.library_db:open())
+local original_catalogs={}
+local catalog_stmt=db:prepare('SELECT rowid,payload FROM native_direct_catalog_estimate')
+while true do
+    local row=catalog_stmt:step();if not row then break end
+    original_catalogs[#original_catalogs+1]=row
+end
+catalog_stmt:close()
 db:exec("UPDATE native_direct_catalog_estimate SET payload='corrupt'");db:close()
 quick(host,'reader_progress')
 pump(function() return host._weread_reader_progress~=nil end)
 progress=assert(host._weread_reader_progress)
 assert(not progress.whole_estimate and progress.dialog.title:find(util.tr('Whole-book estimate unavailable.'),1,true),
     'corrupt catalog was used for a progress estimate')
+db=assert(host.library_db:open())
+catalog_stmt=db:prepare('UPDATE native_direct_catalog_estimate SET payload=? WHERE rowid=?')
+for _,row in ipairs(original_catalogs) do catalog_stmt:reset():bind(row[2],row[1]):step() end
+catalog_stmt:close();db:close()
 local previous=assert(progress.dialog:getButtonById('progress_previous_chapter'))
 assert(previous.enabled~=false);previous:onTapSelectButton()
 pump(function() return Reader.instance and Reader.instance~=second and Reader.instance.document.file==input.first

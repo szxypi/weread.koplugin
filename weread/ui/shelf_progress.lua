@@ -18,7 +18,10 @@ function M:prepareShelfProgress(books,saved_books)
         local id=Identity.persisted_id(book)
         if id and Data.book_id(id) then ids[#ids + 1]=id end
     end
-    local raw = self.library_db and self.library_db.getShelfProgress and self.library_db:getShelfProgress(ids) or {}
+    local raw, estimates
+    if self.library_db and self.library_db.getShelfProgress then
+        raw,estimates=self.library_db:getShelfProgress(ids,true)
+    end
     local snapshots={}
     for _,id in ipairs(ids) do
         local snapshot=type(raw)=='table' and raw[id]
@@ -32,6 +35,7 @@ function M:prepareShelfProgress(books,saved_books)
         local local_book = id and Access.cached_book(saved,id)
         book._shelf_progress, book._shelf_progress_local, book._shelf_progress_exact =
             Data.display(local_book, id and snapshots[id], account, id)
+        book._shelf_native_estimate=estimates and estimates[id] or nil
     end
     return snapshots
 end

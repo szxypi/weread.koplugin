@@ -13,9 +13,17 @@ local entry={owner=Crypto.sha256_hex('native-direct-account\0'..scope.vid),book_
     book_version=7,chapter_idx=1,title='Fixture',missing_images=0,text_digest=string.rep('b',64),
     source_sha256=string.rep('c',64),key=string.rep('d',64),copy=0,file_id=string.rep('a',64)}
 local live=function() return true end
+local function estimates(ids)
+    local db=helper.connect(path)
+    local values=Store.display_estimates(db,ids)
+    db:close()
+    return values
+end
 assert(not Store.read(library,settings,scope,entry,live))
-assert(Store.save(library,settings,scope,entry,'/body/p.2',live))
+assert(next(estimates({'42'}))==nil,'an old database required an estimate table')
+assert(Store.save(library,settings,scope,entry,'/body/p.2',live,nil,23.5))
 local first=assert(Store.read(library,settings,scope,entry,live));assert(first.xpointer=='/body/p.2')
+assert(estimates({'42'})['42']==23.5 and next(estimates({'43'}))==nil,'estimate was shown for the wrong book')
 local cache=require('weread.lib.native_direct_cache');local original_open=cache.open
 cache.open=function() return {file_id=entry.file_id} end
 local listed={entry};assert(Store.mark(library,settings,scope,'42',listed,live) and entry.pending_offline==true,
@@ -24,7 +32,10 @@ entry.pending_offline=nil;cache.open=function() return {file_id=string.rep('e',6
 assert(Store.mark(library,settings,scope,'42',listed,live) and not entry.pending_offline,
     'changed saved file was given a reminder')
 cache.open=original_open
-assert(Store.save(library,settings,scope,entry,'/body/p.5',live,first))
+assert(Store.save(library,settings,scope,entry,'/body/p.4',live,first))
+assert(next(estimates({'42'}))==nil,'a replacement without a catalog kept the old estimate')
+local replaced=assert(Store.read(library,settings,scope,entry,live))
+assert(Store.save(library,settings,scope,entry,'/body/p.5',live,replaced,25))
 assert(not Store.save(library,settings,scope,entry,'/body/stale',live,first),
     'stale reminder overwrote a newer position')
 assert(not Store.save(library,settings,scope,entry,'/body/unobserved',live),
@@ -33,6 +44,7 @@ local mismatched={};for key,value in pairs(first) do mismatched[key]=value end;m
 assert(not Store.save(library,settings,scope,entry,'/body/wrong-book',live,mismatched),
     'snapshot from another book overwrote the reminder')
 assert(not Store.remove(library,settings,scope,entry,first,live),'old reminder deleted a newer one')
+assert(estimates({'42'})['42']==25,'a stale update changed the displayed estimate')
 assert(assert(Store.read(library,settings,scope,entry,live)).xpointer=='/body/p.5')
 local calls=0
 local latest=assert(Store.read(library,settings,scope,entry,live))
@@ -48,6 +60,7 @@ assert(not Store.save(library,settings,scope,entry,'x',live,latest),'concurrent 
 db:exec('ROLLBACK');db:close()
 local new=assert(Store.read(library,settings,scope,entry,live));assert(Store.remove(library,settings,scope,entry,new,live))
 assert(not Store.read(library,settings,scope,entry,live),'confirmed reminder not removed')
+assert(next(estimates({'42'}))==nil,'removing the reminder kept its estimate')
 assert(not Store.save(library,settings,scope,entry,'bad\nanchor',live),'invalid pointer saved')
 assert(Store.save(library,settings,scope,entry,'/valid',live))
 db=helper.connect(path)

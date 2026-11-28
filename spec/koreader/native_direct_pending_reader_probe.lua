@@ -44,6 +44,10 @@ end)
 local reader=Reader.instance;local host=reader.weread;local owner=host._native_direct_reconnect
 local store=require('weread.lib.native_direct_pending');local scope=host.settings:get_auth_scope()
 local function read() return store.read(host.library_db,host.settings,scope,owner.entry,function() return true end) end
+local function estimate()
+    local _,values=host.library_db:getShelfProgress({owner.entry.book_id},true)
+    return values and values[owner.entry.book_id]
+end
 if input.stage=='save' then
     for _,size in ipairs({48,72,96}) do
         if reader.document:getPageCount()>=3 then break end
@@ -54,6 +58,7 @@ if input.stage=='save' then
     reader.rolling:onGotoPage(3);host:onPageUpdate()
     assert(owner.offline and owner.dirty,'offline turn was not detected')
     local anchor=assert(require('weread.lib.source_context').location(reader.document,'page')).xpointer
+    local expected=3/reader.document:getPageCount()*100/3
     local entry=owner.entry;reader:onClose(false);assert(not Reader.instance)
     local value=assert(store.read(host.library_db,host.settings,scope,entry,function() return true end))
     assert(value.xpointer==anchor,'close did not preserve the offline position')
@@ -63,6 +68,29 @@ if input.stage=='save' then
     local found=false
     for _,row in ipairs(rows) do if row.key==entry.key and row.copy==entry.copy then found=row.pending_offline==true end end
     assert(found,'saved chapter did not show its pending-position hint')
+    if not owner_test then
+        local saved=assert(estimate(),'verified offline page did not save a whole-book estimate')
+        assert(math.abs(saved-expected)<1e-7,'offline estimate did not match the saved page and catalog weights')
+        local FM=require('apps/filemanager/filemanager')
+        if not FM.instance then FM:showFiles(home) end
+        local browser=assert(FM.instance.weread)
+        local id=entry.book_id
+        assert(browser.library_db:cacheShelf({{bookId=id,title='Synthetic',readUpdateTime=os.time(),finishReading=0}},{}))
+        assert(browser.library_db:putShelfProgress({{book_id=id,percent=91,exact_percent=91,fetched_at=os.time()}}))
+        local label='≈'..math.floor(expected)..'%'
+        local function check_view()
+            local view=assert(browser.shelf_view)
+            local cell=assert(view._item_rows[1]);local book=cell.book
+            assert(book.bookId==id and book._shelf_progress==91 and book._shelf_progress_exact==91,
+                'displayed estimate changed the cached cloud or filter value')
+            local text=view.cover_mode and cell._progress_badge_text or view:itemStatus(book)
+            assert(text and text:find(label,1,true),'native estimate was not labeled on the device view')
+        end
+        browser:showHome();check_view()
+        browser:showBookshelf(false);check_view()
+        browser.shelf_view.on_display_change('view_mode','list');check_view()
+        browser:closeWeReadUI()
+    end
 elseif manual then
     local record=assert(read())
     if input.stage=='manual_conflict' or input.stage=='conflict_cancel_close' then reader.rolling:onGotoPage(1);host:onPageUpdate() end
@@ -133,7 +161,7 @@ elseif manual then
     if input.stage=='manual_discard' then
         owner.dialog:getButtonById('reconnect_discard'):onTapSelectButton()
         assert(owner.dialog and owner.dialog.ok_callback,'offline discard skipped confirmation')
-        owner.dialog.ok_callback();assert(not read(),'offline confirmation did not remove the reminder')
+        owner.dialog.ok_callback();assert(not read() and not estimate(),'offline confirmation did not remove the reminder and estimate')
         assert(reader.document:isXPointerInCurrentPage(record.xpointer),'offline removal moved the page')
         reader:onClose(false);assert(not read(),'closing recreated a removed offline reminder')
     else
@@ -173,7 +201,7 @@ elseif input.stage=='discard' then
     assert(reader.document:isXPointerInCurrentPage(record.xpointer),'removing the reminder moved the page')
     reader:onClose(false)
 elseif input.stage=='cleared' then
-    assert(not read() and not owner.record,'a removed reminder returned after restart')
+    assert(not read() and not owner.record and not estimate(),'a removed reminder returned after restart')
     reader:onClose(false)
 else error('unknown stage') end
 print('WEREAD_DIRECT_PENDING_READER='..json.encode{ok=true,stage=input.stage,network_blocked=true})

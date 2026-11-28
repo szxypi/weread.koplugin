@@ -148,16 +148,20 @@ local function record(host,opened_at)
     if not w then M.cancel(host);return false end
     local ok,started=pcall(w.start,w,function()
         local entry=Cache.identify(host.settings,scope.vid,path,current)
-        local pending=entry and host._native_direct_reconnect and require('weread.lib.native_direct_pending').read(
-            host.library_db,host.settings,scope,entry,current)
-        return {entry=entry,pending=pending}
+        local pending,weights
+        if entry and host._native_direct_reconnect then
+            pending=require('weread.lib.native_direct_pending').read(host.library_db,host.settings,scope,entry,current)
+            local catalog=require('weread.lib.native_direct_catalog_store')
+            weights=catalog.weights(catalog.read(host.library_db,host.settings,host.client,scope,entry,current),entry)
+        end
+        return {entry=entry,pending=pending,weights=weights}
     end,function(value)
         if not current() then if host._native_home_resume==ctx then M.cancel(host) end;return end
         local entry=type(value)=='table' and value.entry
         if type(entry)~='table' or not Cache.valid_entry(entry,entry.book_id,scope.vid) then M.cancel(host);return end
         if not matches_document(document,entry) then M.cancel(host);return end
         local reconnect=package.loaded['weread.ui.native_direct_reconnect']
-        if reconnect and host._native_direct_reconnect then reconnect.bind(host,entry,value.pending) end
+        if reconnect and host._native_direct_reconnect then reconnect.bind(host,entry,value.pending,value.weights) end
         if save_recent(host,host.settings:get_book(entry.book_id),entry,owner,ctx.at) then
             host._native_home_verified_open=nil
         end

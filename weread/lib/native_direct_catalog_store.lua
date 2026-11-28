@@ -117,8 +117,8 @@ function M.saved_orders(value,entries)
     end
     return next(orders) and orders or nil
 end
-function M.estimate(value,entry,percent)
-    if not M.matches(value,entry) or type(percent)~='number' or percent~=percent or percent<0 or percent>100 then return nil end
+function M.weights(value,entry)
+    if not M.matches(value,entry) then return nil end
     local before,total,current=0,0,nil
     for index,row in ipairs(value.chapters) do
         if row.words==nil then return nil end
@@ -127,7 +127,12 @@ function M.estimate(value,entry,percent)
         if index==entry.catalog_order then current=row.words end
     end
     if not current or current==0 or total==0 then return nil end
-    return (before+current*percent/100)/total*100
+    return {before=before,chapter=current,total=total}
+end
+function M.estimate(value,entry,percent)
+    if type(percent)~='number' or not (percent>=0 and percent<=100) then return nil end
+    local weights=M.weights(value,entry)
+    return weights and (weights.before+weights.chapter*percent/100)/weights.total*100 or nil
 end
 local function query(db,sql,...)
     local statement=db:prepare(sql);local args={...}
