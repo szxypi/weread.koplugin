@@ -750,8 +750,8 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
     local generation = self.shelf_cover_generation
     local index, changed, prune_attempted = 1, false, false
     local function prune_covers()
-        local pruned = pcall(cache.prune, cache)
-        if not pruned then logger.warn("bookshelf cover cache pruning failed") end
+        local ok, _, reason = pcall(cache.prune, cache)
+        if not ok or reason and reason ~= "busy" then logger.warn("bookshelf cover cache pruning failed") end
     end
     local function redraw_covers()
         local popup = require('weread.ui.shelf_popup')
@@ -800,8 +800,8 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
 
         local last = index == #missing
         local pid, read_fd = runner.run(function(_pid, child_write_fd)
-            local ok, path = pcall(cache.thumbnailFromCached, cache, book)
-            if not (ok and path) and online then
+            local ok, path, reason = pcall(cache.thumbnailFromCached, cache, book)
+            if not (ok and path) and reason ~= "busy" and online then
                 local downloaded, data = pcall(function()
                     return self.client:get_binary(shelf_cover_url(book), {
                         skip_cookie = true,
@@ -812,11 +812,11 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
                         timeout = { 8, 12 },
                     })
                 end)
-                if downloaded then ok, path = pcall(cache.store, cache, book, data) end
+                if downloaded then ok, path, reason = pcall(cache.store, cache, book, data) end
             end
             local available = ok and path
-            if last and available then available = cache:pathFor(book) end
-            local result = available and "ok" or "error"
+            if reason == "busy" or last and available then available = cache:pathFor(book) end
+            local result = available and "ok" or reason == "busy" and "busy" or "error"
             -- Finish the disk scan in the last download child, before a
             -- later page can start another writer in this cache.
             if last and (changed or available) then
@@ -854,10 +854,10 @@ function M:fetchVisibleShelfCovers(view, items, options, prepared)
             -- Cancellation may race with a completed cache commit. Keep valid
             -- thumbnails, but never redraw or continue the cancelled page.
             if not job.cancelled then
-                prune_attempted = result == "ok-pruned" or result == "error-pruned"
+                prune_attempted = result == "ok-pruned" or result == "error-pruned" or result == "busy-pruned"
                 if result == "ok-pruned" or result == "ok" and cache:pathFor(book) then
                     changed = true
-                else
+                elseif result ~= "busy" and result ~= "busy-pruned" then
                     logger.warn("bookshelf cover background task failed")
                 end
             end

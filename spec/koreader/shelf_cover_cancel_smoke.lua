@@ -108,6 +108,59 @@ return function(plugin,flush,evidence)
         return {bookId=tostring(990000+sequence),title='合成封面 '..label,author='测试作者',
             cover='https://weread.qq.com/mock/cover.png?case=cancel-'..label..'&item='..item}
     end
+    local function check_write_lease(seed)
+        local CoverCache=require('weread.lib.cover_cache')
+        local lfs=require('libs/libkoreader-lfs')
+        local function read(path)
+            local file=assert(io.open(path,'rb'))
+            local bytes=assert(file:read('*a'))
+            assert(file:close())
+            return bytes
+        end
+        local function write(path,bytes)
+            local file=assert(io.open(path,'wb'))
+            assert(file:write(bytes));assert(file:close())
+        end
+        local directory=root..'/write-race'
+        assert(lfs.mkdir(directory))
+        local cover=read(assert(cache:pathFor(seed)))
+        local observer=CoverCache:new({data_dir=directory})
+        local committed=assert(observer:store(seed,cover))
+        local target,legacy=book('lease',1),book('lease',2)
+        local legacy_path=observer.dir..'/'..observer:key(legacy)..'.png'
+        write(legacy_path,cover)
+        local source_stage,thumbnail_stage=observer.dir..'/.source.part',observer.dir..'/.thumb.part.png'
+        local ready=directory..'/ready'
+        local writer=CoverCache:new({data_dir=directory},{
+            render_thumbnail=function(source,destination,width,height)
+                assert(source==source_stage and destination==thumbnail_stage)
+                assert(require('weread.lib.cover_thumbnail').render(source,destination,width,height))
+                write(ready,'staged')
+                socket.sleep(10)
+                return destination
+            end,
+        })
+        local pid=assert(util.runInSubProcess(function() assert(writer:store(target,cover)) end))
+        local checked,reason=pcall(function()
+            pump(function() return lfs.attributes(ready,'mode')=='file' end,3)
+            local staged=read(thumbnail_stage)
+            local stored,store_reason=observer:store(target,cover)
+            local migrated,migrate_reason=observer:thumbnailFromCached(legacy)
+            local pruned,prune_reason=observer:prune(0)
+            assert(not stored and store_reason=='busy' and not migrated and migrate_reason=='busy'
+                and not pruned and prune_reason=='busy','competing cache mutations acquired the lock')
+            assert(read(source_stage)==cover and read(thumbnail_stage)==staged and read(legacy_path)==cover)
+            assert(observer:thumbnailFromCached(seed)==committed and not observer:pathFor(target))
+        end)
+        util.terminateSubProcess(pid)
+        pump(function() return util.isSubProcessDone(pid) end,3)
+        assert(checked,reason)
+        assert(lfs.attributes(source_stage) and lfs.attributes(thumbnail_stage) and not observer:pathFor(target),
+            'interrupted child published a thumbnail or did not leave staging for recovery')
+        assert(observer:prune()==0 and not lfs.attributes(source_stage) and not lfs.attributes(thumbnail_stage))
+        assert(observer:pathFor(seed)==committed and observer:thumbnailFromCached(legacy)
+            and observer:store(target,cover),'cache did not resume after a writer was terminated')
+    end
     local function begin(label)
         report.phase='begin_'..label
         host:closeWeReadUI();pump(function() return not host.shelf_cover_job end)
@@ -136,6 +189,9 @@ return function(plugin,flush,evidence)
         assert(host:getShelfCoverCache():pathFor(next_book) and host.shelf_view._item_rows[1]._has_cover)
         UIManager:forceRePaint();require('device').screen:shot(evidence..'/shelf-cover-reopened.png')
         report.cases.close_then_reopen=true
+        report.phase='cache_write_lease'
+        check_write_lease(next_book)
+        report.cases.cache_write_lease=true
 
         job,first,tail=begin('account')
         report.phase='account'

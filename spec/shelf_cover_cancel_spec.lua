@@ -23,6 +23,7 @@ local function fixture()
     queue,warnings={},{}
     local workers,files,sources={},{},{}
     local link_online,link_checks=true,0
+    local busy=false
     local host={shelf_cover_generation=1,isNetworkOnline=function() error('cover loading resolved DNS on the UI thread') end,
         isNetworkLinkAvailable=function() link_checks=link_checks+1;return link_online end}
     for key,value in pairs(Library) do host[key]=value end
@@ -46,6 +47,7 @@ local function fixture()
     host.shelf_cover_subprocess=runner
     local cache={MAX_IMAGE_BYTES=3*1024*1024,pathFor=function(_self,book) return files[book] end,
         sourcePathFor=function(_self,book) return sources[book] end,thumbnailFromCached=function(_self,book)
+            if busy then return nil,'busy' end
             if sources[book] then files[book]='/cache/'..book.bookId end
             return files[book]
         end,
@@ -73,6 +75,7 @@ local function fixture()
     end
     return {host=host,workers=workers,files=files,sources=sources,start=start,finish=finish,view=view,first=first,tail=tail,
         set_link=function(value) link_online=value end,
+        set_busy=function(value) busy=value end,
         stats=function() return {runs=count,reads=reads,redraws=redraws,downloads=downloads,link_checks=link_checks,
             worker_prunes=worker_prunes,ui_prunes=ui_prunes} end}
 end
@@ -86,6 +89,20 @@ local conversion=offline.start(offline.view(),{offline.first});expect(conversion
 offline.finish(conversion,true)
 expect(offline.stats().downloads==0 and offline.stats().redraws==1,'offline source conversion requested network or missed redraw')
 expect(offline.stats().worker_prunes==1 and offline.stats().ui_prunes==0,'offline conversion pruned on the UI thread')
+
+local contended=fixture()
+contended.sources[contended.first]='/cached/full-size'
+contended.set_busy(true)
+contended.finish(assert(contended.start(contended.view(),{contended.first})),true)
+expect(contended.stats().downloads==0 and contended.stats().redraws==0 and #warnings==0,
+    'a busy cached source triggered a redundant download or failure')
+contended.finish(assert(contended.start(contended.view(),{contended.first})),true)
+expect(contended.stats().downloads==0 and not contended.host.shelf_cover_job,
+    'write contention left a worker in the UI')
+contended.set_busy(false)
+contended.finish(assert(contended.start(contended.view(),{contended.first})),true)
+expect(contended.stats().downloads==0 and contended.stats().redraws==1,
+    'the next cover load did not reuse its legacy source')
 
 local f=fixture();local host=f.host;local job=f.start(f.view())
 host:closeWeReadUI()
