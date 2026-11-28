@@ -82,6 +82,7 @@ function M:showDiscoveryPage(tab, books, options)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if previous then
+        if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
         if (home and previous._discovery_tab=='home')
             or (downloads and previous._discovery_tab=='downloads')
             or options.bookstore_state and previous._bookstore_state==options.bookstore_state then

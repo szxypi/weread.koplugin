@@ -390,7 +390,8 @@ function M:showShelfFilterOptions(on_changed, origin)
                         if not current() then return end
                         if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         -- Toggle within the dimension: re-tapping clears it, else select.
-                        filters[opt.dim] = (filters[opt.dim] == opt.value) and nil or opt.value
+                        if filters[opt.dim] == opt.value then filters[opt.dim] = nil
+                        else filters[opt.dim] = opt.value end
                         self:saveShelfFilters()
                         on_changed()
                         if (filters.reading=='progress_zero' or filters.reading=='progress_active') and self.showTransientInfo then

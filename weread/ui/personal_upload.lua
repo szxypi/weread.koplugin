@@ -51,7 +51,7 @@ local function pending(host,ctx,record)
     dialog=require('ui/widget/buttondialog'):new{title=_('Previous upload needs review'),buttons={
         {{text=_('Open cloud bookshelf'),callback=function()
             if not current(host,ctx) or ctx.dialog~=dialog then return end
-            M.cancel(host);host:showBookshelf()
+            M.cancel(host);host:showBookshelf(false)
         end}},
         {{text=_('Clear pending upload record'),callback=function()
             if not current(host,ctx) or ctx.dialog~=dialog then return end

@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--imported',action='store_true',help='Exercise the same flows with an imported shelf book')
+    parser.add_argument('--browse',action='store_true',help='Exercise persisted bookshelf navigation')
     args=parser.parse_args();root=args.run_dir.resolve();runtime=args.koreader.resolve()
     prepare(root,runtime,8765,args.width,args.height,args.dpi);(root/'xdg').mkdir(mode=0o700)
     env=os.environ|dict(KO_HOME=str(root/'profile'),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',
@@ -20,13 +21,14 @@ def main():
         EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
         EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
     if args.imported:env['WEREAD_LOCAL_GROUP_IMPORTED']='1'
-    probe=Path(__file__).resolve().parent.parent/'spec/koreader/local_shelf_groups_smoke.lua'
-    for phase in ('live','reopen'):
+    probe=Path(__file__).resolve().parent.parent/'spec/koreader'/('shelf_browse_smoke.lua' if args.browse else 'local_shelf_groups_smoke.lua')
+    phases=('seed_paged','reopen_paged','reopen_continuous','reopen_public') if args.browse else ('live','reopen')
+    for phase in phases:
         log=root/'evidence'/('local-groups-'+phase+'.log')
         with log.open('w') as output:
             child=subprocess.run([str(runtime/'luajit'),str(probe)],cwd=runtime,env=env|dict(WEREAD_LOCAL_GROUP_PHASE=phase),
                                  stdout=output,stderr=subprocess.STDOUT,timeout=120)
-        raw=log.read_bytes();marker=b'\nWEREAD_LOCAL_GROUPS='
+        raw=log.read_bytes();marker=b'\nWEREAD_SHELF_BROWSE=' if args.browse else b'\nWEREAD_LOCAL_GROUPS='
         if child.returncode or raw.count(marker)!=1:raise ValueError('local group runtime failed; inspect synthetic log')
         value=json.loads(raw.split(marker,1)[1].splitlines()[0])
         if value!=dict(result='PASS',phase=phase,network_requests=0) or b'[WeRead] forceRePaint failed:' in raw:

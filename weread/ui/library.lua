@@ -29,6 +29,7 @@ local M = {}
 local sortBooks
 local GROUP_SELECTION_KEY = 'shelf_multi_groups_v1'
 local LOCAL_GROUPS_KEY = 'shelf_local_groups_v1'
+local ShelfBrowse = require('weread.lib.shelf_browse')
 local group_owner
 
 local function read_shelf_preference(host,key,preferences,account)
@@ -163,8 +164,10 @@ end
 
 function M:showBookshelf(restore_browse_position, return_position)
     if self._profile_view then self:closeWeReadUI() end
-    local position = return_position or restore_browse_position == true and self._shelf_browse_position
-    if position and position.account ~= group_owner(self) then
+    if not return_position and restore_browse_position~=false then self:checkpointShelfBrowse() end
+    local account=group_owner(self)
+    local position = return_position or restore_browse_position ~= false and self._shelf_browse_position
+    if position and position.account ~= account then
         self._shelf_browse_position, self.shelf_view_pages = nil, nil
         position, return_position = nil, nil
     end
@@ -176,8 +179,25 @@ function M:showBookshelf(restore_browse_position, return_position)
         load_group_selection(self,preferences)
         self.shelf_group_key, self.shelf_multi_groups = position.group_key, position.group_keys
     end
+    if not position and restore_browse_position~=false and account and type(archives)=='table'
+        and not (volatile and volatile.groups_incomplete) then
+        local ok,stored=read_shelf_preference(self,ShelfBrowse.KEY,preferences,account)
+        local saved=ok and ShelfBrowse.normalize(stored)
+        if saved and account==group_owner(self) then
+            self._shelf_saved_browse={account=account,position=saved}
+            load_group_selection(self,preferences)
+            if ShelfBrowse.same_groups(saved.group_keys,self.shelf_multi_groups or {}) then
+                self.shelf_group_key=saved.group_key
+                position=saved
+            else position={mode=saved.mode,keyword=saved.keyword,page=1} end
+        end
+    end
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil, preferences)
+        if position and (position.group_key~=self.shelf_group_key
+            or not ShelfBrowse.same_groups(position.group_keys or {},self.shelf_multi_groups or {})) then
+            position={mode=position.mode,keyword=position.keyword,page=1}
+        end
         local options = { browse_position = position, shelf_preferences = preferences }
         if position then
             self:showShelfView(position.mode, position.keyword, nil, options)
@@ -215,7 +235,13 @@ function M:showBookshelf(restore_browse_position, return_position)
     self:refreshBookshelf()
 end
 
+function M:checkpointShelfBrowse()
+    local view=self.shelf_view
+    if view and view._shelf_checkpoint then view._shelf_checkpoint() end
+end
+
 function M:closeWeReadUI()
+    self:checkpointShelfBrowse()
     local mark_navigation=package.loaded['weread.ui.my_mark_navigation']
     if mark_navigation and mark_navigation.cancel_incoming then mark_navigation.cancel_incoming(self) end
     local thought_replies = package.loaded['weread.ui.thought_replies']
@@ -346,6 +372,7 @@ function M:onWeReadAccountChanged()
     self._bookstore_history = nil
     self._home_browse_position = nil
     self._shelf_browse_position = nil
+    self._shelf_saved_browse = nil
     local downloads=package.loaded['weread.ui.download_library']
     if downloads then downloads.clearBrowsePosition() end
     self.discovery_categories = nil
@@ -956,7 +983,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     if self.shelf_group_key and not group then
         self.shelf_group_key = nil
         self.shelf_view_pages.books = 1
-        options.prepared_shelf, options.page, options.rotation_anchor = nil, nil, nil
+        options.prepared_shelf, options.page, options.rotation_anchor, options.browse_position = nil, nil, nil, nil
     end
     local multi=self.shelf_multi_groups or {}
     local prepared = options.prepared_shelf
@@ -969,6 +996,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             if incomplete then multi_label = T(_('%1 (incomplete)'), multi_label) end
         else
             multi_label = _('Selected groups unavailable; showing all books')
+            if options.browse_position then options.browse_position,options.page,options.scroll_offset=nil,1,nil end
         end
     end
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
@@ -1092,15 +1120,13 @@ function M:showShelfView(mode, keyword, old_view, options)
     local function browse_position()
         if not recent_account then return end
         local browse = view:getBrowsePosition()
-        browse.account, browse.mode, browse.keyword = recent_account, mode, keyword
+        browse.version, browse.account, browse.mode, browse.keyword = 1, recent_account, mode, keyword
         browse.group_key = view.group_key
         browse.group_keys = ShelfGroups.normalize(view.group_keys) or {}
         return browse
     end
     if navigation then
-        navigation = self:discoveryNavigation("shelf", current, function()
-            self._shelf_browse_position = browse_position()
-        end)
+        navigation = self:discoveryNavigation("shelf", current)
     end
     view = LibraryView.show({
         mode = mode,
@@ -1142,6 +1168,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         end,
         on_close = function()
             if self.shelf_view == view then
+                self:checkpointShelfBrowse()
                 self.shelf_view = nil
                 self:closeWeReadUI()
             end
@@ -1284,7 +1311,24 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
-    if navigation then view._shelf_return_position = browse_position end
+    if navigation then
+        view._shelf_return_position = browse_position
+        view._shelf_checkpoint = function()
+            if not current() then return end
+            local browse=browse_position()
+            self._shelf_browse_position=browse
+            local db=self.library_db
+            if not browse or not db or type(db.putProfileState)~='function' or VolatileShelf.get(self) then return end
+            local position_to_save=ShelfBrowse.normalize(browse)
+            local saved=self._shelf_saved_browse
+            if not position_to_save or saved and saved.account==recent_account
+                and ShelfBrowse.same(saved.position,position_to_save) then return end
+            local ok,written=pcall(db.putProfileState,db,ShelfBrowse.KEY,position_to_save)
+            if ok and written==true and current() then
+                self._shelf_saved_browse={account=recent_account,position=position_to_save}
+            end
+        end
+    end
     view._rotation_redraw=function()
         if not current() or self._book_detail_view then return end
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
@@ -1403,7 +1447,7 @@ function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
                     Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
-                    options.page = 1
+                    options.page, options.scroll_offset = 1, nil
                     self:showShelfView(
                         mode, value ~= "" and value or nil, view, options
                     )

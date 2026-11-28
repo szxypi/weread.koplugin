@@ -478,6 +478,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
     local covers=package.loaded['weread.lib.shelf_cover_bitmap_cache'];if covers then covers.clear() end
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
@@ -687,6 +688,7 @@ function M:onSuspend()
     local covers=package.loaded['weread.lib.shelf_cover_bitmap_cache'];if covers then covers.clear() end
     local reconnect=package.loaded['weread.ui.native_direct_reconnect'];if reconnect then reconnect.suspend(self) end
     if self._weread_suspended then return end
+    if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
     self._weread_suspended=true
     local downloads=package.loaded['weread.ui.download_library'];if downloads then downloads.cancel(self) end
     local native_direct=package.loaded['weread.ui.native_direct_reading'];if native_direct then native_direct.cancel(self) end
@@ -992,6 +994,7 @@ function M:getChapterInfoFromFile(book, file_path)
 end
 
 function M:onFlushSettings()
+    if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
     if self.progress_sync then self.progress_sync:checkpoint_local("settings_flush") end
     if self.settings then
         self.settings:flush()
