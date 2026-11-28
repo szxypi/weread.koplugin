@@ -1,21 +1,33 @@
--- Compare both plugin hash paths against deterministic binary inputs in KOReader.
-require('ffi').log=function() end
+-- Compare plugin hash paths against deterministic binary inputs in KOReader.
+local ffi=require('ffi');ffi.log=function() end
 require('setupkoenv')
 local json=require('json');local report={result='UNVERIFIED'}
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'))
     package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
+    local loadlib=ffi.loadlib
+    ffi.loadlib=function(name,...)
+        if name=='crypto' then error('forced unavailable') end
+        return loadlib(name,...)
+    end
     local original=package.loaded['ffi/sha2'];local preload=package.preload['ffi/sha2']
     package.loaded['ffi/sha2']=nil;package.preload['ffi/sha2']=function() error('forced unavailable') end
     package.loaded['weread.lib.crypto']=nil;local fallback=require('weread.lib.crypto')
     assert(fallback.sha256_hex('')=='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
     assert(fallback.md5_hex('')=='d41d8cd98f00b204e9800998ecf8427e')
     package.loaded['ffi/sha2']=original;package.preload['ffi/sha2']=preload
-    package.loaded['weread.lib.crypto']=nil;local fast=require('weread.lib.crypto')
+    package.loaded['weread.lib.crypto']=nil;local bundled=require('weread.lib.crypto')
     local backend=assert(require('ffi/sha2'));local fn=backend.sha256;local calls=0
     local md5_fn=backend.md5;local md5_calls=0
     backend.sha256=function(value) calls=calls+1;return fn(value) end
     backend.md5=function(value) md5_calls=md5_calls+1;return md5_fn(value) end
+    assert(bundled.sha256_hex('')=='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+    local native_loads=0
+    ffi.loadlib=function(name,...)
+        if name=='crypto' then native_loads=native_loads+1 end
+        return loadlib(name,...)
+    end
+    package.loaded['weread.lib.crypto']=nil;local native=require('weread.lib.crypto')
     local function bytes(n,seed)
         local pattern={};for i=0,255 do pattern[#pattern+1]=string.char((i*73+19+(seed or 0)*31)%256) end
         pattern=table.concat(pattern)
@@ -23,15 +35,15 @@ local ok,reason=pcall(function()
     end
     local results={}
     local function verify(size,seed)
-        local value=bytes(size,seed);local expected=fallback.sha256_hex(value);local actual=fast.sha256_hex(value)
-        assert(expected==actual,'backend differs from fallback at size '..size)
-        local old_md5,new_md5=fallback.md5_hex(value),fast.md5_hex(value)
+        local value=bytes(size,seed);local expected=fallback.sha256_hex(value);local actual=native.sha256_hex(value)
+        assert(expected==actual and expected==bundled.sha256_hex(value),'backend differs from fallback at size '..size)
+        local old_md5,new_md5=fallback.md5_hex(value),native.md5_hex(value)
         assert(old_md5==new_md5,'MD5 backend differs from fallback at size '..size)
         results[#results+1]={bytes=size,seed=seed,digest=actual,md5=new_md5}
     end
-    for _,size in ipairs({0,1,55,56,63,64,65,255,256,1023,1024,65535,1048576,2097152,8388608}) do verify(size,0) end
+    for _,size in ipairs({0,1,55,56,63,64,65,255,256,1023,1024,65535,65536,1048576,2097152,8388608}) do verify(size,0) end
     for seed=1,48 do verify((seed*7919)%8192,seed) end
-    assert(calls==#results+3,('KOReader SHA-256 backend calls: %d expected: %d'):format(calls,#results+3))
+    assert(calls==#results+4 and native_loads==1,'native SHA-256 did not distinctly replace the bundled path')
     assert(md5_calls==#results+3,('KOReader MD5 backend calls: %d expected: %d'):format(md5_calls,#results+3))
     -- A pre-existing thumbnail named by the fallback must still be found by
     -- the optimized implementation.
@@ -49,19 +61,21 @@ local ok,reason=pcall(function()
         return {wall_ms=math.floor((socket.gettime()-start)*1000+.5),
             cpu_ms=math.floor((os.clock()-cpu)*1000+.5),digest=digest}
     end
-    local sizes={{bytes=1024,iterations=1000},{bytes=1048576,iterations=8}}
+    local sizes={{bytes=1024,iterations=1000},{bytes=65536,iterations=128},{bytes=1048576,iterations=8}}
     for _,item in ipairs(sizes) do
         local value=bytes(item.bytes)
         item.fallback=benchmark(fallback.sha256_hex,value,item.iterations)
-        item.optimized=benchmark(fast.sha256_hex,value,item.iterations)
-        assert(item.fallback.digest==item.optimized.digest)
+        item.optimized=benchmark(bundled.sha256_hex,value,item.iterations)
+        item.native=benchmark(native.sha256_hex,value,item.iterations)
+        assert(item.fallback.digest==item.optimized.digest and item.optimized.digest==item.native.digest)
         item.md5_fallback=benchmark(fallback.md5_hex,value,item.iterations)
-        item.md5_optimized=benchmark(fast.md5_hex,value,item.iterations)
+        item.md5_optimized=benchmark(native.md5_hex,value,item.iterations)
         assert(item.md5_fallback.digest==item.md5_optimized.digest)
     end
     backend.sha256=fn
     backend.md5=md5_fn
-    report={result='PASS',vectors=results,measurements=sizes,backend_selected=true,md5_backend_selected=true,
+    ffi.loadlib=loadlib
+    report={result='PASS',vectors=results,measurements=sizes,backend_selected=true,native_backend_selected=true,md5_backend_selected=true,
         existing_cover_cache_key_verified=true}
 end)
 if not ok then report.reason=tostring(reason):gsub('[\r\n]',' '):sub(1,200) end

@@ -227,33 +227,53 @@ local function sha256_lua(message)
     return table.concat(out)
 end
 
--- KOReader ships an optimized SHA-256 implementation. Keep the original
--- implementation for older environments and reject an incompatible backend
--- before it can affect stored identities or requests.
-local fast_sha256
-local function load_sha256()
-    fast_sha256 = false
-    local ok, module = pcall(require, "ffi/sha2")
-    if not ok or type(module) ~= "table" or type(module.sha256) ~= "function" then return end
+local function load_native_sha256()
+    local ffi = require("ffi")
+    if not ffi.loadlib then return end
+    ffi.cdef[[unsigned char *SHA256(const unsigned char *, size_t, unsigned char *);]]
+    local lib = ffi.loadlib("crypto", "57")
+    local output = ffi.new("unsigned char[32]")
+    local hex = {}
+    for byte = 0, 255 do hex[string.char(byte)] = string.format("%02x", byte) end
+    return function(message)
+        if lib.SHA256(message, #message, output) == nil then return end
+        return (ffi.string(output, 32):gsub(".", hex))
+    end
+end
+
+local function load_bundled_sha256()
+    local module = require("ffi/sha2")
+    if type(module) == "table" then return module.sha256 end
+end
+
+local function verify_sha256(loader)
+    local ok, hash = pcall(loader)
+    if not ok or type(hash) ~= "function" then return end
     local vectors = {
         { "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
         { "\0\255\128lua", "7813f4b3246ec2c76bb2a1752cb5dab7d39e77cf48b7b88a551674b6eb43844e" },
         { string.rep("a", 56), "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a" },
     }
     for _, vector in ipairs(vectors) do
-        local valid, result = pcall(module.sha256, vector[1])
+        local valid, result = pcall(hash, vector[1])
         if not valid or result ~= vector[2] then return end
     end
-    fast_sha256 = module.sha256
+    return hash
 end
 
+-- Test each backend once before using it for persisted identities or requests.
+-- A backend that fails at runtime is replaced by the next available one.
+local sha256_loaders = { load_native_sha256, load_bundled_sha256 }
+local fast_sha256
 function Crypto.sha256_hex(message)
     message = tostring(message or "")
-    if fast_sha256 == nil then load_sha256() end
-    if fast_sha256 then
-        local ok, result = pcall(fast_sha256, message)
-        if ok and type(result) == "string" and #result == 64 and result:match("^[0-9a-f]+$") then return result end
-        fast_sha256 = false
+    while fast_sha256 or #sha256_loaders > 0 do
+        fast_sha256 = fast_sha256 or verify_sha256(table.remove(sha256_loaders, 1))
+        if fast_sha256 then
+            local ok, result = pcall(fast_sha256, message)
+            if ok and type(result) == "string" and #result == 64 and result:match("^[0-9a-f]+$") then return result end
+            fast_sha256 = nil
+        end
     end
     return sha256_lua(message)
 end

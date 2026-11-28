@@ -1,9 +1,12 @@
 package.path='./?.lua;'..package.path
 
+local ffi=require('ffi')
+local original_loadlib=ffi.loadlib
 local original_preload=package.preload['ffi/sha2']
 local original_sha=package.loaded['ffi/sha2']
 local original_crypto=package.loaded['weread.lib.crypto']
-local function load(loader)
+local function load(loader,loadlib)
+    ffi.loadlib=loadlib
     package.loaded['ffi/sha2']=nil
     package.preload['ffi/sha2']=loader
     package.loaded['weread.lib.crypto']=nil
@@ -47,6 +50,56 @@ for _,bad in ipairs({'invalid',string.rep('A',64),'error'}) do
     assert(unstable.sha256_hex('after self-test')==fallback.sha256_hex('after self-test'))
     assert(unstable.sha256_hex('abc')==vectors[2][2] and count==4,'failed backend was retried')
 end
+
+local function native_library(calculate)
+    return function(name,version)
+        assert(name=='crypto' and version=='57','did not use the bundled library loader')
+        return {SHA256=function(value,length,output)
+            assert(#value==length,'native input length was changed')
+            local digest=calculate(value)
+            if not digest then return nil end
+            local bytes=digest:gsub('%x%x',function(pair) return string.char(tonumber(pair,16)) end)
+            ffi.copy(output,bytes,#bytes)
+            return output
+        end}
+    end
+end
+local native_calls,bundled_calls=0,0
+local function bundled()
+    bundled_calls=bundled_calls+1;return {sha256=fallback.sha256_hex}
+end
+local native=load(bundled,native_library(function(value)
+    native_calls=native_calls+1;return fallback.sha256_hex(value)
+end))
+for _,vector in ipairs(vectors) do assert(native.sha256_hex(vector[1])==vector[2],'native digest changed') end
+assert(native_calls==#vectors+3 and bundled_calls==0,'native backend was not preferred')
+
+native_calls=0
+local native_retry=load(bundled,native_library(function(value)
+    native_calls=native_calls+1
+    if value~='after self-test' then return fallback.sha256_hex(value) end
+end))
+assert(native_retry.sha256_hex('after self-test')==fallback.sha256_hex('after self-test'))
+assert(native_retry.sha256_hex('abc')==vectors[2][2] and native_calls==4 and bundled_calls==1,
+    'failed native digest did not switch to the bundled implementation once')
+
+local bad_libraries={
+    function() error('unavailable') end,
+    function() return {} end,
+    native_library(function() return string.rep('0',64) end),
+}
+for _,loadlib in ipairs(bad_libraries) do
+    local rejected_native=load(bundled,loadlib)
+    assert(rejected_native.sha256_hex('abc')==vectors[2][2], 'incompatible native backend changed the digest')
+end
+assert(bundled_calls==4,'native failures did not use the bundled fallback')
+local unavailable_calls=0
+local pure_fallback=load(function() error('bundled backend unavailable') end,function()
+    unavailable_calls=unavailable_calls+1;error('native backend unavailable')
+end)
+assert(pure_fallback.sha256_hex('abc')==vectors[2][2] and pure_fallback.sha256_hex('')==vectors[1][2]
+    and unavailable_calls==1,'both unavailable backends must fall back without reloading')
+ffi.loadlib=original_loadlib
 package.preload['ffi/sha2']=original_preload
 package.loaded['ffi/sha2']=original_sha
 package.loaded['weread.lib.crypto']=original_crypto

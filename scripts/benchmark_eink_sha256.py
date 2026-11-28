@@ -31,7 +31,7 @@ def main():
         if output.count(FRAME) != 1:
             raise ValueError('benchmark result missing')
         result = json.loads(output.split(FRAME)[1])
-        if (code or repaint or result['result'] != 'PASS' or not result['backend_selected']
+        if (code or repaint or result['result'] != 'PASS' or not result['backend_selected'] or not result['native_backend_selected']
                 or not result['md5_backend_selected'] or not result['existing_cover_cache_key_verified']):
             raise ValueError(f'benchmark failed: {result}')
         for row in result['vectors']:
