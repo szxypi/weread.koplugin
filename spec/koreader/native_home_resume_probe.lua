@@ -16,6 +16,7 @@ local suspend_record=input.mode=='record_suspended'
 local record_alternative=input.mode=='record_alternative'
 local close_home=input.mode=='close_home'
 local record=input.mode=='record' or record_alternative or suspend_record or close_home
+local downloads_inventory=input.mode=='downloads_inventory'
 if record then
     settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
     settings:set('cookies',{wr_vid=vid, wr_skey='synthetic'})
@@ -23,6 +24,10 @@ if record then
     local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report)
     settings:set('books',{[id]={book_id=id,title='Synthetic book',author='Fixture'}});settings:flush()
     if suspend_record or close_home then assert(settings:patch_reading_state(id,{native_home_resume=false})) end
+elseif downloads_inventory then
+    settings:set('account',{user_vid=vid,name='Synthetic',login_method='qr'})
+    settings:set('cookies',{wr_vid=vid,wr_skey='synthetic'})
+    settings:flush()
 elseif input.mode=='switch' then
     assert(vid=='12345678' and id=='42')
     settings:update_auth({account={user_vid='87654321',name='Other'},cookies={wr_vid='87654321',wr_skey='synthetic-other'}},
@@ -127,6 +132,55 @@ elseif input.mode=='record_standard' then
     assert(file:write(json.encode(proof)));assert(file:close())
 else
     FM:showFiles(home);local host=assert(FM.instance.weread)
+    if downloads_inventory then
+        require('ui/network/manager').isConnected=function() return false end
+        host.client.request=function() error('download inventory attempted a network request') end
+        assert(not host.settings:get_book(id) and not host.library_db:getBook(id)
+            and #(host.library_db:getShelf() or {})==0,'fixture already indexed the native download')
+        local Downloads=require('weread.ui.download_library')
+        local function show()
+            Downloads.show(host)
+            pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+            local view=host.shelf_view
+            local book=assert(view.books[1])
+            assert(#view.books==1 and book.bookId==id and book.title=='Synthetic' and book.author=='Fixture'
+                and book._native_cached_hint,'unindexed native book is missing or lacks its EPUB metadata')
+            assert(not view._action_buttons,'cached book unexpectedly appeared as an unfinished plan')
+            return view
+        end
+        show()
+        local cache=require('weread.lib.native_direct_cache')
+        local book_dir=assert(cache.book_directory(host.settings,vid,id))
+        local parent,name=book_dir:match('^(.*)/([^/]+)$')
+        local marker=parent..'/.native-presence-'..name
+        assert(os.rename(marker,marker..'.fixture'))
+        local view=show()
+        assert(not io.open(marker,'rb'),'inventory rewrote the presence marker')
+        assert(os.rename(marker..'.fixture',marker))
+        local function current() return true end
+        assert(#cache.list_books(host.settings,vid,{[id]=true},current)==0,'existing book would appear twice')
+        assert(#cache.list_books(host.settings,'87654321',{},current)==0,'other account saw the native download')
+        view.on_search()
+        local dialog=assert(view._shelf_popup)
+        dialog:setInputText('Fixture');dialog.buttons[1][2].callback()
+        view=host.shelf_view
+        assert(#view.books==1 and view.books[1].bookId==id,'author search omitted the off-shelf download')
+        view.on_select(view.books[1])
+        local detail=assert(host._book_detail_view)
+        local read
+        for _,button in ipairs(detail._footer_actions) do
+            if button.text==require('weread.lib.plugin_util').tr('▤ Read') then read=button;break end
+        end
+        assert(read,'native-only detail omitted the read action').callback()
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local ctx=host._native_direct_reading
+        assert(ctx.offline and #ctx.menu.item_table==2)
+        require('weread.ui.native_home_resume').record=function() return false end
+        ctx.menu:onMenuSelect(ctx.menu.item_table[1])
+        pump(function() return Reader.instance and Reader.instance.document.file==input.path end)
+        print('WEREAD_NATIVE_HOME='..json.encode{ok=true,mode=input.mode,network_blocked=true})
+        os.exit(0)
+    end
     if input.mode=='shelf_close' or input.mode=='shelf_close_prior' then
         require('ui/network/manager').isConnected=function() return false end
         require('weread.ui.native_home_resume').record=function() return false end

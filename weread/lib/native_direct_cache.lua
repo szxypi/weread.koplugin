@@ -6,7 +6,7 @@ local Protocol=require('weread.lib.protocol')
 local NativeProtocol=require('weread.lib.native_position_protocol')
 local Path=require('weread.lib.native_direct_path')
 local Archive=require('weread.lib.source_archive')
-local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000}
+local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000,MAX_BOOKS=2000}
 local CHUNK=65536
 local OPERATION='.native-operation'
 local RETIRING='.native-cleanup'
@@ -52,13 +52,13 @@ local function matches_source(opf,book_id,uid)
     return type(opf)=='string' and opf:find('<dc:source>'..Protocol.reader_url(book_id,uid)..'</dc:source>',1,true)~=nil
 end
 local function archive_identity(path,book_id,uid,version,text_digest)
-    local ok,result=pcall(function()
+    local ok,result,opf=pcall(function()
         local members=Archive.read(path,{[Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024})
         if members and matches_source(members['OEBPS/content.opf'],book_id,uid) then
-            return checked_identity(members[Identity.PATH],book_id,version,text_digest)
+            return checked_identity(members[Identity.PATH],book_id,version,text_digest),members['OEBPS/content.opf']
         end
     end)
-    return ok and result or nil
+    if ok and result then return result,opf end
 end
 local function archive_members(book,chapter,prepared,text_digest)
     local rendered=require('weread.lib.content').single_chapter_xhtml(book,chapter,prepared.xhtml)
@@ -275,16 +275,22 @@ local function published_copy(path,reused,saved,reference,file_id)
     return {path=path,reused=reused,book_version=saved.book_version,source_sha256=saved.source_sha256,
         missing_images=saved.missing_images,file_id=file_id,saved_entry=attach_ref(saved,reference)}
 end
-local function owned_book_dir(settings,root,owner,book_hash)
+local function owned_account_dir(settings,root,owner)
     local lfs=fs()
     if not lfs then return nil end
     local account_dir=root..'/'..owner
-    local book_dir=account_dir..'/'..book_hash
-    for _,path in ipairs({settings.data_dir,root,account_dir,book_dir}) do
+    for _,path in ipairs({settings.data_dir,root,account_dir}) do
         local attr=mode(lfs,path)
         if not attr or attr.mode~='directory' then return nil end
     end
-    return lfs,book_dir
+    return lfs,account_dir
+end
+local function owned_book_dir(settings,root,owner,book_hash)
+    local lfs,account_dir=owned_account_dir(settings,root,owner)
+    if not lfs then return nil end
+    local book_dir=account_dir..'/'..book_hash
+    local attr=mode(lfs,book_dir)
+    if attr and attr.mode=='directory' then return lfs,book_dir end
 end
 local function existing_book_dir(settings,account,book_id)
     local root=Path.root(settings)
@@ -330,19 +336,25 @@ local function candidate_present(lfs,book_dir,entry)
     return is_chapter_file(file)
         and key==entry.key and size==tostring(file.size) and hash(digest) or false
 end
-local function marker_present(lfs,book_dir,book_id,account,verified_entry)
+local function presence_copy(lfs,book_dir)
     local marker=presence_path(book_dir)
     local raw=marker and read_file(lfs,marker,256)
     local key,copy
     if raw then key,copy=raw:match('^native%-presence%-v1\nkey=([a-f0-9]+)\ncopy=(%d+)\n$') end
     local numeric=copy and tonumber(copy)
-    if not hash(key) or not NativeProtocol.integer(numeric,0,M.MAX_COPIES-1) or tostring(numeric)~=copy then return false end
-    copy=numeric
-    if verified_entry and key==verified_entry.key and copy==verified_entry.copy then return true end
+    if hash(key) and NativeProtocol.integer(numeric,0,M.MAX_COPIES-1) and tostring(numeric)==copy then return key,numeric end
+end
+local function presence_entry(lfs,book_dir,book_id,account,key,copy)
+    if not key then return nil end
     local dir=book_dir..'/'..key..(copy==0 and '' or '-'..tostring(copy))
     local attr=mode(lfs,dir)
     local entry=attr and attr.mode=='directory' and read_entry(lfs,dir,key,copy,book_id,account)
-    return entry and candidate_present(lfs,book_dir,entry) or false
+    if entry and candidate_present(lfs,book_dir,entry) then return entry end
+end
+local function marker_present(lfs,book_dir,book_id,account,verified_entry)
+    local key,copy=presence_copy(lfs,book_dir)
+    if verified_entry and key==verified_entry.key and copy==verified_entry.copy then return true end
+    return presence_entry(lfs,book_dir,book_id,account,key,copy)~=nil
 end
 local function save_presence_unsafe(settings,account,book_id,entry,current)
     if type(current)~='function' or current()~=true or not valid_entry(entry,book_id,account) then return false end
@@ -388,8 +400,8 @@ end
 
 -- Downloaded books only need one usable copy. Check the directory limit
 -- before reading entries, then stop at the first match without loading its catalog.
-local function repair_presence(lfs,book_dir,settings,account,book_id,current)
-    local ok,available=pcall(function()
+local function find_presence(lfs,book_dir,account,book_id,current,book_hash)
+    local ok,entry=pcall(function()
         if current()~=true then return false end
         local names={}
         for name in lfs.dir(book_dir) do
@@ -403,14 +415,19 @@ local function repair_presence(lfs,book_dir,settings,account,book_id,current)
         for index,name in ipairs(names) do
             if index%32==0 and current()~=true then return false end
             local entry=read_list_entry(lfs,book_dir,name,book_id,account)
-            if entry and candidate_present(lfs,book_dir,entry) then
-                save_presence(settings,account,book_id,entry,current)
-                return current()==true
-            end
+            if entry and (not book_hash or Crypto.sha256_hex('native-direct-book\0'..entry.book_id)==book_hash)
+                and candidate_present(lfs,book_dir,entry) then return entry end
         end
         return false
     end)
-    return ok and available==true
+    return ok and entry or nil
+end
+
+local function repair_presence(lfs,book_dir,settings,account,book_id,current)
+    local entry=find_presence(lfs,book_dir,account,book_id,current)
+    if not entry then return false end
+    save_presence(settings,account,book_id,entry,current)
+    return current()==true
 end
 
 -- Directory existence can rule out a cache before reading any marker files.
@@ -421,6 +438,65 @@ function M.present(settings,account,book_id,repair_current,allow_read)
     if marker_present(lfs,book_dir,book_id,account) then return true end
     return type(repair_current)=='function'
         and repair_presence(lfs,book_dir,settings,account,book_id,repair_current)
+end
+
+-- Discover books that have no shelf or library record. The worker returns
+-- one candidate per account-owned directory; opening still verifies its EPUB.
+function M.list_books(settings,account,known,current)
+    local root=Path.root(settings)
+    if not root or type(account)~='string' or NativeProtocol.id(account)~=account
+        or type(known)~='table' or type(current)~='function' or current()~=true then return {} end
+    local lfs,account_dir=owned_account_dir(settings,root,Crypto.sha256_hex('native-direct-account\0'..account))
+    if not lfs then return {} end
+    local excluded={}
+    for id in pairs(known) do excluded[Crypto.sha256_hex('native-direct-book\0'..id)]=true end
+    local ok,entries=pcall(function()
+        local names={}
+        local visited=0
+        for name in lfs.dir(account_dir) do
+            visited=visited+1
+            if visited>M.MAX_BOOKS*3 or visited%32==0 and current()~=true then return {} end
+            if hash(name) and not excluded[name] then
+                if #names>=M.MAX_BOOKS then return {} end
+                names[#names+1]=name
+            end
+        end
+        local rows={}
+        for index,book_hash in ipairs(names) do
+            if index%32==0 and current()~=true then return {} end
+            local book_dir=account_dir..'/'..book_hash
+            local attr=mode(lfs,book_dir)
+            if attr and attr.mode=='directory' then
+                local key,copy=presence_copy(lfs,book_dir)
+                local entry=presence_entry(lfs,book_dir,nil,account,key,copy)
+                if not entry or Crypto.sha256_hex('native-direct-book\0'..entry.book_id)~=book_hash then
+                    entry=find_presence(lfs,book_dir,account,nil,current,book_hash)
+                end
+                if entry then rows[#rows+1]=entry end
+            end
+        end
+        return current()==true and rows or {}
+    end)
+    return ok and entries or {}
+end
+
+local xml_entities={amp='&',lt='<',gt='>',quot='"',apos="'",['#39']="'"}
+local function display_field(opf,field)
+    local escaped=opf:match('<dc:'..field..'>([^<]*)</dc:'..field..'>')
+    if not escaped or #escaped>12*1024 then return nil end
+    local value=escaped:gsub('&([#%w]+);',xml_entities)
+    return safe_text(value) and value or nil
+end
+
+function M.book_metadata(settings,account,entry,current)
+    if type(entry)~='table' or not valid_entry(entry,entry.book_id,account)
+        or type(current)~='function' or current()~=true then return nil end
+    local lfs,book_dir=existing_book_dir(settings,account,entry.book_id)
+    if not lfs or not candidate_present(lfs,book_dir,entry) then return nil end
+    local path=book_dir..'/'..name_of(entry)..'/'..filename(entry.book_id,entry.chapter_uid)
+    local _,opf=archive_identity(path,entry.book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
+    if not opf or current()~=true then return nil end
+    return {bookId=entry.book_id,title=display_field(opf,'title'),author=display_field(opf,'creator')}
 end
 
 -- List bounded metadata only; a selected file is fully checked by open(). A

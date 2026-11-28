@@ -30,7 +30,7 @@ local function collect(host, current)
     end
     local rows, seen, books = {}, {}, {}
     for _,record in ipairs(records) do books[record.book_id]=false end
-    local function append(id, source)
+    local function append(id, source, saved_native)
         if not id or seen[id] then return end
         local row = Data.book(source)
         if not row then return end
@@ -38,7 +38,7 @@ local function collect(host, current)
         local record, conflict = ReadAccess.cached_book(saved, id)
         if conflict then return end
         local downloaded = host:bookRecordHasDownload(record)
-        local native_cached = not downloaded and host:nativeChapterCachePresent(id, current)
+        local native_cached = not downloaded and (saved_native or host:nativeChapterCachePresent(id, current))
         if not (downloaded or native_cached or books[id]~=nil) then return end
         row.bookId = id
         if row.title == '' then row.title = id end
@@ -57,6 +57,21 @@ local function collect(host, current)
         local id = ReadAccess.display_book_id(key)
         local record = id and ReadAccess.cached_book(saved, id)
         if owned(record, account) then append(id, record) end
+    end
+    if scope and host.settings.auth_scope_matches
+        and require('weread.lib.native_position_contract').account_key(scope.vid)==account then
+        local function native_current()
+            return current() and host.settings:auth_scope_matches(scope)
+        end
+        local cache=require('weread.lib.native_direct_cache')
+        for _,entry in ipairs(cache.list_books(host.settings,scope.vid,seen,native_current)) do
+            local id=entry.book_id
+            local metadata=host.library_db.getBook and host.library_db:getBook(id)
+            if not metadata or type(metadata.title)~='string' or metadata.title=='' then
+                metadata=cache.book_metadata(host.settings,scope.vid,entry,native_current) or metadata
+            end
+            append(id,metadata or {bookId=id,title=T(_('Book ID: %1'),id)},true)
+        end
     end
     local titles = {}
     for _, row in ipairs(rows) do titles[row] = Search.prepare(row.title) or row.bookId end

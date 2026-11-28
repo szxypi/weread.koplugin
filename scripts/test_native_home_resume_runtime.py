@@ -244,7 +244,7 @@ def run(runtime, read_entries_only=False):
                     standard_path = root/'standard.epub'
                     standard_bytes = build_reading()
                     standard_path.write_bytes(standard_bytes)
-                    for mode in ('record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
+                    for mode in ('downloads_inventory', 'record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
                                  'shelf_close', 'shelf_close_prior', 'reopen', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
@@ -301,6 +301,7 @@ def run(runtime, read_entries_only=False):
         print('PASS: precise cloud continuation reuses the saved EPUB without its original at both sizes')
         print('PASS: a newly downloaded chapter saves the last offline page and reminder on close at both sizes')
         if not read_entries_only:
+            print('PASS: off-shelf native downloads are searchable and open offline with missing cache markers at both sizes')
             print('PASS: installed native home resume, offline fresh process, both screen sizes')
             print('PASS: quick menu closes to WeRead home and reopens the same offline page at both sizes')
             print('PASS: normal KOReader close preserves the verified chapter chosen from the offline shelf at both sizes')
