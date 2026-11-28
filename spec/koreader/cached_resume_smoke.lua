@@ -387,8 +387,9 @@ if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' or typography or margins then
                 previous,previous_host,pump,shot,clean,true,evidence)
         end
     end
+    local function set_offline(value) offline=value end
     reader,current=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_chapter_smoke.lua')(
-        reader,current,pump,clean,id,inspect_previous)
+        reader,current,pump,clean,id,inspect_previous,os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' and set_offline)
     assert(reader.document.file==first)
 end
 if os.getenv('WEREAD_TEST_PREFETCH_CONDITION') then
@@ -649,6 +650,33 @@ if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then check_full_chapte
 if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
         reader,current,pump,shot,clean,true)
+    local starting_point=reader.document:getXPointer()
+    local chapter_two=assert(Dom.chapter_start(reader.document,id,'2'))
+    local chapter_three=assert(Dom.chapter_start(reader.document,id,'3'))
+    local function press_quick(button_id)
+        clean(reader)
+        assert(current:onShowWeReadQuickMenu())
+        local menu=assert(UI:getTopmostVisibleWidget())
+        local button=assert(menu:getButtonById(button_id));assert(button.enabled~=false)
+        UI:forceRePaint();button:onTapSelectButton()
+    end
+    offline=true
+    reader.rolling:onGotoXPointer(chapter_two)
+    press_quick('next_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(chapter_three) end)
+    assert(Reader.instance==reader,'native next reopened the entire EPUB')
+    press_quick('previous_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(chapter_two) end)
+    assert(Reader.instance==reader,'native previous reopened the entire EPUB')
+    press_quick('next_chapter')
+    local fourth=assert(Dom.chapter_start(reader.document,id,'4'))
+    reader.rolling:onGotoXPointer(fourth)
+    local settled=false;UI:scheduleIn(.3,function() settled=true end)
+    pump(function() return settled end)
+    assert(reader.document:isXPointerInCurrentPage(fourth),'deferred chapter action moved the new page')
+    reader.rolling:onGotoXPointer(starting_point)
+    offline=false
+    report.native_quick_chapters=true
 end
 if handoff_position then
     local deadline=socket.gettime()+12

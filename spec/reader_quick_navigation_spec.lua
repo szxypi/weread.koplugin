@@ -4,6 +4,7 @@ local callbacks,options
 local searches=0
 package.preload['weread.ui.end_of_book_dialog']=function() return {show=function(opts,value) options,callbacks=opts,value end} end
 package.preload['weread.ui.book_search']=function() return {open=function() searches=searches+1 end} end
+package.preload['ui/event']=function() return {new=function(_,name) return {name=name} end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.protocol']=function() return {is_mp_book=function() return false end} end
 local catalog={{chapterUid='1'},{chapterUid='2'},{chapterUid='3'}}
@@ -60,6 +61,9 @@ end
 local c=menu();c.on_next()
 assert(opened and opened.book==fresh and opened.chapter==catalog[3] and not opened.options,
     'online next used a stale book, wrong chapter or restricted download')
+c.on_previous()
+assert(options.show_previous_chapter and options.enable_previous_chapter and opened.chapter==catalog[1],
+    'quick menu did not open the previous standalone chapter')
 network=false
 c=menu();c.on_next()
 assert(opened.options.cached_only and opened.options.on_cache_miss())
@@ -118,6 +122,43 @@ do
     assert(not saved_picker and not options.enable_chapter_list,'no catalog or saved chapters enabled the picker')
     original.cached_chapters={['2']=doc.file}
     original.chapters=catalog
+end
+do
+    local previous_info=host.getChapterInfoFromFile
+    local page,target,events=5,8,{}
+    function host.ui:getCurrentPage() return page end
+    function host.ui:handleEvent(event) events[#events+1]=event.name end
+    function doc:getPageCount() return 10 end
+    function doc:getVisiblePageNumberCount() return 2 end
+    host.ui.view={view_mode='page'}
+    host.ui.rolling={}
+    host.ui.toc={
+        getPreviousChapter=function(_,current) if current>3 then return 3 end end,
+        getNextChapter=function(_,current)
+            assert(current==page+1,'next chapter query ignored the visible spread')
+            if target>current then return target end
+        end,
+    }
+    function host:getChapterInfoFromFile() return nil,nil,true,false end
+    local actions=menu()
+    assert(options.enable_previous_chapter and options.enable_next_chapter)
+    actions.on_previous();actions.on_next()
+    assert(events[1]=='GotoPrevChapter' and events[2]=='GotoNextChapter' and #events==2,
+        'complete EPUB bypassed native chapter navigation')
+    actions=menu();page=7;actions.on_previous();actions.on_next()
+    assert(#events==2,'a stale quick action jumped after leaving its page')
+    page=5;actions=menu();target=9;actions.on_next()
+    assert(#events==2,'a changed native chapter target was used')
+    actions=menu();host._weread_suspended=true;actions.on_previous();host._weread_suspended=false
+    assert(#events==2,'a suspended reader accepted the deferred chapter action')
+    page=1;menu();assert(not options.enable_previous_chapter)
+    page=10;menu();assert(not options.enable_next_chapter)
+    function host:getChapterInfoFromFile() return nil,nil,true,true end
+    page=5;menu();assert(not options.enable_next_chapter and not options.enable_previous_chapter,
+        'partial book reused unrelated chapter targets from the native table of contents')
+    host.getChapterInfoFromFile=previous_info
+    host.ui.getCurrentPage,host.ui.handleEvent,host.ui.view,host.ui.rolling,host.ui.toc=nil,nil,nil,nil,nil
+    doc.getPageCount,doc.getVisiblePageNumberCount=nil,nil
 end
 local home_opens,browser_opens,reader_closes,after_scope=0,0,0,'one'
 local fm={showFiles=function(self)

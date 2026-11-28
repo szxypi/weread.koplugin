@@ -18,12 +18,12 @@ local M = {}
 
 -- Show the quick menu dialog. The title already carries the WeRead brand,
 -- so the buttons use plain labels (书架 / 搜索 / 目录 / 下一章).
---   opts.show_chapter_nav : boolean — show the chapter-list/next-chapter row
---                           (true only for single-chapter files, not full books)
+--   opts.show_chapter_nav : boolean — show the chapter list and adjacent chapter row
+--   opts.show_previous_chapter : boolean — show the "previous chapter" button
 --   opts.show_next_chapter : boolean — show the "next chapter" button
 --   opts.enable_* : boolean — whether each context-dependent action is enabled
 --   opts.annotations_visible : boolean — current annotation visibility state
---   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
+--   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_previous, on_next,
 --                             on_search_current, on_book_details, on_shelf_status, on_read_stats, on_sync_progress,
 --                             on_toggle_annotations, on_reader_progress, on_delayed_screenshot, on_close_book }
 -- Returns the dialog widget instance.

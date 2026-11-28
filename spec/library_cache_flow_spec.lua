@@ -961,6 +961,26 @@ do
     selected_book.cached_chapters={['2']='/cache/missing.epub'}
     single_valid=false
 end
+do
+    local claim=require('weread.lib.chapter_cache_claim')
+    local old_usable=claim.usable
+    local good='/cache/legacy-2.epub'
+    existing_paths['/cache/missing.epub']=true
+    existing_paths[good]=true
+    selected_book.cached_chapters={['2']='/cache/missing.epub',[2]=good}
+    claim.usable=function(_,path,_,_,strict)
+        expect(strict,'two mappings were selected without checking the EPUB identity')
+        return path==good
+    end
+    for _,cached_only in ipairs({false,true}) do
+        opened_path=nil;navigated=nil
+        expect(host:openChapter(selected_book,selected_chapter,nil,{cached_only=cached_only})
+            and opened_path==good and not navigated,'an invalid primary mapping hid a second verified chapter')
+    end
+    claim.usable=old_usable
+    existing_paths[good]=nil
+    selected_book.cached_chapters={['2']='/cache/missing.epub'}
+end
 local old_info, unavailable = host.showInfo
 host.showInfo=function(_,text) unavailable=text end
 single_download_options=nil;opened_path=nil;promoted=nil

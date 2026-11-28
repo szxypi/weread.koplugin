@@ -1,5 +1,5 @@
 -- Exercise actual cross-file reader handoff with the synthetic book and server.
-return function(reader,host,pump,clean,book_id,inspect_previous)
+return function(reader,host,pump,clean,book_id,inspect_previous,set_offline)
     local UI=require('ui/uimanager')
     local Reader=require('apps/reader/readerui')
     local original_path=reader.document.file
@@ -58,6 +58,42 @@ return function(reader,host,pump,clean,book_id,inspect_previous)
     pump(function() return host.progress_sync.current_book_id==book_id end)
     reader.rolling:onGotoXPointer(original_point);UI:forceRePaint()
     assert(reader.document:isXPointerInCurrentPage(original_point),'return navigation lost the original native page')
+    if set_offline then
+        local previous_path=assert(host.settings:get_book(book_id).cached_chapters['1'])
+        local damaged=os.getenv('KO_HOME')..'/damaged-priority-chapter.epub'
+        local file=assert(io.open(damaged,'wb'));assert(file:write('incomplete EPUB'));assert(file:close())
+        local original_host=host
+        local open_chapter=host.openChapter
+        host.openChapter=function(self,selected,chapter,on_complete,options)
+            assert(options and options.cached_only)
+            local copies={}
+            for uid,path in pairs(selected.cached_chapters) do copies[uid]=path end
+            copies['1'],copies[1]=damaged,previous_path
+            selected.cached_chapters=copies
+            return open_chapter(self,selected,chapter,on_complete,options)
+        end
+        local function press_quick(active,id)
+            clean(active.ui)
+            assert(active:onShowWeReadQuickMenu())
+            local menu=assert(UI:getTopmostVisibleWidget())
+            local button=assert(menu:getButtonById(id));assert(button.enabled~=false)
+            UI:forceRePaint();button:onTapSelectButton()
+        end
+        set_offline(true)
+        press_quick(host,'previous_chapter')
+        pump(function() return Reader.instance and Reader.instance.document.file==previous_path end)
+        original_host.openChapter=open_chapter
+        local neighbor=assert(Reader.instance)
+        pump(function() return neighbor.weread.progress_sync.current_book_id==book_id end)
+        assert(require('weread.lib.position_source').read_document(neighbor.document,book_id,1))
+        press_quick(neighbor.weread,'next_chapter')
+        pump(function() return Reader.instance and Reader.instance.document.file==original_path end)
+        reader,host=Reader.instance,Reader.instance.weread
+        pump(function() return host.progress_sync.current_book_id==book_id end)
+        assert(reader.document:isXPointerInCurrentPage(original_point),'offline return lost the chapter page')
+        set_offline(false)
+        assert(os.remove(damaged))
+    end
     if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
         local tr=require('weread.lib.plugin_util').tr
         local record=assert(host.settings:get_book(book_id))

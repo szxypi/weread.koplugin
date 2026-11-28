@@ -9,6 +9,7 @@ local InputContainer=require('ui/widget/container/inputcontainer')
 local ProgressWidget=require('ui/widget/progresswidget')
 local UI=require('ui/uimanager')
 local Context=require('weread.lib.reader_progress_context')
+local Chapters=require('weread.lib.reader_progress_chapter')
 local util=require('weread.lib.plugin_util')
 local _=util.tr
 local Screen=Device.screen
@@ -115,8 +116,10 @@ function M.show(host,options)
         local target=math.max(1,math.min(snapshot.total,page+direction*snapshot.visible_pages))
         if target==page then finish(nil) else jump('GotoPage',target) end
     end
-    local function native_chapter(direction)
-        finish(function() ui:handleEvent(Event:new(direction<0 and 'GotoPrevChapter' or 'GotoNextChapter')) end)
+    local function native_chapter(direction,expected)
+        finish(function()
+            if Chapters.native_target(snapshot,direction)==expected then Chapters.move_native(snapshot,direction) end
+        end)
     end
     local prev,next_chapter=options.previous,options.next
     local open_target=options.open_chapter or host.openChapter
@@ -133,14 +136,11 @@ function M.show(host,options)
     if can_open and next_chapter then next_action=function() open_chapter(1) end end
     if type(options.previous_action)=='function' then prev_action=function() finish(options.previous_action) end end
     if type(options.next_action)=='function' then next_action=function() finish(options.next_action) end end
-    if options.native_chapters and type(ui.toc)=='table' then
-        local function has_target(method)
-            if type(ui.toc[method])~='function' then return false end
-            local ok,target=pcall(ui.toc[method],ui.toc,snapshot.page)
-            return ok and type(target)=='number' and target>0
-        end
-        if has_target('getPreviousChapter') then prev_action=function() native_chapter(-1) end end
-        if has_target('getNextChapter') then next_action=function() native_chapter(1) end end
+    if options.native_chapters then
+        local previous_page=Chapters.native_target(snapshot,-1)
+        local next_page=Chapters.native_target(snapshot,1)
+        if previous_page then prev_action=function() native_chapter(-1,previous_page) end end
+        if next_page then next_action=function() native_chapter(1,next_page) end end
     end
     local gotopage=ui.gotopage
     local can_input=gotopage and type(gotopage.onShowGotoDialog)=='function'

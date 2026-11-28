@@ -1,6 +1,23 @@
 -- Reload chapter metadata immediately before a cross-file navigation.
 local ReadAccess=require('weread.lib.read_access')
 local M={}
+function M.native_target(snapshot,direction)
+    local ui=snapshot.ui
+    local toc=ui.toc
+    local method=direction<0 and 'getPreviousChapter' or 'getNextChapter'
+    if type(toc)~='table' or type(toc[method])~='function' then return end
+    local page=snapshot.page
+    -- ReaderRolling considers both visible pages before jumping forward.
+    if direction>0 and ui.rolling and snapshot.visible_pages>1 then page=page+1 end
+    local ok,target=pcall(toc[method],toc,page)
+    if ok and type(target)=='number' and target%1==0 and target>=1 and target<=snapshot.total
+        and (target-page)*direction>0 then return target end
+end
+
+function M.move_native(snapshot,direction)
+    snapshot.ui:handleEvent(require('ui/event'):new(direction<0 and 'GotoPrevChapter' or 'GotoNextChapter'))
+end
+
 local function id(row)
     if type(row)~='table' then return nil end
     local value=row.chapterUid or row.chapterId

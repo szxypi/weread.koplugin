@@ -143,9 +143,17 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
     local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
+    local Chapters=require('weread.lib.reader_progress_chapter')
+    local ProgressContext=require('weread.lib.reader_progress_context')
+    local viewport=(current_idx or is_full_book) and ProgressContext.capture(self)
+    local native_previous,native_next
+    if viewport and is_full_book and not partial then
+        native_previous=Chapters.native_target(viewport,-1)
+        native_next=Chapters.native_target(viewport,1)
+    end
     local expected_next,still_at_end=expected_chapter,nil
     if at_end and is_full_book and partial then
-        local tail=require('weread.lib.reader_progress_chapter').combined_end(book,document,proof)
+        local tail=Chapters.combined_end(book,document,proof)
         if tail and chapters[tail+1] then
             local Context=require('weread.lib.source_context')
             local function location() return Context.location(document,reader_ui.view and reader_ui.view.view_mode) end
@@ -164,6 +172,33 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
             _("This action requires an open WeRead book."), 1)
     end
 
+    local function chapter_action_current()
+        return not self._weread_suspended and valid_reader()
+            and (not viewport or ProgressContext.current(self,viewport))
+    end
+    local function open_adjacent(direction)
+        if not chapter_action_current() then return end
+        local local_target=direction<0 and native_previous or direction>0 and native_next
+        if local_target then
+            if Chapters.native_target(viewport,direction)==local_target then Chapters.move_native(viewport,direction) end
+            return
+        end
+        local available=direction<0 and previous_chapter or direction>0 and (next_chapter or still_at_end)
+        if available then
+            if direction>0 and still_at_end and not still_at_end() then return end
+            local expected=direction>0 and expected_next or expected_chapter
+            local ok,fresh,target=pcall(Chapters.resolve,self,expected,direction)
+            if chapter_action_current() then
+                if ok and fresh and target then self:openReaderChapter(fresh,target)
+                else self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
+            end
+        elseif chapters then
+            self:showTransientInfo(_(direction<0 and 'You have reached the first chapter.' or 'You have reached the last chapter.'),1)
+        elseif not is_regular_weread_book then
+            show_context_required()
+        end
+    end
+
     -- Keep the reader quick menu in sync with the global display preference.
     -- Document-level matching may be incomplete while chapters are being
     -- prepared, but the user's show/hide choice is still authoritative here.
@@ -175,10 +210,12 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
     local shelf_id=close_scope and is_regular_weread_book and ReadAccess.display_book_id(book_id)
     EndOfBookDialog.show({
         show_chapter_nav = true,
+        show_previous_chapter = is_regular_weread_book,
         show_next_chapter = true,
         chapter_list_downloaded = downloaded_only,
         enable_chapter_list = chapters ~= nil or has_saved_chapters,
-        enable_next_chapter = next_chapter ~= nil or still_at_end ~= nil,
+        enable_previous_chapter = previous_chapter ~= nil or native_previous ~= nil,
+        enable_next_chapter = next_chapter ~= nil or still_at_end ~= nil or native_next ~= nil,
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
@@ -249,19 +286,8 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
                 show_context_required()
             end
         end,
-        on_next = function()
-            if not valid_reader() then return end
-            if next_chapter or still_at_end then
-                if still_at_end and not still_at_end() then return end
-                local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_next,1)
-                if ok and fresh and target and valid_reader() then self:openReaderChapter(fresh,target)
-                elseif valid_reader() then self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
-            elseif chapters then
-                self:showTransientInfo(_("You have reached the last chapter."), 1)
-            elseif not is_regular_weread_book then
-                show_context_required()
-            end
-        end,
+        on_previous = function() open_adjacent(-1) end,
+        on_next = function() open_adjacent(1) end,
         on_book_details = function()
             if not valid_reader() then return end
             if book then
@@ -297,7 +323,7 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
             local ok,valid=pcall(still_current)
             if ok and valid then
                 local function resolve_chapter(direction)
-                    return require('weread.lib.reader_progress_chapter').resolve(self,expected_chapter,direction)
+                    return Chapters.resolve(self,expected_chapter,direction)
                 end
                 require('weread.ui.reader_progress').show(self,{previous=previous_chapter,next=next_chapter,
                     single_chapter=current_idx~=nil and not is_full_book,
