@@ -399,6 +399,10 @@ xvfb-run -a python3 scripts/benchmark_eink_long_list.py \
 
 与 `7e77e4bc` 在 KOReader Linux ARM64 的 1264×1680 模拟环境交替测量五轮。1,500 章从打开目录到首屏绘制创建的文字控件由 2,831 个降至 34 个，从开始测量到首屏垃圾回收后的 Lua 堆增量中位数由 5,693 KiB 降至 4,286 KiB。首屏 CPU 时间中位数由 48 ms 降至 43 ms，墙钟时间由 32 ms 降至 30 ms。主要收益是减少目录初始化的分配和内存占用。可用 `--candidate` 指定旧版安装包，并在新版使用 `--max-initial-text-widgets 100` 复验。
 
+连续滚动的章节目录复用书架的绘制范围和按键焦点定位。与 `0b2a7394` 相比，1,500 章的八次滚动重绘中，600×800 模拟尺寸更新的行位置从 12,000 次降至 232 次，KO2 模拟尺寸降至 229 次。普通排版和关闭文字整形的镜像排版共 16 对截图逐像素一致，全部行尺寸一致。模拟的确认键能在滚动画面重绘前选中正确章节，焦点移出屏幕后返回也通过。
+
+用 `--chapters 20000` 在 KO2 模拟尺寸复验，八次滚动重绘的行位置更新从 160,000 次降至 229 次，首末章和全部行尺寸均已核对。交替测量七轮，滚动与重绘消耗的进程 CPU 时间中位数从 238 ms 降至 205 ms，模拟器整屏重绘的实际等待时间未见稳定下降。同名章节和导入书的离线续读也通过了原生模拟验证。
+
 本次未测量实体 Kindle 的速度、内存峰值、耗电或残影。复现合成测试：
 
 此前额外的导入书划线编辑回归在优化前后均停在旧断言：它要求隐藏已支持的样式和颜色偏好。测试已按当前能力更新并在两种尺寸重新通过，独立的样式／颜色修改与不明回执场景也已复验；范围见[导入书笔记](cb-personal-notes.md)。
@@ -406,5 +410,6 @@ xvfb-run -a python3 scripts/benchmark_eink_long_list.py \
 ```sh
 xvfb-run -a python3 scripts/benchmark_eink_chapters.py \
   --koreader /path/to/koreader --width 1264 --height 1680 --dpi 300 \
-  --max-row-paints 500 --max-event-visits 500 --max-materialized-rows 50
+  --max-row-paints 500 --max-event-visits 500 --max-materialized-rows 50 \
+  --max-row-layout-updates 300 --check-prepaint-press
 ```

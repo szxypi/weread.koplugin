@@ -14,15 +14,17 @@ local ok,reason=pcall(function()
     if os.getenv('WEREAD_CHAPTER_RTL')=='1' then require('ui/bidi')._mirrored_ui_layout=true end
     if os.getenv('WEREAD_CHAPTER_NO_XTEXT')=='1' then assert(require('ui/widget/textwidget').use_xtext==false) end
     local UI=require('ui/uimanager');local socket=require('socket')
+    local chapter_count=tonumber(os.getenv('WEREAD_CHAPTER_COUNT')) or 1500
+    local middle=math.floor(chapter_count/2)
     local chapters={}
-    for i=1,1500 do
+    for i=1,chapter_count do
         chapters[i]={title=i%3==0 and ('合成长章节标题用于验证截断😀 '..i) or ('第 '..i..' 章'),
             status=i%17==0 and string.rep('宽',35)..i or (i%7==0 and '已缓存' or (i*13)..' 字'),source={id=i}}
     end
-    chapters[750].status=string.rep('宽',90)
-    chapters[751].title=chapters[750].title
-    chapters[752].title,chapters[752].status='',''
-    local selected
+    chapters[middle].status=string.rep('宽',90)
+    chapters[middle+1].title=chapters[middle].title
+    chapters[middle+2].title,chapters[middle+2].status='',''
+    local selected,refreshes=nil,0
     local TextWidget=require('ui/widget/textwidget')
     local new_text_widget=TextWidget.new
     local text_widgets=0
@@ -35,7 +37,7 @@ local ok,reason=pcall(function()
     local started_cpu=os.clock()
     local start=socket.gettime()
     local view=require('weread.ui.chapter_list_view').show({title='合成长目录',chapters=chapters},
-        {on_select=function(chapter) selected=chapter.id end})
+        {on_select=function(chapter) selected=chapter.id end,on_refresh=function() refreshes=refreshes+1 end})
     UI:forceRePaint()
     local build_ms=math.floor((socket.gettime()-start)*1000+.5)
     local build_cpu_ms=math.floor((os.clock()-started_cpu)*1000+.5)
@@ -51,21 +53,29 @@ local ok,reason=pcall(function()
     end
     local initial_frames=frames;local max_frames=frames
     collectgarbage('collect');local heap=math.floor(collectgarbage('count')-starting_heap)
-    local painted=0
+    local painted,repositioned=0,0
     for _,row in ipairs(rows) do
         local original=row.paintTo
         row.paintTo=function(self,...) painted=painted+1;return original(self,...) end
+        local original_position=row.setOffscreenGeometry
+        row.setOffscreenGeometry=function(self,...)
+            repositioned=repositioned+1;return original_position(self,...)
+        end
     end
     local offsets={0,math.floor(total*.25),math.floor(total*.5),math.max(0,total-scroll.dimen.h)}
+    local repaint_cpu=0
     start=socket.gettime()
     for i=1,8 do
         local target=offsets[(i-1)%#offsets+1]
+        local started=os.clock()
         scroll:_scrollBy(0,target-(scroll:getScrolledOffset().y or 0));UI:forceRePaint()
+        repaint_cpu=repaint_cpu+os.clock()-started
         frames=0;for _,row in ipairs(rows) do if row.frame then frames=frames+1 end end
         max_frames=math.max(max_frames,frames)
         if i<=4 and os.getenv('WEREAD_CHAPTER_SHOTS') then Device.screen:shot(os.getenv('WEREAD_CHAPTER_SHOTS')..'/'..i..'.png') end
     end
-    local repaint_ms=math.floor((socket.gettime()-start)*1000+.5);local row_paints=painted
+    local repaint_ms=math.floor((socket.gettime()-start)*1000+.5)
+    local row_paints,row_layout_updates=painted,painted+repositioned
     local top,bottom=scroll.dimen.y,scroll.dimen.y+scroll.dimen.h
     local visible,index
     for i,row in ipairs(rows) do
@@ -93,9 +103,20 @@ local ok,reason=pcall(function()
     assert(scroll:getScrolledOffset().y<before,'swipe did not reach catalog scroller')
     UI:forceRePaint()
     local FocusNav=require('weread.ui.focus_nav')
-    for _,i in ipairs({1,750,1500}) do
-        view:moveFocusTo(1,i+1,require('ui/widget/focusmanager').FORCED_FOCUS)
-        FocusNav.scrollToFocused(view);UI:forceRePaint()
+    local FocusManager=require('ui/widget/focusmanager')
+    local prepaint_press=os.getenv('WEREAD_CHAPTER_PREPAINT_PRESS')=='1'
+    view:moveFocusTo(1,1,FocusManager.FORCED_FOCUS)
+    view:onPress()
+    assert(refreshes==1,'focus activation missed the refresh button')
+    for _,i in ipairs({1,middle,chapter_count}) do
+        view:moveFocusTo(1,i+1,FocusManager.FORCED_FOCUS)
+        FocusNav.scrollToFocused(view)
+        if not prepaint_press then UI:forceRePaint() end
+        if i~=middle then
+            selected=nil;view:onPress()
+            assert(selected==i,'Press selected the wrong chapter')
+        end
+        UI:forceRePaint()
         local row=rows[i]
         assert(row.dimen.y>=top and row.dimen.y+row.dimen.h<=bottom,'focus outside viewport')
         local x0=math.max(row.dimen.x,scroll.dimen.x)
@@ -104,18 +125,22 @@ local ok,reason=pcall(function()
         selected=nil;UI:sendEvent(Event:new('Gesture',{ges='tap',pos=point}))
         assert(selected==i,'tap selected wrong chapter after focus navigation')
     end
-    view:moveFocusTo(1,1500,require('ui/widget/focusmanager').FORCED_FOCUS)
-    view:moveFocusTo(1,1501,require('ui/widget/focusmanager').FORCED_FOCUS)
-    local focused=rows[1500]
+    view:moveFocusTo(1,chapter_count,FocusManager.FORCED_FOCUS)
+    view:moveFocusTo(1,chapter_count+1,FocusManager.FORCED_FOCUS)
+    local focused=rows[chapter_count]
     assert(focused.frame and focused.frame.invert,'focused chapter not highlighted')
     scroll:_scrollBy(0,-scroll:getScrolledOffset().y);UI:forceRePaint()
+    selected=nil;view:onPress()
+    assert(selected==nil,'Press activated a chapter after touch scrolling it offscreen')
     FocusNav.scrollToFocused(view);UI:forceRePaint()
     assert(focused.frame and focused.frame.invert,'focus lost after leaving viewport')
     UI:close(view)
     report={result='PASS',chapters=#chapters,initialization_ms=build_ms,initialization_cpu_ms=build_cpu_ms,
-        initial_text_widgets=text_widgets,repaint_ms=repaint_ms,
+        initial_text_widgets=text_widgets,repaint_ms=repaint_ms,repaint_cpu_ms=math.floor(repaint_cpu*1000+.5),
+        row_layout_updates=row_layout_updates,
         lua_kib=heap,geometry_checksum=checksum,geometry=geometry,row_paints=row_paints,initial_materialized_rows=initial_frames,
-        max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true}
+        max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true,
+        press_verified=true,prepaint_press_verified=prepaint_press}
 end)
 if not ok then report.error=tostring(reason) end
 io.write('\nWEREAD_CHAPTER_BENCHMARK='..json.encode(report)..'\n')

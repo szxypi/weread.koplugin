@@ -1,5 +1,6 @@
 -- Chapter catalog styled consistently with the book detail page.
 
+local BD = require("ui/bidi")
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local Device = require("device")
@@ -26,15 +27,12 @@ local ListEvents = require("weread.lib.shelf_list_events")
 
 local function _(text) return I18n.tr(text) end
 
--- Keep offscreen row geometry for physical-key navigation while avoiding
--- rendering and gesture dispatch to every chapter on each scroll.
 local ChapterGroup = VerticalGroup:extend{}
 function ChapterGroup:paintTo(bb, x, y)
-    ListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
-    self._rows_positioned = true
+    self._painted_rows = ListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
 end
 function ChapterGroup:propagateEvent(event)
-    local routed, consumed = ListEvents.dispatch(self._rows, self._rows_positioned, event)
+    local routed, consumed = ListEvents.dispatchPainted(self._painted_rows, event)
     if routed then return consumed end
     return VerticalGroup.propagateEvent(self, event)
 end
@@ -173,7 +171,6 @@ function ChapterListView:content()
         HorizontalSpan:new{ width = self.list_width },
     }
     self._chapter_rows = {}
-    group._rows = self._chapter_rows
     if self.empty_text then
         group[#group + 1] = FrameContainer:new{
             bordersize = 0, padding = Size.padding.large,
@@ -200,6 +197,8 @@ function ChapterListView:content()
             background = Blitbuffer.COLOR_GRAY,
         },
     }
+    local row_top = 0
+    local row_stride = height + divider:getSize().h
     for _i, chapter in ipairs(self.chapters or {}) do
         local status = chapter.status or ""
         local status_width = status_widths[status]
@@ -219,6 +218,7 @@ function ChapterListView:content()
             width = self.list_width,
             dimen = Geom:new{ w = width, h = height },
             _shelf_list_row = true,
+            _focus_content_top = row_top,
             show_parent = self,
             callback = function()
                 if self.on_select then self.on_select(chapter.source) end
@@ -227,6 +227,7 @@ function ChapterListView:content()
         self._chapter_rows[#self._chapter_rows + 1] = row
         group[#group + 1] = row
         group[#group + 1] = divider
+        row_top = row_top + row_stride
     end
     title_meter:free()
     status_meter:free()
@@ -266,7 +267,7 @@ function ChapterListView:init()
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._toolbar_buttons) do outside_scroll[button] = true end
-    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
+    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll, windowed = true })
     -- Chapters follow the toolbar row.
     FocusNav.initialFocus(self, 1, #rows > 1 and 2 or 1)
     self[1] = FrameContainer:new{

@@ -30,4 +30,14 @@ function M.dispatch(rows, ready, event)
     return true,false
 end
 
+function M.dispatchPainted(rows, event)
+    if not rows or event.handler ~= 'onGesture' then return false end
+    local routed, consumed = M.dispatch(rows, true, event)
+    if routed then return routed, consumed end
+    for _, row in ipairs(rows) do
+        if row:handleEvent(event) then return true, true end
+    end
+    return true, false
+end
+
 return M

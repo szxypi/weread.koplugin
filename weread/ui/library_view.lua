@@ -71,15 +71,8 @@ function ShelfListGroup:paintTo(bb, x, y)
     self._shelf_painted_rows = ShelfListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
 end
 function ShelfListGroup:propagateEvent(event)
-    local rows = self._shelf_painted_rows
-    local routed, consumed = ShelfListEvents.dispatch(rows, rows ~= nil, event)
+    local routed, consumed = ShelfListEvents.dispatchPainted(self._shelf_painted_rows, event)
     if routed then return consumed end
-    if rows and event.handler == 'onGesture' then
-        for _, row in ipairs(rows) do
-            if row:handleEvent(event) then return true end
-        end
-        return false
-    end
     return VerticalGroup.propagateEvent(self, event)
 end
 
@@ -497,12 +490,6 @@ function ShelfRow:setOffscreenGeometry(x, y)
         elseif self.frame.dimen then
             self.frame.dimen.x,self.frame.dimen.y=x,y
         end
-    end
-end
-
-function ShelfRow:getFocusTop(scroll)
-    if self._shelf_content_top then
-        return scroll.dimen.y + self._shelf_content_top - scroll:getScrolledOffset().y
     end
 end
 
@@ -1556,7 +1543,7 @@ function LibraryView:content()
             shelf_row._shelf_list_row = not self.paged
             self._item_rows[#self._item_rows + 1] = shelf_row
             if self._list_bottoms then
-                shelf_row._shelf_content_top = list_y
+                shelf_row._focus_content_top = list_y
                 local bottom = list_y + shelf_row:getSize().h
                 self._list_bottoms[#self._list_bottoms + 1] = bottom
                 list_y = bottom + 1
@@ -1769,7 +1756,7 @@ function LibraryView:init()
     for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
     for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
     self._first_item_focus_row = first_item_row
-    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
+    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll, windowed = self._list_bottoms ~= nil })
     FocusNav.initialFocus(self, focus_x or 1, focus_y or first_item_row or 1)
     local body = { align = "left", header }
     if self.home_layout then
@@ -1827,23 +1814,6 @@ function LibraryView:onShelfSwipe(_, ges)
     local delta = ges.direction == "west" and 1 or ges.direction == "east" and -1
     if not delta then return false end
     return self:turnShelfPage(delta)
-end
-
-function LibraryView:_sendGestureEventToFocusedWidget(gesture)
-    local row = self:getFocusItem()
-    if row and row._shelf_content_top then
-        local area = self.scroll.dimen
-        local top = row:getFocusTop(self.scroll)
-        local center = top + row.dimen.h / 2
-        if center < area.y or center > area.y + area.h then return true end
-        -- A key event can follow a scroll before the new viewport is painted.
-        if row.dimen.y ~= top then
-            UIManager:setDirty(self, 'fast')
-            UIManager:forceRePaint()
-            if row.dimen.y ~= top then return true end
-        end
-    end
-    return FocusManager._sendGestureEventToFocusedWidget(self, gesture)
 end
 
 function LibraryView:onShow()
