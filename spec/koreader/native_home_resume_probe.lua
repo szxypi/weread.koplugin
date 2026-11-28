@@ -260,6 +260,13 @@ else
         assert(host.settings:patch_reading_state(id,{native_home_resume=standard_record.native,
             home_recent_at=standard_record.native.at,home_recent_account=book._library_account_key}))
     end
+    local original_resume_file_id
+    if input.mode=='invalid_resume' then
+        local pointer=assert(host.settings:get_book(id).native_home_resume)
+        original_resume_file_id=assert(pointer.entry.file_id)
+        pointer.entry.file_id=nil
+        assert(host.settings:patch_reading_state(id,{native_home_resume=pointer}))
+    end
     host:showHome();local view=assert(host.shelf_view);local selected
     for _,book in ipairs(view.books) do if book.bookId==id then selected=book end end
     if input.mode=='switch' then
@@ -428,7 +435,7 @@ else
     end
     local message
     local damage=standard_record or input.mode=='damage' or input.mode=='detail_damage'
-        or input.mode=='shelf_damage' or input.mode=='no_alternative'
+        or input.mode=='shelf_damage' or input.mode=='no_alternative' or input.mode=='invalid_resume'
     local shelf=input.mode=='shelf_detail' or input.mode=='shelf_damage' or input.mode=='standard_shelf'
     local repair=input.mode=='downloads_repair' or input.mode=='downloads_repair_unwritable'
     local downloads=input.mode=='downloads' or input.mode=='downloads_choose' or input.mode=='standard_downloads' or repair
@@ -527,7 +534,38 @@ else
         pump(function() return message or Reader.instance or picker() or standard_record and alternative_confirmation() end)
         assert(not Reader.instance,'fallback opened a chapter without a selection')
         local tr=require('weread.lib.plugin_util').tr
-        if standard_record then
+        if not shelf and input.mode~='detail_damage' then
+            assert(not host._book_detail_view and host.shelf_view==view,'resume recovery opened another detail or left its list')
+        end
+        if input.mode=='standard_menu' then
+            local menu=assert(picker(),'no E-Ink chapters alongside the standard fallback')
+            assert(#menu.item_table==1 and not alternative_confirmation())
+            local function standard_action()
+                menu:onLeftButtonTap()
+                local buttons=assert(menu._shelf_popup).buttons
+                for _,row in ipairs(buttons) do
+                    if row[1].text==tr('Read standard download') then return row[1].callback end
+                end
+                error('no standard download action in the fallback')
+            end
+            local select_standard=standard_action()
+            assert(os.rename(input.standard,input.standard..'.moved'))
+            select_standard();pump(function() return message end)
+            assert(message==tr('No cached file.') and picker()==menu and host.shelf_view==view and not Reader.instance)
+            assert(os.rename(input.standard..'.moved',input.standard))
+            standard_action()()
+            pump(function() return Reader.instance and Reader.instance.document.file==input.standard end)
+            assert(Reader.instance.document:isXPointerInCurrentPage(standard_record.anchor),
+                'mixed resume fallback lost the ordinary saved page')
+        elseif input.mode=='invalid_resume' then
+            local menu=assert(picker(),'incomplete resume identity did not offer local copies')
+            assert(#menu.item_table==2,'incomplete identity removed a usable copy from the list')
+            UI:close(menu);menu:onMenuSelect(menu.item_table[1])
+            local pointer=assert(host.settings:get_book(id).native_home_resume)
+            assert(host.shelf_view==view and not Reader.instance and not host._native_direct_reading and not pointer.entry.file_id)
+            pointer.entry.file_id=original_resume_file_id
+            assert(host.settings:patch_reading_state(id,{native_home_resume=pointer}))
+        elseif standard_record then
             local dialog=assert(alternative_confirmation(),'other downloaded EPUB was not offered')
             assert(dialog.ok_text==tr('Read cached copy') and not picker())
             if input.mode=='standard_cancel' then

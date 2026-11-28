@@ -219,6 +219,7 @@ function M.start(host,book,view,options)
     if failed_copy and (not (cached or target) or not Cache.valid_entry(failed_copy,id,scope.vid)
         or target and (failed_copy.chapter_uid~=target.uid or failed_copy.catalog_sha256~=target.catalog_sha256
             or failed_copy.book_version~=target.book_version)) then return false end
+    local resume_fallback=cached and not from_reader and (failed_copy or options.resume_fallback==true)
     local adjacent_direction=type(options)=='table' and options.adjacent_direction
     if adjacent_direction and (not from_reader or batch or target or not anchor or anchor.catalog_sha256
         or adjacent_direction~=-1 and adjacent_direction~=1) then return false end
@@ -322,10 +323,13 @@ function M.start(host,book,view,options)
         show_confirmation(dialog)
     end
     local function cached_standard_copy()
-        if from_reader or not failed_copy or not view_current() then return end
+        if not resume_fallback or not view_current() then return end
         local record=require('weread.lib.read_access').load_cached_book(host.settings,id)
         if record and (not record._library_account_key or record._library_account_key==ctx.account)
             and host:bookRecordHasDownload(record) then return record end
+    end
+    local function open_cached_standard(record)
+        return host:readCachedCopy(record,not from_shelf and view or nil)
     end
     local function fail(message,close_catalog,try_standard)
         if host._native_direct_reading~=ctx then return end
@@ -430,7 +434,7 @@ function M.start(host,book,view,options)
             if cached_standard_copy() then
                 confirm_alternative(_('The last E-Ink chapter is unavailable.'),
                     _('Open the standard downloaded copy at its saved reading position?'),_('Read cached copy'),
-                    cached_standard_copy,function(record) host:readCachedCopy(record,view) end)
+                    cached_standard_copy,open_cached_standard)
                 return
             end
             fail(offline_notice or fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.',
@@ -483,7 +487,7 @@ function M.start(host,book,view,options)
         end
         local subtitle=picker and picker.subtitle
             or offline_notice and _(offline_notice)
-            or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
+            or (failed_copy or resume_fallback) and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
             or catalog_notice or adjacent_notice or _('Online: sync position or save selected highlights and private thoughts.')
@@ -523,8 +527,10 @@ function M.start(host,book,view,options)
             return result
         end
         local menu_title=picker and picker.title or _(offline and 'Saved E-Ink chapters' or 'E-Ink chapters')
+        local standard_available=cached_standard_copy()~=nil
+        local show_actions=sections or standard_available
         menu=host:showList(menu_title,items(),nil,
-            {subtitle=subtitle,left_icon=sections and 'appbar.menu' or 'appbar.search',on_choice=function(item)
+            {subtitle=subtitle,left_icon=show_actions and 'appbar.menu' or 'appbar.search',on_choice=function(item)
                 local index=type(item)=='table' and item.chapter_index
                 if ctx.menu~=menu or ctx.busy or ctx.copy_menu or not index
                     or by_index[index]~=item or not item.select_enabled then return end
@@ -596,7 +602,7 @@ function M.start(host,book,view,options)
             if sections_menu then Popup.show(menu,sections_menu,function() end) end
         end
         menu.onLeftButtonTap=function()
-            if not sections then search_titles();return true end
+            if not show_actions then search_titles();return true end
             if not menu_current() or menu._shelf_popup then return true end
             local actions
             local function action(callback)
@@ -608,13 +614,18 @@ function M.start(host,book,view,options)
                     end)
                 end
             end
-            actions=require('ui/widget/buttondialog'):new{
-                title=_('E-Ink chapters'),buttons={
-                    {{text=_('Find chapter'),callback=action(search_titles)}},
-                    {{text=_('Go to section'),callback=action(select_section)}},
-                    {{text=_('Cancel'),callback=action()}},
-                },
-            }
+            local buttons={{{text=_('Find chapter'),callback=action(search_titles)}}}
+            if sections then buttons[#buttons+1]={{text=_('Go to section'),callback=action(select_section)}} end
+            if standard_available then
+                buttons[#buttons+1]={{text=_('Read standard download'),callback=action(function()
+                    local record=cached_standard_copy()
+                    if not record then host:showInfo(_('No cached file.'));return end
+                    M.cancel(host)
+                    if origin_current() then open_cached_standard(record) end
+                end)}}
+            end
+            buttons[#buttons+1]={{text=_('Cancel'),callback=action()}}
+            actions=require('ui/widget/buttondialog'):new{title=_('E-Ink chapters'),buttons=buttons}
             Popup.show(menu,actions)
             return true
         end

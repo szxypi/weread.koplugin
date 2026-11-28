@@ -245,13 +245,13 @@ def run(runtime, read_entries_only=False):
                     standard_bytes = build_reading()
                     standard_path.write_bytes(standard_bytes)
                     for mode in ('downloads_inventory', 'record_alternative', 'record_suspended', 'close_home', 'quick_home', 'quick_shelf', 'quick_store',
-                                 'shelf_close', 'shelf_close_prior', 'reopen', 'detail', 'shelf_detail',
+                                 'shelf_close', 'shelf_close_prior', 'reopen', 'invalid_resume', 'detail', 'shelf_detail',
                                  'detail_closed', 'downloads', 'damage', 'shelf_damage', 'no_alternative',
                                  'detail_damage', 'downloads_choose', 'quick_choose',
                                  'downloads_repair', 'downloads_repair_unwritable', 'downloads_missing_all',
                                  'downloads_pending', 'downloads_discard', 'record_standard', 'select_standard_detail',
                                  'select_standard_downloads', 'select_native_downloads', 'select_removed_downloads',
-                                 'standard_cancel', 'standard_home', 'standard_shelf', 'standard_downloads', 'switch'):
+                                 'standard_cancel', 'standard_home', 'standard_menu', 'standard_shelf', 'standard_downloads', 'switch'):
                         standard = mode.startswith('standard_')
                         receipt = path.parent/'receipt.txt'
                         original = receipt.read_bytes() if standard or mode in ('damage', 'detail_damage', 'no_alternative') else None
@@ -259,7 +259,7 @@ def run(runtime, read_entries_only=False):
                         missing = []
                         if mode in ('shelf_damage', 'downloads_missing_all'):
                             missing.append(path)
-                        if standard or mode == 'no_alternative' or repair:
+                        if (standard and mode != 'standard_menu') or mode == 'no_alternative' or repair:
                             missing.append(alternative)
                         marker = alternative.parents[2] / ('.native-presence-' + alternative.parents[1].name)
                         stale = 'native-presence-v1\nkey=' + alternative.parent.name + '\ncopy=0\n'

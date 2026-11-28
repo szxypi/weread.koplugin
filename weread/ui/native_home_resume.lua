@@ -197,10 +197,12 @@ local function open(host,book,id,view,view_current,detail)
     local ctx={scope=scope,owner=owner,view=view,shelf_owner=not detail and view or nil,
         session=host._reader_session_gen or 0,pointer=pointer}
     host._native_home_resume=ctx
+    local function origin_current()
+        return not host._weread_suspended and (detail and host._book_detail_view==view or not detail and host.shelf_view==view)
+            and view_current() and (host._reader_session_gen or 0)==ctx.session and account(host,scope)==owner
+    end
     local function current()
-        return host._native_home_resume==ctx and not host._weread_suspended
-            and (detail and host._book_detail_view==view or not detail and host.shelf_view==view) and view_current()
-            and (host._reader_session_gen or 0)==ctx.session and account(host,scope)==owner
+        return host._native_home_resume==ctx and origin_current()
     end
     local function fail()
         local live=current();M.cancel(host)
@@ -211,18 +213,23 @@ local function open(host,book,id,view,view_current,detail)
     if not w then fail();return false end
     host:showBusy(_('Checking saved E-Ink chapter...'),function() M.cancel(host) end);ctx.busy=host.busy_message
     local ok,started=pcall(w.start,w,function()
-        if not Cache.valid_entry(pointer.entry,id,scope.vid) then return {error='invalid'} end
-        return Cache.open(host.settings,scope.vid,id,pointer.entry,current) or {error='unavailable'}
+        local file_id=pointer.entry.file_id
+        if not Cache.valid_entry(pointer.entry,id,scope.vid) or type(file_id)~='string' or #file_id~=64
+            or not file_id:match('^[a-f0-9]+$') then return {error='invalid_pointer'} end
+        local value=Cache.open(host.settings,scope.vid,id,pointer.entry,current)
+        if not value or value.file_id~=file_id then return {error='unavailable'} end
+        return value
     end,function(value)
         if not current() then if host._native_home_resume==ctx then M.cancel(host) end;return end
         local latest=host.settings:get_book(id)
         if not M.can_resume(host,latest,id) or not same(pointer,latest.native_home_resume) then fail();return end
-        if type(value)=='table' and value.error=='unavailable' then
+        if type(value)=='table' and (value.error=='unavailable' or value.error=='invalid_pointer') then
             M.cancel(host)
-            -- Use the stored metadata directly; recovery only reads this account's saved chapters.
-            local owner_view=detail and view or host:showBookMenu(latest)
-            if owner_view then
-                require('weread.ui.native_direct_reading').start(host,latest,owner_view,{cached=true,failed_copy=pointer.entry})
+            if origin_current() then
+                require('weread.ui.native_direct_reading').start(host,latest,view,{
+                    cached=true,resume_fallback=true,shelf_current=not detail and origin_current or nil,
+                    failed_copy=value.error=='unavailable' and pointer.entry or nil,
+                })
             end
             return
         end

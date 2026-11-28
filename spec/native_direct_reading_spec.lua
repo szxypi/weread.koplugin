@@ -85,7 +85,7 @@ local function fixture()
     cloud_progress=nil;cloud_error=nil;progress_calls=0
     local state={jobs={},opened=0,info=0,view={}}
     local host={_book_detail_view=state.view,discovery_epoch=1,_reader_session_gen=1,ui={},client={},
-        settings={data_dir='/tmp/settings',get_auth_scope=function() return scope end,
+        settings={data_dir='/tmp/settings',get=function(_,_,default) return default end,get_auth_scope=function() return scope end,
             auth_scope_matches=function(_,s) return account_valid and s==scope end},
         library_db={accountKey=function() return account_valid and 'owner' or 'other' end},
         isNetworkConnected=function() return true end,

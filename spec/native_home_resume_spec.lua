@@ -17,8 +17,11 @@ package.preload['weread.lib.native_direct_cache']=function() return {
 } end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function(doc) return doc.identity end} end
 package.preload['weread.ui.native_direct_reading']=function() return {start=function(host,book,view,options)
-    assert(host._book_detail_view==view and options.cached==true)
-    host.alternatives={book=book,view=view,failed_copy=options.failed_copy}
+    assert(options.cached==true and options.resume_fallback==true)
+    if options.shelf_current then
+        assert(host.shelf_view==view and not host._book_detail_view and options.shelf_current())
+    else assert(host._book_detail_view==view) end
+    host.alternatives={book=book,view=view,failed_copy=options.failed_copy,current=options.shelf_current}
     return true
 end} end
 local Resume=require('weread.ui.native_home_resume')
@@ -63,8 +66,17 @@ host,s=fixture();Resume.record(host);s.book.home_recent_at=os.time()+10;s.finish
 expect(not s.patches,'older worker replaced a newer home event')
 host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
 Resume.open(host,s.book,'42',view,function() return true end);exists=false;s.finish(2)
-expect(not s.path and host.alternatives and host.alternatives.failed_copy==entry and not host.busy_message,
-    'damaged chapter was opened or did not offer local alternatives')
+expect(not s.path and host.alternatives and host.alternatives.failed_copy==entry and host.alternatives.view==view
+    and not host.busy_message and not host._book_detail_view,'failed resume opened a detail page or did not offer local alternatives')
+local recovery_current=host.alternatives.current
+host.shelf_view={}
+expect(not recovery_current(),'recovery remained valid after replacing the home view')
+host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
+local incomplete={};for key,item in pairs(entry) do incomplete[key]=item end
+incomplete.file_id=nil;s.book.native_home_resume.entry=incomplete
+Resume.open(host,s.book,'42',view,function() return true end);s.finish(2)
+expect(not s.path and host.alternatives and not host.alternatives.failed_copy and s.patches==1,
+    'incomplete pointer excluded a potentially valid chapter or changed local history')
 host,s=fixture();Resume.record(host);s.finish(1);host.shelf_view=view
 Resume.open(host,s.book,'42',view,function() return true end);local value=s.jobs[2].task();s.owner='other';s.jobs[2].callback(value)
 expect(not s.path,'account change opened a cached chapter')
