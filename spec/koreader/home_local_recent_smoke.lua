@@ -403,9 +403,6 @@ end
 assert(opened_downloads and plugin._download_library_job and plugin._download_library_job.worker.job)
 pump(function() return plugin.shelf_view and plugin.shelf_view._discovery_tab=='downloads' end)
 local downloads=plugin.shelf_view
-local downloaded, ids={},{}
-for _,row in ipairs(downloads.books) do downloaded[row.bookId]=true;ids[#ids+1]=row.bookId;assert(row._cached) end
-assert(#downloads.books==2 and downloaded['900001'] and downloaded[id], 'unexpected synthetic downloads: '..table.concat(ids,','))
 local LibraryView=require('weread.ui.library_view')
 local function replace_download_view()
     local previous=downloads
@@ -432,6 +429,27 @@ local function search_downloads(value)
     dialog:setInputText(value);dialog.buttons[1][2].callback()
     replace_download_view()
 end
+local function choose_download_type(filter)
+    UI:forceRePaint();assert(downloads.settings_button):onTapSelectButton()
+    pump(function() return downloads._shelf_popup end)
+    local popup=downloads._shelf_popup
+    local button
+    for _,row in ipairs(popup.buttons) do if row[1].text==tr(filter) then button=row[1];break end end
+    assert(button and not button.checked_func(),'could not select the expected download filter')
+    button.callback()
+    replace_download_view()
+    assert(not plugin._download_library_job,'filter reopened the disk inventory')
+end
+if reopen then
+    assert(downloads.title==tr('Standard downloads')..' · 合成作者' and #downloads.books==1 and downloads:getFocusedBookId()==id,
+        'a fresh offline process lost the active download filter, search or focus')
+    search_downloads('')
+    assert(downloads:getFocusedBookId()==id,'clearing a restored search lost the unfiltered focus')
+    choose_download_type('All')
+end
+local downloaded, ids={},{}
+for _,row in ipairs(downloads.books) do downloaded[row.bookId]=true;ids[#ids+1]=row.bookId;assert(row._cached) end
+assert(#downloads.books==2 and downloaded['900001'] and downloaded[id], 'unexpected synthetic downloads: '..table.concat(ids,','))
 local original_download_books=plugin.settings.download_books
 local page_size=downloads.page_size
 local fixture_count=page_size+1
@@ -465,6 +483,11 @@ assert(plugin._book_detail_view):onClose();replace_download_view()
 assert(downloads.page>original_page and downloads:getFocusedBookId()==id,
     'return from details did not follow the focused book after a cache change')
 local restored_page=downloads.page
+choose_download_type('Standard downloads')
+if not reopen then assert(downloads.page==1,'new download type inherited the prior page') end
+choose_download_type('All')
+assert(downloads.page==restored_page and downloads:getFocusedBookId()==id,
+    'returning to a download type lost its previous page or focus')
 search_downloads('合成作者')
 assert(#downloads.books==1 and downloads.books[1].bookId==id,'download search missed the off-shelf book')
 search_downloads('')
@@ -536,17 +559,6 @@ do
             assert(LibraryView.bookIndex(downloads.books,book_id),'missing download '..book_id)
         end
     end
-    local function choose(filter)
-        UI:forceRePaint();assert(downloads.settings_button):onTapSelectButton()
-        pump(function() return downloads._shelf_popup end)
-        local popup=downloads._shelf_popup
-        local button
-        for _,row in ipairs(popup.buttons) do if row[1].text==tr(filter) then button=row[1];break end end
-        assert(button and not button.checked_func(),'could not select the expected download filter')
-        button.callback()
-        replace_download_view()
-        assert(not plugin._download_library_job,'filter reopened the disk inventory')
-    end
     local function hold(book_id, label)
         downloads.on_hold(downloads.books[assert(LibraryView.bookIndex(downloads.books,book_id))])
         for _,row in ipairs(assert(downloads._shelf_popup).buttons) do
@@ -556,10 +568,10 @@ do
     end
     downloads.on_refresh();replace_download_view();search_downloads('')
     expect({id,native_id,'900001'})
-    choose('Standard downloads');expect({id,'900001'})
-    choose('Saved E-Ink chapters');expect({id,native_id})
+    choose_download_type('Standard downloads');expect({id,'900001'})
+    choose_download_type('Saved E-Ink chapters');expect({id,native_id})
     search_downloads('900096');expect({native_id})
-    choose('Both download types');expect({})
+    choose_download_type('Both download types');expect({})
     search_downloads('');expect({id})
     hold(id,'Clear standard download cache')
     pump(function() return plugin.book_cache_cleanup_job and plugin.book_cache_cleanup_job.dialog end)
@@ -573,7 +585,7 @@ do
     replace_download_view();expect({id})
     assert(downloads:getFocusedBookId()==id and downloads.title==tr('Both download types'),
         'returning from details lost the download type or book focus')
-    choose('Saved E-Ink chapters');expect({id,native_id})
+    choose_download_type('Saved E-Ink chapters');expect({id,native_id})
     hold(native_id,'Clear unused E-Ink chapters')
     pump(function() return plugin._native_cleanup and plugin._native_cleanup.dialog end)
     assert(plugin._native_cleanup.id==native_id,'preview targeted the wrong E-Ink download')
@@ -587,6 +599,7 @@ do
     downloads.on_refresh();replace_download_view();expect({})
     assert(downloads.empty_text==tr('No downloads match this filter.'),'empty filter lost its explanation')
 end
+plugin:onFlushSettings()
 downloads.on_refresh()
 local previous_job=assert(plugin._download_library_job)
 plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
@@ -632,6 +645,23 @@ do
         'an off-shelf book lost its place in a cloud timestamp tie')
     UI:forceRePaint()
 end
+require('weread.ui.download_library').show(plugin);replace_download_view()
+assert(downloads.title==tr('Saved E-Ink chapters') and #downloads.books==0,
+    'returning to the first account lost its own download type')
+local db=plugin.library_db
+local writes,save=0,db.putProfileState
+local browse_key=require('weread.lib.download_browse').KEY
+function db:putProfileState(key,value)
+    if key==browse_key then writes=writes+1 end
+    return save(self,key,value)
+end
+choose_download_type('Standard downloads')
+focus_download()
+search_downloads('合成作者');focus_download()
+assert(writes==0,'switching types or searching wrote a profile preference during a redraw')
+if reopen then plugin:onSuspend();plugin:onFlushSettings() end
+downloads:onClose()
+assert(writes==1,'saving an unchanged download position performed extra writes')
 print('PASS: downloaded books, offline search and resume shortcut, account isolation')
 assert(requests[0]==0,'local home attempted network')
 print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,

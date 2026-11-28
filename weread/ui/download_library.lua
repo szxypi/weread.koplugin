@@ -1,4 +1,5 @@
 local Data = require('weread.lib.discovery_data')
+local Browse = require('weread.lib.download_browse')
 local ReadAccess = require('weread.lib.read_access')
 local Search = require('weread.lib.shelf_search')
 local Query = require('weread.lib.search_query')
@@ -11,12 +12,7 @@ local _, T = Util.tr, Util.T
 local M = {}
 local run
 local remembered
-local copy_types = {
-    {key='all', label='All'},
-    {key='standard', label='Standard downloads'},
-    {key='eink', label='Saved E-Ink chapters'},
-    {key='both', label='Both download types'},
-}
+local copy_labels = {all='All',standard='Standard downloads',eink='Saved E-Ink chapters',both='Both download types'}
 
 local function owned(record, account)
     return record and account and (record._library_account_key == account
@@ -254,12 +250,13 @@ end
 
 local load
 local function render(host, rows, plans, browse, plan_page, normalize)
-    local query, position = browse.query, browse.position
-    local copy_type = browse.copy_type or copy_types[1]
-    local account = host.library_db and host.library_db:accountKey()
+    local query, key = browse.query, browse.copy_type
+    local positions = Browse.positions(browse)
+    local position = positions[key]
+    local db = host.library_db
+    local account = db and db:accountKey()
     normalize = normalize or Search.cached_fold()
     local books = rows
-    local key = copy_type.key
     if query ~= '' or key ~= 'all' then
         local needle = Search.prepare(query)
         local terms = Search.terms(needle)
@@ -272,7 +269,8 @@ local function render(host, rows, plans, browse, plan_page, normalize)
         end
     end
     local function at(next_position)
-        return {query=query,position=next_position,unfiltered=browse.unfiltered,copy_type=copy_type}
+        positions[key]=next_position
+        return browse
     end
     local function reload(next_position) load(host, at(next_position)) end
     local function open_plans()
@@ -290,13 +288,20 @@ local function render(host, rows, plans, browse, plan_page, normalize)
     if position and position.book_id then
         anchor = require('weread.ui.library_view').bookIndex(books,position.book_id) or anchor
     end
-    local title = key == 'all' and _('Downloaded books') or _(copy_type.label)
+    local title = key == 'all' and _('Downloaded books') or _(copy_labels[key])
     host:showDiscoveryPage('downloads', books, {
         title = query == '' and title or T(_('%1 · %2'), title, query),
         rotation_anchor = anchor,
         focus_book_id = position and position.focus_book_id,
         remember_position = function(next_position)
-            if account then remembered={account=account,browse=at(next_position)} end
+            if not account or db:accountKey()~=account then return end
+            local snapshot=Browse.normalize(at(next_position))
+            if not snapshot then return end
+            local saved=remembered and remembered.account==account and remembered.saved
+            remembered={account=account,browse=snapshot,saved=saved}
+            if Browse.same(snapshot,saved) or not db.putProfileState then return end
+            local ok,written=pcall(db.putProfileState,db,Browse.KEY,snapshot)
+            if ok and written==true then remembered.saved=snapshot end
         end,
         actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=open_plans}} or nil,
         empty_text = query ~= '' and _('No matching books.')
@@ -318,15 +323,17 @@ local function render(host, rows, plans, browse, plan_page, normalize)
             if view._shelf_popup then return end
             local dialog
             local buttons = {}
-            for _index,choice in ipairs(copy_types) do
-                buttons[#buttons+1] = {{ text = _(choice.label),
-                    checked_func = function() return choice == copy_type end,
+            for _index,choice in ipairs(Browse.copy_types) do
+                buttons[#buttons+1] = {{ text = _(copy_labels[choice]),
+                    checked_func = function() return choice == key end,
                     callback = function()
                         UI:nextTick(function()
                             if not current() or not Popup.current(view,dialog) then return end
                             Popup.close(view)
-                            if choice ~= copy_type then
-                                render(host,rows,plans,{query=query,copy_type=choice},nil,normalize)
+                            if choice ~= key then
+                                at(view:getBrowsePosition())
+                                browse.copy_type=choice
+                                render(host,rows,plans,browse,nil,normalize)
                             end
                         end)
                     end,
@@ -343,9 +350,10 @@ local function render(host, rows, plans, browse, plan_page, normalize)
                 if #next_query > 1024 then host:showInfo(_('Search text is too long.')); return end
                 Popup.close(view)
                 if next_query ~= query then
-                    local unfiltered = query == '' and view:getBrowsePosition() or browse.unfiltered
-                    render(host, rows, plans, {query=next_query,position=next_query=='' and unfiltered or nil,
-                        unfiltered=next_query~='' and unfiltered or nil,copy_type=copy_type},nil,normalize)
+                    at(view:getBrowsePosition())
+                    browse.query=next_query
+                    browse.matches={}
+                    render(host,rows,plans,browse,nil,normalize)
                 end
             end
             dialog = require('ui/widget/inputdialog'):new{
@@ -413,9 +421,15 @@ end
 
 function M.show(host)
     host:closeWeReadUI()
-    local account = host.library_db and host.library_db:accountKey()
-    local browse = remembered and remembered.account==account and remembered.browse
-    load(host, browse or {query=''})
+    local db=host.library_db
+    local account=db and db:accountKey()
+    if account and (not remembered or remembered.account~=account) then
+        local ok,value=pcall(db.getProfileState,db,Browse.KEY)
+        local saved=ok and Browse.normalize(value)
+        remembered={account=account,browse=saved,saved=saved}
+    end
+    local browse=account and remembered and Browse.normalize(remembered.browse)
+    load(host,browse or Browse.new())
 end
 
 function M.clearBrowsePosition() remembered=nil end

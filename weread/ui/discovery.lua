@@ -82,12 +82,12 @@ function M:showDiscoveryPage(tab, books, options)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if previous then
-        if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
         if (home and previous._discovery_tab=='home')
             or (downloads and previous._discovery_tab=='downloads')
             or options.bookstore_state and previous._bookstore_state==options.bookstore_state then
             previous._discovery_redrawing=true
         end
+        if self.checkpointShelfBrowse then self:checkpointShelfBrowse() end
         UIManager:close(previous)
     end
     local view, scope
@@ -150,6 +150,7 @@ function M:showDiscoveryPage(tab, books, options)
         on_back = Scope.guard(current, options.on_back),
         on_close = function()
             if self.shelf_view == view then
+                if view._shelf_checkpoint then view._shelf_checkpoint() end
                 self.shelf_view = nil
                 self:closeWeReadUI()
             end
@@ -164,7 +165,7 @@ function M:showDiscoveryPage(tab, books, options)
         view._bookstore_state=state
         view._browse_account=account
         local flush=view.onFlushSettings
-        view.onFlushSettings=function(widget,...)
+        local function remember(widget)
             if not widget._shelf_closed and not widget._discovery_redrawing
                 and (self.library_db and self.library_db:accountKey())==account
                 and (home or options.remember_position or self.discovery_state==state and state.account==account) then
@@ -183,7 +184,15 @@ function M:showDiscoveryPage(tab, books, options)
                     end
                 end
             end
+        end
+        view.onFlushSettings=function(widget,...)
+            remember(widget)
             if flush then return flush(widget,...) end
+        end
+        if options.remember_position then
+            view._shelf_checkpoint=function()
+                if self.shelf_view==view then remember(view) end
+            end
         end
     end
     scope = Scope.capture(self, view)
