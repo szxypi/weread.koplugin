@@ -58,5 +58,37 @@ return function(reader,host,pump,clean,book_id,inspect_previous)
     pump(function() return host.progress_sync.current_book_id==book_id end)
     reader.rolling:onGotoXPointer(original_point);UI:forceRePaint()
     assert(reader.document:isXPointerInCurrentPage(original_point),'return navigation lost the original native page')
+    if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
+        local tr=require('weread.lib.plugin_util').tr
+        local record=assert(host.settings:get_book(book_id))
+        local catalog=assert(host:ensureChaptersLoaded(record,true))
+        local target=assert(catalog[6])
+        local uid=tostring(target.chapterUid)
+        assert(not record.cached_chapters[uid],'the stale-download fixture needs an uncached chapter')
+        local function request()
+            host:openChapter(record,target)
+            local confirmation=assert(UI:getTopmostVisibleWidget())
+            assert(confirmation.ok_text==tr('Download'))
+            UI:close(confirmation)
+            return confirmation.ok_callback
+        end
+        local page=reader.document:getCurrentPage()
+        local other_page=page==1 and 2 or 1
+        assert(reader.document:getPageCount()>1)
+        local confirm=request()
+        reader.rolling:onGotoPage(other_page)
+        confirm()
+        assert(not host.downloader._active_job,'a confirmation accepted after moving opened a download')
+        reader.rolling:onGotoXPointer(original_point)
+        request()()
+        assert(host.downloader._active_job,'current confirmation did not start a download')
+        reader.rolling:onGotoPage(other_page)
+        pump(function()
+            return not host.downloader._active_job and host.settings:get_book(book_id).cached_chapters[uid]
+        end)
+        assert(Reader.instance==reader and reader.document.file==original_path
+            and reader.document:getCurrentPage()==other_page,'a late download changed the current reading location')
+        clean(reader);reader.rolling:onGotoXPointer(original_point)
+    end
     return reader,host
 end

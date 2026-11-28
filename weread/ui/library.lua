@@ -2608,12 +2608,12 @@ function M:showChapterList(book, on_close)
             end),
             on_select = function(chapter)
                 if self._chapter_list_view ~= view or view._catalog_closed then return end
-                self:openChapter(book, chapter, function()
+                self:openChapter(book, chapter, function(_, refresh_catalog)
                     -- The downloader has persisted the new chapter path before
                     -- this callback runs. Rebuild beneath the completion dialog
                     -- so either "Read now" or "Close" leaves current cache state.
                     UIManager:scheduleIn(0.1, function()
-                        showCatalog(chapters, view)
+                        refresh_catalog(function() return showCatalog(chapters,view) end)
                     end)
                 end)
             end,
@@ -2634,6 +2634,7 @@ function M:showChapterList(book, on_close)
             require('weread.ui.download_recovery').cancel(self,false,widget)
             if on_close_widget then return on_close_widget(widget,...) end
         end
+        return view
     end
     self:loadChapters(book, function(chapters)
         showCatalog(chapters)
@@ -3082,6 +3083,7 @@ function M:openChapter(book, chapter, on_downloaded, options)
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     local intent={};self._chapter_open_intent=intent
     local document=self.ui and self.ui.document
+    local file=document and document.file
     local session=self._reader_session_gen
     local view=self._chapter_list_view
     local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
@@ -3100,8 +3102,22 @@ function M:openChapter(book, chapter, on_downloaded, options)
             or tostring(book.book_id or book.bookId or '')~=book_id
             or tostring(chapter.chapterUid or chapter.chapterId or '')~=chapter_id then return false end
         if scope and not self.settings:auth_scope_matches(scope) then return false end
-        if document and not Context.same_location(location,Context.location(document,self.ui.view and self.ui.view.view_mode)) then return false end
+        if document and (document.file~=file
+            or not Context.same_location(location,Context.location(document,self.ui.view and self.ui.view.view_mode))) then return false end
         return true
+    end
+    local function download(confirmation_text)
+        local complete
+        if on_downloaded then
+            complete=function(path)
+                on_downloaded(path,function(rebuild)
+                    -- This download can refresh its own catalogue without
+                    -- reviving an intent that belonged to a closed view.
+                    if current() then view=rebuild() or view end
+                end)
+            end
+        end
+        self:downloadChapterAndRead(book,chapter,complete,current,confirmation_text)
     end
     local cached = ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
     local claims=require('weread.lib.chapter_cache_claim')
@@ -3137,17 +3153,13 @@ function M:openChapter(book, chapter, on_downloaded, options)
         self:showInfo(_('The downloaded chapter is unavailable or could not be verified.'))
         return false
     elseif ambiguous then
-        self:confirmAndDownloadChapters(book,{chapter},'chapter',{
-            single_chapter=true,recovery_current=current,
-            confirmation_text=_('This cached file cannot be confirmed as the selected chapter. Download it again? The old file and notes are kept.'),
-            on_complete=function(ok,path) if ok and on_downloaded then on_downloaded(path) end end,
-        })
+        download(_('This cached file cannot be confirmed as the selected chapter. Download it again? The old file and notes are kept.'))
     elseif self.downloader:promotePrefetch(book, chapter, current) then
         -- The downloader promotes the background task to a visible progress
         -- dialog and opens the chapter as soon as the same task completes.
         return
     else
-        self:downloadChapterAndRead(book, chapter, on_downloaded)
+        download()
     end
 end
 
@@ -3220,11 +3232,14 @@ function M:openProgressTargetChapter(book, chapter)
     return true
 end
 
-function M:downloadChapterAndRead(book, chapter, on_downloaded)
+function M:downloadChapterAndRead(book, chapter, on_downloaded, current, confirmation_text)
     self:confirmAndDownloadChapters(book, { chapter }, "chapter", {
         single_chapter = true,
+        confirmation_text = confirmation_text,
+        recovery_current = current,
+        read_current = current,
         on_complete = function(ok, path)
-            if ok and on_downloaded then on_downloaded(path) end
+            if ok and on_downloaded and (not current or current()) then on_downloaded(path) end
         end,
     })
 end

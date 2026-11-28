@@ -116,6 +116,7 @@ local downloader = Downloader:new{
     client = {},
     refresh_shelf = function() end,
     open_file = function(path) opened = path end,
+    safe_callback = function(_, fn) return fn end,
     show_info = function(text) info_messages[#info_messages + 1] = text end,
     show_transient = function() end,
 }
@@ -164,6 +165,43 @@ eq(stored_books.book.annotation_documents["/cache/book/stale.epub"], nil,
     "background snapshot did not replace current document mappings")
 eq(stored_books.book.annotation_documents["/cache/book/chapter-22.epub"].chapters[1].chapterUid,
     22, "parent registered only the completed document")
+
+do
+    local current=false
+    local function completed()
+        local job={}
+        for key,value in pairs(download) do job[key]=value end
+        job.completion_notified=nil
+        job.open_on_complete=false
+        job.offer_read=true
+        job.read_current=function() return current end
+        downloader._active_job=job
+        downloader:_step(job)
+    end
+    opened=nil
+    completed()
+    eq(#shown,0,"stale chapter download did not display a reading prompt")
+    eq(stored_books.book.cached_chapters["22"],"/cache/book/chapter-22.epub","stale navigation kept the completed cache")
+    current=true
+    completed()
+    local prompt=table.remove(shown)
+    eq(type(prompt),"table","current chapter download displayed a reading prompt")
+    if prompt then
+        current=false
+        prompt.ok_callback()
+        eq(opened,nil,"a late Read now click did not change chapter")
+    end
+    current=true
+    completed()
+    local valid_prompt=assert(table.remove(shown))
+    valid_prompt.ok_callback()
+    eq(opened,"/cache/book/chapter-22.epub","a current Read now click opened the downloaded chapter")
+    local queued_reason
+    eq(downloader:start(download.book,{chapter},"chapter",{read_current=function() return false end,
+        on_complete=function(ok,reason) if not ok then queued_reason=reason end end}),false,
+        "a queued chapter with a stale reading intent did not start")
+    eq(queued_reason,"navigation_changed","the queued action was released")
+end
 
 do
     local job = {}

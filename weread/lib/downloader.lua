@@ -288,10 +288,14 @@ function Downloader:isPrefetching(book, chapter)
         and tostring(target_uid or "") == tostring(chapter_uid or "")
 end
 
-local function promotion_current(job)
-    if not job or type(job.promotion_current)~='function' then return job~=nil end
-    local ok,current=pcall(job.promotion_current)
+local function chapter_open_current(guard)
+    if guard==nil then return true end
+    local ok,current=pcall(guard)
     return ok and current==true
+end
+
+local function promotion_current(job)
+    return job~=nil and chapter_open_current(job.promotion_current)
 end
 
 function Downloader:promotePrefetch(book, chapter, is_current)
@@ -640,6 +644,10 @@ end
 function Downloader:start(book, chapters, suffix, options)
     options = options or {}
     chapters = type(chapters) == "table" and chapters or {}
+    if not chapter_open_current(options.read_current) then
+        if type(options.on_complete)=='function' then pcall(options.on_complete,false,'navigation_changed') end
+        return false
+    end
     if options.prefetch and self.is_connected and not self.is_connected() then
         if type(options.on_complete) == "function" then
             pcall(options.on_complete, false, "offline")
@@ -741,6 +749,7 @@ function Downloader:start(book, chapters, suffix, options)
         separate_chapters = options.separate_chapters == true,
         include_annotations = false,
         open_on_complete = options.open_on_complete == true,
+        read_current = options.read_current,
         offer_read = options.offer_read ~= false,
         silent_completion = options.silent_completion == true,
         prefetch = options.prefetch == true,
@@ -1594,15 +1603,13 @@ function Downloader:_step(dl)
             "failed_thought_batches=", tostring(dl.annotation_failed_batches),
             "footnotes_converted=", tostring(dl.footnote_stats and dl.footnote_stats.converted or 0),
             "footnotes_unresolved=", tostring(dl.footnote_stats and dl.footnote_stats.unresolved or 0))
-        if dl.open_on_complete then
-            self:_notifyCompletion(dl, true, path)
-            self:_finishJob(dl)
-            self.open_file(path,dl.book)
-            return
-        end
         self:_notifyCompletion(dl, true, path)
         self:_finishJob(dl)
-        if dl.silent_completion then
+        if dl.open_on_complete then
+            if chapter_open_current(dl.read_current) then self.open_file(path,dl.book) end
+            return
+        end
+        if dl.silent_completion or not chapter_open_current(dl.read_current) then
             return
         end
         if not dl.offer_read then
@@ -1610,12 +1617,11 @@ function Downloader:_step(dl)
                 T(_("Downloaded %1 chapters."), tostring(#dl.selected)), 2)
             return
         end
+        local read_now=self.safe_callback(_("Read now"),function() self.open_file(path,dl.book) end)
         UIManager:show(ConfirmBox:new{
             text = completion_text,
             ok_text = _("Read now"),
-            ok_callback = self.safe_callback(_("Read now"), function()
-                self.open_file(path,dl.book)
-            end),
+            ok_callback = function() if chapter_open_current(dl.read_current) then read_now() end end,
             cancel_text = _("Close"),
         })
         return

@@ -662,7 +662,7 @@ function M:maybePrefetchNextChapter(book_id, recovered)
                 UIManager:scheduleIn(retry_delay, function()
                     if self.ui.document and self.ui.document.file == source_file
                         and (not retry_current or retry_current()) then
-                        self:downloadChapterAndRead(book, next_chapter)
+                        self:downloadChapterAndRead(book, next_chapter, nil, retry_current)
                     end
                 end)
             end

@@ -869,6 +869,35 @@ local epoch=1
 host.settings.get_auth_scope=function() return {vid='42',epoch=epoch} end
 host.settings.auth_scope_matches=function(_,scope) return scope.epoch==epoch end
 local selected_book={book_id='42'};local selected_chapter={chapterUid=2}
+do
+    local original_promote=host.downloader.promotePrefetch
+    host.downloader.promotePrefetch=function() return false end
+    local finished,refresh_catalog
+    host:openChapter(selected_book,selected_chapter,function(_,refresh) finished,refresh_catalog=true,refresh end)
+    local download=assert(single_download_options)
+    expect(download.read_current and download.read_current() and download.recovery_current(),
+        'an uncached chapter missed its reading and confirmation guards')
+    host.ui.document.page=2
+    expect(not download.read_current() and not download.recovery_current(),
+        'a page change retained a pending chapter download action')
+    download.on_complete(true,'/cache/2.epub')
+    expect(not finished,'an obsolete download refreshed the chapter list')
+    host.ui.document.page=1
+    host:openChapter(selected_book,selected_chapter,function(_,refresh) refresh_catalog=refresh end)
+    download=assert(single_download_options)
+    download.on_complete(true,'/cache/2.epub')
+    local old_view=host._chapter_list_view
+    refresh_catalog(function()
+        old_view._catalog_closed=true
+        host._chapter_list_view={}
+        return host._chapter_list_view
+    end)
+    expect(download.read_current(),'its own catalogue refresh blocked the current Read now offer')
+    host._chapter_list_view._catalog_closed=true
+    expect(not download.read_current(),'closing the refreshed catalogue retained the offer')
+    host._chapter_list_view={}
+    host.downloader.promotePrefetch=original_promote
+end
 host:openChapter(selected_book,selected_chapter)
 local first_intent=assert(promoted);expect(first_intent(),'current promoted chapter lost its guard')
 host.ui.document.page=2;expect(not first_intent(),'page change retained old promoted chapter');host.ui.document.page=1
