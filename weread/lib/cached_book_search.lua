@@ -95,8 +95,10 @@ function M.discover(input,read_archive,list_metadata)
                 if type(member)~='table' then incomplete=true
                 elseif visit(member.name,member.metadata)==false then break end
             end
-        elseif not Archive.position_metadata(input.file,visit) and not ambiguous then
-            return {error='unavailable'}
+        else
+            local scanned,skipped=Archive.position_metadata(input.file,visit)
+            if not scanned and not ambiguous then return {error='unavailable'} end
+            incomplete=incomplete or skipped==true
         end
         if ambiguous then return {error='ambiguous'} end
         table.sort(entries,function(a,b) return a.index<b.index end)

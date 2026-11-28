@@ -6,7 +6,8 @@ local signed_out=os.getenv('WEREAD_TEST_CACHED_SIGNED_OUT')=='1'
 local no_catalog=os.getenv('WEREAD_TEST_CACHED_NO_CATALOG')=='1'
 local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
 local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
-local damaged=os.getenv('WEREAD_TEST_CACHED_DAMAGED')=='1'
+local damage=os.getenv('WEREAD_TEST_CACHED_DAMAGED') or ''
+local damaged=damage~=''
 local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
 local ignore_case=os.getenv('WEREAD_TEST_CACHED_IGNORE_CASE')=='1'
 local unicode_case=os.getenv('WEREAD_TEST_CACHED_UNICODE_CASE')=='1'
@@ -239,7 +240,8 @@ if full then
         local path=book.cached_full_book
         local broken=path:gsub('%.epub$','-damaged.epub')
         assert(broken~=path)
-        dofile(fixture)(path,broken,'OEBPS/text/chapter-002.xhtml',false)
+        local member=damage=='metadata' and Source.meta_path(chapters[3].chapterUid) or 'OEBPS/text/chapter-002.xhtml'
+        dofile(fixture)(path,broken,member,false)
         book.cached_full_book=broken
     end
     book.cached_file=book.cached_full_book
@@ -360,12 +362,13 @@ owner.menu.switchItemTable=switch_items
 local count=incomplete and 1 or 2
 local unavailable=(no_catalog or long_full) and 0 or #chapters-2
 local checked=long_full or (limit_test and 1 or count)
+if damage=='body' then unavailable,checked=1,3 end
+assert(#owner.value==count and owner.checked==checked and owner.missing==unavailable,
+    'downloaded search lost healthy results or misreported coverage')
 if damaged then
-    unavailable,checked=1,3
-    assert(requests[1]==1 and requests[2]==3 and requests[3]==0,
+    assert(requests[1]==1 and requests[2]==checked and requests[3]==0,
         'one damaged chapter caused independent rereads of the archive')
 end
-assert(#owner.value==count and owner.checked==checked and owner.missing==unavailable)
 if limit_test then
     local _=require('weread.lib.i18n').tr
     assert(owner.limit and not owner.finished and owner.menu.item_table[1].text==
@@ -473,9 +476,10 @@ if restore_catalog then
     os.exit(0)
 end
 if full and no_catalog then
-    assert(owner.discovered and owner.discovery_incomplete==incomplete
+    local partial_index=incomplete or damage=='metadata'
+    assert(owner.discovered and owner.discovery_incomplete==partial_index
         and owner.queue[long_full or checked].uid==target_uid)
-    if incomplete then
+    if partial_index then
         local found=false
         for _i,item in ipairs(owner.menu.item_table) do
             if item.text==require('weread.lib.i18n').tr('Some chapters in the downloaded book could not be indexed.') then found=true end

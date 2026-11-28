@@ -17,6 +17,22 @@ local function byte_comparator(ffi)
     end
     return compare_bytes
 end
+
+local function read_entry_data(lib, archive, ffi, buffer, size, discard_data)
+    local chunks, total = not discard_data and {} or nil, 0
+    local capacity = ffi.sizeof(buffer)
+    while true do
+        local read = tonumber(lib.archive_read_data(archive, buffer, capacity))
+        if not read or read < 0 then return nil, read end
+        if read == 0 then break end
+        total = total + read
+        if total > size then return nil end
+        if chunks then chunks[#chunks + 1] = ffi.string(buffer, read) end
+    end
+    if total ~= size then return nil end
+    return chunks and table.concat(chunks) or total
+end
+
 local function read_members(path, wanted, batch, zip_probe, discard_data)
     if type(path) ~= 'string' or path == '' or #path > 4096 or path:find('%z') or type(wanted) ~= 'table' then
         return nil, 'source_archive/invalid'
@@ -62,27 +78,15 @@ local function read_members(path, wanted, batch, zip_probe, discard_data)
                 if not size or size < 0 or size > maximum or size % 1 ~= 0 then return nil end
                 used = used + size
                 if batch and used > M.MAX_BATCH_BYTES then return nil end
-                local chunks, total = not discard_data and {} or nil, 0
-                while true do
-                    local read = tonumber(lib.archive_read_data(archive, buffer, 65536))
-                    if not read then return nil end
-                    if read < 0 then
-                        if not batch or read < lib.ARCHIVE_FAILED then return nil end
-                        -- A recoverable member error invalidates all bytes of that
-                        -- member. Continue only if subsequent headers reach EOF.
-                        unreadable = unreadable or {}
-                        unreadable[name] = true
-                        break
-                    end
-                    if read == 0 then break end
-                    total = total + read
-                    if total > maximum or total > size then return nil end
-                    if chunks then chunks[#chunks + 1] = ffi.string(buffer, read) end
-                end
-                if not unreadable or not unreadable[name] then
-                    if total ~= size then return nil end
-                    members[name], found = chunks and table.concat(chunks) or total, found + 1
+                local data, reason = read_entry_data(lib, archive, ffi, buffer, size, discard_data)
+                if data ~= nil then
+                    members[name], found = data, found + 1
                     if zip_probe and found == count then return members end
+                else
+                    if not batch or not reason or reason < lib.ARCHIVE_FAILED then return nil end
+                    -- Keep the name reserved even though the member is unreadable.
+                    unreadable = unreadable or {}
+                    unreadable[name] = true
                 end
             end
         end
@@ -190,23 +194,25 @@ function M.verify_members(path, wanted)
 end
 -- Discover only sealed per-chapter metadata; raw and rendered chapter bytes
 -- remain subject to the independent bounded read and hash verification above.
+-- The second result reports whether any metadata member could not be read.
 function M.position_metadata(path,visit)
     if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]')
         or visit~=nil and type(visit)~='function' then return nil end
     local archive,entry,lib,ffi
     local max_count=visit and Catalog.MAX_CHAPTERS or 10000
     local max_bytes=(visit and 16 or 8)*1024*1024
-    local ok,result=pcall(function()
+    local ok,result,incomplete=pcall(function()
         ffi=require('ffi');require('ffi/libarchive_h');lib=ffi.loadlib('archive','13')
         archive,entry=lib.archive_read_new(),lib.archive_entry_new()
         if archive==nil or entry==nil or lib.archive_read_support_format_all(archive)~=lib.ARCHIVE_OK
             or lib.archive_read_support_filter_all(archive)~=lib.ARCHIVE_OK
             or lib.archive_read_open_filename(archive,path,10240)~=lib.ARCHIVE_OK then return nil end
         local found,seen,total,count=visit and true or {},{},0,0
+        local skipped=false
         local buffer=ffi.new('char[?]',4096)
         for _i=1,M.MAX_ENTRIES do
             local status=lib.archive_read_next_header2(archive,entry)
-            if status==lib.ARCHIVE_EOF then return found end
+            if status==lib.ARCHIVE_EOF then return found,skipped end
             if status~=lib.ARCHIVE_OK then return nil end
             local pointer=lib.archive_entry_pathname(entry);if pointer==nil then return nil end
             local name=ffi.string(pointer)
@@ -216,24 +222,18 @@ function M.position_metadata(path,visit)
                 if seen[name] or lib.archive_entry_filetype(entry)~=lib.AE_IFREG or not size or size%1~=0
                     or size<1 or size>4096 or count>=max_count or total+size>max_bytes then return nil end
                 seen[name]=true;total=total+size;count=count+1
-                local chunks,used={},0
-                while true do
-                    local bytes=tonumber(lib.archive_read_data(archive,buffer,4096))
-                    if not bytes or bytes<0 then return nil end
-                    if bytes==0 then break end
-                    used=used+bytes;if used>size then return nil end
-                    chunks[#chunks+1]=ffi.string(buffer,bytes)
-                end
-                if used~=size then return nil end
-                local metadata=table.concat(chunks)
-                if visit then
+                local metadata,reason=read_entry_data(lib,archive,ffi,buffer,size)
+                if not metadata then
+                    if not reason or reason<lib.ARCHIVE_FAILED then return nil end
+                    skipped=true
+                elseif visit then
                     if visit(name,metadata)==false then return nil end
-                else found[count]={name=name,metadata=metadata} end
+                else found[#found+1]={name=name,metadata=metadata} end
             end
         end
     end)
     if archive~=nil and lib then pcall(lib.archive_read_close,archive);pcall(lib.archive_free,archive) end
     if entry~=nil and lib then pcall(lib.archive_entry_free,entry) end
-    return ok and result or nil
+    if ok then return result,incomplete end
 end
 return M

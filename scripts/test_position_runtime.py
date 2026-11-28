@@ -161,7 +161,7 @@ def main():
     parser.add_argument('--cached-full', action='store_true')
     parser.add_argument('--cached-long-full', action='store_true', help='Discover and search 20,000 chapters in one EPUB')
     parser.add_argument('--cached-incomplete', action='store_true')
-    parser.add_argument('--cached-damaged', action='store_true', help='Search an EPUB with one damaged chapter')
+    parser.add_argument('--cached-damaged', choices=('body', 'metadata'), help='Search an EPUB with one damaged chapter member')
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
     parser.add_argument('--cached-unicode-case', action='store_true')
@@ -320,7 +320,7 @@ def main():
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
                                         WEREAD_TEST_CACHED_LONG_FULL=str(LONG_CATALOG_SIZE) if args.cached_long_full else '',
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
-                                        WEREAD_TEST_CACHED_DAMAGED='1' if args.cached_damaged else '0',
+                                        WEREAD_TEST_CACHED_DAMAGED=args.cached_damaged or '',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         WEREAD_TEST_CACHED_UNICODE_CASE='1' if args.cached_unicode_case else '0',
@@ -505,7 +505,7 @@ def main():
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 unavailable = 0 if args.cached_no_catalog or args.cached_long_full else LONG_CATALOG_SIZE-2 if args.search_long_catalog else 1
-                if args.cached_damaged:
+                if args.cached_damaged == 'body':
                     unavailable = 1
                 assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=unavailable,
                                    navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
