@@ -83,6 +83,7 @@ function M:showDiscoveryPage(tab, books, options)
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if previous then
         if (home and previous._discovery_tab=='home')
+            or (downloads and previous._discovery_tab=='downloads')
             or options.bookstore_state and previous._bookstore_state==options.bookstore_state then
             previous._discovery_redrawing=true
         end
@@ -120,7 +121,9 @@ function M:showDiscoveryPage(tab, books, options)
         on_search = Scope.guard(current, function()
             if options.on_search then options.on_search(view, current) else self:showDiscoverySearch() end
         end),
-        on_refresh = Scope.guard(current, downloads and function() options.on_refresh(view.page) end or options.on_refresh),
+        on_refresh = Scope.guard(current, downloads and function()
+            options.on_refresh(view:getBrowsePosition())
+        end or options.on_refresh),
         on_settings = home and Scope.guard(current, function() self:showHomeQuickSettings() end) or nil,
         on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
         on_select = Scope.guard(current, function(book)
@@ -153,7 +156,7 @@ function M:showDiscoveryPage(tab, books, options)
     view._finish_dirty=carry_dirty
     view._discovery_tab = tab
     local state=options.bookstore_state
-    if home or state then
+    if home or state or options.remember_position then
         local account=self.library_db and self.library_db:accountKey()
         view._bookstore_state=state
         view._browse_account=account
@@ -161,12 +164,15 @@ function M:showDiscoveryPage(tab, books, options)
         view.onFlushSettings=function(widget,...)
             if not widget._shelf_closed and not widget._discovery_redrawing
                 and (self.library_db and self.library_db:accountKey())==account
-                and (home or self.discovery_state==state and state.account==account) then
-                local position=view_position(widget)
+                and (home or options.remember_position or self.discovery_state==state and state.account==account) then
                 if home then
+                    local position=view_position(widget)
                     position.account=account
                     self._home_browse_position=position
+                elseif options.remember_position then
+                    options.remember_position(widget:getBrowsePosition())
                 else
+                    local position=view_position(widget)
                     local prior=state._browse_position
                     if not state._browse_saved or not prior or prior.anchor~=position.anchor or prior.focus~=position.focus then
                         state._browse_position=position
@@ -192,13 +198,13 @@ function M:showDiscoveryPage(tab, books, options)
     view._discovery_current = current
     view._finish_current = current
     local function return_to_page(current_books)
+        if options.on_return then return options.on_return(view:getBrowsePosition()) end
         local position=view_position(view)
         options.page=view.page
-        options.focus_book_id=not options.on_return and position.focus or nil
-        options.rotation_anchor=not options.on_return and position.anchor or nil
+        options.focus_book_id=position.focus
+        options.rotation_anchor=position.anchor
         local function render()
-            if options.on_return then options.on_return(view.page)
-            else self:showDiscoveryPage(tab,current_books,options) end
+            self:showDiscoveryPage(tab,current_books,options)
         end
         if options.focus_book_id then render()
         else

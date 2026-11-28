@@ -346,6 +346,8 @@ function M:onWeReadAccountChanged()
     self._bookstore_history = nil
     self._home_browse_position = nil
     self._shelf_browse_position = nil
+    local downloads=package.loaded['weread.ui.download_library']
+    if downloads then downloads.clearBrowsePosition() end
     self.discovery_categories = nil
     self.shelf_progress_retry_at = nil
     self.shelf_regular = nil

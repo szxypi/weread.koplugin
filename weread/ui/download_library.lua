@@ -10,6 +10,7 @@ local UI = require('ui/uimanager')
 local _, T = Util.tr, Util.T
 local M = {}
 local run
+local remembered
 
 local function owned(record, account)
     return record and account and (record._library_account_key == account
@@ -211,14 +212,19 @@ local function show_plans(host,plans,removed,page)
 end
 
 local load
-local function render(host, rows, plans, query, page, plan_page)
+local function render(host, rows, plans, browse, plan_page)
+    local query, position = browse.query, browse.position
+    local account = host.library_db and host.library_db:accountKey()
     local needle = Search.prepare(query)
     local terms = Search.terms(needle)
     local books = {}
     for _, row in ipairs(rows) do
         if Search.matches(row, needle, terms) then books[#books+1] = row end
     end
-    local function reload(next_page) load(host, query, next_page) end
+    local function at(next_position)
+        return {query=query,position=next_position,unfiltered=browse.unfiltered}
+    end
+    local function reload(next_position) load(host, at(next_position)) end
     local function open_plans()
         show_plans(host,plans,function(entry,view,menu)
             local remaining={}
@@ -227,19 +233,27 @@ local function render(host, rows, plans, query, page, plan_page)
             end
             local previous_page=menu.page
             Popup.close(view)
-            render(host,rows,remaining,query,view.page,previous_page)
+            render(host,rows,remaining,at(view:getBrowsePosition()),previous_page)
         end,plan_page)
+    end
+    local anchor = position and position.anchor
+    if position and position.book_id then
+        anchor = require('weread.ui.library_view').bookIndex(books,position.book_id) or anchor
     end
     host:showDiscoveryPage('downloads', books, {
         title = query == '' and _('Downloaded books') or T(_('Downloaded books · %1'), query),
-        page = page,
+        rotation_anchor = anchor,
+        focus_book_id = position and position.focus_book_id,
+        remember_position = function(next_position)
+            if account then remembered={account=account,browse=at(next_position)} end
+        end,
         actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=open_plans}} or nil,
         empty_text = query == '' and _('No downloaded books for this account.') or _('No matching books.'),
         on_refresh = reload,
-        on_return = function(next_page)
+        on_return = function(next_position)
             local current = Scope.capture(host, host.shelf_view)
             -- The detail close callback runs before KOReader removes its widget.
-            UI:nextTick(function() if current() then reload(next_page) end end)
+            UI:nextTick(function() if current() then reload(next_position) end end)
         end,
         on_search = function(view, current)
             local dialog
@@ -248,7 +262,11 @@ local function render(host, rows, plans, query, page, plan_page)
                 local next_query = Query.trim(value)
                 if #next_query > 1024 then host:showInfo(_('Search text is too long.')); return end
                 Popup.close(view)
-                if next_query ~= query then render(host, rows, plans, next_query, 1) end
+                if next_query ~= query then
+                    local unfiltered = query == '' and view:getBrowsePosition() or browse.unfiltered
+                    render(host, rows, plans, {query=next_query,position=next_query=='' and unfiltered or nil,
+                        unfiltered=next_query~='' and unfiltered or nil})
+                end
             end
             dialog = require('ui/widget/inputdialog'):new{
                 title = _('Search downloaded books'), input = query, input_type = 'text', buttons = {{
@@ -300,7 +318,7 @@ run = function(host,current,label,task,done,cancellable)
     if not called or not started then complete() end
 end
 
-load = function(host, query, page)
+load = function(host, browse)
     local current = Scope.capture(host, host.shelf_view)
     run(host,current,_('Loading downloaded books…'),function()
         local rows,plans=collect(host,current)
@@ -309,13 +327,17 @@ load = function(host, query, page)
         if not result or type(result.rows)~='table' or type(result.plans)~='table' then
             host:showInfo(_('Could not load downloaded books.'));return
         end
-        render(host, result.rows, result.plans, query, page)
+        render(host, result.rows, result.plans, browse)
     end,true)
 end
 
 function M.show(host)
     host:closeWeReadUI()
-    load(host, '', 1)
+    local account = host.library_db and host.library_db:accountKey()
+    local browse = remembered and remembered.account==account and remembered.browse
+    load(host, browse or {query=''})
 end
+
+function M.clearBrowsePosition() remembered=nil end
 
 return M

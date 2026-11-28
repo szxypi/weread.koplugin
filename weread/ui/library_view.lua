@@ -1166,6 +1166,7 @@ end
 function LibraryView:getBrowsePosition()
     local visible = self:getVisibleBooks()
     local position = { page = self.page, book_id = ShelfSnapshot.persisted_id(visible[1]) }
+    if self.paged then position.anchor = (self.page - 1) * self.page_size + 1 end
     local focused = self:getFocusItem()
     if focused and focused.book then
         for _, book in ipairs(visible) do

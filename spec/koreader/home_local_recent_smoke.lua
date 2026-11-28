@@ -406,14 +406,75 @@ local downloads=plugin.shelf_view
 local downloaded, ids={},{}
 for _,row in ipairs(downloads.books) do downloaded[row.bookId]=true;ids[#ids+1]=row.bookId;assert(row._cached) end
 assert(#downloads.books==2 and downloaded['900001'] and downloaded[id], 'unexpected synthetic downloads: '..table.concat(ids,','))
-downloads.on_search()
-local query=assert(downloads._shelf_popup);query:setInputText('合成作者');query.buttons[1][2].callback()
-downloads=assert(plugin.shelf_view)
+local LibraryView=require('weread.ui.library_view')
+local function replace_download_view()
+    local previous=downloads
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=previous
+        and plugin.shelf_view._discovery_tab=='downloads' end)
+    downloads=plugin.shelf_view
+end
+local function focus_download()
+    local mode=require('ui/widget/focusmanager').FORCED_FOCUS
+    for y, row in ipairs(downloads.layout) do
+        for x, widget in ipairs(row) do
+            if widget.book and widget.book.bookId==id then
+                downloads:moveFocusTo(x,y,mode)
+                assert(downloads:getFocusedBookId()==id,'could not focus the downloaded book')
+                return
+            end
+        end
+    end
+    error('the target download is outside the visible page')
+end
+local function search_downloads(value)
+    downloads.on_search()
+    local dialog=assert(downloads._shelf_popup)
+    dialog:setInputText(value);dialog.buttons[1][2].callback()
+    replace_download_view()
+end
+local original_download_books=plugin.settings.download_books
+local page_size=downloads.page_size
+local fixture_count=page_size+1
+plugin.settings.download_books=function(book_settings)
+    local books=original_download_books(book_settings)
+    for index=1,fixture_count do
+        local key=tostring(950000+index)
+        books[key]={book_id=key,title=('00 合成离线条目 %03d'):format(index),cached_file=path,
+            _library_account_key=plugin.library_db:accountKey()}
+    end
+    return books
+end
+downloads.on_refresh();replace_download_view()
+local real_index=assert(LibraryView.bookIndex(downloads.books,id))
+local original_page=math.ceil(real_index/downloads.page_size)
+assert(original_page>1,'multiple download pages were not available')
+downloads.on_page_changed(original_page);replace_download_view()
+focus_download()
+downloads.on_select(downloads.books[real_index])
+fixture_count=fixture_count+page_size
+assert(plugin._book_detail_view):onClose();replace_download_view()
+assert(downloads.page>original_page and downloads:getFocusedBookId()==id,
+    'return from details did not follow the focused book after a cache change')
+local restored_page=downloads.page
+search_downloads('合成作者')
 assert(#downloads.books==1 and downloads.books[1].bookId==id,'download search missed the off-shelf book')
+search_downloads('')
+assert(downloads.page==restored_page and downloads:getFocusedBookId()==id,
+    'clearing download search did not restore the unfiltered page and book focus')
+plugin.settings.download_books=original_download_books
+search_downloads('合成作者')
+assert(#downloads.books==1 and downloads.books[1].bookId==id,'download search missed the off-shelf book')
+focus_download()
+for _,item in ipairs(downloads._navigation_buttons) do
+    if item.text==tr('Home') then item.callback();break end
+end
+pump(function() return plugin.shelf_view and plugin.shelf_view._discovery_tab=='home' end)
+require('weread.ui.download_library').show(plugin);replace_download_view()
+assert(#downloads.books==1 and downloads.books[1].bookId==id and downloads:getFocusedBookId()==id,
+    'returning from Home lost the downloaded search or focus')
 UI:forceRePaint();Device.screen:shot(evidence..'/downloaded-books.png')
 downloads.on_select(downloads.books[1]);assert(plugin._book_detail_view):onClose()
-pump(function() return plugin.shelf_view and plugin.shelf_view~=downloads and plugin.shelf_view._discovery_tab=='downloads' end)
-downloads=plugin.shelf_view
+replace_download_view()
 assert(#downloads.books==1 and downloads.books[1].bookId==id,'return from details lost the downloaded search')
 local function download_action()
     downloads.on_hold(downloads.books[1])
@@ -440,6 +501,10 @@ pump(function() return Reader.instance and Reader.instance.document and Reader.i
 assert(Reader.instance.document:isXPointerInCurrentPage(xpointer),'download shortcut lost the saved page')
 close_reader();plugin=host()
 require('weread.ui.download_library').show(plugin)
+replace_download_view()
+assert(#downloads.books==1 and downloads.books[1].bookId==id and downloads:getFocusedBookId()==id,
+    'reopening after offline reading lost the downloaded search or focus')
+downloads.on_refresh()
 local previous_job=assert(plugin._download_library_job)
 plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
     cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
@@ -448,6 +513,7 @@ assert(not previous_job.worker.job and not plugin._download_library_job,'account
 require('weread.ui.download_library').show(plugin)
 pump(function() return plugin.shelf_view and plugin.shelf_view._discovery_tab=='downloads' end)
 assert(#plugin.shelf_view.books==0,'another account saw a private off-shelf download')
+assert(plugin.shelf_view.title==tr('Downloaded books'),'another account inherited the download search')
 plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
     cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
 plugin:onWeReadAccountChanged()
