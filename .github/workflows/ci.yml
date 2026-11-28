@@ -396,7 +396,7 @@ jobs:
             local pattern="$2"
             local search_status=0
 
-            if rg -n -P "$pattern" . \
+            if rg --files-with-matches -P "$pattern" . \
               --glob '!cache/**' \
               --glob '!*.epub' \
               --glob '!.git/**'; then
