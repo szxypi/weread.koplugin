@@ -116,6 +116,12 @@ function M:range(record,catalog)
     end
 end
 
+function M:checkpointScope(record)
+    if self.kind=='eink' or type(record)~='table' or not self:verified(record,record.book_id) then return end
+    local parts={'weread-standard-checkpoint-v1',self.kind,record.account,record.book_id,record.digest,tostring(record.version)}
+    return require('weread.lib.crypto').sha256_hex(table.concat(parts,'\0'))
+end
+
 -- The ordered UIDs and ordinals define the whole EPUB's chapter scope.
 -- The downloader still validates each staged chapter's content and version.
 function M.standard_catalog(id,version,chapters)

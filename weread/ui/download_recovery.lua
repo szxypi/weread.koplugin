@@ -42,6 +42,40 @@ function M.resumeSelection(host,book,chapters,reference,current)
     if current() then host:showInfo(_(selection_changed)) end
 end
 
+function M.cachedTargets(host,entry,page_current)
+    local scope=host.settings:get_auth_scope()
+    local id=Access.display_book_id(entry.book.bookId)
+    if not scope or not id or (entry.kind~='standard' and entry.kind~='selected') then return end
+    local function current()
+        return page_current() and host.settings:auth_scope_matches(scope)
+    end
+    local store=Plan:new(host.library_db,scope,entry.kind)
+    local record=store:read(id,current)
+    if not record or record.revision~=entry.record.revision then return end
+    local saved, conflict=Access.load_cached_book(host.settings,id)
+    if conflict then return end
+    saved=saved or {}
+    if FileIdentity.version(saved.bookVersion)>record.version then return end
+    local book={book_id=id,title=saved.title or entry.book.title,author=saved.author or entry.book.author,
+        bookVersion=record.version,intro=saved.intro or entry.book.intro,cover=saved.cover or entry.book.cover,
+        cache_dir=saved.cache_dir,
+        cached_full_book=saved.cached_full_book,cached_file=saved.cached_file,cached_chapters=saved.cached_chapters}
+    local function match(raw)
+        local chapters=Reading.catalog(raw)
+        if not chapters or not current() then return end
+        if entry.kind=='selected' then
+            return store:selectChapters(id,record.version,chapters,record,current)
+        end
+        if store:range(record,Plan.standard_catalog(id,record.version,chapters)) then return chapters end
+    end
+    local chapters=match(host.library_db:getChapters(id))
+    if not chapters and current() then
+        chapters=match(Content.load_catalog_cache(host.client,host.settings,book))
+        book.chapters=nil
+    end
+    if chapters and current() then return {book=book,chapters=chapters,plan=record} end
+end
+
 local function same_catalog(left,right)
     if not left or not right or #left~=#right then return false end
     for i,row in ipairs(left) do
@@ -95,7 +129,8 @@ function M.start(host,book,chapters,suffix,options)
     local id=Access.display_book_id(book.book_id or book.bookId)
     local catalog=Reading.catalog(chapters)
     local scope=host.settings:get_auth_scope()
-    if not id or not catalog or not scope or not Source.web_access(host.settings) then
+    local local_only=options.local_only==true
+    if not id or not catalog or not scope or not (local_only or Source.web_access(host.settings)) then
         if options.resume_plan then host:showInfo(_(options.separate_chapters and selection_changed or resume_changed));return false end
         return host.downloader:start(book,chapters,suffix,options)
     end
@@ -111,6 +146,7 @@ function M.start(host,book,chapters,suffix,options)
         and type(host.library_db.compareProfileState)=='function' and 'selected'
     local plan_store=plan_kind and host.library_db and Plan:new(host.library_db,scope,plan_kind)
     local resume=options.resume_plan
+    if local_only and (not plan_store or not resume or resume.version~=FileIdentity.version(book.bookVersion)) then return false end
     local resume_message=selected and selection_changed or resume_changed
     local ctx={scope=scope,catalog=catalog,version=FileIdentity.version(book.bookVersion),
         fingerprint=WorkerSettings.fingerprint(host.settings),api_key=host.settings:get('api_key',''),
@@ -260,7 +296,7 @@ function M.start(host,book,chapters,suffix,options)
     ctx.complete=function(ok,value)
         if host._full_download_recovery~=ctx then return end
         if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
-        if not ok and value=='web_expired' then
+        if not ok and value=='web_expired' and not local_only then
             queue_recovery()
         else finish(ok,value) end
     end
@@ -271,15 +307,18 @@ function M.start(host,book,chapters,suffix,options)
             finish(false,'catalog_changed',resume_message);return false
         end
         local copy={};for key,value in pairs(options) do copy[key]=value end
-        copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
+        copy.full_auth_recovery=full and not local_only
+        copy.manual_auth_recovery=not full and not local_only
+        copy.on_complete=ctx.complete
         if plan_store then
+            copy.bind_checkpoint_scope=true
             if selected then
                 copy.selection_checkpoint=require('weread.lib.crypto').sha256_hex(plan_store.account..':'..identity.reading_digest)
                 copy.reset_selection=ctx.reset_selection
             end
             copy.on_start=function()
                 if not current() then
-                    if selected then host.downloader:cancelRequest(ctx.complete,'navigation_changed') end
+                    if selected or resume then host.downloader:cancelRequest(ctx.complete,'navigation_changed') end
                     return
                 end
                 identity.version=FileIdentity.version(download_book.bookVersion)
@@ -290,7 +329,7 @@ function M.start(host,book,chapters,suffix,options)
                 end
                 if not ctx.plan then
                     if not resume or matches_plan(plan_store,resume,identity,current) then
-                        ctx.plan=plan_store:begin(identity,nil,resume or plan_store:read(id,current),current)
+                        ctx.plan=local_only and resume or plan_store:begin(identity,nil,resume or plan_store:read(id,current),current)
                     end
                     if (resume or selected) and not ctx.plan then
                         host.downloader:cancelRequest(ctx.complete,'catalog_changed')
@@ -299,9 +338,10 @@ function M.start(host,book,chapters,suffix,options)
                     end
                 end
                 if type(options.on_start)=='function' then options.on_start() end
+                return plan_store:checkpointScope(ctx.plan)
             end
         end
-        if options.separate_chapters then
+        if options.separate_chapters and not local_only then
             copy.on_selected_expired=function(job)
                 if ctx.attempted or not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then
                     return false

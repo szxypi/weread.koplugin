@@ -216,13 +216,37 @@ local function show_plan_actions(host, entry, view, menu, current, removed, relo
     end
     local buttons
     if entry.kind~='eink' then
-        buttons={{{text=_('Continue download'),callback=action(function()
+        local function finished(ok)
+            if ok and current() then reload(view:getBrowsePosition()) end
+        end
+        local function build_offline()
             Popup.close(view)
-            local resume=entry.kind=='selected' and host.confirmResumeSelectedChapters or host.confirmDownloadAllChapters
-            if current() then resume(host,entry.book,entry.record,function(ok)
-                if ok and current() then reload(view:getBrowsePosition()) end
-            end) end
-        end)}}}
+            if not current() then return end
+            local recovery=require('weread.ui.download_recovery')
+            run(host,current,_('Checking saved chapters…'),function()
+                return recovery.cachedTargets(host,entry,current)
+            end,function(result)
+                if not result or not result.plan then
+                    host:showInfo(_('The saved download needs verification. Connect to continue.'))
+                    return
+                end
+                local selected=entry.kind=='selected'
+                local prompt=selected and _('Build separate EPUBs from the %1 saved chapters?')
+                    or _('Build one EPUB from all %1 saved chapters?')
+                host:confirmAndDownloadChapters(result.book,result.chapters,selected and 'chapters' or 'full',{
+                    separate_chapters=selected,local_only=true,resume_plan=result.plan,on_complete=finished,
+                    confirmation_text=T(prompt,result.plan.count), recovery_current=current,
+                })
+            end,true)
+        end
+        buttons={
+            {{text=_('Continue download'),callback=action(function()
+                Popup.close(view)
+                local resume=entry.kind=='selected' and host.confirmResumeSelectedChapters or host.confirmDownloadAllChapters
+                if current() then resume(host,entry.book,entry.record,finished) end
+            end)}},
+            {{text=_('Build EPUB offline'),callback=action(build_offline)}},
+        }
     else
         buttons={
             {{text=_('Continue download'),callback=action(open({batch=true,resume_plan=entry.record}))}},

@@ -223,4 +223,33 @@ local receipt=request;request=nil;cookies.wr_skey='renewed-synthetic'
 receipt.callback(true,{revision=string.rep('a',64)})
 assert(not host._full_download_recovery and not state.worker and state.starts==1,
     'rejected credential adoption continued recovery')
-print('download_recovery_spec: scoped manual-download renewal passed')
+
+host=fixture(7)
+Recovery.cancel(host)
+local Plan=require('weread.lib.native_direct_batch_plan')
+local scope=host.settings:get_auth_scope()
+local account=require('weread.lib.native_position_contract').account_key(scope.vid)
+local catalog=Plan.standard_catalog('900001',7,chapters)
+local saved={schema=1,account=account,book_id=catalog.book_id,version=7,digest=catalog.reading_digest,
+    count=2,first=1,last=2,revision=string.rep('a',32)}
+host.library_db={
+    accountKey=function() return account end,
+    getProfileState=function(_,key) assert(key=='standard_full_v1:900001');return saved end,
+    getChapters=function() return {chapters[1]} end,
+}
+require('weread.lib.content').load_catalog_cache=function() return chapters end
+require('weread.lib.shelf_source').web_access=function() error('local build consulted Web authorization') end
+local entry={kind='standard',book={bookId='900001',title='Saved book'},record=saved}
+local function current() return true end
+local local_job=assert(Recovery.cachedTargets(host,entry,current),'matching file catalog did not override outdated SQLite data')
+assert(#local_job.chapters==2 and local_job.book.bookVersion==7)
+assert(Recovery.start(host,local_job.book,local_job.chapters,'full',{local_only=true,resume_plan=local_job.plan}))
+local options=state.job.options
+assert(options.local_only and not options.full_auth_recovery and not options.manual_auth_recovery)
+assert(options.on_start()==Plan:new(host.library_db,scope,'standard'):checkpointScope(saved))
+options.on_complete(false,'web_expired')
+assert(#tasks==0 and renewals==0 and not host._full_download_recovery)
+state.epoch=2
+assert(not Recovery.cachedTargets(host,{kind='standard',book=entry.book,record={revision=string.rep('b',32)}},current))
+
+print('download_recovery_spec: scoped manual-download renewal and offline build passed')

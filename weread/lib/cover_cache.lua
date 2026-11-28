@@ -72,6 +72,19 @@ function CoverCache:sourcePathFor(book)
     return nil
 end
 
+function CoverCache:readImage(book)
+    local source, thumbnail = self:sourcePathFor(book), self:pathFor(book)
+    for _, path in ipairs({ source or false, thumbnail or false }) do
+        local file = path and self.open_file(path, "rb")
+        if file then
+            local data, err = file:read(self.MAX_IMAGE_BYTES + 1)
+            if file:close() and not err and data and #data <= self.MAX_IMAGE_BYTES and image_extension(data) then
+                return data
+            end
+        end
+    end
+end
+
 function CoverCache:_ensureDir()
     if lfs.attributes(self.dir, "mode") == "directory" then return true end
     local created, mkdir_err = lfs.mkdir(self.dir)

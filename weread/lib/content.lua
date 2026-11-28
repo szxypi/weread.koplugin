@@ -312,19 +312,26 @@ local function remove_tree(path)
 end
 
 -- Keep working files outside the settings database for restart recovery.
-function Content.open_full_download_workspace(settings, book, selection, reset_selection)
+function Content.open_full_download_workspace(settings, book, selection, reset_selection, existing_only)
     local book_id = book.book_id or book.bookId
     local book_dir = Content.book_resolved_dir(settings, book_id, book)
-    make_path(book_dir)
-    book.cache_dir = book_dir
     local workspace = book_dir .. (selection and "/.weread-download-resume-selected" or "/.weread-download-resume-full")
+    local lfs
+    if existing_only then
+        lfs = require("libs/libkoreader-lfs")
+        if lfs.symlinkattributes(book_dir, "mode") ~= "directory"
+            or lfs.symlinkattributes(workspace, "mode") ~= "directory" then return end
+    else
+        make_path(book_dir)
+    end
     if selection then
-        local lfs = require("libs/libkoreader-lfs")
+        lfs = lfs or require("libs/libkoreader-lfs")
         local marker = workspace .. "/selection"
         local file = lfs.symlinkattributes(workspace, "mode") == "directory"
             and lfs.symlinkattributes(marker, "mode") == "file" and io.open(marker, "rb")
         local previous = file and file:read(65)
         if file then file:close() end
+        if existing_only and previous ~= selection then return end
         -- The caller claims the plan before opening its workspace. The scope
         -- binds the shared stylesheet and chapter indexes to this account.
         if reset_selection or previous ~= selection then
@@ -343,26 +350,28 @@ function Content.open_full_download_workspace(settings, book, selection, reset_s
     local style_dir = workspace .. "/styles"
     local asset_receipt_dir = workspace .. "/native-asset-receipts"
     local web_asset_receipt_dir = workspace .. "/web-asset-receipts"
-    make_path(incoming_dir)
-    make_path(asset_dir)
-    make_path(text_dir)
-    make_path(checkpoint_dir)
-    make_path(rendered_text_dir)
-    make_path(style_dir)
-    make_path(asset_receipt_dir)
-    make_path(web_asset_receipt_dir)
+    for _, directory in ipairs({incoming_dir, asset_dir, text_dir, checkpoint_dir, rendered_text_dir,
+        style_dir, asset_receipt_dir, web_asset_receipt_dir}) do
+        if existing_only then
+            local mode = lfs.symlinkattributes(directory, "mode")
+            if mode ~= "directory" and (mode or directory ~= rendered_text_dir) then return end
+        else
+            make_path(directory)
+        end
+    end
+    book.cache_dir = book_dir
     -- A killed worker can leave a native image's temporary file. The full
     -- workspace is book-locked before opening; remove only our well-formed
     -- regular partials so they cannot be swept into the streamed EPUB.
-    local has_lfs,lfs=pcall(require,'libs/libkoreader-lfs')
-    if not has_lfs then has_lfs,lfs=pcall(require,'lfs') end
-    if has_lfs and lfs.symlinkattributes then
-        if lfs.symlinkattributes(asset_dir,'mode')~='directory' then error('invalid download image directory',0) end
-        for name in lfs.dir(asset_dir) do
+    local has_lfs,fs=pcall(require,'libs/libkoreader-lfs')
+    if not has_lfs then has_lfs,fs=pcall(require,'lfs') end
+    if has_lfs and fs.symlinkattributes then
+        if fs.symlinkattributes(asset_dir,'mode')~='directory' then error('invalid download image directory',0) end
+        for name in fs.dir(asset_dir) do
             local digest,extension=name:match('^eink%-([0-9a-f]+)%.([a-z]+)%.part$')
             if digest and #digest==64 and ({png=true,jpg=true,gif=true,webp=true})[extension] then
                 local path=asset_dir..'/'..name
-                if lfs.symlinkattributes(path,'mode')~='file' or not os.remove(path) then
+                if fs.symlinkattributes(path,'mode')~='file' or not os.remove(path) then
                     error('invalid partial download image',0)
                 end
             end
@@ -520,8 +529,8 @@ read_full_download_checkpoint = function(path)
     local digest = data:match("\nsha256=([0-9a-f]+)\n")
     if not uid or not length or not digest then return nil end
     local receipt, receipt_count, style, style_count, assets, assets_count, owner, owner_count
-    local web_images,web_count,web_owner,web_owner_count
-    receipt_count,style_count,assets_count,owner_count,web_count,web_owner_count = 0,0,0,0,0,0
+    local web_images,web_count,web_owner,web_owner_count,scope,scope_count
+    receipt_count,style_count,assets_count,owner_count,web_count,web_owner_count,scope_count = 0,0,0,0,0,0,0
     for line in data:gmatch("([^\n]*)\n") do
         local value = line:match("^position_receipt=(.*)$")
         if value then receipt, receipt_count = value, receipt_count + 1 end
@@ -535,6 +544,8 @@ read_full_download_checkpoint = function(path)
         if web_value then web_images,web_count=web_value,web_count+1 end
         local web_owner_value=line:match('^web_owner_sha256=(.*)$')
         if web_owner_value then web_owner,web_owner_count=web_owner_value,web_owner_count+1 end
+        local scope_value=line:match('^download_scope=(.*)$')
+        if scope_value then scope,scope_count=scope_value,scope_count+1 end
     end
     if receipt_count > 1 or (data:find("position_receipt", 1, true)
         and (receipt_count ~= 1 or #receipt ~= 64 or not receipt:match("^[0-9a-f]+$"))) then return nil end
@@ -551,7 +562,9 @@ read_full_download_checkpoint = function(path)
         or web_owner_count>1 or (data:find('web_owner_sha256',1,true)
         and (web_owner_count~=1 or #web_owner~=64 or not web_owner:match('^[0-9a-f]+$')))
         or (web_images~=nil)~=(web_owner~=nil) or web_images and style then return nil end
-    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"), receipt, style, assets, owner, web_images, web_owner
+    if scope_count>1 or scope and (#scope~=64 or not scope:match('^[0-9a-f]+$')) then return nil end
+    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"),
+        receipt, style, assets, owner, web_images, web_owner, scope
 end
 
 function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images)
@@ -563,13 +576,15 @@ function Content.full_download_chapter_exists(workspace, chapter, chapter_index,
     if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
         return false
     end
-    local uid, length, digest, source_version, source_book, receipt, style, assets, owner, web_images, web_owner = read_full_download_checkpoint(
+    local uid, length, digest, source_version, source_book, receipt, style, assets, owner, web_images, web_owner, scope = read_full_download_checkpoint(
         Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
     return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
         and length == #xhtml
         and digest == Crypto.sha256_hex(xhtml)
         and (not source_book or source_book == workspace.book_id)
         and (not expected_version or expected_version == 0 or source_version == expected_version)
+        and (workspace.offline_version==nil or workspace.checkpoint_scope and scope==workspace.checkpoint_scope
+            and source_book==workspace.book_id and source_version==workspace.offline_version)
         and (not receipt or PositionSource.resolve({ workspace = workspace, receipt = receipt },
             workspace.book_id, chapter.chapterUid or chapter.chapterId) ~= nil)
         and xhtml:find(full_style_link(style),1,true)~=nil
@@ -781,6 +796,7 @@ function Content.save_full_download_chapter(workspace, chapter, chapter_index, x
         .. (assets and 'assets_sha256='..assets..'\n' or '')
         .. (style and 'native_owner_sha256='..workspace.native_owner..'\n' or '')
         .. (web_images and 'web_images_digest='..web_images..'\nweb_owner_sha256='..workspace.native_owner..'\n' or '')
+        .. (workspace.checkpoint_scope and 'download_scope='..workspace.checkpoint_scope..'\n' or '')
     ok, err = atomic_write(checkpoint_path, checkpoint)
     if not ok then error(err or "could not checkpoint chapter metadata") end
     return path
@@ -815,7 +831,9 @@ function Content.save_full_download_css(workspace, css)
     if type(css) ~= "string" or #css > MAX_FULL_STYLE_BYTES then error("invalid book stylesheet") end
     local ok, err = atomic_write(workspace.path .. "/style.css", css)
     if not ok then error(err or "could not checkpoint stylesheet") end
-    ok, err = atomic_write(workspace.path .. "/style.sha256", Crypto.sha256_hex(css) .. "\n")
+    local scope = workspace.checkpoint_scope
+    ok, err = atomic_write(workspace.path .. "/style.sha256",
+        Crypto.sha256_hex(css) .. "\n" .. (scope and scope .. "\n" or ""))
     if not ok then error(err or "could not checkpoint stylesheet digest") end
     return true
 end
@@ -824,17 +842,20 @@ function Content.load_full_download_css(workspace)
     local path = workspace and workspace.path
     local receipt = path and io.open(path .. "/style.sha256", "rb")
     if not receipt then return nil end
-    local digest, receipt_err = receipt:read(66)
+    local record, receipt_err = receipt:read(131)
     local receipt_closed = receipt:close()
-    if receipt_err or not receipt_closed or not digest or #digest ~= 65
-        or not digest:match("^[0-9a-f]+\n$") then return nil end
+    if receipt_err or not receipt_closed or not record then return nil end
+    local digest, scope = record:match("^([0-9a-f]+)\n([0-9a-f]+)\n$")
+    digest = digest or record:match("^([0-9a-f]+)\n$")
+    if not digest or #digest ~= 64 or scope and #scope ~= 64
+        or workspace.offline_version ~= nil and (not scope or scope ~= workspace.checkpoint_scope) then return nil end
     local file = io.open(path .. "/style.css", "rb")
     if not file then return nil end
     local css, read_err = file:read(MAX_FULL_STYLE_BYTES + 1)
     local closed = file:close()
     css = css or ""
     if read_err or not closed or #css > MAX_FULL_STYLE_BYTES
-        or Crypto.sha256_hex(css) ~= digest:sub(1, 64) then return nil end
+        or Crypto.sha256_hex(css) ~= digest then return nil end
     return css
 end
 
@@ -849,6 +870,9 @@ function Content.full_download_completed_chapters(workspace, chapters, expected_
 end
 
 function Content.load_selected_download_chapter(workspace, chapter, index)
+    if workspace.offline_version~=nil and not Content.full_download_chapter_exists(workspace,chapter,index) then
+        position_error(false)
+    end
     if not Content.full_download_rendered_chapter_exists(workspace, chapter, index) then position_error(false) end
     local text, err = read_chapter_text(Content.full_download_rendered_chapter_path(workspace, chapter, index))
     if not text or err then error(err or "chapter text is missing", 0) end
@@ -1199,7 +1223,7 @@ local function write_epub(path, entries, output, before_commit)
         error(err, 0)
     end
     if before_commit then
-        local allowed,reason=pcall(before_commit)
+        local allowed,reason=pcall(before_commit,path)
         if not allowed or reason~=true then
             pcall(os.remove,part_path)
             error(allowed and 'chapter_prefetch/session_changed' or reason,0)
@@ -1543,9 +1567,9 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     append_asset_entries(entries, assets)
     local guard=before_commit
     if plan then
-        guard=function()
+        guard=function(target)
             if not require('weread.lib.chapter_cache_path').current(plan) then error('chapter_cache/conflict',0) end
-            if before_commit then return before_commit() end
+            if before_commit then return before_commit(target) end
             return true
         end
     end

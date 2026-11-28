@@ -633,6 +633,42 @@ expect(Content.full_download_chapter_exists(workspace,web_chapter,3,7)
 local empty_web=WebImages.stage(workspace,{})
 expect(WebImages.verify(workspace,empty_web),'empty web image receipt was rejected')
 
+package.preload["libs/libkoreader-lfs"] = function()
+    local fs=require("lfs")
+    fs.symlinkattributes=fs.attributes
+    return fs
+end
+local offline_book={book_id="77",title="Offline"}
+expect(not Content.open_full_download_workspace(settings,offline_book,nil,nil,true) and not offline_book.cache_dir,
+    "offline check created a missing download workspace")
+local scoped=Content.open_full_download_workspace(settings,offline_book)
+Content.save_full_download_css(scoped,"body {}")
+Content.save_full_download_chapter(scoped,chapters[1],1,"<p>Legacy text</p>",7)
+local reopened=assert(Content.open_full_download_workspace(settings,offline_book,nil,nil,true))
+reopened.checkpoint_scope=string.rep("a",64)
+reopened.offline_version=7
+expect(not Content.load_full_download_css(reopened)
+    and not Content.full_download_chapter_exists(reopened,chapters[1],1,7),
+    "unbound legacy checkpoints were accepted for offline publication")
+scoped.checkpoint_scope=reopened.checkpoint_scope
+Content.save_full_download_css(scoped,"body {}")
+Content.save_full_download_chapter(scoped,chapters[1],1,"<p>Saved text</p>",7)
+expect(Content.load_full_download_css(reopened)=="body {}"
+    and Content.full_download_chapter_exists(reopened,chapters[1],1,7),
+    "current style and source could not be reopened")
+reopened.checkpoint_scope=string.rep("b",64)
+expect(not Content.load_full_download_css(reopened)
+    and not Content.full_download_chapter_exists(reopened,chapters[1],1,7),
+    "another plan could use these checkpoints offline")
+reopened.checkpoint_scope=scoped.checkpoint_scope
+reopened.offline_version=0
+expect(not Content.full_download_chapter_exists(reopened,chapters[1],1,0),
+    "a known version became an exact match for an unknown offline source")
+Content.save_full_download_chapter(scoped,chapters[1],1,"<p>Unknown version</p>",0)
+expect(Content.full_download_chapter_exists(reopened,chapters[1],1,0),
+    "the exact unknown-version checkpoint could not reopen")
+Content.cleanup_download_workspace(scoped)
+
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),
     "successful cleanup did not remove the resumable workspace")

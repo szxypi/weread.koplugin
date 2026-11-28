@@ -130,6 +130,11 @@ function Downloader:_preserveWorkspace(dl, reason)
     self:_finishJob(dl)
 end
 
+function Downloader:_stopOfflineBuild(dl)
+    self:_preserveWorkspace(dl, "offline_checkpoints_incomplete")
+    self.show_info(_("The saved download needs verification. Connect to continue."))
+end
+
 function Downloader:_chapterStagingFailed(dl, reason)
     logger.warn("selected chapter workspace failed:", log_error(reason))
     self:_releaseStandby(dl)
@@ -639,7 +644,7 @@ function Downloader:_runInterruptible(dl, task)
         -- wrapper and its waits exist only in this disposable child, so the
         -- UI remains responsive and cancellation can terminate a waiting read.
         local base = scoped_client()
-        local client = (tonumber(dl.total) or 0) > 1
+        local client = not dl.local_only and (tonumber(dl.total) or 0) > 1
             and DownloadReadClient.wrap(base) or base
         local ok, value = xpcall(function() return task(client) end, debug.traceback)
         return { ok = ok, value = value, auth = auth_result() }
@@ -706,7 +711,17 @@ function Downloader:start(book, chapters, suffix, options)
         end
         return false
     end
-    if not options.prefetch and not self.require_login(true, false) then
+    local local_only = options.local_only == true
+    local full = (suffix or "book") == "full" and not options.single_chapter and not options.separate_chapters
+    local selection_checkpoint = options.separate_chapters and not options.single_chapter and options.selection_checkpoint
+    local resumable = full or type(selection_checkpoint) == "string"
+    local full_auth_scope = resumable and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil
+    if local_only and (not resumable or not full_auth_scope or options.prefetch or #chapters == 0
+        or type(options.on_start) ~= "function") then
+        if type(options.on_complete) == "function" then pcall(options.on_complete, false, "offline_checkpoints_incomplete") end
+        return false
+    end
+    if not local_only and not options.prefetch and not self.require_login(true, false) then
         if type(options.on_complete) == "function" then
             pcall(options.on_complete, false, "authentication_required")
         end
@@ -759,11 +774,6 @@ function Downloader:start(book, chapters, suffix, options)
     end
 
     local total = #chapters
-    local full = (suffix or "book") == "full"
-        and not options.single_chapter
-        and not options.separate_chapters
-    local selection_checkpoint = options.separate_chapters and not options.single_chapter and options.selection_checkpoint
-    local resumable = full or type(selection_checkpoint) == "string"
     local dl = {
         book = book,
         chapters = chapters,
@@ -780,6 +790,7 @@ function Downloader:start(book, chapters, suffix, options)
         failed = {},
         resumable = resumable,
         selection_checkpoint = selection_checkpoint,
+        local_only = local_only,
         completed = {},
         completed_count = 0,
         annotation_failed_batches = 0,
@@ -802,16 +813,16 @@ function Downloader:start(book, chapters, suffix, options)
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
         auth_scope = (options.prefetch or options.on_selected_expired)
             and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
-        full_auth_scope = resumable and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
+        full_auth_scope = full_auth_scope,
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
         full_auth_recovery = options.full_auth_recovery == true and resumable,
         manual_auth_recovery = options.manual_auth_recovery == true and options.prefetch ~= true,
-        detect_expired_login = options.prefetch ~= true,
+        detect_expired_login = options.prefetch ~= true and not local_only,
         on_reading_auth_updated = options.on_reading_auth_updated,
         on_selected_expired = options.on_selected_expired,
     }
     local download_cache = self.settings.get and self.settings:get('cache', {}) or {}
-    dl.native_chapter_resources = download_cache.download_book_images == true
+    dl.native_chapter_resources = not local_only and download_cache.download_book_images == true
         and (dl.single_chapter and download_cache.native_chapter_resources == true
             or full and download_cache.native_full_book_resources == true)
     if dl.native_chapter_resources then
@@ -844,10 +855,12 @@ function Downloader:start(book, chapters, suffix, options)
     local function notifyStart()
         if dl.start_notified or type(dl.on_start) ~= "function" then return end
         dl.start_notified = true
-        local called, start_err = pcall(dl.on_start)
+        local called, result = pcall(dl.on_start)
         if not called then
-            logger.warn("download start callback failed:", log_error(start_err))
-            if dl.selection_checkpoint then self:cancelJob(dl, "download_cache_unavailable") end
+            logger.warn("download start callback failed:", log_error(result))
+            if dl.selection_checkpoint or dl.local_only then self:cancelJob(dl, "download_cache_unavailable") end
+        elseif options.bind_checkpoint_scope and type(result)=="string" then
+            dl.checkpoint_scope=result
         end
     end
     if dl.prefetch then
@@ -889,7 +902,7 @@ function Downloader:start(book, chapters, suffix, options)
                 book.reader_url = prepared.url
                 book.psvts, book.pclts, book.token = nil, nil, nil
                 require("weread.lib.reader_state").apply_to_book(book, prepared)
-            else
+            elseif not dl.local_only then
                 self:_setStage(dl, _("Connecting to WeRead..."))
                 local updated = self:_runInterruptible(dl, function(client)
                     Content.ensure_reader_state(client, book)
@@ -899,18 +912,22 @@ function Downloader:start(book, chapters, suffix, options)
                 apply_reader_book(book, updated)
             end
             dl.source_identity = FileIdentity.capture(book)
-            self:_setStage(dl, _("Preparing download..."))
-            if dl.selection_checkpoint then
+            self:_setStage(dl, _(local_only and "Checking saved chapters…" or "Preparing download..."))
+            if dl.selection_checkpoint or options.bind_checkpoint_scope then
                 notifyStart()
                 if dl.cancelled or not full_scope_current(self.settings, dl) then return end
             end
             if dl.resumable and Content.open_full_download_workspace then
                 dl.workspace = Content.open_full_download_workspace(
-                    self.settings, book, dl.selection_checkpoint, options.reset_selection)
+                    self.settings, book, dl.selection_checkpoint, options.reset_selection, dl.local_only)
+                if not dl.workspace then return end
+                dl.workspace.checkpoint_scope = dl.checkpoint_scope
+                if dl.local_only then dl.workspace.offline_version = dl.source_identity.book_version end
                 dl.state.workspace = dl.workspace
                 dl.state.css = Content.load_full_download_css(dl.workspace)
-                dl.state.used_asset_names = Content.full_download_workspace_used_asset_names(
-                    dl.workspace)
+                if not dl.local_only then
+                    dl.state.used_asset_names = Content.full_download_workspace_used_asset_names(dl.workspace)
+                end
                 self:_restoreFullDownloadCheckpoint(dl, true)
             elseif Content.create_download_workspace then
                 dl.workspace = Content.create_download_workspace(
@@ -919,6 +936,16 @@ function Downloader:start(book, chapters, suffix, options)
             end
         end)
         if dl.cancelled then self:_step(dl); return end
+        if dl.local_only then
+            if not full_scope_current(self.settings,dl) then self:_step(dl);return end
+            if not ok_init or not dl.checkpoint_scope or not dl.workspace
+                or dl.state.css==nil or dl.completed_count~=dl.total then
+                self:_stopOfflineBuild(dl)
+                return
+            end
+            dl.index=dl.total+1
+            dl.workspace_verified=true
+        end
         if not ok_init then
             logger.err("initialize book download failed:", log_error(err_init))
             if not dl.selection_checkpoint then self:_cleanupWorkspace(dl) end
@@ -953,16 +980,21 @@ function Downloader:start(book, chapters, suffix, options)
     end
     -- Paint before run_online_task checks connectivity (which may resolve DNS)
     -- and before initializeDownload opens the reader session or local cache.
-    dl.stage_title = _("Checking network...")
+    dl.stage_title = _(local_only and "Checking saved chapters…" or "Checking network...")
     self:_ensureProgressDialog(dl)
     local ffiutil = require("ffi/util")
     if type(ffiutil.runInSubProcess) == "function" then
         local ok, trapper = pcall(require, "ui/trapper")
         if ok then dl.trapper = trapper end
     end
-    local started = task_runner(function()
+    local function initialize()
         if dl.trapper then dl.trapper:wrap(initializeDownload) else initializeDownload() end
-    end)
+    end
+    if local_only then
+        UIManager:scheduleIn(0.1, initialize)
+        return true
+    end
+    local started = task_runner(initialize)
     if started == false then
         if dl.progress_dialog then
             dl.progress_dialog:close()
@@ -1485,6 +1517,7 @@ function Downloader:_step(dl)
             if dl.cancelled then self:_step(dl); return end
             if not full_scope_current(self.settings,dl) then self:_step(dl);return end
             if completed_count < dl.total then
+                if dl.local_only then self:_stopOfflineBuild(dl);return end
                 for chapter_index = 1, dl.total do
                     if not dl.completed[chapter_index] then
                         dl.index = chapter_index
@@ -1513,10 +1546,22 @@ function Downloader:_step(dl)
                 for key, value in pairs(dl.book) do
                     if key ~= "annotation_documents" then packaging_book[key] = value end
                 end
-                local function native_guard()
+                local function native_guard(target)
                     if not full_scope_current(self.settings,dl) or dl.native_chapter_resources
                         and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
                         error('native_candidate/session_changed', 0)
+                    end
+                    if dl.local_only then
+                        local mode=require("libs/libkoreader-lfs").symlinkattributes(target,"mode")
+                        if mode then
+                            local entries=mode=="file" and require("weread.lib.source_archive").read(target,
+                                {[FileIdentity.PATH]=FileIdentity.MAX_BYTES})
+                            local existing=entries and FileIdentity.decode(entries[FileIdentity.PATH])
+                            if not existing or existing.book_id~=dl.source_identity.book_id
+                                or existing.book_version>dl.source_identity.book_version then
+                                error(_("A newer or unverified EPUB already exists. It was kept."),0)
+                            end
+                        end
                     end
                     return true
                 end
@@ -1560,11 +1605,15 @@ function Downloader:_step(dl)
                     path, chapter_paths = paths[tostring(dl.selected[1].chapterUid or 1)], paths
                 else
                     local cover_data
-                    local cover_url = WeRead.normalize_cover_url(dl.book.cover)
-                    if cover_url and cover_url ~= "" then
-                        pcall(function()
-                            cover_data = self.client:get_binary(cover_url)
-                        end)
+                    if dl.local_only then
+                        if dl.book.cover then
+                            cover_data=require("weread.lib.cover_cache"):new(self.settings):readImage(dl.book)
+                        end
+                    else
+                        local cover_url=WeRead.normalize_cover_url(dl.book.cover)
+                        if cover_url and cover_url~="" then
+                            pcall(function() cover_data=self.client:get_binary(cover_url) end)
+                        end
                     end
                     if dl.cancelled then return end
                     if dl.resumable then
@@ -1733,6 +1782,7 @@ function Downloader:_step(dl)
         return
     end
 
+    if dl.local_only then self:_stopOfflineBuild(dl);return end
     if (dl.resumable or dl.separate_chapters) and self:_skipCompletedChapterBatch(dl) then return end
 
     local chapter = dl.chapters[dl.index]

@@ -3484,10 +3484,11 @@ function M:confirmAndDownloadChapters(book, chapters, suffix, options)
     end
     local text = options.confirmation_text
         or T(_("Download %1 selected chapter(s)?"), tostring(#chapters))
+    local action=options.local_only and _("Build EPUB") or _("Download")
     UIManager:show(ConfirmBox:new{
         text = text,
-        ok_text = _("Download"), cancel_text = _("Cancel"),
-        ok_callback = self:safeCallback(_("Download"), function()
+        ok_text = action, cancel_text = _("Cancel"),
+        ok_callback = self:safeCallback(action, function()
             if guarded.recovery_current() then
                 require('weread.ui.download_recovery').start(self,book,chapters,suffix,guarded)
             end
