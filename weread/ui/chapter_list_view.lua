@@ -96,12 +96,16 @@ function ChapterRow:paintTo(bb, x, y)
     return InputContainer.paintTo(self, bb, x, y)
 end
 
-function ChapterRow:setOffscreenGeometry(x, y)
-    self.dimen.x, self.dimen.y = x, y
+function ChapterRow:dropFrame()
     if self.frame then
         self.frame:free()
         self.frame, self[1] = nil, nil
     end
+end
+
+function ChapterRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    self:dropFrame()
 end
 
 function ChapterRow:onTapChapterRow()
@@ -165,6 +169,12 @@ function ChapterListView:toolbar()
     return HorizontalGroup:new{ unpack(buttons) }
 end
 
+local function row_width(title_meter, title, list_width, padding, status_width)
+    title_meter:setText(title or "")
+    title_meter:setMaxWidth(math.max(1, list_width - 3 * padding - status_width))
+    return math.max(list_width, title_meter:getWidth() + status_width + 3 * padding)
+end
+
 function ChapterListView:content()
     local group = ChapterGroup:new{
         align = "left",
@@ -209,9 +219,7 @@ function ChapterListView:content()
         end
         -- Keep exact row widths, including when a long status leaves little room
         -- for the title. Only painted rows need to retain their own text widgets.
-        title_meter:setText(chapter.title or "")
-        title_meter:setMaxWidth(math.max(1, self.list_width - 3 * padding - status_width))
-        local width = math.max(self.list_width, title_meter:getWidth() + status_width + 3 * padding)
+        local width = row_width(title_meter, chapter.title, self.list_width, padding, status_width)
         local row = ChapterRow:new{
             text = chapter.title,
             status = chapter.status,
@@ -232,6 +240,57 @@ function ChapterListView:content()
     title_meter:free()
     status_meter:free()
     return group
+end
+
+function ChapterListView:markChaptersCached(changed)
+    local cached = _("Cached")
+    local indices = {}
+    for index, chapter in ipairs(self.chapters or {}) do
+        if changed[chapter.source] and chapter.status ~= cached then indices[#indices + 1] = index end
+    end
+    if #indices == 0 then return true end
+
+    local face = Font:getFace("cfont", 20)
+    local status_meter = TextWidget:new{ text = cached, face = face }
+    local status_width = status_meter:getWidth()
+    status_meter:free()
+    local title_meter = TextWidget:new{ text = "", face = face }
+    -- A change to the measured width can affect the scrollbars and mirrored
+    -- alignment. Let the catalog rebuild its layout in that case.
+    for _, index in ipairs(indices) do
+        local row = self._chapter_rows[index]
+        if row_width(title_meter, row.text, self.list_width, Size.padding.large, status_width) ~= row.dimen.w then
+            title_meter:free()
+            return false
+        end
+    end
+    title_meter:free()
+
+    local scroll = self._nav_scroll
+    local area = scroll._is_scrollable and scroll:getCropRegion() or scroll.dimen
+    local offset = scroll:getScrolledOffset().y
+    local dirty
+    for _, index in ipairs(indices) do
+        local row = self._chapter_rows[index]
+        self.chapters[index].status = cached
+        row.status = cached
+        row:dropFrame()
+        local y = area.y + row._focus_content_top - offset
+        local top = math.max(area.y, y)
+        local bottom = math.min(area.y + area.h, y + row.dimen.h)
+        if bottom > top then
+            local region = Geom:new{ x = area.x, y = top, w = area.w, h = bottom - top }
+            dirty = dirty and dirty:combine(region) or region
+        end
+    end
+    if dirty then UIManager:setDirty(self, "ui", dirty) end
+    return true
+end
+
+function ChapterListView:browsingPosition()
+    local item = self:getFocusItem()
+    return { offset = self._nav_scroll:getScrolledOffset(), x = self.selected.x, y = self.selected.y,
+        focused = item and (item._chapter_focused or item.frame and item.frame.invert) }
 end
 
 function ChapterListView:init()
@@ -309,6 +368,18 @@ function M.show(data, callbacks)
         on_select = callbacks.on_select,
         on_close = callbacks.on_close,
     }
+    local position = data.browsing_position
+    if position then
+        local scroll = view._nav_scroll
+        scroll:initState()
+        scroll:setScrolledOffset{
+            x = math.min(position.offset.x, scroll._max_scroll_offset_x),
+            y = math.min(position.offset.y, scroll._max_scroll_offset_y),
+        }
+        scroll:_updateScrollBars()
+        if position.focused then view:moveFocusTo(position.x, position.y, FocusManager.FORCED_FOCUS)
+        else FocusNav.initialFocus(view, position.x, position.y) end
+    end
     UIManager:show(view)
     return view
 end

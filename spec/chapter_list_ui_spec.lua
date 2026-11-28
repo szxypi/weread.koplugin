@@ -10,7 +10,12 @@ package.preload["weread.ui.chapter_list_view"] = function()
         show = function(data, callbacks)
             catalog_view_data = data
             catalog_view_callbacks = callbacks
-            return {}
+            return {markChaptersCached=function(_,changed)
+                for _,row in ipairs(data.chapters) do
+                    if changed[row.source] then row.status='Cached' end
+                end
+                return true
+            end}
         end,
     }
 end
@@ -156,6 +161,11 @@ catalog_view_callbacks.on_select(chapters[1])
 expect(opened_chapter == chapters[1], "chapter row opens the selected chapter")
 expect(type(single_chapter_refresh) == "function",
     "chapter row passes a post-download refresh callback")
+existing_files["/cache/chapter-1.epub"] = true
+persisted_books["book-1"] = {cached_chapters={["1"]="/cache/chapter-1.epub"}}
+single_chapter_refresh("/cache/chapter-1.epub", function(rebuild) rebuild() end)
+expect(host._chapter_list_view==original_view and catalog_view_data.chapters[1].status=="Cached",
+    "single download updates its status without reopening the catalog")
 
 host:showChapterDownloadSelection(book, chapters, function()
     returned_to_parent = true
@@ -196,7 +206,21 @@ expect(closed == 1 and returned_to_parent,
     "successful multi-download closes selection and returns to parent list")
 expect(catalog_view_data.chapters[1].status == "Cached",
     "successful multi-download refreshes cached chapter status")
-expect(book_reads == 2, "opening and rebuilding the catalog read one book each")
+expect(book_reads == 3, "opening and refreshing the catalog read one book each")
+
+local batch_view=host._chapter_list_view
+catalog_view_callbacks.on_select_download()
+local batch_menu=shown[#shown]
+batch_menu.items[3].callback()
+batch_menu.items[4].callback()
+batch_menu.items[1].callback()
+existing_files['/cache/second.epub']=true
+persisted_books['book-1'].cached_chapters['2']='/cache/second.epub'
+persisted_books['book-1'].cached_chapters['3']='/cache/not-saved.epub'
+downloaded_options.on_complete(true)
+expect(host._chapter_list_view==batch_view and catalog_view_data.chapters[2].status=='Cached'
+    and catalog_view_data.chapters[3].status=='300 words',
+    'a partial batch updated only the saved chapter and kept the catalog open')
 
 local claims=require('weread.lib.chapter_cache_claim')
 local old_combined,old_usable=claims.combined,claims.usable
@@ -261,8 +285,14 @@ expect(results[1].source == chapters[1] and results[2].source == chapters[4],
     "duplicate title results keep catalog order and chapter identity")
 expect(results[1].title == "1. Chapter Alpha" and results[2].title == "4. Chapter Alpha",
     "duplicate title results are labeled by their original catalog index")
+local filtered_view=host._chapter_list_view
 catalog_view_callbacks.on_select(results[2].source)
 expect(opened_chapter == chapters[4], "filtered selection opens the matching chapter")
+existing_files['/cache/four.epub']=true
+persisted_books['book-1'].cached_chapters['4']='/cache/four.epub'
+single_chapter_refresh('/cache/four.epub',function(rebuild) rebuild() end)
+expect(host._chapter_list_view==filtered_view and results[2].status=='Cached' and results[1].source==chapters[1],
+    'a filtered download kept the view and updated the matching result')
 catalog_view_callbacks.on_refresh()
 expect(chapter_loads == 2 and #catalog_view_data.chapters == 2, "refresh preserves the active filter")
 catalog_view_callbacks.on_search()
@@ -273,6 +303,7 @@ catalog_view_callbacks.on_search()
 input.buttons[1][1].callback()
 expect(not catalog_view_data.subtitle and #catalog_view_data.chapters == 7 and chapter_loads == 2,
     "clearing restores the catalog from memory")
+expect(catalog_view_data.chapters[4].status=='Cached','clearing the filter kept the downloaded status')
 catalog_view_callbacks.on_search()
 local old_query = input
 host._chapter_list_view:onCloseWidget()

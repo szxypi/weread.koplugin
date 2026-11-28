@@ -26,6 +26,8 @@ def main():
     parser.add_argument('--no-xtext', action='store_true')
     parser.add_argument('--check-prepaint-press', action='store_true',
                         help='Confirm a physical key selects the new focus before the queued scroll repaint.')
+    parser.add_argument('--check-cache-update', action='store_true',
+                        help='Measure a downloaded chapter status update against rebuilding the catalog.')
     parser.add_argument('--max-row-paints', type=int)
     parser.add_argument('--max-row-layout-updates', type=int)
     parser.add_argument('--max-materialized-rows', type=int)
@@ -60,6 +62,8 @@ def main():
             env['WEREAD_CHAPTER_NO_XTEXT'] = '1'
         if args.check_prepaint_press:
             env['WEREAD_CHAPTER_PREPAINT_PRESS'] = '1'
+        if args.check_cache_update:
+            env['WEREAD_CHAPTER_CACHE_UPDATE'] = '1'
         code, output, repaint = run_child([str(runtime / 'luajit'), str(repo / 'spec/koreader/eink_chapter_benchmark.lua')],
                                           env, b'', runtime, timeout=150)
         if output.count(FRAME) != 1:

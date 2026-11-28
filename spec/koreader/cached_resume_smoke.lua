@@ -32,10 +32,11 @@ local Source,Dom=require('weread.lib.position_source'),require('weread.lib.sourc
 local tr=require('weread.lib.plugin_util').tr
 local id=cb_resume and 'CB_SyntheticResume' or (os.getenv('WEREAD_TEST_LARGE_BOOK_ID')=='1' and '9007199254740993' or '900001')
 local format=os.getenv('WEREAD_TEST_CONTENT_FORMAT')=='txt' and 'web_txt' or 'web_xhtml'
+local accept_read_prompt=true
 local function tick()
     UI:setInputTimeout(0);UI:handleInput()
     local dialog=UI:getTopmostVisibleWidget()
-    if dialog and dialog.ok_callback and (dialog.ok_text==tr('Download') or dialog.ok_text==tr('Read now')) then
+    if dialog and dialog.ok_callback and (dialog.ok_text==tr('Download') or accept_read_prompt and dialog.ok_text==tr('Read now')) then
         UI:close(dialog);dialog.ok_callback()
     end
 end
@@ -329,7 +330,17 @@ else
     assert(#view._chapter_rows==index and view._chapter_rows[index].text==(duplicates and '4. '..title or title))
     if duplicates then assert(view._chapter_rows[1].text=='2. '..title) end
     shot('chapter-filter-result')
+    if duplicates then accept_read_prompt=false end
     view._chapter_rows[index]:onTapChapterRow()
+    if duplicates then
+        pump(function()
+            local dialog=UI:getTopmostVisibleWidget()
+            return dialog and dialog.ok_text==tr('Read now') and view._chapter_rows[index].status==tr('Cached')
+        end)
+        assert(current._chapter_list_view==view and view.subtitle and view._chapter_rows[1].text=='2. '..title,
+            'downloading from a filtered list reset the catalog')
+        accept_read_prompt=true
+    end
 end
 if manual_case and manual_kind=='single-repeat' then manual_case.recover_single(view) end
 pump(function()

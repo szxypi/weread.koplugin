@@ -134,13 +134,63 @@ local ok,reason=pcall(function()
     assert(selected==nil,'Press activated a chapter after touch scrolling it offscreen')
     FocusNav.scrollToFocused(view);UI:forceRePaint()
     assert(focused.frame and focused.frame.invert,'focus lost after leaving viewport')
+    local cache_update
+    if os.getenv('WEREAD_CHAPTER_CACHE_UPDATE')=='1' then
+        local screenshots=os.getenv('WEREAD_CHAPTER_SHOTS')
+        local tr=require('weread.lib.i18n').tr
+        local last=chapter_count
+        while last%17==0 or last%7==0 do last=last-1 end
+        view:moveFocusTo(1,last+1,FocusManager.FORCED_FOCUS)
+        FocusNav.scrollFocusedToTop(view);UI:forceRePaint()
+        local row,chapter=rows[last],chapters[last]
+        local old_status=chapters[1].status
+        assert(not view:markChaptersCached({[chapters[1].source]=true,[chapters[middle].source]=true})
+            and chapters[1].status==old_status,'an unsupported width change partially applied a batch')
+        local set_dirty=UI.setDirty
+        local region,dirty_count
+        UI.setDirty=function(self,widget,kind,rect,...)
+            if widget==view then region,dirty_count=rect,(dirty_count or 0)+1 end
+            return set_dirty(self,widget,kind,rect,...)
+        end
+        local margin=scroll:getCropRegion()
+        local measurements=0
+        local set_text=TextWidget.setText
+        TextWidget.setText=function(self,...)
+            measurements=measurements+1
+            return set_text(self,...)
+        end
+        local cpu=os.clock()
+        assert(view:markChaptersCached({[chapter.source]=true,[chapters[1].source]=true}))
+        assert(region and dirty_count==1 and region.h==row.dimen.h and margin:contains(region),
+            'a status update refreshed more than the visible chapter row')
+        UI.setDirty=set_dirty
+        UI:forceRePaint()
+        local update_cpu=(os.clock()-cpu)*1000
+        local update_measurements=measurements
+        assert(chapter.status==tr('Cached') and row.status==tr('Cached') and row.frame.invert
+            and rows[1].status==tr('Cached') and not rows[1].frame,'status update lost focus or materialized an offscreen row')
+        if screenshots then Device.screen:shot(screenshots..'/cache-updated.png') end
+        local position=view:browsingPosition()
+        local view_factory=require('weread.ui.chapter_list_view')
+        UI:close(view)
+        measurements=0;cpu=os.clock()
+        view=view_factory.show({title='合成长目录',chapters=chapters,browsing_position=position})
+        UI:forceRePaint()
+        local rebuild_cpu=(os.clock()-cpu)*1000
+        TextWidget.setText=set_text
+        assert(view._nav_scroll:getScrolledOffset().y==position.offset.y and view:getFocusItem()==view._chapter_rows[last]
+            and view._chapter_rows[last].frame.invert,'rebuilding changed the saved browsing position')
+        if screenshots then Device.screen:shot(screenshots..'/cache-rebuilt.png') end
+        cache_update={update_measurements=update_measurements,rebuild_measurements=measurements,
+            update_cpu_ms=update_cpu,rebuild_cpu_ms=rebuild_cpu,dirty_height=region.h,screen_height=Device.screen:getHeight()}
+    end
     UI:close(view)
     report={result='PASS',chapters=#chapters,initialization_ms=build_ms,initialization_cpu_ms=build_cpu_ms,
         initial_text_widgets=text_widgets,repaint_ms=repaint_ms,repaint_cpu_ms=math.floor(repaint_cpu*1000+.5),
         row_layout_updates=row_layout_updates,
         lua_kib=heap,geometry_checksum=checksum,geometry=geometry,row_paints=row_paints,initial_materialized_rows=initial_frames,
         max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true,
-        press_verified=true,prepaint_press_verified=prepaint_press}
+        press_verified=true,prepaint_press_verified=prepaint_press,cache_update=cache_update}
 end)
 if not ok then report.error=tostring(reason) end
 io.write('\nWEREAD_CHAPTER_BENCHMARK='..json.encode(report)..'\n')

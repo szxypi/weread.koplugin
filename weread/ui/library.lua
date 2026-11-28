@@ -2404,11 +2404,16 @@ end
 
 -- Match the chapter-opening rules when presenting offline availability.
 -- A combined EPUB may contain only part of the catalog, so check each UID.
-local function chapter_cache_lookup(host,book)
+local function chapter_cache_lookup(host,book,downloaded_count)
     local claims=require('weread.lib.chapter_cache_claim')
     local identity=require('weread.lib.reader_context')
-    local cache={}
-    local full=host.getFullBookCachePath and host:getFullBookCachePath(book,nil,cache) or book.cached_full_book
+    local cache=downloaded_count~=1 and {} or nil
+    local full
+    -- During a download refresh the changed records are the individual files.
+    -- The existing combined chapter statuses are already in the catalog.
+    if not downloaded_count then
+        full=host.getFullBookCachePath and host:getFullBookCachePath(book,nil,cache) or book.cached_full_book
+    end
     local combined=full and file_exists(full) and claims.combined(book,full,cache)
     return function(uid)
         local cached=ReadAccess.cached_chapter(book.cached_chapters,uid)
@@ -2549,7 +2554,7 @@ function M:showChapterList(book, on_close)
         end
     end
     local showCatalog
-    showCatalog = function(chapters, old_view, rows)
+    showCatalog = function(chapters, old_view, rows, keep_position)
         if old_view and (self._chapter_list_view ~= old_view or old_view._catalog_closed) then return end
         if not rows then
             -- Downloads persist their cache paths before invoking on_complete.
@@ -2576,15 +2581,34 @@ function M:showChapterList(book, on_close)
                 visible[#visible + 1] = title == row.title and row or { title = title, status = row.status, source = row.source }
             end
         end
+        local position = keep_position and old_view:browsingPosition()
         if old_view then
             UIManager:close(old_view)
         end
         local view
+        local function mark_downloaded(targets)
+            if self._chapter_list_view ~= view or view._catalog_closed then return end
+            reloadBookCache()
+            local is_cached = chapter_cache_lookup(self,book,#targets)
+            local changed = {}
+            for _, chapter in ipairs(targets) do
+                if is_cached(chapter.chapterUid or chapter.chapterId) then changed[chapter] = true end
+            end
+            if not view:markChaptersCached(changed) then return showCatalog(chapters, view, nil, true) end
+            -- Duplicate search results may use presentation rows distinct
+            -- from the full catalog. Keep their source rows up to date too.
+            if visible ~= rows then
+                for _i, row in ipairs(rows) do
+                    if changed[row.source] then row.status = _("Cached") end
+                end
+            end
+        end
         view = ChapterListView.show({
             title = book.title or _("Chapter list"),
             chapters = visible,
             subtitle = counts and T(_("Chapter filter: %1"), search) or nil,
             empty_text = #visible == 0 and _(counts and "No matching chapters." or "No chapters.") or nil,
+            browsing_position = position,
         }, {
             on_refresh = self:safeCallback(_("Refresh chapter list"), function()
                 self:loadChapters(book, function(refreshed_chapters)
@@ -2594,9 +2618,7 @@ function M:showChapterList(book, on_close)
                 end, true)
             end),
             on_select_download = self:safeCallback(_("Select chapters to download"), function()
-                self:showChapterDownloadSelection(book, chapters, function()
-                    showCatalog(chapters, view)
-                end)
+                self:showChapterDownloadSelection(book, chapters, mark_downloaded)
             end),
             on_search = self:safeCallback(_("Find chapter"), function()
                 ChapterSearch.prompt(self, view, search, function()
@@ -2609,11 +2631,8 @@ function M:showChapterList(book, on_close)
             on_select = function(chapter)
                 if self._chapter_list_view ~= view or view._catalog_closed then return end
                 self:openChapter(book, chapter, function(_, refresh_catalog)
-                    -- The downloader has persisted the new chapter path before
-                    -- this callback runs. Rebuild beneath the completion dialog
-                    -- so either "Read now" or "Close" leaves current cache state.
                     UIManager:scheduleIn(0.1, function()
-                        refresh_catalog(function() return showCatalog(chapters,view) end)
+                        refresh_catalog(function() return mark_downloaded({ chapter }) end)
                     end)
                 end)
             end,
@@ -2690,7 +2709,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
                 UIManager:scheduleIn(0.1, function()
                     if not current() then return end
                     UIManager:close(menu)
-                    if on_downloaded then on_downloaded() end
+                    if on_downloaded then on_downloaded(targets) end
                 end)
             end,
         })
