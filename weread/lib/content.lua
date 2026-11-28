@@ -352,7 +352,7 @@ function Content.open_full_download_workspace(settings, book)
     }
 end
 
-local function workspace_chapter_name(chapter, chapter_index)
+local function workspace_chapter_name(chapter_index)
     return string.format("chapter-%03d.xhtml", tonumber(chapter_index) or 0)
 end
 
@@ -361,19 +361,23 @@ local function workspace_chapter_marker(chapter)
         .. basename_safe(chapter and chapter.chapterUid or "unknown") .. " -->"
 end
 
-function Content.full_download_chapter_path(workspace, chapter, chapter_index)
+local function workspace_chapter_path(workspace, chapter_index)
     if not workspace or not workspace.text_dir then return nil end
-    return workspace.text_dir .. "/" .. workspace_chapter_name(chapter, chapter_index)
+    return workspace.text_dir .. "/" .. workspace_chapter_name(chapter_index)
 end
 
-function Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
+function Content.full_download_chapter_path(workspace, _chapter, chapter_index)
+    return workspace_chapter_path(workspace, chapter_index)
+end
+
+function Content.full_download_checkpoint_path(workspace, _chapter, chapter_index)
     if not workspace or not workspace.checkpoint_dir then return nil end
-    return workspace.checkpoint_dir .. "/" .. workspace_chapter_name(chapter, chapter_index) .. ".meta"
+    return workspace.checkpoint_dir .. "/" .. workspace_chapter_name(chapter_index) .. ".meta"
 end
 
-function Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
+function Content.full_download_rendered_chapter_path(workspace, _chapter, chapter_index)
     if not workspace or not workspace.rendered_text_dir then return nil end
-    return workspace.rendered_text_dir .. "/" .. workspace_chapter_name(chapter, chapter_index)
+    return workspace.rendered_text_dir .. "/" .. workspace_chapter_name(chapter_index)
 end
 
 local read_full_download_checkpoint
@@ -570,14 +574,17 @@ function Content.full_download_style_repairable(workspace,chapter,chapter_index,
     return style~=nil and style==digest
 end
 
-function Content.load_full_download_chapter(workspace, chapter, chapter_index)
-    local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
-    if not path then return nil, "chapter checkpoint is missing" end
+local function read_chapter_text(path)
+    if not path then return nil, "chapter workspace is missing" end
     local file, err = io.open(path, "rb")
-    if not file then return nil, err or "chapter checkpoint is missing" end
-    local xhtml = file:read("*a")
+    if not file then return nil, err end
+    local xhtml, read_err = file:read("*a")
     file:close()
-    return xhtml
+    return xhtml, read_err
+end
+
+function Content.load_full_download_chapter(workspace, chapter, chapter_index)
+    return read_chapter_text(Content.full_download_chapter_path(workspace, chapter, chapter_index))
 end
 
 local function atomic_write(path, data)
@@ -596,6 +603,19 @@ local function atomic_write(path, data)
         return nil, rename_err
     end
     return true
+end
+
+function Content.stage_download_chapter_text(workspace, chapter_index, xhtml)
+    local path = workspace_chapter_path(workspace, chapter_index)
+    if not path then return nil, "chapter workspace is missing" end
+    if type(xhtml) ~= "string" or xhtml == "" then return nil, "chapter text is missing" end
+    return atomic_write(path, xhtml)
+end
+
+function Content.load_download_chapter_text(workspace, chapter_index)
+    local xhtml, err = read_chapter_text(workspace_chapter_path(workspace, chapter_index))
+    if not xhtml or xhtml == "" then return nil, err or "chapter text is missing" end
+    return xhtml
 end
 
 function Content.stage_full_download_style(workspace,css,repair_style)
@@ -971,7 +991,7 @@ function Content.full_download_workspace_used_asset_names(workspace)
     return used
 end
 
-function Content.create_download_workspace(settings, book)
+function Content.create_download_workspace(settings, book, stage_chapter_text)
     local book_id = book.book_id or book.bookId
     local book_dir = Content.book_resolved_dir(settings, book_id, book)
     make_path(book_dir)
@@ -982,10 +1002,13 @@ function Content.create_download_workspace(settings, book)
     local asset_dir = workspace .. "/images"
     make_path(incoming_dir)
     make_path(asset_dir)
+    local text_dir = stage_chapter_text and workspace .. "/text" or nil
+    if text_dir then make_path(text_dir) end
     return {
         path = workspace,
         incoming_dir = incoming_dir,
         asset_dir = asset_dir,
+        text_dir = text_dir,
     }
 end
 

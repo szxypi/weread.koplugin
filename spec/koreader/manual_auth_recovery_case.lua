@@ -100,6 +100,12 @@ return function(host,kind,pump,tick)
         filter('')
         assert(menu.page==unfiltered_page and menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
             'clearing the filter lost the original page or the selected chapters')
+        local with_images=os.getenv('WEREAD_TEST_CONTENT_FORMAT')~='txt'
+        local cache=host.settings:get('cache')
+        local old_images=cache.download_book_images
+        if with_images then
+            cache.download_book_images=true;host.settings:set('cache',cache);host.settings:flush()
+        end
         request('/__control',{match=shard,times=1,skip=1,status=401,web_renewal_mode='rotate'})
         menu:onMenuSelect(menu.item_table[menu:getFirstVisibleItemIndex()])
         pump(function()
@@ -110,6 +116,21 @@ return function(host,kind,pump,tick)
         end)
         assert(count('/web/login/renewal')==initial_renewal+1,'selected download did not renew once')
         assert(count(shard)-before==4,'selected download did not restart only the intended chapters')
+        if with_images then
+            local settings=assert(Reader.instance.weread).settings
+            local saved=settings:get_book(book.book_id or book.bookId)
+            local Archive=require('weread.lib.source_archive')
+            local chapter_entry='OEBPS/text/chapter.xhtml'
+            for _,uid in ipairs({'5','6'}) do
+                local path=saved.cached_chapters[uid]
+                local chapter=assert(Archive.read(path,{[chapter_entry]=256*1024}))[chapter_entry]
+                local image='OEBPS/'..assert(chapter:match('src="%.%./(images/[^"]+)"'))
+                local bytes=assert(Archive.read(path,{[image]=256*1024}))[image]
+                assert(bytes and bytes:sub(1,4)=='\137PNG','selected EPUB dropped its staged illustration')
+            end
+            cache=settings:get('cache');cache.download_book_images=old_images
+            settings:set('cache',cache);settings:flush()
+        end
         host.showInfo=old_info
         record()
     end

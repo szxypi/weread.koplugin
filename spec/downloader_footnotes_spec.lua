@@ -65,6 +65,11 @@ package.preload["weread.lib.content"] = function()
         save_full_download_rendered_chapter = function(_workspace, chapter, _index, body)
             resumable_rendered[tostring(chapter.chapterUid)] = body
         end,
+        load_download_chapter_text = function(workspace, index) return workspace.text[index] end,
+        stage_download_chapter_text = function(workspace, index, body)
+            workspace.text[index] = body
+            return true
+        end,
     }
 end
 package.preload["weread.ui.download_dialog"] = function() return {} end
@@ -217,19 +222,31 @@ for _i, mode in ipairs({'full','single','separate'}) do
             ['2']=Footnotes.scan_chapter(rich_note,note_chapter)},
         state={css='body{}'},index=3,total=2,
         progress_dialog={setTitle=function() end,reportProgress=function() end}}
+    if job.separate_chapters then job.workspace={text={source,rich_note}};job.bodies={} end
     local before=#scheduled
     downloader:_startFootnotes(job)
     scheduled[before+1]();scheduled[before+2]();scheduled[before+3]()
-    expect(job.bodies['2']==rich_note and job.footnote_stats.converted==0,
+    local text=job.workspace and job.workspace.text or {job.bodies['1'],job.bodies['2']}
+    expect(text[2]==rich_note and job.footnote_stats.converted==0,
         'rich original was changed or copied as plain text')
     if mode=='full' then
         expect(job.bodies['1']:find('href="chapter-002.xhtml#target2"',1,true)
             and job.footnote_stats.native_links==1,'full book did not map its original target')
     else
-        expect(job.bodies['1']==source and job.footnote_stats.unresolved==1,
+        expect(text[1]==source and job.footnote_stats.unresolved==1,
             'individual EPUB referenced an absent packaged chapter')
     end
 end
+
+local separate_note = {selected={source_chapter,note_chapter}, total=2, index=3, separate_chapters=true,
+    state={css='body{}'}, bodies={}, workspace={text={source,note}}, footnote_scans={
+        ['1']=Footnotes.scan_chapter(source,source_chapter), ['2']=Footnotes.scan_chapter(note,note_chapter)}}
+local before_separate = #scheduled
+downloader:_startFootnotes(separate_note)
+scheduled[before_separate+1]();scheduled[before_separate+2]();scheduled[before_separate+3]()
+expect(separate_note.workspace.text[1]:find("下载器跨章脚注",1,true)
+    and separate_note.footnote_stats.converted==1 and next(separate_note.bodies)==nil,
+    "cross-chapter footnote was not written back to the staged text")
 
 local original_transform = Footnotes.transform_chapter
 Footnotes.transform_chapter = function()

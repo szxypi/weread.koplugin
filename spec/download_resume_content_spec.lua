@@ -87,6 +87,25 @@ local chapters = {
     { chapterUid = 11, title = "One" },
     { chapterUid = 22, title = "Two" },
 }
+local selected_workspace = Content.create_download_workspace(settings, book, true)
+expect(Content.stage_download_chapter_text(selected_workspace, 1, "<p>one</p>"),
+    "selected chapter could not be staged")
+expect(Content.stage_download_chapter_text(selected_workspace, 2, "<p>two</p>")
+    and Content.stage_download_chapter_text(selected_workspace, 1, "<p>rewritten</p>"),
+    "selected text could not be appended or rewritten")
+expect(Content.load_download_chapter_text(selected_workspace, 1) == "<p>rewritten</p>"
+    and Content.load_download_chapter_text(selected_workspace, 2) == "<p>two</p>"
+    and not Content.load_download_chapter_text(selected_workspace, 3),
+    "selected staging mixed chapter positions or accepted a missing file")
+local blocked_path = Content.full_download_chapter_path(selected_workspace, nil, 3)
+assert(os.execute("mkdir -p " .. string.format("%q", blocked_path)) == 0)
+local write_ok = Content.stage_download_chapter_text(selected_workspace, 3, "<p>blocked</p>")
+expect(not write_ok and Content.load_download_chapter_text(selected_workspace, 1) == "<p>rewritten</p>"
+    and not io.open(blocked_path .. ".part", "rb"), "failed publish damaged a selected chapter or left a partial file")
+assert(Content.cleanup_download_workspace(selected_workspace))
+expect(not Content.load_download_chapter_text(selected_workspace, 1),
+    "selected staging survived workspace cleanup")
+
 local workspace = Content.open_full_download_workspace(settings, book)
 Content.save_full_download_css(workspace, "body{color:black}")
 Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>")

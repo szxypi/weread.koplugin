@@ -130,6 +130,19 @@ function Downloader:_preserveWorkspace(dl, reason)
     self:_finishJob(dl)
 end
 
+function Downloader:_chapterStagingFailed(dl, reason)
+    logger.warn("selected chapter workspace failed:", log_error(reason))
+    self:_releaseStandby(dl)
+    if dl.progress_dialog then
+        dl.progress_dialog:close()
+        dl.progress_dialog = nil
+    end
+    self:_cleanupWorkspace(dl)
+    self:_notifyCompletion(dl, false, "download_cache_unavailable")
+    self:_finishJob(dl)
+    self.show_info(_("Could not save the downloaded chapters. Check storage and try again."))
+end
+
 function Downloader:_restoreFullDownloadCheckpoint(dl, initial)
     local completed = self:_runInterruptible(dl, function()
         return Content.full_download_completed_chapters(
@@ -746,7 +759,7 @@ function Downloader:start(book, chapters, suffix, options)
             fallback = 0,
         },
         single_chapter = options.single_chapter == true,
-        separate_chapters = options.separate_chapters == true,
+        separate_chapters = options.separate_chapters == true and options.single_chapter ~= true,
         include_annotations = false,
         open_on_complete = options.open_on_complete == true,
         read_current = options.read_current,
@@ -867,7 +880,7 @@ function Downloader:start(book, chapters, suffix, options)
                 self:_restoreFullDownloadCheckpoint(dl, true)
             elseif Content.create_download_workspace then
                 dl.workspace = Content.create_download_workspace(
-                    self.settings, book)
+                    self.settings, book, dl.separate_chapters)
                 dl.state.workspace = dl.workspace
             end
         end)
@@ -1112,42 +1125,40 @@ function Downloader:_footnoteStep(dl)
     if dl.resumable then
         original = Content.load_full_download_chapter(
             dl.workspace, chapter, job.index)
+    elseif dl.separate_chapters then
+        local reason
+        original, reason = Content.load_download_chapter_text(dl.workspace, job.index)
+        if not original then self:_chapterStagingFailed(dl, reason); return end
     end
     local started = time.now()
     local ok, transformed, stats = pcall(Footnotes.transform_chapter,
         original, dl.footnote_scans[uid], job.index_data)
+    local output = original
     if ok then
         local valid, validation_error = Footnotes.validate(transformed)
         if valid then
-            if dl.resumable then
-                Content.save_full_download_rendered_chapter(
-                    dl.workspace, chapter, job.index, transformed)
-            else
-                dl.bodies[uid] = transformed
-            end
+            output = transformed
             add_footnote_stats(dl.footnote_stats, stats)
             if Footnotes.has_converted(stats) then job.css_needed = true end
         else
             dl.footnote_stats.fallback = dl.footnote_stats.fallback + 1
             logger.warn("footnote transform validation failed; keeping original chapter:",
                 "chapter_uid=", uid, "error=", log_error(validation_error))
-            if dl.resumable then
-                Content.save_full_download_rendered_chapter(
-                    dl.workspace, chapter, job.index, original)
-            else
-                dl.bodies[uid] = original
-            end
         end
     else
         dl.footnote_stats.fallback = dl.footnote_stats.fallback + 1
         logger.warn("footnote transform failed; keeping original chapter:",
             "chapter_uid=", uid, "error=", log_error(transformed))
-        if dl.resumable then
-            Content.save_full_download_rendered_chapter(
-                dl.workspace, chapter, job.index, original)
-        else
-            dl.bodies[uid] = original
+    end
+    if dl.resumable then
+        Content.save_full_download_rendered_chapter(dl.workspace, chapter, job.index, output)
+    elseif dl.separate_chapters then
+        if output ~= original then
+            local saved, reason = Content.stage_download_chapter_text(dl.workspace, job.index, output)
+            if not saved then self:_chapterStagingFailed(dl, reason); return end
         end
+    else
+        dl.bodies[uid] = output
     end
     self:_perf(dl, "footnotes", started, "chapter_uid=", uid,
         "ok=", tostring(ok), "fallback=", tostring(not ok))
@@ -1225,6 +1236,11 @@ function Downloader:_finishChapter(dl)
             end
             local xhtml, assets = Content.finalize_single_chapter_content(
                 client or self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
+            if dl.separate_chapters then
+                local saved, reason = Content.stage_download_chapter_text(dl.workspace, #dl.selected + 1, xhtml)
+                if not saved then return { staging_error = reason or "chapter storage unavailable" } end
+                xhtml = nil
+            end
             return { xhtml = xhtml, assets = assets, state = dl.state }
         end
         if cache.download_book_images then return self:_runInterruptible(dl, finalize) end
@@ -1237,6 +1253,7 @@ function Downloader:_finishChapter(dl)
         self:_failChapter(dl, result)
         return
     end
+    if result.staging_error then self:_chapterStagingFailed(dl, result.staging_error); return end
     local xhtml, chapter_assets = result.xhtml, result.assets
     dl.state = result.state
     local uid = tostring(chapter.chapterUid or dl.index)
@@ -1268,7 +1285,7 @@ function Downloader:_finishChapter(dl)
         if not checkpoint_ok then self:_failChapter(dl,checkpoint_error);return end
         dl.completed[dl.index] = true
         dl.completed_count = dl.completed_count + 1
-    else
+    elseif not dl.separate_chapters then
         dl.bodies[uid] = xhtml
     end
     dl.assets_by_uid = dl.assets_by_uid or {}
@@ -1447,8 +1464,10 @@ function Downloader:_step(dl)
                     local paths = {}
                     for chapter_index, chapter in ipairs(dl.selected) do
                         local uid = tostring(chapter.chapterUid or chapter_index)
+                        local xhtml, reason = Content.load_download_chapter_text(dl.workspace, chapter_index)
+                        if not xhtml then error(reason or "chapter text is missing", 0) end
                         paths[uid] = Content.save_chapter_epub(
-                            self.settings, packaging_book, chapter, dl.bodies[uid],
+                            self.settings, packaging_book, chapter, xhtml,
                             (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
                             dl.state.css, dl.source_identity, source_for(uid)
                         )

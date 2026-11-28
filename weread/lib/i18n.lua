@@ -1820,6 +1820,7 @@ local zh = {
     ["Book information updated."] = "书籍信息已更新。",
     ["Book information could not be updated. Showing cached details."] = "暂时无法更新书籍信息，继续显示已缓存的资料。",
     ["Could not save book information. Check storage and try again."] = "保存书籍信息失败，请检查存储空间后重试。",
+    ["Could not save the downloaded chapters. Check storage and try again."] = "无法保存下载的章节，请检查存储空间后重试。",
     ["Book information"] = "书籍信息",
     ["More actions"] = "更多操作",
     ["Read"] = "阅读",
