@@ -188,19 +188,28 @@ local function read_drafts(self,task,empty)
     if not ok then return nil,'storage' end
     return value
 end
-function M:drafts()
+local function list_drafts(self,project)
     return read_drafts(self,function(db)
         local stmt=db:prepare(DRAFT_SELECT..' ORDER BY serial DESC LIMIT ?')
         local values={};local ok=pcall(function()
             local row=stmt:bind(M.MAX_DRAFTS+1):step()
             while row do
                 if #values>=M.MAX_DRAFTS then error('thought_store/draft',0) end
-                values[#values+1]=decode_draft(row)
+                local draft=decode_draft(row)
+                values[#values+1]=project and project(draft) or draft
                 row=stmt:step()
             end
         end);stmt:close();if not ok then error('thought_store/draft',0) end
         return values
     end,{})
+end
+function M:drafts() return list_drafts(self) end
+function M:draft_previews()
+    local Protocol=require('weread.lib.protocol')
+    return list_drafts(self,function(draft)
+        return {draft_key=draft.draft_key,book_id=draft.book_id,token=draft.token,
+            preview=Protocol.utf8_substr(draft.content,60):gsub('[%z%c]',' ')}
+    end)
 end
 function M:draft(key)
     if not Contract.hash(key) then return nil end

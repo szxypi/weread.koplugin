@@ -81,6 +81,12 @@ C.valid_content=function(value) validated=validated+1;return content_check(value
 expect(store:draft(replacement.draft_key).token==replacement.token and validated==1,'exact read validated unrelated drafts')
 validated=0
 expect(#assert(store:drafts())==16 and validated==16,'draft list skipped validation or opened a write connection')
+validated=0
+local previews=assert(store:draft_previews())
+expect(#previews==16 and validated==16 and previews[1].draft_key==Store.draft_key('900001','edit','synthetic-2'),
+    'draft previews skipped validation or changed ordering')
+expect(previews[1].preview=='Replacement at quota' and previews[1].content==nil and previews[1].base_hash==nil,
+    'draft previews transferred editor data')
 C.valid_content=content_check;library.open=open
 local writer=assert(library:open())
 writer:exec('BEGIN IMMEDIATE')
@@ -97,6 +103,7 @@ local corrupt,corruption=store:draft(other_key)
 expect(not corrupt and corruption=='storage','corrupt targeted draft was treated as absent')
 expect(not store:drafts() and store:draft(replacement.draft_key).token==replacement.token,
     'corrupt unrelated draft blocked a valid exact read or was listed')
+expect(not store:draft_previews(),'corrupt draft was exposed in the preview list')
 account='900097'
 local duplicates=assert(library:open())
 duplicates:exec([[CREATE TABLE thought_drafts (draft_key,book_id,operation,reference_id,base_hash,content,token,serial)]])

@@ -2,6 +2,8 @@ package.path='./?.lua;'..package.path
 local UI={}
 function UI:show(widget) self.top=widget end
 function UI:close(widget) if widget.onCloseWidget then widget:onCloseWidget() end end
+function UI:scheduleIn(_,callback) self.notice=callback end
+function UI:unschedule(callback) if self.notice==callback then self.notice=nil end end
 package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/menu']=function() return {new=function(_self,v) return v end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end} end
@@ -11,8 +13,19 @@ package.preload['weread.lib.thought_edit_contract']=function() return {
 local state
 local function copy(value) local out={};for k,v in pairs(value) do out[k]=v end;return out end
 package.preload['weread.lib.thought_edit_store']=function() return {new=function() return {
-    draft=function(_self,key) if state.error then return nil,'storage' end;if state.draft and state.draft.draft_key==key then return copy(state.draft) end end,
-    drafts=function() return state.drafts or state.draft and {copy(state.draft)} or {} end,
+    draft=function(_self,key)
+        state.draft_reads=(state.draft_reads or 0)+1
+        if state.error then return nil,'storage' end
+        if state.draft and state.draft.draft_key==key then return copy(state.draft) end
+    end,
+    draft_previews=function()
+        local values={}
+        for _,draft in ipairs(state.drafts or state.draft and {state.draft} or {}) do
+            values[#values+1]={draft_key=draft.draft_key,book_id=draft.book_id,token=draft.token,
+                preview=require('weread.lib.protocol').utf8_substr(draft.content,60):gsub('[%z%c]',' ')}
+        end
+        return values
+    end,
     save_draft=function(_self,_book,_operation,_reference,_base,_content,expected)
         if state.require_lease then assert(state.lease_held,'chapter lease missing while saving draft') end
         state.save_expected=expected;if state.save_failed then return nil end;return {token='new'} end,
@@ -58,6 +71,12 @@ local function fixture()
     local function current(h,o) return h.owner==o and not o.menu._shelf_closed end
     return host,owner,current
 end
+local function open_list(host,owner,current)
+    if not Editor.drafts(host,owner,current) then return false end
+    expect(owner.editor.draft_job and not owner.editor.dialog,'preview read immediately redrew the UI')
+    state.complete(state.task())
+    return true
+end
 local host,owner,current=fixture()
 expect(Editor.resume(host,owner,'draft','v1',current),'matching draft did not resume')
 expect(owner.editor and owner.editor.input.input=='Saved draft','draft text not restored')
@@ -94,9 +113,17 @@ Editor.resume(host,owner,'draft','v1',current);state.draft.token='v2'
 state.complete({reference={selection=true,source={book_id='42'},bookmarkId='selection',hash='source'}})
 expect(not owner.editor and state.message:find('changed',1,true),'replacement during source validation opened stale draft')
 host,owner,current=fixture();owner.id='41';host._notebook_owner={child=owner}
-expect(Editor.drafts(host,owner,current),'cross-book draft list did not open')
+local full_draft=string.rep('字',65)..'完整草稿结尾'
+state.draft.content=full_draft
+expect(open_list(host,owner,current),'cross-book draft list did not open')
 expect(owner.editor.dialog.item_table[1].mandatory=='Book ID 42','cross-book draft did not identify its book')
-owner.editor.dialog.item_table[1].callback();local viewer=owner.editor.dialog
+local selected_row=owner.editor.dialog.item_table[1]
+expect(not state.draft_reads,'opening the draft list read the full selected draft')
+selected_row.callback();local viewer=owner.editor.dialog
+expect(selected_row.text==string.rep('字',60) and viewer.text==full_draft and state.draft_reads==1,
+    'opening a preview did not read its full text')
+selected_row.callback()
+expect(owner.editor.dialog==viewer and state.draft_reads==1,'obsolete draft list reopened a preview')
 local button=viewer.buttons_table[1][2]
 expect(button.id=='resume_other_book_draft','cross-book resume not offered')
 button.callback()
@@ -113,12 +140,12 @@ function host.library_db:getBook(id)
     expect(id=='42')
     titles=titles+1;return {title='Saved book'}
 end
-expect(Editor.drafts(host,owner,current),'same-book drafts did not list')
+expect(open_list(host,owner,current),'same-book drafts did not list')
 local rows=owner.editor.dialog.item_table
 expect(rows[1].text==prefix:gsub('\n',' ') and rows[1].mandatory=='Saved book'
     and rows[2].mandatory=='Saved book' and titles==1,'draft preview split UTF-8, changed text, or repeated a title lookup')
 host,owner,current=fixture();owner.id='41';host._notebook_owner={child=owner}
-Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback()
+open_list(host,owner,current);owner.editor.dialog.item_table[1].callback()
 owner.editor.dialog.buttons_table[1][2].callback();owner.menu._shelf_popup={}
 state.apply()
 expect(not host._my_marks_owner and host._notebook_owner.child==owner,'delayed handoff displaced a newer popup')
@@ -127,15 +154,37 @@ owner.value={reviews={{reviewId='review',isPrivate=1,content='Original',hash='or
 expect(Editor.resume(host,owner,'draft','v1',current) and owner.editor.input.input=='Saved draft',
     'matching edited-thought draft did not restore')
 host,owner,current=fixture();state.draft.operation='edit';state.draft.reference_id='review';owner.id='41'
-Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
+open_list(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
 viewer.buttons_table[1][2].callback()
 expect(state.opened and state.opened.variant=='thoughts' and state.opened.options.resume_draft.operation=='edit',
     'cross-book edit draft opened the wrong notes list')
 host,owner,current=fixture();owner.thoughts=true;owner.value={reviews={}}
-Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
+open_list(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
 viewer.buttons_table[1][2].callback()
 expect(state.opened and state.opened.id=='42' and state.opened.variant==nil,
     'same-book mark draft could not switch from the thoughts list')
+host,owner,current=fixture();expect(open_list(host,owner,current))
+local stale_row=owner.editor.dialog.item_table[1];state.draft.token='v2'
+stale_row.callback()
+expect(not owner.editor and state.draft_reads==1 and state.message:find('draft changed',1,true),
+    'changing a draft after listing opened the newer body using stale controls')
+host,owner,current=fixture();expect(Editor.drafts(host,owner,current))
+local old_complete,old_result=state.complete,state.task()
+UI.notice()
+local loading=owner.editor.dialog
+expect(loading.title=='Loading local thought drafts…','slow list did not offer a cancellable notice')
+UI:close(loading)
+expect(not owner.editor and state.cancelled and not UI.notice,'closing the notice did not cancel the draft list')
+expect(open_list(host,owner,current));local reopened=owner.editor.dialog
+old_complete(old_result)
+expect(owner.editor.dialog==reopened,'old list result replaced a newer list')
+host,owner,current=fixture();state.worker_failed=true
+expect(not Editor.drafts(host,owner,current) and not owner.editor and not UI.notice
+    and state.message=='Could not load local thought drafts.','failed list worker left a stale notice or context')
+host,owner,current=fixture();expect(Editor.drafts(host,owner,current))
+local replacement_popup={};owner.menu._shelf_popup=replacement_popup
+state.complete(state.task())
+expect(not owner.editor and owner.menu._shelf_popup==replacement_popup and not UI.notice,'draft list replaced a newer popup')
 host,owner,current=fixture();state.draft=nil;state.require_lease=true
 host.settings.data_dir='/synthetic';owner.source_file='/synthetic/native-reader-v1/chapter.epub';owner.scope.vid='123'
 local source={book_id='42',chapter_uid='7',raw_sha256=string.rep('a',64)}

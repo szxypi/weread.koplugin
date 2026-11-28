@@ -141,6 +141,11 @@ local ok,reason=pcall(function()
         local dialog=assert(owner.menu._shelf_popup);local button=assert(dialog.button_table:getButtonById(id));button:onTapSelectButton()
     end
     local function notice(owner) wait(function() return not owner.editor end);local top=UI:getTopmostVisibleWidget();if top~=owner.menu then UI:close(top) end end
+    local function draft_list(owner)
+        select(owner,'Local thought drafts')
+        wait(function() return not (owner.editor and owner.editor.draft_job) end)
+        return assert(owner.menu._shelf_popup)
+    end
     local function confirm(owner)
         wait(function() local ctx=owner.editor;return ctx and ctx.service.preview end)
         tap(owner,'confirm_thought_change')
@@ -156,7 +161,7 @@ local ok,reason=pcall(function()
         local owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create')
         owner.editor.input:setInputText('合成本机草稿 😀\n可在离线后继续。');expect(TextSmoke.input(owner.editor.input,{['😀']=true})==1);shot('draft')
         tap(owner,'save_thought_draft');notice(owner);expect(#journal:drafts()==1 and state().posts==0)
-        select(owner,'Local thought drafts');local list=owner.menu._shelf_popup;list:onMenuSelect(list.item_table[1]);tap(owner,'resume_thought_draft')
+        local list=draft_list(owner);list:onMenuSelect(list.item_table[1]);tap(owner,'resume_thought_draft')
         expect(owner.editor.input:getInputText():find('合成本机草稿',1,true))
         -- Reopen the same saved draft through the account-wide notebook with
         -- no current book and no network. The exact cached mark must match.
@@ -166,7 +171,7 @@ local ok,reason=pcall(function()
         local function choose_draft(screenshot)
             expect(Catalog.show(plugin))
             local notebook=assert(plugin._notebook_owner)
-            select(notebook,'Local thought drafts');list=notebook.menu._shelf_popup
+            list=draft_list(notebook)
             expect(list.item_table[1].mandatory=='合成测试书籍')
             if screenshot then TextSmoke.menu_emoji(list,'😀');shot('notebook-drafts') end
             list:onMenuSelect(list.item_table[1]);tap(notebook,'resume_other_book_draft')
@@ -175,7 +180,27 @@ local ok,reason=pcall(function()
         end
         pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
         local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
-        local gate=ffi.cast('int *',memory);local read=Cache.read
+        local gate=ffi.cast('int *',memory)
+        local saved=journal:drafts()[1]
+        local previews=Journal.draft_previews
+        Journal.draft_previews=function(...)
+            assert(tonumber(ffi.C.getpid())~=parent,'draft list loaded on the interface thread')
+            gate[0]=1
+            local deadline=socket.gettime()+10
+            while gate[1]==0 do assert(socket.gettime()<deadline,'preview read was not released');socket.sleep(.01) end
+            return previews(...)
+        end
+        expect(Catalog.show(plugin));local stopped=assert(plugin._notebook_owner)
+        select(stopped,'Local thought drafts')
+        local preview_worker=assert(stopped.editor.draft_job).worker
+        local preview_pid=preview_worker.job.pid
+        local pulse=false;UI:scheduleIn(.1,function() pulse=true end)
+        wait(function() return pulse and gate[0]==1 end)
+        Catalog.cancel(plugin);gate[1]=1
+        wait(function() return preview_worker.runner.done(preview_pid) end)
+        expect(not stopped.editor and not stopped.menu._shelf_popup and journal:drafts()[1].token==saved.token)
+        Journal.draft_previews=previews;gate[0],gate[1]=0,0
+        local read=Cache.read
         Cache.read=function(...)
             assert(tonumber(ffi.C.getpid())~=parent,'draft handoff read the target cache on the interface thread')
             gate[0]=1
@@ -183,7 +208,6 @@ local ok,reason=pcall(function()
             while gate[1]==0 do assert(socket.gettime()<deadline,'draft read was not released');socket.sleep(.01) end
             return read(...)
         end
-        local saved=journal:drafts()[1]
         local notebook=choose_draft(true);local loading=notebook.menu.saved_note_open.worker
         local pid=loading.job.pid
         local beat=false;UI:scheduleIn(.1,function() beat=true end)
@@ -221,7 +245,7 @@ local ok,reason=pcall(function()
         expect(state().posts==3 and journal:read().phase=='idle' and #journal:drafts()==1)
         remote(function(db) local v=load(db);v.snapshot=F.snapshot(codec);save(db,v) end)
         -- View and delete a stale draft without exposing a submit action.
-        select(owner,'Local thought drafts');local drafts=owner.menu._shelf_popup;drafts:onMenuSelect(drafts.item_table[1])
+        local drafts=draft_list(owner);drafts:onMenuSelect(drafts.item_table[1])
         tap(owner,'delete_thought_draft');notice(owner);expect(#journal:drafts()==0)
         report.phase='unknown-readback'
         owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create');owner.editor.input:setInputText('合成未确认的想法')

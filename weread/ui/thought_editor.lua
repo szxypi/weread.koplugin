@@ -25,10 +25,18 @@ local function save(ctx,text)
     if not draft then return false end
     ctx.draft,ctx.text=draft,text;return true
 end
+local function cancel_drafts_read(ctx)
+    local job=ctx.draft_job
+    if not job then return end
+    ctx.draft_job=nil
+    UI:unschedule(job.notice)
+    job.worker:cancel()
+end
 local function detach(ctx)
     if ctx.owner.editor~=ctx then return end
     ctx.owner.editor=nil;ctx.dialog=nil
     ctx.service:cancel()
+    cancel_drafts_read(ctx)
     if ctx.restore_worker then ctx.restore_worker:cancel() end
     if ctx.source_worker then ctx.source_worker:cancel() end
     if ctx.source_lease then ctx.source_lease:release();ctx.source_lease=nil end
@@ -347,44 +355,78 @@ local function draft_book_label(host,id)
     local short=require('weread.lib.protocol').utf8_substr(title,20)
     return #short<#title and short..'…' or short
 end
-function M.drafts(host,owner,current,redraw)
-    if not current(host,owner) then return false end
-    local ctx=new_context(host,owner,current,redraw);local values=ctx.journal:drafts()
-    if not values then message(ctx,'Could not load local thought drafts.');return false end
-    if #values==0 then message(ctx,'No local thought drafts.');return true end
-    local items,labels={},{}
-    local Protocol=require('weread.lib.protocol')
-    for _i,draft in ipairs(values) do
-        local label
-        if draft.book_id~=owner.id then
-            label=labels[draft.book_id] or draft_book_label(host,draft.book_id)
-            labels[draft.book_id]=label
-        end
-        items[#items+1]={text=Protocol.utf8_substr(draft.content,60):gsub('[%z%c]',' '),mandatory=label,callback=function()
-            if not alive(ctx) then return end
-            local dialog
-            local buttons={{{id='delete_thought_draft',text=_('Delete local draft'),callback=function()
-                if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
-                if ctx.journal:delete_draft(draft) then message(ctx,'Local thought draft deleted.') else message(ctx,'Could not load local thought drafts.') end
-            end}}}
-            -- The target list re-reads the draft and checks its exact source.
-            local selection_draft=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)
-            if draft.book_id==owner.id and ((draft.operation=='edit')==owner.thoughts or selection_draft) then
-                buttons[1][#buttons[1]+1]={id='resume_thought_draft',text=_('Resume draft'),callback=function()
-                    if alive(ctx) and Popup.current(owner.menu,dialog) then
-                        M.resume(host,owner,draft.draft_key,draft.token,current,redraw)
-                    end
-                end}
-            else
-                buttons[1][#buttons[1]+1]={id='resume_other_book_draft',text=_('Open book and resume draft'),callback=function()
-                    if alive(ctx) and Popup.current(owner.menu,dialog) then cross_book(host,owner,current,draft,ctx) end
-                end}
-            end
-            dialog=require('weread.ui.thought_text').viewer{title=_('Local thought draft'),text=draft.content,buttons_table=buttons,add_default_buttons=true}
-            show(ctx,dialog)
+local function open_draft(ctx,preview)
+    local draft,why=ctx.journal:draft(preview.draft_key)
+    if why or not draft or draft.token~=preview.token or draft.book_id~=preview.book_id then
+        message(ctx,'This draft changed or is unavailable. Open local thought drafts again.')
+        return
+    end
+    local host,owner=ctx.host,ctx.owner
+    local dialog
+    local function valid() return alive(ctx) and Popup.current(owner.menu,dialog) end
+    local buttons={{{id='delete_thought_draft',text=_('Delete local draft'),callback=function()
+        if not valid() then return end
+        if ctx.journal:delete_draft(draft) then message(ctx,'Local thought draft deleted.')
+        else message(ctx,'Could not load local thought drafts.') end
+    end}}}
+    local selection=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)
+    if draft.book_id==owner.id and ((draft.operation=='edit')==owner.thoughts or selection) then
+        buttons[1][2]={id='resume_thought_draft',text=_('Resume draft'),callback=function()
+            if valid() then M.resume(host,owner,draft.draft_key,draft.token,ctx.current,ctx.redraw) end
+        end}
+    else
+        buttons[1][2]={id='resume_other_book_draft',text=_('Open book and resume draft'),callback=function()
+            if valid() then cross_book(host,owner,ctx.current,draft,ctx) end
         end}
     end
-    show(ctx,require('weread.ui.thought_text').menu{title=_('Local thought drafts'),item_table=items,is_popout=true,is_borderless=false})
+    dialog=require('weread.ui.thought_text').viewer{title=_('Local thought draft'),text=draft.content,buttons_table=buttons,add_default_buttons=true}
+    show(ctx,dialog)
+end
+function M.drafts(host,owner,current,redraw)
+    if not current(host,owner) then return false end
+    local ctx=new_context(host,owner,current,redraw)
+    local unavailable='Could not load local thought drafts.'
+    local ok,worker=pcall(function()
+        return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,fast_start=true}
+    end)
+    if not ok or not worker then message(ctx,unavailable);return false end
+    local job={worker=worker};ctx.draft_job=job
+    local function valid() return alive(ctx) and Popup.current(owner.menu,ctx.dialog) end
+    job.notice=function()
+        if ctx.draft_job~=job then return end
+        if valid() then viewer(ctx,'Loading local thought drafts…','Closing this window stops the check.')
+        else done(ctx) end
+    end
+    UI:scheduleIn(.35,job.notice)
+    local started,active=pcall(worker.start,worker,function()
+        local values=ctx.journal:draft_previews()
+        if not values then return nil end
+        local labels={}
+        for _,draft in ipairs(values) do
+            if draft.book_id~=owner.id then
+                local label=labels[draft.book_id] or draft_book_label(host,draft.book_id)
+                labels[draft.book_id]=label
+                draft.label=label
+            end
+        end
+        return {drafts=values}
+    end,function(result)
+        if ctx.draft_job~=job then return end
+        cancel_drafts_read(ctx)
+        if not valid() then done(ctx);return end
+        local values=type(result)=='table' and result.drafts
+        if type(values)~='table' then message(ctx,unavailable);return end
+        if #values==0 then message(ctx,'No local thought drafts.');return end
+        local items,menu={}
+        for _,preview in ipairs(values) do
+            items[#items+1]={text=preview.preview,mandatory=preview.label,callback=function()
+                if alive(ctx) and Popup.current(owner.menu,menu) then open_draft(ctx,preview) end
+            end}
+        end
+        menu=require('weread.ui.thought_text').menu{title=_('Local thought drafts'),item_table=items,is_popout=true,is_borderless=false}
+        show(ctx,menu)
+    end)
+    if not started or not active then message(ctx,unavailable);return false end
     return true
 end
 return M

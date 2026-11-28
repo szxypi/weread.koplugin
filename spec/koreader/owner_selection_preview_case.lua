@@ -94,7 +94,9 @@ return function(input,mode,counters)
             row('Write private thought');owner.editor.input:setInputText(cfg.body.content)
             tap('save_thought_draft');notice()
         end
-        self.report.phase='restore';row('Local thought drafts');owner.editor.dialog.item_table[1].callback()
+        self.report.phase='restore';row('Local thought drafts')
+        pump(function() return not (owner.editor and owner.editor.draft_job) end)
+        owner.editor.dialog.item_table[1].callback()
         tap('resume_thought_draft');pump(function() return owner.editor and owner.editor.input end)
         assert(owner.editor.input:getInputText()==cfg.body.content and same(owner.editor.reference,cfg.reference))
         self.capture.draft_text=owner.editor.input:getInputText();self.report.draft_preserved=true

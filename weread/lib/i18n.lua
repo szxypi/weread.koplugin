@@ -67,6 +67,7 @@ local zh = {
     ["This draft changed or is unavailable. Open local thought drafts again."] = "草稿已变化或不可用，请重新打开本机想法草稿。",
     ["The original thought or highlight is unavailable. Refresh its notes and try again."] = "原想法或划线不可用，请刷新对应笔记后重试。",
     ["Could not open the original notes. Your local draft is kept."] = "无法打开原笔记，本机草稿仍保留。",
+    ["Loading local thought drafts…"] = "正在读取本机想法草稿…",
     ["Open book and resume draft"] = "打开对应书籍并继续草稿",
     ["Add to shelf"] = "加入书架",
     ["Remove from shelf"] = "移出书架",

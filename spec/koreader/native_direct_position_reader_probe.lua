@@ -199,7 +199,9 @@ if input.mode:find('^selection_direct') then
                         assert(host.checked_message==tr('Thought draft saved on this device.'));host.checked_message=nil
                         local drafts_action
                         for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Local thought drafts') then drafts_action=item.callback;break end end
-                        assert(drafts_action);drafts_action();assert(owner.editor and owner.editor.dialog.item_table[1])
+                        assert(drafts_action);drafts_action()
+                        wait(function() return not (owner.editor and owner.editor.draft_job) end)
+                        assert(owner.editor and owner.editor.dialog.item_table[1])
                         local network=host.isNetworkOnline
                         host.isNetworkOnline=function() error('resuming a cached selection checked the network') end
                         owner.editor.dialog.item_table[1].callback();tap('resume_thought_draft')
