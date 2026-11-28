@@ -102,9 +102,14 @@ function M:handleEndOfBook(status_self)
 
     if action == "next_file" then
         local book = ReadAccess.load_cached_book(self.settings, book_id)
-        local chapters = self:ensureChaptersLoaded(book)
-        local current_idx, _, is_full_book = self:getChapterInfoFromFile(book, file)
-        local next_ch = chapters and not is_full_book and current_idx and chapters[current_idx + 1]
+        local chapters = self:ensureChaptersLoaded(book,true)
+        if chapters then book.chapters=chapters end
+        local current_idx, _, is_full_book, partial, proof = self:getChapterInfoFromFile(book, file)
+        if is_full_book and partial then
+            current_idx=require('weread.lib.reader_progress_chapter').combined_end(book,self.ui.document,proof)
+            if not current_idx and self:showEndOfBookDialog(book_id,true) then return true end
+        end
+        local next_ch = chapters and current_idx and chapters[current_idx + 1]
         if next_ch then
             self:openChapter(book, next_ch)
         else
@@ -117,7 +122,7 @@ function M:handleEndOfBook(status_self)
     -- dialog. This intentionally overrides the global end_document_action
     -- (pop-up, book_status, …) for WeRead books; fall back to the native
     -- handler only when the dialog cannot be built.
-    if self:showEndOfBookDialog(book_id) then
+    if self:showEndOfBookDialog(book_id,true) then
         return true
     end
 
@@ -950,6 +955,7 @@ end
 --   current_ch (table or nil): The chapter object of the current chapter, if it's a single chapter file.
 --   is_full_book (boolean): True if the file maps to multiple chapters (e.g. a combined EPUB), false otherwise.
 --   partial_combined (boolean): The combined file does not match the full catalog, or could not be verified.
+--   proof (table or nil): Archive evidence for a combined file.
 function M:getChapterInfoFromFile(book, file_path)
     if not book or not file_path or type(book.chapters) ~= "table" then
         return nil, nil, false
@@ -965,12 +971,12 @@ function M:getChapterInfoFromFile(book, file_path)
     local full_book_path = self:getFullBookCachePath(book,nil,claim_cache)
     if full_book_path == file_path then
         local info=Claims.combined(book,file_path,claim_cache)
-        return nil,nil,true,not complete(info)
+        return nil,nil,true,not complete(info),info
     end
 
     if shared then
         local info=Claims.inspect(book,file_path,nil,true)
-        if info.kind=='combined' then return nil,nil,true,not complete(info) end
+        if info.kind=='combined' then return nil,nil,true,not complete(info),info end
         if info.kind~='single' then return nil,nil,false end
         current_uid=info.uid
     end

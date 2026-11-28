@@ -57,7 +57,7 @@ function M:onShowWeReadSearch()
     return true
 end
 
-function M:showEndOfBookDialog(book_id)
+function M:showEndOfBookDialog(book_id, at_end)
     local reader_ui = self.ui
     local document = reader_ui and reader_ui.document
     local search = reader_ui and reader_ui.search
@@ -74,14 +74,12 @@ function M:showEndOfBookDialog(book_id)
         type(book.cached_chapters) == 'table' and next(book.cached_chapters) ~= nil
         or type(book.cached_full_book) == 'string' or type(book.cached_file) == 'string')
 
-    local current_idx, current_chapter, is_full_book
+    local current_idx, current_chapter, is_full_book, partial, proof
     if chapters then
-        local chapter_info = { self:getChapterInfoFromFile(book, file_path) }
-        current_idx, current_chapter, is_full_book = chapter_info[1], chapter_info[2], chapter_info[3]
+        book.chapters=chapters
+        current_idx,current_chapter,is_full_book,partial,proof=self:getChapterInfoFromFile(book,file_path)
     end
-    -- The chapter-nav row is shown only for single downloaded chapters (a mapped
-    -- current chapter that is not part of a full-book EPUB); "next chapter"
-    -- additionally requires a successor.
+    -- The progress panel uses KOReader's own chapter navigation for combined files.
     local next_chapter = current_idx and not is_full_book
         and chapters[current_idx + 1] or nil
     local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
@@ -119,6 +117,21 @@ function M:showEndOfBookDialog(book_id)
     end
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
+    local expected_next,still_at_end=expected_chapter,nil
+    if at_end and is_full_book and partial then
+        local tail=require('weread.lib.reader_progress_chapter').combined_end(book,document,proof)
+        if tail and chapters[tail+1] then
+            local Context=require('weread.lib.source_context')
+            local function location() return Context.location(document,reader_ui.view and reader_ui.view.view_mode) end
+            local ending=location()
+            if ending then
+                still_at_end=function() return Context.same_location(ending,location()) end
+                expected_next={book=identity,book_id=tostring(book_id),file=file_path,index=tail,
+                    current=chapter_id(chapters[tail]),previous=chapter_id(chapters[tail-1]),next=chapter_id(chapters[tail+1]),
+                    combined_file=proof.file_id,combined_opf=proof.opf_hash}
+            end
+        end
+    end
 
     local function show_context_required()
         self:showTransientInfo(
@@ -136,7 +149,7 @@ function M:showEndOfBookDialog(book_id)
         show_chapter_nav = true,
         show_next_chapter = true,
         enable_chapter_list = chapters ~= nil or has_saved_chapters,
-        enable_next_chapter = next_chapter ~= nil,
+        enable_next_chapter = next_chapter ~= nil or still_at_end ~= nil,
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
@@ -209,8 +222,9 @@ function M:showEndOfBookDialog(book_id)
         end,
         on_next = function()
             if not valid_reader() then return end
-            if next_chapter then
-                local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_chapter,1)
+            if next_chapter or still_at_end then
+                if still_at_end and not still_at_end() then return end
+                local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_next,1)
                 if ok and fresh and target and valid_reader() then self:openChapter(fresh,target)
                 elseif valid_reader() then self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
             elseif is_regular_weread_book then

@@ -88,7 +88,7 @@ local function inspect(book,path)
                 if ref~='cover' and not ref:match('^chapter_[%w_-]+$') then return {kind='unknown'} end
             end
             return {kind='combined',items=items,order=order,opf_hash=Crypto.sha256_hex(opf),
-                file_id=identity and identity.file_id or nil}
+                file_id=identity and identity.file_id or nil,book_version=identity and identity.book_version or nil}
         end
         if n~=1 or not items.chapter then return {kind='unknown'} end
         local matching
@@ -129,7 +129,7 @@ end
 -- catalog contain exactly the same chapters in the same order.
 function M.complete(info,catalog)
     if type(info)~='table' or info.kind~='combined' or type(info.items)~='table' or type(info.order)~='table'
-        or type(catalog)~='table' or #catalog==0 or #catalog>20000 then return false end
+        or type(catalog)~='table' or #catalog==0 or #catalog>20000 or #catalog~=#info.order then return false end
     local keys=0
     for key in pairs(catalog) do
         if type(key)~='number' or key%1~=0 or key<1 or key>#catalog then return false end
@@ -149,8 +149,9 @@ function M.complete(info,catalog)
 end
 
 -- Compare the on-disk proof with the archive currently pinned by ReaderUI.
-function M.document_complete(info,document,book_id,catalog)
-    if not M.complete(info,catalog) or type(info.file_id)~='string' or #info.file_id~=64
+function M.document_matches(info,document,book_id)
+    if type(info)~='table' or info.kind~='combined' or type(info.file_id)~='string' or #info.file_id~=64
+        or type(info.opf_hash)~='string'
         or type(document)~='table' then return false end
     local ok,result=pcall(function()
         local identity=Identity.read_document(document,book_id)
@@ -159,6 +160,10 @@ function M.document_complete(info,document,book_id,catalog)
             and type(opf)=='string' and Crypto.sha256_hex(opf)==info.opf_hash
     end)
     return ok and result==true
+end
+
+function M.document_complete(info,document,book_id,catalog)
+    return M.complete(info,catalog) and M.document_matches(info,document,book_id)
 end
 
 function M.usable(book,path,uid,cache,verify_source)

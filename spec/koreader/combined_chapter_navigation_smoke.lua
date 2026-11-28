@@ -85,6 +85,38 @@ return function(reader,host,book,id,pump,clean,set_offline)
     select_chapter(host,latest,4);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
     assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only)
     clean(reader)
+    local successor=Content.save_chapter_epub(host.settings,copy,chapters[5],
+        '<p>这是第五章的合成正文。</p>',{},'',Identity.capture(copy))
+    local saved_for_end=host.settings:get('books',{})
+    saved_for_end[id].cached_chapters['5']=successor
+    host.settings:set('books',saved_for_end);host.settings:flush()
+    local action=G_reader_settings:readSetting('end_document_action')
+    local UI=require('ui/uimanager')
+    local function turn_past_end(mode)
+        G_reader_settings:saveSetting('end_document_action',mode)
+        reader.rolling:onGotoPage(reader.document:getPageCount())
+        reader.rolling:onGotoViewRel(1)
+    end
+    local function wait_for_successor()
+        pump(function() return Reader.instance and Reader.instance.document.file==successor end)
+        reader=assert(Reader.instance);host=assert(reader.weread)
+        local after=assert(host.settings:get_book(id)).pending_upload_position
+        assert(after and tostring(after.chapter_uid)=='4' and after.chapter_offset==10,
+            'leaving a partial combined EPUB changed its protected pending position')
+    end
+    turn_past_end('pop-up')
+    local dialog=assert(UI:getTopmostVisibleWidget())
+    local next_button=assert(dialog:getButtonById('next_chapter'))
+    assert(next_button.enabled~=false,'the partial combined EPUB ended before the last book chapter')
+    UI:forceRePaint()
+    next_button:onTapSelectButton();wait_for_successor()
+    local combined_book=assert(host.settings:get_book(id));combined_book.chapters=chapters
+    select_chapter(host,combined_book,4)
+    pump(function() return Reader.instance and Reader.instance.document.file==combined end)
+    reader=assert(Reader.instance);host=assert(reader.weread)
+    clean(reader)
+    turn_past_end('next_file');wait_for_successor()
+    G_reader_settings:saveSetting('end_document_action',action)
     assert(host.settings:patch_reading_state(id,{pending_upload_position=before.pending_upload_position or false,
         pending_upload_account=before.pending_upload_account or false,last_local_position=before.last_local_position or false,
         last_local_account=before.last_local_account or false}))
