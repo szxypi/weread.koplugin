@@ -2673,6 +2673,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     local selected, selected_count = {}, 0
     local menu, current_items
     local search = ""
+    local unfiltered_item
     local chapter_view=self._chapter_list_view
     local page_current=require('weread.ui.page_scope').capture(self,self.shelf_view)
     local function current()
@@ -2693,6 +2694,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         if checked == (selected[uid] == true) then return end
         selected[uid] = checked or nil
         selected_count = selected_count + (checked and 1 or -1)
+        return true
     end
 
     local is_chapter_cached=chapter_cache_lookup(self,book)
@@ -2703,8 +2705,31 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         rows[index] = { uid = uid, title = chapter.title or T(_("Chapter %1"), uid) }
     end
     local filter_titles = ChapterSearch.title_filter(rows)
-    local download = self:safeCallback(_("Download selected chapters"), function()
-        if not current() then return end
+    -- KOReader reads these properties when constructing visible items.
+    local chapter_entry = { __index = function(item, key)
+        if key == "text" or key == "mandatory" then
+            local row = rows[item.chapter_index]
+            local checked = selected[row.uid]
+            if key == "text" then return (checked and "[✓] " or "[  ] ") .. item.label end
+            if checked then return _("Selected") end
+            if row.cached == nil then row.cached = is_chapter_cached(row.uid) end
+            return row.cached and _("Cached")
+                or T(_("%1 words"), tostring(chapters[item.chapter_index].wordCount or 0))
+        end
+    end }
+    local download_entry = { __index = function(_item, key)
+        if key == "text" then return T(_("[Download] Selected chapters (%1)"), tostring(selected_count)) end
+        if key == "select_enabled" then return selected_count > 0 end
+    end }
+    local function update_visible_items()
+        local focused = menu.getFocusItem and menu:getFocusItem()
+        local position
+        for index, widget in ipairs(menu.item_group or {}) do
+            if widget == focused then position = index; break end
+        end
+        menu:updateItems(position, not menu.items_max_lines)
+    end
+    local function download()
         local targets = selectedChapters()
         if #targets == 0 then return end
         self:confirmAndDownloadChapters(book, targets, "chapters", {
@@ -2721,7 +2746,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
                 end)
             end,
         })
-    end)
+    end
     local function chooseMatching(matches, items)
         if items ~= current_items or not current() or menu._shelf_popup then return end
         local dialog
@@ -2731,8 +2756,11 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
                     if items ~= current_items or not current() or not Popup.current(menu, dialog) then return end
                     Popup.close(menu)
                     if checked == nil then return end
-                    for _, index in ipairs(matches) do selectChapter(rows[index].uid, checked) end
-                    menu:updateItems()
+                    local changed
+                    for _, index in ipairs(matches) do
+                        if selectChapter(rows[index].uid, checked) then changed = true end
+                    end
+                    if changed then update_visible_items() end
                 end)
             end
         end
@@ -2745,6 +2773,18 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         }
         Popup.show(menu, dialog)
     end
+    local choose = self:safeCallback(_("Select chapters to download"), function(item)
+        if type(item) ~= "table" or current_items[item.idx] ~= item or not current() then return end
+        if item.download then
+            download()
+        elseif item.matches then
+            chooseMatching(item.matches, current_items)
+        elseif item.chapter_index then
+            local uid = rows[item.chapter_index].uid
+            selectChapter(uid, not selected[uid])
+            update_visible_items()
+        end
+    end)
     local function buildItems()
         local matches, counts = filter_titles(search)
         local bulk_selection = matches and #matches > 1
@@ -2752,48 +2792,23 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         local items = {}
         current_items = items
         local function appendDownloadAction()
-            items[#items + 1] = {
-                text_func = function()
-                    return T(_("[Download] Selected chapters (%1)"), tostring(selected_count))
-                end,
-                bold = true,
-                select_enabled_func = function() return selected_count > 0 end,
-                separator = true,
-                callback = function()
-                    if items == current_items then download() end
-                end,
-            }
+            items[#items + 1] = setmetatable({
+                idx = #items + 1, download = true, bold = true, separator = true,
+            }, download_entry)
         end
         for number = 1, (matches and #matches or #rows) do
             if (number - 1) % chapters_per_page == 0 then
                 appendDownloadAction()
                 if bulk_selection then
-                    items[#items + 1] = {text = _("Matching chapters…"), separator = true,
-                        callback = function() chooseMatching(matches, items) end}
+                    items[#items + 1] = {idx = #items + 1, text = _("Matching chapters…"), separator = true, matches = matches}
                 end
             end
             local chapter_index = matches and matches[number] or number
-            local chapter = chapters[chapter_index]
             local row = rows[chapter_index]
-            local uid = row.uid
             local label = ChapterSearch.label(row.title, chapter_index, counts)
-            items[#items + 1] = {
-                text_func = function()
-                    local marker = selected[uid] and "[✓] " or "[  ] "
-                    return marker .. label
-                end,
-                mandatory_func = function()
-                    if selected[uid] then return _("Selected") end
-                    if row.cached == nil then row.cached = is_chapter_cached(uid) end
-                    return row.cached and _("Cached")
-                        or T(_("%1 words"), tostring(chapter.wordCount or 0))
-                end,
-                callback = self:safeCallback(chapter.title or _("Chapter"), function()
-                    if items ~= current_items or not current() then return end
-                    selectChapter(uid, not selected[uid])
-                    menu:updateItems()
-                end),
-            }
+            items[#items + 1] = setmetatable({
+                idx = #items + 1, chapter_index = chapter_index, label = label,
+            }, chapter_entry)
         end
         if matches and #matches == 0 then
             appendDownloadAction()
@@ -2802,13 +2817,16 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         return items
     end
     menu = self:showList(_("Select chapters to download"), buildItems(),
-        _("No chapters."), { items_per_page = perpage, left_icon = "appbar.search", subtitle = "" })
+        _("No chapters."), { items_per_page = perpage, left_icon = "appbar.search", subtitle = "", on_choice = choose })
     if menu then
         menu.onLeftButtonTap = function()
             ChapterSearch.prompt(self, menu, search, current, function(query)
+                if search == "" and menu.getFirstVisibleItemIndex then unfiltered_item = menu:getFirstVisibleItemIndex() end
                 search = query
                 menu.subtitle = search ~= "" and T(_("Chapter filter: %1"), search) or ""
-                menu:switchItemTable(nil, buildItems(), nil, nil, menu.subtitle)
+                local position = search == "" and unfiltered_item or nil
+                if search == "" then unfiltered_item = nil end
+                menu:switchItemTable(nil, buildItems(), position, nil, menu.subtitle)
             end)
             return true
         end

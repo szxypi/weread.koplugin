@@ -67,7 +67,7 @@ return function(reader,host,book,id,pump,clean,set_offline)
     for _,item in ipairs(menu.item_table) do
         if not item.separator then
             row_index=row_index+1
-            assert((item.mandatory_func()==cached)==(row_index==2 or row_index==4),
+            assert((item.mandatory==cached)==(row_index==2 or row_index==4),
                 'download selection cache status was incorrect')
         end
     end

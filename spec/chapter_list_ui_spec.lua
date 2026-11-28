@@ -94,6 +94,10 @@ end
 
 local shown = {}
 local fake_menu
+local function choose(state,index)
+    local item=state.items[index]
+    if item.select_enabled~=false then state.options.on_choice(item) end
+end
 local downloaded_options, downloaded_targets
 local returned_to_parent = false
 local opened_chapter
@@ -105,9 +109,15 @@ local host = {
         local state = { title = title, items = items, options = options }
         shown[#shown + 1] = state
         fake_menu = {
-            updateItems = function() end,
-            switchItemTable = function(_menu, _title, next_items, _number, _match, subtitle)
-                state.items, state.subtitle = next_items, subtitle
+            item_group = {{},{}},
+            getFocusItem = function(menu) return menu.item_group[2] end,
+            getFirstVisibleItemIndex = function() return state.first_visible_item or 1 end,
+            updateItems = function(_,focus,skip_layout)
+                state.updates=(state.updates or 0)+1
+                state.focus,state.skip_layout=focus,skip_layout
+            end,
+            switchItemTable = function(_menu, _title, next_items, number, _match, subtitle)
+                state.items, state.subtitle, state.restore_item = next_items, subtitle, number
             end,
         }
         return fake_menu
@@ -173,27 +183,30 @@ host:showChapterDownloadSelection(book, chapters, function()
     host:showChapterList(book)
 end)
 local selection_menu = shown[1]
-expect(selection_menu.items[1].text_func() == "[Download] Selected chapters (0)",
+expect(selection_menu.items[1].text == "[Download] Selected chapters (0)",
     "selection page starts with a distinct download action")
-expect(selection_menu.items[6].text_func() == "[Download] Selected chapters (0)",
+expect(selection_menu.items[6].text == "[Download] Selected chapters (0)",
     "download action repeats at the top of the second page")
+expect(selection_menu.items[1].select_enabled==false, "empty selection did not disable download")
 
-selection_menu.items[2].callback()
-expect(selection_menu.items[2].text_func():find("[✓]", 1, true) == 1,
+choose(selection_menu,2)
+expect(selection_menu.items[2].text:find("[✓]", 1, true) == 1,
     "selected chapter gets an explicit visible marker")
-expect(selection_menu.items[2].mandatory_func() == "Selected",
+expect(selection_menu.items[2].mandatory == "Selected",
     "selected chapter gets a visible right-side status")
-expect(selection_menu.items[1].text_func() == "[Download] Selected chapters (1)",
+expect(selection_menu.items[1].text == "[Download] Selected chapters (1)",
     "download action count updates after selection")
+expect(selection_menu.focus==2 and selection_menu.skip_layout,
+    "another layout pass or a focus reset was requested when selecting a chapter")
 
-selection_menu.items[2].callback()
-expect(selection_menu.items[2].text_func():find("[  ]", 1, true) == 1,
+choose(selection_menu,2)
+expect(selection_menu.items[2].text:find("[  ]", 1, true) == 1,
     "tapping a selected chapter removes its marker")
-expect(selection_menu.items[1].text_func() == "[Download] Selected chapters (0)",
+expect(selection_menu.items[1].text == "[Download] Selected chapters (0)",
     "download action count decreases after deselection")
-selection_menu.items[2].callback()
+choose(selection_menu,2)
 
-selection_menu.items[1].callback()
+choose(selection_menu,1)
 expect(downloaded_options and downloaded_options.separate_chapters == true,
     "multi-selection starts a separate-chapter download")
 expect(downloaded_options.offer_read == nil,
@@ -212,9 +225,9 @@ expect(book_reads == 3, "opening and refreshing the catalog read one book each")
 local batch_view=host._chapter_list_view
 catalog_view_callbacks.on_select_download()
 local batch_menu=shown[#shown]
-batch_menu.items[3].callback()
-batch_menu.items[4].callback()
-batch_menu.items[1].callback()
+choose(batch_menu,3)
+choose(batch_menu,4)
+choose(batch_menu,1)
 existing_files['/cache/second.epub']=true
 persisted_books['book-1'].cached_chapters['2']='/cache/second.epub'
 persisted_books['book-1'].cached_chapters['3']='/cache/not-saved.epub'
@@ -244,10 +257,10 @@ expect(catalog_view_data.chapters[4].status=='400 words' and catalog_view_data.c
 expect(mappings['4']=='/cache/missing.epub','display removed the stale cache mapping')
 host:showChapterDownloadSelection(book,chapters)
 local status_menu=shown[#shown]
-expect(status_menu.items[2].mandatory_func()=='Cached' and status_menu.items[4].mandatory_func()=='Cached',
+expect(status_menu.items[2].mandatory=='Cached' and status_menu.items[4].mandatory=='Cached',
     'combined-book status was missing from download selection')
-expect(status_menu.items[3].mandatory_func()=='Cached' and status_menu.items[5].mandatory_func()=='400 words'
-    and status_menu.items[7].mandatory_func()=='500 words','download selection used incorrect cache status')
+expect(status_menu.items[3].mandatory=='Cached' and status_menu.items[5].mandatory=='400 words'
+    and status_menu.items[7].mandatory=='500 words','download selection used incorrect cache status')
 claims.combined,claims.usable=old_combined,old_usable
 host.getFullBookCachePath=nil
 
@@ -257,8 +270,8 @@ manager.scheduleIn=function(_,_,callback) late=callback end
 local reopened=false
 host:showChapterDownloadSelection(book,chapters,function() reopened=true end)
 local stale_selection=shown[#shown]
-stale_selection.items[2].callback()
-stale_selection.items[1].callback()
+choose(stale_selection,2)
+choose(stale_selection,1)
 downloaded_options.on_complete(true)
 expect(type(late)=='function','completed selection did not schedule its return')
 fake_menu:onCloseWidget();late()
@@ -326,7 +339,8 @@ host:showChapterList(book)
 catalog_view_callbacks.on_select_download()
 local filtered_selection = shown[#shown]
 expect(filtered_selection.options.left_icon == "appbar.search", "download selection has a search entry")
-filtered_selection.items[3].callback()
+filtered_selection.first_visible_item=6
+choose(filtered_selection,3)
 local old_item = filtered_selection.items[4]
 local function filter_selection(query)
     fake_menu:onLeftButtonTap()
@@ -334,21 +348,25 @@ local function filter_selection(query)
     input.buttons[1][2].callback()
 end
 filter_selection("　ALPHA chapter　")
-expect(#filtered_selection.items == 4 and filtered_selection.items[3].text_func() == "[  ] 1. Chapter Alpha"
-    and filtered_selection.items[4].text_func() == "[  ] 4. Chapter Alpha", "selection filter preserves duplicate positions")
-old_item.callback()
-filtered_selection.items[4].callback()
-expect(filtered_selection.items[1].text_func() == "[Download] Selected chapters (2)", "hidden selection counts toward download")
+expect(#filtered_selection.items == 4 and filtered_selection.items[3].text == "[  ] 1. Chapter Alpha"
+    and filtered_selection.items[4].text == "[  ] 4. Chapter Alpha", "selection filter preserves duplicate positions")
+filtered_selection.options.on_choice(old_item)
+choose(filtered_selection,4)
+expect(filtered_selection.items[1].text == "[Download] Selected chapters (2)", "hidden selection counts toward download")
 filter_selection("not a chapter title")
 expect(#filtered_selection.items == 2 and not filtered_selection.items[2].select_enabled
     and filtered_selection.items[2].text == "No matching chapters.", "empty selection filter has a visible message")
-filtered_selection.items[1].callback()
+choose(filtered_selection,1)
 expect(#downloaded_targets == 2 and downloaded_targets[1] == chapters[2] and downloaded_targets[2] == chapters[4],
     "filter downloads all selected chapters in original catalog order")
 fake_menu:onLeftButtonTap()
 input.buttons[1][1].callback()
-expect(filtered_selection.subtitle == "" and filtered_selection.items[3].mandatory_func() == "Selected"
-    and filtered_selection.items[5].mandatory_func() == "Selected", "clearing filter keeps the selected chapters")
+expect(filtered_selection.subtitle == "" and filtered_selection.items[3].mandatory == "Selected"
+    and filtered_selection.items[5].mandatory == "Selected" and filtered_selection.restore_item==6,
+    "clearing the filter kept the selected chapters and original page")
+filtered_selection.options.on_choice(old_item)
+expect(filtered_selection.items[1].text=="[Download] Selected chapters (2)",
+    "returning to the full list revived a stale chapter action")
 fake_menu:onLeftButtonTap()
 local old_selection_query = input
 fake_menu:onCloseWidget()
@@ -360,36 +378,40 @@ chapters[2].title = "Introduction"
 host:showChapterList(book)
 catalog_view_callbacks.on_select_download()
 local bulk = shown[#shown]
-bulk.items[3].callback()
-local old_download = bulk.items[1].callback
+choose(bulk,3)
+local old_download = bulk.items[1]
 filter_selection("chapter")
 expect(#bulk.items == 10 and bulk.items[7].text == "Matching chapters…",
     "matching chapter actions are reachable on a later page")
-bulk.items[7].callback()
+choose(bulk,7)
 local options = assert(fake_menu._shelf_popup)
 options.buttons[1][1].callback()
-expect(bulk.items[1].text_func() == "[Download] Selected chapters (7)"
-    and bulk.items[10].text_func():find("[✓]",1,true)==1, "select matched every page and retained the hidden chapter")
+expect(bulk.items[1].text == "[Download] Selected chapters (7)"
+    and bulk.items[10].text:find("[✓]",1,true)==1, "select matched every page and retained the hidden chapter")
+local updates=bulk.updates
+choose(bulk,7)
+fake_menu._shelf_popup.buttons[1][1].callback()
+expect(bulk.updates==updates, "selecting the same matches requested another page redraw")
 local last_targets = downloaded_targets
-old_download()
+bulk.options.on_choice(old_download)
 expect(downloaded_targets == last_targets, "an old filter's download button started a different selection")
-bulk.items[1].callback()
+choose(bulk,1)
 expect(#downloaded_targets == 7 and downloaded_targets[2] == chapters[2] and downloaded_targets[7] == chapters[7],
     "bulk download did not preserve original chapter order")
-bulk.items[2].callback()
+choose(bulk,2)
 options = assert(fake_menu._shelf_popup)
 options.buttons[2][1].callback()
-bulk.items[1].callback()
+choose(bulk,1)
 expect(#downloaded_targets == 1 and downloaded_targets[1] == chapters[2],
     "deselecting matches removed a hidden selection")
-bulk.items[2].callback()
+choose(bulk,2)
 options = assert(fake_menu._shelf_popup)
 local old_tick, queued = manager.nextTick
 manager.nextTick = function(_, callback) queued = callback end
 options.buttons[1][1].callback()
 fake_menu:onCloseWidget();queued()
 manager.nextTick = old_tick
-expect(bulk.items[1].text_func() == "[Download] Selected chapters (1)", "a closed menu applied deferred bulk selection")
+expect(bulk.items[1].text == "[Download] Selected chapters (1)", "a closed menu applied deferred bulk selection")
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))

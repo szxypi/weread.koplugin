@@ -4,6 +4,51 @@ require('setupkoenv')
 local json=require('json')
 local report={result='UNVERIFIED'}
 
+local function measure_download_selection(chapter_count)
+    local UI=require('ui/uimanager')
+    local Device=require('device')
+    local ChapterList=require('weread.ui.library')
+    local Common=require('weread.ui.common')
+    local Menu=require('ui/widget/menu')
+    local tr=require('weread.lib.i18n').tr
+    local chapters={}
+    for index=1,chapter_count do
+        chapters[index]={chapterUid=index,title='第'..index..'章 合成章节',wordCount=index}
+    end
+    local host={settings={get=function(_,_,default) return default end},showList=Common.showList,
+        safeCallback=function(_,_,callback) return callback end}
+    G_reader_settings:saveSetting('items_per_page',14)
+    G_reader_settings:saveSetting('items_font_size',20)
+    collectgarbage('collect')
+    local heap=collectgarbage('count')
+    local start=os.clock()
+    ChapterList.showChapterDownloadSelection(host,{book_id='123'},chapters)
+    local menu=assert(UI:getTopmostVisibleWidget())
+    UI:forceRePaint()
+    local opening=(os.clock()-start)*1000
+    collectgarbage('collect')
+    local retained=collectgarbage('count')-heap
+    local screenshots=os.getenv('WEREAD_CHAPTER_SHOTS')
+    if screenshots then Device.screen:shot(screenshots..'/download-selection.png') end
+    local callbacks=0
+    for _,item in ipairs(menu.item_table) do
+        for _,name in ipairs({'text_func','mandatory_func','select_enabled_func','callback'}) do
+            if type(item[name])=='function' then callbacks=callbacks+1 end
+        end
+    end
+    local item=assert(menu.item_table[2])
+    start=os.clock()
+    menu:onMenuSelect(item)
+    UI:forceRePaint()
+    local toggle=(os.clock()-start)*1000
+    assert(Menu.getMenuText(item):find('[✓]',1,true)==1
+        and (item.mandatory_func and item.mandatory_func() or item.mandatory)==tr('Selected'),
+        'chapter selection did not update both indicators')
+    if screenshots then Device.screen:shot(screenshots..'/download-selected.png') end
+    UI:close(menu)
+    return {item_functions=callbacks,retained_kib=retained,opening_cpu_ms=opening,toggle_cpu_ms=toggle}
+end
+
 local function measure_title_search(chapter_count)
     local Search=require('weread.lib.shelf_search')
     local ChapterSearch=require('weread.ui.chapter_search')
@@ -256,7 +301,8 @@ local ok,reason=pcall(function()
         lua_kib=heap,geometry_checksum=checksum,geometry=geometry,row_paints=row_paints,initial_materialized_rows=initial_frames,
         max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true,
         press_verified=true,prepaint_press_verified=prepaint_press,cache_update=cache_update,
-        title_search=os.getenv('WEREAD_CHAPTER_TITLE_SEARCH')=='1' and measure_title_search(chapter_count) or nil}
+        title_search=os.getenv('WEREAD_CHAPTER_TITLE_SEARCH')=='1' and measure_title_search(chapter_count) or nil,
+        download_selection=os.getenv('WEREAD_CHAPTER_DOWNLOAD_SELECTION')=='1' and measure_download_selection(chapter_count) or nil}
 end)
 if not ok then report.error=tostring(reason) end
 io.write('\nWEREAD_CHAPTER_BENCHMARK='..json.encode(report)..'\n')

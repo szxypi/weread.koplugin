@@ -37,7 +37,7 @@ return function(input,host,reader,pump)
             local chapter=assert(chapters[index])
             local uid=tostring(chapter.chapterUid or chapter.chapterId)
             if expected[uid] then
-                assert(item.mandatory_func()==tr('Cached'),'full-book download selection status missing')
+                assert(item.mandatory==tr('Cached'),'full-book download selection status missing')
                 verified=verified+1
             end
         end

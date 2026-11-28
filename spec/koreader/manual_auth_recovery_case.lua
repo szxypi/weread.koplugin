@@ -59,11 +59,14 @@ return function(host,kind,pump,tick)
             dialog:setInputText(title)
             dialog.buttons[1][2].callback()
         end
+        local unfiltered_page=menu.page_num
+        assert(unfiltered_page>1)
+        menu:onGotoPage(unfiltered_page)
         filter('第')
         local bulk,chapter_rows={},0
         for index,item in ipairs(menu.item_table) do
             if item.text==Util.tr('Matching chapters…') then bulk[#bulk+1]=index end
-            if item.mandatory_func then chapter_rows=chapter_rows+1 end
+            if item.chapter_index then chapter_rows=chapter_rows+1 end
         end
         assert(#bulk>1 and chapter_rows>=6,'filtered chapter selection has no actions across pages')
         menu:onGotoPage(menu:getPageNumber(bulk[2]))
@@ -72,7 +75,7 @@ return function(host,kind,pump,tick)
             local actions=assert(menu._shelf_popup)
             actions.buttons[selection.button][1].callback()
             pump(function() return menu._shelf_popup==nil end)
-            assert(menu.item_table[1].text_func()==Util.T(Util.tr('[Download] Selected chapters (%1)'),tostring(selection.count)),
+            assert(menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),tostring(selection.count)),
                 'bulk action did not update chapters on every page')
         end
         if previous_page_size then G_reader_settings:saveSetting('items_per_page',previous_page_size)
@@ -81,14 +84,17 @@ return function(host,kind,pump,tick)
             filter(title)
             assert(menu.subtitle:find(title,1,true) and #menu.item_table==2,'download filter showed the wrong chapters')
             local item=menu.item_table[2]
-            assert(item.text_func():find(title,1,true),'filtered download row did not retain the chapter title')
+            assert(item.text:find(title,1,true),'filtered download row did not retain the chapter title')
             menu:onMenuSelect(item)
-            assert(item.mandatory_func()==Util.tr('Selected'))
+            assert(item.mandatory==Util.tr('Selected'))
         end
-        assert(menu.item_table[1].text_func()==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
+        assert(menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
             'selection across two queries was lost')
+        filter('')
+        assert(menu.page==unfiltered_page and menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
+            'clearing the filter lost the original page or the selected chapters')
         request('/__control',{match=shard,times=1,skip=1,status=401,web_renewal_mode='rotate'})
-        menu.item_table[1].callback()
+        menu:onMenuSelect(menu.item_table[menu:getFirstVisibleItemIndex()])
         pump(function()
             local reader=Reader.instance
             local saved_book=reader and reader.weread and reader.weread.settings:get_book(book.book_id or book.bookId)

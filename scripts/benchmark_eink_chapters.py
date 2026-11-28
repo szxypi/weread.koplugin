@@ -30,6 +30,8 @@ def main():
                         help='Measure a downloaded chapter status update against rebuilding the catalog.')
     parser.add_argument('--check-title-search', action='store_true',
                         help='Compare first and repeated title searches on the same catalog.')
+    parser.add_argument('--check-download-selection', action='store_true',
+                        help='Measure the download picker opening and the first selection.')
     parser.add_argument('--max-row-paints', type=int)
     parser.add_argument('--max-row-layout-updates', type=int)
     parser.add_argument('--max-materialized-rows', type=int)
@@ -68,6 +70,8 @@ def main():
             env['WEREAD_CHAPTER_CACHE_UPDATE'] = '1'
         if args.check_title_search:
             env['WEREAD_CHAPTER_TITLE_SEARCH'] = '1'
+        if args.check_download_selection:
+            env['WEREAD_CHAPTER_DOWNLOAD_SELECTION'] = '1'
         code, output, repaint = run_child([str(runtime / 'luajit'), str(repo / 'spec/koreader/eink_chapter_benchmark.lua')],
                                           env, b'', runtime, timeout=150)
         if output.count(FRAME) != 1:
