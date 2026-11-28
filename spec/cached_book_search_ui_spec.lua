@@ -89,7 +89,10 @@ function host:closeBusy() self.busy_message=nil end
 function host:showInfo(value) self.info=value end
 function host:isNetworkOnline() error('local search attempted a network check') end
 function host:showList(_title,items)
-    local menu={items=items};function menu.switchItemTable(widget,_label,next_items) widget.items=next_items end
+    local menu={items=items,rebuilds=0}
+    function menu.switchItemTable(widget,_label,next_items)
+        widget.items=next_items;widget.rebuilds=widget.rebuilds+1
+    end
     return menu
 end
 local chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Not downloaded'}}
@@ -344,9 +347,11 @@ owner=open(nil);old=worker
 expect(owner.discovery_pending and owner.total==0,'full-book discovery did not run before scanning')
 host.busy_message.cancel();old:complete()
 expect(owner.discovery_pending and #owner.value==0 and discovery_count==1,'cancelled discovery committed its results')
+local discovery_rebuilds=owner.menu.rebuilds
 owner.menu.items[1].callback();worker:complete()
 expect(owner.discovered and owner.total==2 and owner.queue[1].uid=='2' and owner.queue[2].uid=='3',
     'full-book index did not add the downloaded chapters in order')
+expect(owner.menu.rebuilds==discovery_rebuilds,'index discovery repainted the results menu while busy')
 task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task();worker:complete()
 task=scheduled;scheduled=nil;task()
 expect(owner.finished and #owner.value==2 and find_item(owner.menu,
@@ -408,11 +413,14 @@ local function next_task()
 end
 local initial_starts,initial_scans=starts,scans
 owner=open(many,true)
+local initial_rebuilds=owner.menu.rebuilds
 worker:complete()
 expect(owner.index==5 and owner.checked==4 and #owner.value==4 and last_case==true,'worker did not scan four ordered chapters')
+expect(owner.menu.rebuilds==initial_rebuilds,'worker repainted the menu underneath the stop dialog')
 next_task();worker:complete();next_task();worker:complete();next_task()
 expect(owner.finished and owner.checked==9 and #owner.value==9 and scans-initial_scans==9 and starts-initial_starts==3,
     'full search did not use three workers for nine chapters')
+expect(owner.menu.rebuilds==initial_rebuilds+1 and hit_item(owner,9),'completed search did not paint all results once')
 for index,hit in ipairs(owner.value) do assert(hit.chapter_uid==tostring(index)) end
 Cached.cancel(host)
 
@@ -461,11 +469,13 @@ Cached.cancel(host)
 
 search_module.scan=function(request) now=now+360;return original_scan(request) end
 owner=open(many)
+initial_rebuilds=owner.menu.rebuilds
 worker:complete()
 expect(owner.index==2 and owner.checked==1 and #owner.value==1,'worker started another chapter past the time budget')
 next_task();local late_batch=worker;local late_callback=late_batch.callback;local in_flight=late_batch.task
 host.busy_message.cancel();late_callback(in_flight())
 expect(owner.index==2 and owner.checked==1 and #owner.value==1 and not owner.job,'cancelled worker consumed its partial result')
+expect(owner.menu.rebuilds==initial_rebuilds+1 and hit_item(owner,1),'stopping did not show the accepted hits immediately')
 search_module.scan=original_scan
 assert(find_item(owner.menu,'Continue searching downloaded chapters')).callback()
 worker:complete()

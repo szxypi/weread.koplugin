@@ -318,7 +318,7 @@ start=function(host,owner)
                     else owner.discovery_incomplete=true end
                 elseif owner.catalog_missing then owner.discovery_incomplete=true end
                 owner.discovery_pending=false
-                render(host,owner);later()
+                later()
             end)
             if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
             return
@@ -376,7 +376,8 @@ start=function(host,owner)
                 owner.finished=not owner.overflow and not owner.queue[owner.index]
                 owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
             end
-            render(host,owner)
+            -- The stop dialog owns input. Publish the accumulated results when
+            -- it closes so each worker batch does not repaint the list below it.
             later()
         end)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end

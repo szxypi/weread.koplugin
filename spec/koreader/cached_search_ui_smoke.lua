@@ -321,10 +321,18 @@ wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
 assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=original_discover
+local menu_rebuilds,busy_menu_rebuilds=0,0
+local switch_items=owner.menu.switchItemTable
+owner.menu.switchItemTable=function(menu,...)
+    menu_rebuilds=menu_rebuilds+1
+    if owner.job then busy_menu_rebuilds=busy_menu_rebuilds+1 end
+    return switch_items(menu,...)
+end
 local search_start=socket.gettime()
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
 local search_ms=math.floor((socket.gettime()-search_start)*1000+.5)
+owner.menu.switchItemTable=switch_items
 local count=incomplete and 1 or 2
 local unavailable=(no_catalog or long_full) and 0 or #chapters-2
 local checked=long_full or (limit_test and 1 or count)
@@ -485,7 +493,8 @@ if long_full then
         assert(owner.catalog and owner.titles[target_uid]=='合成第二章','whole-book batch replaced the catalog title')
     end
     print('\nWEREAD_CACHED_LONG_FULL='..require('json').encode({chapters=owner.checked,
-        batch_reads=tonumber(requests[1]),search_ms=search_ms}))
+        batch_reads=tonumber(requests[1]),search_ms=search_ms,
+        menu_rebuilds=menu_rebuilds,busy_menu_rebuilds=busy_menu_rebuilds}))
 end
 print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=unavailable,
     navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog,

@@ -524,6 +524,7 @@ def main():
                     assert raw.count(marker)==1
                     metrics=json.loads(raw.split(marker,1)[1].splitlines()[0])
                     assert metrics['chapters']==LONG_CATALOG_SIZE and 0<metrics['batch_reads']<500
+                    assert metrics['menu_rebuilds']==1 and metrics['busy_menu_rebuilds']==0, 'search rebuilt the results menu while busy'
                     print(json.dumps(metrics))
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
