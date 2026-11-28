@@ -480,12 +480,8 @@ function M.list_books(settings,account,known,current)
     return ok and entries or {}
 end
 
-local xml_entities={amp='&',lt='<',gt='>',quot='"',apos="'",['#39']="'"}
 local function display_field(opf,field)
-    local escaped=opf:match('<dc:'..field..'>([^<]*)</dc:'..field..'>')
-    if not escaped or #escaped>12*1024 then return nil end
-    local value=escaped:gsub('&([#%w]+);',xml_entities)
-    return safe_text(value) and value or nil
+    return Protocol.xml_display_text(opf:match('<dc:'..field..'>([^<]*)</dc:'..field..'>'))
 end
 
 function M.book_metadata(settings,account,entry,current)

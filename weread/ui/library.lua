@@ -2422,25 +2422,29 @@ local function chapter_cache_lookup(host,book,downloaded_count)
         if cached and file_exists(cached) and claims.usable(book,cached,uid,cache) then return true end
         local ok,id=pcall(identity.identifier,uid,true)
         return ok and combined and combined.items['chapter_'..id]==true or false
-    end, combined
+    end, combined, combined and full
 end
 
 local function saved_chapter_rows(host, book, catalog)
     local identity = require('weread.lib.reader_context')
-    local is_cached, combined = chapter_cache_lookup(host, book)
-    local rows, seen = {}, {}
+    local is_cached, combined, full_path = chapter_cache_lookup(host, book)
+    local rows, seen, missing_titles = {}, {}, {}
+    catalog = type(catalog)=='table' and catalog or {}
     local function append(uid, title, position)
         local ok, id = pcall(identity.identifier, uid, true)
         if not ok or seen[id] or not is_cached(id) then return end
         seen[id] = true
-        rows[#rows + 1] = { chapterUid = id, position = position,
-            title = type(title)=='string' and title~='' and title or T(_('Chapter ID %1'), id) }
+        if type(title)~='string' or title=='' then
+            missing_titles[#missing_titles+1]=id
+            title=T(_('Chapter ID %1'),id)
+        end
+        rows[#rows + 1] = { chapterUid = id, position = position, title = title }
     end
-    for index, chapter in ipairs(type(catalog)=='table' and catalog or {}) do
+    for index, chapter in ipairs(catalog) do
         if type(chapter)=='table' then append(chapter.chapterUid or chapter.chapterId, chapter.title, index) end
     end
-    for _, member in ipairs(combined and combined.order or {}) do
-        append(member:match('^chapter_(.+)$'))
+    for position, member in ipairs(combined and combined.order or {}) do
+        append(member:match('^chapter_(.+)$'),nil,#catalog==0 and position or nil)
     end
     local other_ids = {}
     for uid in pairs(type(book.cached_chapters)=='table' and book.cached_chapters or {}) do
@@ -2449,7 +2453,7 @@ local function saved_chapter_rows(host, book, catalog)
     end
     table.sort(other_ids, function(a,b) return #a < #b or #a == #b and a < b end)
     for _, uid in ipairs(other_ids) do append(uid) end
-    return rows
+    return rows,missing_titles,full_path
 end
 
 function M:showSavedChapters(book_id, detail, reader)
@@ -2469,13 +2473,14 @@ function M:showSavedChapters(book_id, detail, reader)
     if type(catalog)~='table' or #catalog==0 then
         catalog = Content.load_catalog_cache(self.client, self.settings, latest)
     end
-    local rows = saved_chapter_rows(self, latest, catalog)
+    local rows,missing_titles,full_path = saved_chapter_rows(self, latest, catalog)
     local ChapterSearch = require('weread.ui.chapter_search')
-    local filter_titles = ChapterSearch.title_filter(rows)
+    local filter_titles = ChapterSearch.title_filter(rows,nil,true)
     local Popup = require('weread.ui.shelf_popup')
     local Cleanup = require('weread.ui.book_cache_cleanup')
     local query, menu, visible = '', nil, nil
-    local hold_hint = not reader and _('Hold a separately downloaded chapter to remove its copy') or nil
+    local unfiltered_position,title_worker
+    local hold_hint = not reader and _('Hold a separately downloaded chapter to remove its copy') or ''
     local function current()
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
@@ -2483,15 +2488,43 @@ function M:showSavedChapters(book_id, detail, reader)
         local matches, counts = filter_titles(query)
         local entries = {}
         visible = {}
+        if not counts then
+            counts={}
+            for _,row in ipairs(rows) do counts[row.title]=(counts[row.title] or 0)+1 end
+        end
         for index=1,(matches and #matches or #rows) do
             local row = rows[matches and matches[index] or index]
             local text = ChapterSearch.label(row.title, row.position, counts)
-            local entry = { text = text }
+            if not row.position and counts[row.title]>1 then
+                text=text..' · '..T(_('Chapter ID %1'),row.chapterUid)
+            end
+            local entry = { text = text, chapter_id = row.chapterUid }
             visible[entry] = row
             entries[index] = entry
         end
         if matches and #matches==0 then entries[1]={text=_('No matching chapters.'),select_enabled=false} end
         return entries
+    end
+    local function browse_position()
+        local first=menu:getFirstVisibleItemIndex()
+        local item=menu.item_table[first]
+        local focus=menu:getFocusItem()
+        return {first=first,chapter_id=item and item.chapter_id,
+            focus_id=focus and focus.entry and focus.entry.chapter_id}
+    end
+    local function rebuild(position)
+        local entries=items()
+        local anchor,focus
+        if position then
+            for index,item in ipairs(entries) do
+                if item.chapter_id and item.chapter_id==position.chapter_id then anchor=index end
+                if item.chapter_id and item.chapter_id==position.focus_id then focus=index end
+            end
+        end
+        menu.subtitle=query~='' and T(_('Chapter filter: %1'),query) or hold_hint
+        menu.itemnumber=focus
+        menu:switchItemTable(nil,entries,focus or anchor or position and position.first,nil,menu.subtitle)
+        menu.itemnumber=nil
     end
     menu = self:showList(_('Downloaded chapters'), items(), _('No downloaded chapters found.'), {
         left_icon='appbar.search', subtitle=hold_hint, on_choice=function(entry)
@@ -2525,20 +2558,43 @@ function M:showSavedChapters(book_id, detail, reader)
     end
     menu.onLeftButtonTap = function()
         ChapterSearch.prompt(self, menu, query, current, function(value)
+            if query=='' then unfiltered_position=browse_position() end
             query = value
-            menu.subtitle = query~='' and T(_('Chapter filter: %1'), query) or hold_hint
-            menu:switchItemTable(nil, items(), nil, nil, menu.subtitle)
+            rebuild(query=='' and unfiltered_position or nil)
+            if query=='' then unfiltered_position=nil end
         end)
         return true
     end
     local on_close = menu.onCloseWidget
     menu.onCloseWidget = function(widget,...)
         if self._saved_chapter_menu == widget then self._saved_chapter_menu = nil end
+        if title_worker then title_worker:cancel();title_worker=nil end
         local cleanup = self.book_cache_cleanup_job
         if cleanup and cleanup.owner.saved_chapters == widget then Cleanup.cancel(self) end
         widget._shelf_closed = true
         Popup.close(widget)
         if on_close then return on_close(widget,...) end
+    end
+    if #missing_titles>0 then
+        local ok,worker=pcall(function()
+            return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=self.client,max_bytes=4*1024*1024}
+        end)
+        if ok and worker then
+            title_worker=worker
+            local called,started=pcall(worker.start,worker,function()
+                return require('weread.lib.chapter_cache_claim').saved_titles(latest,full_path,missing_titles,current)
+            end,function(titles)
+                title_worker=nil
+                if not current() or type(titles)~='table' or not next(titles) then return end
+                Popup.redraw(menu,function()
+                    if not current() then return end
+                    local position=browse_position()
+                    for _,row in ipairs(rows) do row.title=titles[row.chapterUid] or row.title end
+                    rebuild(position)
+                end)
+            end)
+            if not called or not started then worker:cancel();title_worker=nil end
+        end
     end
 end
 

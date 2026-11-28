@@ -18,7 +18,7 @@ local function matches_title(title, needle, terms, normalize)
     return true
 end
 
-function M.title_filter(rows, empty_title)
+function M.title_filter(rows, empty_title, match_chapter_id)
     local normalize
     return function(query)
         local needle = Search.prepare(query)
@@ -29,7 +29,8 @@ function M.title_filter(rows, empty_title)
         local matches, counts = {}, {}
         for index, row in ipairs(rows) do
             local title = row.title == "" and empty_title or row.title
-            if matches_title(title, needle, terms, normalize) then
+            if match_chapter_id and row.chapterUid and row.chapterUid:lower()==needle
+                or matches_title(title, needle, terms, normalize) then
                 matches[#matches + 1] = index
                 counts[title] = (counts[title] or 0) + 1
             end

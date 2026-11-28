@@ -193,6 +193,15 @@ function WeRead.utf8_substr(value, max_chars)
     return text:sub(1, index - 1)
 end
 
+local xml_entities={amp='&',lt='<',gt='>',quot='"',apos="'",['#39']="'"}
+function WeRead.xml_display_text(escaped)
+    if type(escaped)~='string' or #escaped>12*1024 then return nil end
+    local value=escaped:gsub('&([#%w]+);',xml_entities)
+    if #value<=2048 and not value:find('[%z%c]') and WeRead.utf8_substr(value,#value)==value then
+        return value
+    end
+end
+
 function WeRead.make_content_params(book_id, chapter_uid, psvts, opts)
     opts = opts or {}
     local ct = opts.ct or os.time()

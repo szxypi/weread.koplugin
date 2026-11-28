@@ -145,17 +145,47 @@ local function check_saved_chapter_picker(reader)
     pump(function() return Reader.instance and Reader.instance.document.file==single end)
     reader=assert(Reader.instance);current=assert(reader.weread)
     assert(Source.read_document(reader.document,id,2),'saved chapter opened a different EPUB')
-    patch(current,{cached_full_book=full,cached_file=full,cached_chapters={}})
     assert(current.library_db:putChapters(id,{}))
     local catalog_path=assert(require('weread.lib.content').catalog_cache_path(current.settings,book(current)))
     assert(os.remove(catalog_path))
     menu=picker()
-    assert(#menu.item_table==6 and menu.item_table[4].text==tr('Chapter ID %1'):gsub('%%1','4'),
-        'the combined file could not supply its chapter order without the catalog')
+    pump(function() return menu.item_table[1].text=='合成重复章节' end)
+    assert(#menu.item_table==1 and menu.item_table[1].chapter_id=='2',
+        'catalog-free single EPUB did not restore its own title')
+    patch(current,{cached_full_book=full,cached_file=full,cached_chapters={}})
+    local previous_size=G_reader_settings:readSetting('items_per_page')
+    G_reader_settings:saveSetting('items_per_page',3)
+    menu=picker()
+    pump(function() return menu.item_table[4].text=='4. 合成重复章节' end)
+    assert(#menu.item_table==6 and menu.item_table[2].text=='2. 合成重复章节',
+        'the combined file did not supply ordered titles without the catalog')
+    local last=menu:getPageNumber(5)
+    assert(last>1)
+    menu:onGotoPage(last)
+    for y,row in ipairs(menu.layout) do
+        if row[1] and row[1].entry and row[1].entry.chapter_id=='5' then
+            menu:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS)
+            break
+        end
+    end
+    assert(menu:getFocusItem().entry.chapter_id=='5')
+    local function query(value)
+        UI:forceRePaint()
+        assert(menu.title_bar.left_button).callback()
+        local search=assert(menu._shelf_popup)
+        search:setInputText(value);search.buttons[1][2].callback()
+    end
+    query('合成重复章节')
+    assert(#menu.item_table==2 and menu.item_table[1].chapter_id=='2' and menu.item_table[2].chapter_id=='4')
     UI:forceRePaint()
     assert(menu.title_bar.left_button).callback()
-    local search=assert(menu._shelf_popup);search:setInputText(menu.item_table[4].text);search.buttons[1][2].callback()
-    assert(#menu.item_table==1)
+    assert(menu._shelf_popup).buttons[1][1].callback()
+    assert(menu.page==last and menu:getFocusItem().entry.chapter_id=='5',
+        'clearing downloaded search lost the original page or focus')
+    query('４')
+    assert(#menu.item_table==1 and menu.item_table[1].chapter_id=='4','chapter ID no longer matches after title recovery')
+    if previous_size then G_reader_settings:saveSetting('items_per_page',previous_size)
+    else G_reader_settings:delSetting('items_per_page') end
     shot('downloaded-chapter-picker')
     menu:onMenuSelect(menu.item_table[1])
     pump(function() return Reader.instance and Reader.instance.document.file==full end)

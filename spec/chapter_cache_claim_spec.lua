@@ -83,6 +83,34 @@ assert(Claims.usable(book,'/single.epub','2',{},true),'saved list did not verify
 files['/single.epub']['OEBPS/content.opf']=opf(Protocol.reader_url('123','4'),'<itemref idref="chapter"/>')
 assert(not Claims.usable(book,'/single.epub','2',{},true),'saved list trusted an unrelated single-chapter file')
 
+local function toc(entries)
+    return '<nav epub:type="toc">'..entries..'</nav>'
+end
+local manifest='<manifest><item id="chapter_2" href="text/chapter-002.xhtml"/>'
+    ..'<item id="chapter_4" href="text/chapter-001.xhtml"/></manifest>'
+files['/toc.epub']={
+    [Identity.PATH]=identity({{chapterUid='2'},{chapterUid='4'}}),
+    ['OEBPS/content.opf']=opf(Protocol.reader_url('123'),
+        '<itemref idref="chapter_2"/><itemref idref="chapter_4"/>')..manifest,
+    ['OEBPS/nav.xhtml']=toc('<a href="text/chapter-001.xhtml">第四章</a><a href="text/chapter-002.xhtml">二 &amp; &lt;三&gt;</a>'),
+}
+files['/compatible.epub']={
+    [Identity.PATH]=identity({{chapterUid='7'}}),
+    ['OEBPS/content.opf']=opf(Protocol.reader_url('123','7'),'<itemref idref="chapter"/>')
+        ..'<manifest><item id="chapter" href="text/chapter.xhtml"/></manifest>',
+    ['OEBPS/nav.xhtml']=toc('<a href="text/chapter.xhtml">第七章</a>'),
+}
+book.cached_chapters={['2']='/single.epub',['4']='/toc.epub',[7]='/compatible.epub'}
+local function current() return true end
+reads=0
+local titles=Claims.saved_titles(book,'/toc.epub',{'2','4','7','9'},current)
+assert(titles['2']=='二 & <三>' and titles['4']=='第四章' and titles['7']=='第七章' and not titles['9'],
+    'chapter titles did not follow the verified manifest link and numeric alias')
+assert(reads==5,'recovery reread a shared EPUB or checked unrelated mappings')
+files['/toc.epub']['OEBPS/nav.xhtml']=toc('<a href="text/chapter-001.xhtml">一</a><a href="text/chapter-001.xhtml">二</a>')
+assert(not next(Claims.saved_titles(book,'/toc.epub',{'4'},current)),'ambiguous TOC labels were accepted')
+assert(not Claims.saved_titles(book,'/toc.epub',{'4'},function() return false end),'closed picker recovered labels')
+
 local Context=require('weread.lib.reader_context')
 local original_identifier=Context.identifier
 local checked=0

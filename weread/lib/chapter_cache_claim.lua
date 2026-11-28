@@ -102,7 +102,7 @@ local function inspect(book,path)
                 end
             end
         end
-        if matching then return {kind='single',uid=matching} end
+        if matching then return {kind='single',uid=matching,opf_hash=Crypto.sha256_hex(opf)} end
         return {kind='unknown'}
     end)
     return ok and result or {kind='unknown'}
@@ -173,4 +173,65 @@ function M.usable(book,path,uid,cache,verify_source)
     if not ok then return false end
     return info.kind=='single' and info.uid==id or info.kind=='combined' and info.items['chapter_'..id]==true
 end
+
+local function navigation_titles(path,info)
+    if not info.opf_hash then return {} end
+    local members=require('weread.lib.source_archive').read(path,{
+        ['OEBPS/content.opf']=Catalog.MAX_PACKAGE_BYTES,['OEBPS/nav.xhtml']=4*1024*1024,
+    })
+    local opf=members and members['OEBPS/content.opf']
+    local nav=members and members['OEBPS/nav.xhtml']
+    if type(opf)~='string' or Crypto.sha256_hex(opf)~=info.opf_hash or type(nav)~='string' then return {} end
+    local toc=nav:match('<nav[^>]*epub:type="toc"[^>]*>(.-)</nav>')
+    local manifest=opf:match('<manifest>(.-)</manifest>')
+    if not toc or not manifest then return {} end
+    local labels={}
+    for href,text in toc:gmatch('<a href="(text/chapter[%d%-]*%.xhtml)">([^<]*)</a>') do
+        if labels[href]~=nil then labels[href]=false
+        else labels[href]=Protocol.xml_display_text(text) or false end
+    end
+    local titles,seen,hrefs={},{},{}
+    for item,href in manifest:gmatch('<item id="([^"]+)" href="(text/chapter[%d%-]*%.xhtml)"') do
+        local uid=info.kind=='single' and item=='chapter' and info.uid
+            or info.kind=='combined' and info.items[item] and item:match('^chapter_(.+)$')
+        if uid then
+            if seen[uid] or hrefs[href] then return {} end
+            seen[uid],hrefs[href]=true,true
+            if labels[href] and labels[href]~='' then titles[uid]=labels[href] end
+        end
+    end
+    return titles
+end
+
+-- Index the mappings once, so the saved-chapter worker never scans all of
+-- a book's chapter mappings for each separate EPUB.
+function M.saved_titles(book,full_path,missing,current)
+    local by_path={}
+    for uid,path in pairs(cached_chapters(book)) do
+        if type(path)=='string' then
+            local mapped=by_path[path] or {}
+            mapped[uid]=path
+            by_path[path]=mapped
+        end
+    end
+    local id=Context.book_id(book)
+    local checked={}
+    local function title_for(path,uid)
+        if not path then return nil end
+        if not checked[path] then
+            local proof=inspect({book_id=id,cached_chapters=by_path[path]},path)
+            checked[path]=navigation_titles(path,proof)
+        end
+        return checked[path][uid]
+    end
+    local titles={}
+    local access=require('weread.lib.read_access')
+    for _,uid in ipairs(missing) do
+        if not current() then return nil end
+        local path=access.cached_chapter(book.cached_chapters,uid)
+        titles[uid]=title_for(path,uid) or title_for(full_path,uid)
+    end
+    return current() and titles or nil
+end
+
 return M
