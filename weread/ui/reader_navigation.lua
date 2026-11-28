@@ -79,6 +79,10 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
     local file_path = document and document.file
     if not file_path then return false end
     local reader_session = self._reader_session_gen or 0
+    -- A suspend and resume can leave the viewport unchanged.
+    local progress_sync = self.progress_sync
+    local sync_generation = progress_sync and progress_sync.generation
+    local navigation_generation = progress_sync and progress_sync.navigation_generation
     local search_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
     local search_epoch = self.settings:get('auth_epoch', 0)
 
@@ -174,6 +178,9 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
 
     local function chapter_action_current()
         return not self._weread_suspended and valid_reader()
+            and self.progress_sync==progress_sync
+            and (not progress_sync or progress_sync.generation==sync_generation
+                and progress_sync.navigation_generation==navigation_generation)
             and (not viewport or ProgressContext.current(self,viewport))
     end
     local function open_adjacent(direction)

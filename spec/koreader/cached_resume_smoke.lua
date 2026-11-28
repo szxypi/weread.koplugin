@@ -674,6 +674,12 @@ if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
     local settled=false;UI:scheduleIn(.3,function() settled=true end)
     pump(function() return settled end)
     assert(reader.document:isXPointerInCurrentPage(fourth),'deferred chapter action moved the new page')
+    reader.rolling:onGotoXPointer(chapter_two)
+    press_quick('next_chapter')
+    current:onSuspend();current:onResume()
+    settled=false;UI:scheduleIn(.3,function() settled=true end)
+    pump(function() return settled end)
+    assert(reader.document:isXPointerInCurrentPage(chapter_two),'quick action survived a suspend and resume')
     reader.rolling:onGotoXPointer(starting_point)
     offline=false
     report.native_quick_chapters=true

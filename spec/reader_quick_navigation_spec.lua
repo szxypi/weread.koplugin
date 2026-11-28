@@ -151,6 +151,10 @@ do
     assert(#events==2,'a changed native chapter target was used')
     actions=menu();host._weread_suspended=true;actions.on_previous();host._weread_suspended=false
     assert(#events==2,'a suspended reader accepted the deferred chapter action')
+    host.progress_sync={generation=1,navigation_generation=0}
+    actions=menu();host.progress_sync.generation=2;actions.on_previous()
+    assert(#events==2,'a quick action survived a suspend and resume on the same page')
+    host.progress_sync=nil
     page=1;menu();assert(not options.enable_previous_chapter)
     page=10;menu();assert(not options.enable_next_chapter)
     function host:getChapterInfoFromFile() return nil,nil,true,true end
