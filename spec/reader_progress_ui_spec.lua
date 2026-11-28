@@ -1,6 +1,8 @@
 -- Focused navigation, cancellation and stale callback tests with native event fakes.
 package.path='./?.lua;'..package.path
 local shown,tasks,removed=nil,{},{}
+local mirrored=false
+package.preload['ui/bidi']=function() return {mirroredUILayout=function() return mirrored end} end
 package.preload['ui/uimanager']=function() return {
     show=function(_,view) shown=view end,
     close=function(_,view) if view.onCloseWidget then view:onCloseWidget() end end,
@@ -22,7 +24,15 @@ package.preload['ui/widget/container/inputcontainer']=function() return {extend=
     return args
 end} end
 package.preload['ui/widget/progresswidget']=function() return {new=function(_,args)
-    function args:paintTo() end;return args
+    args.margin_h=3
+    function args:paintTo(_buffer,x,y) self.dimen={x=x,y=y,w=self.width,h=self.height} end
+    function args:getPercentageFromPosition(pos)
+        local left=self.dimen.x+self.margin_h
+        local right=self.dimen.x+self.dimen.w-self.margin_h
+        if pos.x<left or pos.x>right then return end
+        return (mirrored and right-pos.x or pos.x-left)/(right-left)
+    end
+    return args
 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) for i=1,select('#',...) do text=text:gsub('%%'..i,tostring(select(i,...))) end;return text end} end
@@ -148,4 +158,31 @@ total,page,visible=32,8,1
 jump('progress_forward_10','GotoPercent',35)
 ui.view.view_mode='scroll';total,page,pos=3,1,250
 jump('progress_forward_10','GotoPercent',35)
+
+mirrored=true
+local function tap(fraction,expected,legacy)
+    assert(Progress.show(host,opts))
+    local touch=host._weread_reader_progress.bar
+    touch:paintTo(nil,10,30)
+    local bar=touch.bar
+    if legacy then bar.getPercentageFromPosition=nil end
+    local left=bar.dimen.x+bar.margin_h
+    local right=bar.dimen.x+bar.dimen.w-bar.margin_h
+    touch:onTapSelect(nil,{pos={x=left+(right-left)*fraction}})
+    assert(host._weread_reader_progress.task,'progress tap did not schedule a jump')
+    tasks[#tasks]()
+    assert(events[#events].name=='GotoPercent' and math.abs(events[#events].value-expected)<1e-8,
+        'progress tap did not follow the native bar direction and bounds')
+end
+tap(-.01,100)
+tap(1.01,0)
+tap(.75,25)
+tap(0,100,true)
+mirrored=false
+tap(.25,25)
+assert(Progress.show(host,opts))
+local unpainted=host._weread_reader_progress
+unpainted.bar:onTapSelect(nil,{pos={x=100}})
+assert(not unpainted.task,'a tap before the bar was painted scheduled a jump')
+Progress.cancel(host)
 print('reader_progress_ui_spec: native events, chapter navigation and cancellation passed')

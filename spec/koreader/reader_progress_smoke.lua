@@ -79,5 +79,33 @@ return function(reader,host,pump,shot,clean,full)
     open()
     host:onSuspend();assert(not host._weread_reader_progress,'suspend left progress dialog open')
     host:onResume();reader:handleEvent(Event:new('SetViewMode',mode));reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
+    local bidi=require('ui/bidi')
+    local previous_mirroring=bidi._mirrored_ui_layout
+    bidi._mirrored_ui_layout=true
+    local tested,reason=pcall(function()
+        for _,ratio in ipairs({1,0,.25}) do
+            local mirrored=open()
+            local touch=mirrored.bar
+            local widget=touch.bar
+            local left=widget.dimen.x+widget.margin_h
+            local right=widget.dimen.x+widget.dimen.w-widget.margin_h
+            local x=math.floor(right-(right-left)*ratio+.5)
+            if ratio==0 or ratio==1 then
+                -- The padded ends remain tappable just beyond the painted bar.
+                x=ratio==0 and right+1 or left-1
+            end
+            UI:sendEvent(Event:new('Gesture',{ges='tap',pos=Geom:new{x=x,y=touch.dimen.y+math.floor(touch.dimen.h/2)}}))
+            assert(mirrored.task,'mirrored progress tap was not accepted')
+            pump(function() return not host._weread_reader_progress end)
+            local pages=reader.document:getPageCount()
+            local expected=math.max(1,math.floor(pages*ratio))
+            local allowance=ratio==.25 and 1 or 0 -- the touch coordinate is an integer pixel
+            assert(math.abs(reader:getCurrentPage()-expected)<=allowance,
+                'mirrored progress tap moved toward the wrong end')
+        end
+    end)
+    bidi._mirrored_ui_layout=previous_mirroring
+    assert(tested,reason)
+    reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
     clean(reader)
 end

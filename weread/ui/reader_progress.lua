@@ -1,4 +1,5 @@
 -- Native progress panel: navigation always targets the open file.
+local BD=require('ui/bidi')
 local ButtonDialog=require('ui/widget/buttondialog')
 local Device=require('device')
 local Event=require('ui/event')
@@ -24,9 +25,21 @@ function Bar:paintTo(bb,x,y)
 end
 function Bar:onTapSelect(_arg,gesture)
     local pos=gesture and gesture.pos
-    if not pos or type(pos.x)~='number' then return true end
-    local ratio=(pos.x-self.dimen.x-self.inset)/math.max(1,self.dimen.w-2*self.inset)
-    self.callback(math.max(0,math.min(100,ratio*100)))
+    local bar=self.bar
+    local dimen=bar.dimen
+    if not pos or type(pos.x)~='number' or pos.x~=pos.x or not dimen then return true end
+    local margin=bar.margin_h or 0
+    local left,right=dimen.x+margin,dimen.x+dimen.w-margin
+    if right<=left then return true end
+    -- Preserve the larger tap target at each end of the native bar.
+    local x=math.max(left,math.min(right,pos.x))
+    local ratio
+    if type(bar.getPercentageFromPosition)=='function' then
+        ratio=bar:getPercentageFromPosition({x=x,y=pos.y})
+    else
+        ratio=(BD.mirroredUILayout() and right-x or x-left)/(right-left)
+    end
+    if ratio then self.callback(ratio*100) end
     return true
 end
 
