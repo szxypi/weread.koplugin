@@ -3,7 +3,7 @@ require('jit').off();require('ffi').log=function() end;require('setupkoenv')
 assert(os.getenv('WEREAD_SYNTHETIC')=='1')
 local repo=assert(arg[1]);local home=assert(os.getenv('KO_HOME'))
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
-local online=input.mode=='online'
+local online=input.mode=='online' or input.mode=='legacy'
 package.path=(online and home..'/plugins/weread.koplugin' or repo)..'/?.lua;'..package.path
 if not online then assert(dofile(repo..'/spec/koreader/offline_network_guard.lua')()) end
 G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefaults'):open()
@@ -72,6 +72,64 @@ local function press(id)
 end
 local function saved_menu()
     return host._native_direct_reading and host._native_direct_reading.menu
+end
+if input.mode=='legacy' then
+    G_reader_settings:saveSetting('items_per_page',1)
+    G_reader_settings:saveSetting('items_font_size',20)
+    local source_dir=assert(input.first:match('^(.+)/[^/]+$'))
+    local reference=source_dir..'/catalog.txt'
+    local function read(path)
+        local file=assert(io.open(path,'rb'));local value=assert(file:read('*a'));assert(file:close());return value
+    end
+    local original_epub,receipt=read(input.first),read(source_dir..'/entry.txt')
+    assert(os.remove(reference))
+    local cache=require('weread.lib.native_direct_cache')
+    local function current() return host.ui.document.file==input.first end
+    assert(not assert(cache.identify(settings,scope.vid,input.first,current)).catalog_sha256)
+    local function choose(id)
+        press(id)
+        wait(function() return saved_menu() or host.message end)
+        assert(not host.message and not host.opened and current())
+        return assert(saved_menu())
+    end
+    local menu=choose('next_chapter')
+    local next_prefix=tr('Next chapter')..' · '
+    local current_prefix=tr('Current chapter')..' · '
+    assert(menu.page==2 and menu.item_table[2].text:find(next_prefix,1,true)==1
+        and menu.item_table[1].text:find(current_prefix,1,true)==1
+        and menu:getFocusItem().entry.chapter_index==2,'the next chapter was not in view and focused')
+    menu:onClose();assert(current() and UI:getTopmostVisibleWidget()==base)
+    menu=choose('previous_chapter')
+    assert(menu.page==1 and menu.subtitle==tr('You have reached the first chapter.'))
+    menu:onClose()
+    local changed_catalog=home..'/changed-catalog'
+    assert(assert(io.open(changed_catalog,'wb')):close())
+    menu=choose('next_chapter')
+    assert(menu.page==1 and #menu.item_table==2 and menu.subtitle==tr('Choose a chapter from the updated list.'))
+    for _,item in ipairs(menu.item_table) do
+        assert(not item.text:find(next_prefix,1,true) and not item.text:find(current_prefix,1,true),
+            'new catalog hid the unresolved old chapter identity')
+    end
+    menu:onClose();assert(os.remove(changed_catalog))
+    local interrupted=home..'/interrupt-catalog'
+    assert(assert(io.open(interrupted,'wb')):close())
+    menu=choose('next_chapter')
+    assert(host._native_direct_reading.offline and #menu.item_table==1
+        and menu.subtitle==tr('The online catalog is unavailable. Showing saved chapters.'))
+    menu:onClose();assert(os.remove(interrupted))
+    connected=false;menu=choose('next_chapter')
+    assert(host._native_direct_reading.offline and #menu.item_table==1
+        and menu.subtitle==tr('Chapter order is unavailable offline'))
+    menu:onClose();connected=true
+    menu=choose('next_chapter')
+    menu:onMenuSelect(menu.item_table[2])
+    wait(function() return host.opened or host.message end)
+    assert(not host.message and host.opened~=input.first and host.opened==host.ui.document.file)
+    assert(assert(cache.identify(settings,scope.vid,host.opened,function() return true end)).chapter_uid=='38')
+    assert(read(input.first)==original_epub and read(source_dir..'/entry.txt')==receipt
+        and not require('libs/libkoreader-lfs').attributes(reference),'legacy chapter files were rewritten')
+    print('WEREAD_DIRECT_NAV_RESULT='..json.encode({ok=true,mode=input.mode,path=host.opened}))
+    os.exit(0)
 end
 if input.mode=='copies' then
     local perpage=G_reader_settings:readSetting('items_per_page')

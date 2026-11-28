@@ -215,6 +215,9 @@ function M.start(host,book,view,options)
     if failed_copy and (not cached or not require('weread.lib.native_direct_cache').valid_entry(failed_copy,id,scope.vid)) then return false end
     local anchor=type(options)=='table' and options.anchor or nil
     if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
+    local adjacent_direction=type(options)=='table' and options.adjacent_direction
+    if adjacent_direction and (not from_reader or batch or target or not anchor or anchor.catalog_sha256
+        or adjacent_direction~=-1 and adjacent_direction~=1) then return false end
     local want_cloud_chapter=not anchor and not batch and not target and type(options)=='table' and options.cloud_chapter==true
     local standard_read=want_cloud_chapter and not from_reader and type(options.standard_read)=='function' and options.standard_read
     local selected=not offline and capture(host.settings) or nil
@@ -445,12 +448,6 @@ function M.start(host,book,view,options)
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
         local filter_titles=ChapterSearch.title_filter(rows,empty_title,offline)
-        local subtitle=picker and picker.subtitle
-            or offline_notice and _(offline_notice)
-            or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
-            or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
-            or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
-            or _('Online: sync position or save selected highlights and private thoughts.')
         local current_index
         if picker then
             local row=anchor and rows[anchor.catalog_order]
@@ -458,8 +455,27 @@ function M.start(host,book,view,options)
         else
             current_index=current_row(rows,anchor,ctx.catalog)
         end
+        local adjacent_index,adjacent_notice
+        if adjacent_direction and not offline then
+            local current_chapter=current_index and rows[current_index]
+            if ctx.catalog.version==0 or current_chapter and anchor.chapter_idx~=nil
+                and current_chapter.chapterIdx~=anchor.chapter_idx then current_index=nil end
+            if current_index then
+                local index=current_index+adjacent_direction
+                if rows[index] then adjacent_index=index
+                else adjacent_notice=_(adjacent_direction==1 and 'You have reached the last chapter.'
+                    or 'You have reached the first chapter.') end
+            end
+            adjacent_notice=adjacent_notice or _('Choose a chapter from the updated list.')
+        end
+        local subtitle=picker and picker.subtitle
+            or offline_notice and _(offline_notice)
+            or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
+            or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
+            or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
+            or adjacent_notice or _('Online: sync position or save selected highlights and private thoughts.')
         local cloud_index=not current_index and cloud_row(rows,cloud_chapter) or nil
-        local initial_index=picker and picker.start or current_index or cloud_index
+        local initial_index=picker and picker.start or adjacent_index or current_index or cloud_index
         local screen=require('device').screen
         local indent=sections and screen:scaleBySize(16)
         -- A single item per page can otherwise make the keyboard shortcut
@@ -480,6 +496,7 @@ function M.start(host,book,view,options)
                 if not offline and not row.downloadable then label=label..'  ·  '.._('Unavailable') end
                 if row.pending_offline then label=label..'  ·  '.._('Offline position to review') end
                 if index==current_index then label=_('Current chapter')..' · '..label
+                elseif index==adjacent_index then label=_(adjacent_direction==1 and 'Next chapter' or 'Previous chapter')..' · '..label
                 elseif index==cloud_index then label=_('Cloud reading chapter')..' · '..label end
                 local order=not offline and index or orders and orders[index]
                 local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index,
@@ -588,7 +605,10 @@ function M.start(host,book,view,options)
             Popup.show(menu,actions)
             return true
         end
-        if initial_index then menu:onGotoPage(menu:getPageNumber(initial_index)) end
+        if initial_index then
+            if adjacent_index and rows[adjacent_index].downloadable then menu.itemnumber=adjacent_index end
+            menu:onGotoPage(menu:getPageNumber(initial_index))
+        end
     end
     local function start_batch(range)
         ctx.batch_range=range

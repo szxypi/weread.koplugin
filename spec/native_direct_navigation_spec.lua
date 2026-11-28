@@ -238,8 +238,15 @@ expect(s.opened==0 and auto_target and auto_target.options.cached and auto_targe
     and auto_target.options.offline_notice=='Chapter order is unavailable offline',
     'offline chapter without a known order did not offer saved chapters')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);shown.callbacks.on_next()
-expect(s.opened==0 and s.message=='Chapter order is unavailable. Reopen this chapter online to update it.',
-    'unverified chapter order did not explain how to recover')
+expect(s.opened==0 and not s.message and auto_target and auto_target.options.anchor==source
+    and auto_target.options.from_reader and auto_target.options.adjacent_direction==1 and not auto_target.options.target,
+    'online legacy navigation did not request explicit chapter selection')
+host,s=fixture();s.online=true;Nav.start(host);s.finish(1);shown.callbacks.on_reader_progress()
+expect(progress_options and #s.jobs==1 and not progress_options.estimate(50)
+    and progress_options.previous_action and progress_options.next_action,'legacy progress panel could not navigate chapters')
+progress_options.previous_action()
+expect(auto_target and auto_target.options.adjacent_direction==-1 and s.opened==0,
+    'legacy progress action did not request the previous chapter')
 source.catalog_sha256=sha
 for _,variant in ipairs({'marks','bookmarks','thoughts'}) do
     host,s=fixture();expect(Nav.open_notes(host,variant),'direct notes did not start');s.finish(1)

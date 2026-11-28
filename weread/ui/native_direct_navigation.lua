@@ -114,7 +114,7 @@ function M.start(host,direction,notes)
         local entry=ctx.entry
         if not entry.catalog_sha256 then
             if connected(host) then
-                fail('Chapter order is unavailable. Reopen this chapter online to update it.')
+                choose_chapter({anchor=entry,adjacent_direction=which})
             else
                 choose_saved('Chapter order is unavailable offline')
             end
@@ -239,8 +239,8 @@ function M.start(host,direction,notes)
         local function show(weights)
             require('weread.ui.reader_progress').show(host,{is_current=current,single_chapter=true,
                 chapter_number=entry.catalog_order,chapter_count=entry.catalog_count,
-                previous_action=entry.catalog_prev and function() step(-1) end or nil,
-                next_action=entry.catalog_next and function() step(1) end or nil,
+                previous_action=(entry.catalog_prev or not entry.catalog_sha256) and function() step(-1) end or nil,
+                next_action=(entry.catalog_next or not entry.catalog_sha256) and function() step(1) end or nil,
                 estimate=function(percent) return catalog.estimate_from_weights(weights,percent) end})
         end
         if not entry.catalog_sha256 or not ctx.account then show();return end
