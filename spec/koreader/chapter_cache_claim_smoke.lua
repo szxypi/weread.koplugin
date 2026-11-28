@@ -75,7 +75,6 @@ return function(reader,host,book,id,path,dir,pump)
     assert(#downloaded.item_table==2 and proof_reads==1,
         'the downloaded chapter list reread the archive or showed an absent chapter')
     require('ui/uimanager'):close(downloaded)
-    archive.read=read_archive
     shadow.chapter_uid=5;shadow.chapter_idx=5;opened=nil
     available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
     assert(not available and reason=='resume_not_cached' and uid=='5' and not opened,
@@ -84,8 +83,27 @@ return function(reader,host,book,id,path,dir,pump)
     available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
     assert(not available and reason=='resume_not_cached' and uid=='5' and not opened,
         'missing in-memory catalog lost the resume chapter index')
-    shadow.chapters=chapters
+    shadow.chapters=chapters;shadow.cached_chapters={};shadow.cached_file=nil
+    proof_reads=0
+    available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='resume_not_cached' and uid=='5' and not opened and proof_reads==1,
+        'unshared combined cache was not checked or silently replaced the original chapter')
     shadow.chapter_uid=4;shadow.chapter_idx=4
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==combined,
+        'unshared combined cache lost an available resume chapter')
+    opened=nil;shadow.chapter_uid=nil;shadow.chapter_idx=nil;proof_reads=0
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==combined and proof_reads==0,
+        'opening a combined book without a saved position unnecessarily inspected the archive')
+    archive.read=read_archive
+    local exact=Content.save_chapter_epub(host.settings,combined_book,chapters[5],
+        '<p>synthetic fifth</p>',{},'',Identity.capture(combined_book))
+    opened=nil;shadow.chapter_uid=5;shadow.chapter_idx=5;shadow.cached_chapters={['5']=exact}
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==exact,
+        'a downloaded copy of the target chapter was ignored')
+    opened=nil;shadow.cached_full_book=nil;shadow.chapters={chapters[2]};shadow.cached_chapters['2']=path
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==exact,
+        'stale catalog replaced an available exact chapter')
+    shadow.chapters=chapters;shadow.chapter_uid=4;shadow.chapter_idx=4
     host.openFile,host.confirmAndDownloadChapters,host._chapter_open_intent=old_open,old_confirm,old_intent
     -- Confirm the real recovery download without opening another reader, then
     -- remove only its synthetic cache mapping for the rest of this fixture.

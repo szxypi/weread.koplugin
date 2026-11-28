@@ -94,6 +94,12 @@ expect(Reading.resume_uid(duplicates,{pending_upload_position={chapter_idx=0},la
 expect(Reading.resume_uid(projected,{book_id='900001',pending_upload_account='other',
     pending_upload_position={chapter_uid=1},last_local_position={chapter_uid=2}},'owner')=='2',
     'foreign pending UID was selected')
+local catalog_loads=0
+local function load_catalog() catalog_loads=catalog_loads+1;return projected end
+expect(Reading.resume_uid({}, {chapter_uid=2,chapter_idx=1},'owner',load_catalog)=='2' and catalog_loads==0,
+    'an explicit UID needlessly loaded the catalog')
+expect(Reading.resume_uid({}, {pending_upload_position={chapter_idx=1},chapter_uid=2},'owner',load_catalog)=='1'
+    and catalog_loads==1,'lazy catalog loading did not preserve the order of saved positions')
 
 local function fixture()
     tasks, saved_catalogs = {}, 0

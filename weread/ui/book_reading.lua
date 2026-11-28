@@ -82,17 +82,23 @@ function M.resume_index(chapters, local_book, remote, account)
 end
 
 -- A locally recorded UID remains meaningful even if an old cached catalogue
--- does not contain it. A unique index needs a catalogue to identify its UID.
-function M.resume_uid(chapters, local_book, account)
+-- does not contain it. Load the catalogue on demand to resolve an index.
+function M.resume_uid(chapters, local_book, account, load_catalog)
     local_book=type(local_book)=='table' and local_book or {}
     local positions=M.local_positions(local_book,account)
     for _i,hint in ipairs({positions[1],positions[2],local_book}) do
         local uid=Access.book_id(hint.chapter_uid)
         if uid then return uid end
-        if type(chapters)=='table' and hint.chapter_idx~=nil then
-            local index=M.resume_index(chapters,{pending_upload_position=hint},nil,account)
-            local chapter=index and chapters[index]
-            if chapter then return Access.book_id(chapter.chapterUid or chapter.chapterId) end
+        if hint.chapter_idx~=nil then
+            if load_catalog and (type(chapters)~='table' or #chapters==0) then
+                chapters=load_catalog()
+                load_catalog=nil
+            end
+            if type(chapters)=='table' then
+                local index=M.resume_index(chapters,{pending_upload_position=hint},nil,account)
+                local chapter=index and chapters[index]
+                if chapter then return Access.book_id(chapter.chapterUid or chapter.chapterId) end
+            end
         end
     end
 end

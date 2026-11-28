@@ -2832,6 +2832,11 @@ function M:openBookForReading(book, quiet, options)
         if not valid and claims.shared(book,path,claim_cache) then unusable_shared=true end
         return valid
     end
+    local function exact_chapter_path(uid)
+        for _,path in ipairs({ReadAccess.cached_chapter_candidates(cached_chapters,uid)}) do
+            if path~=full_path and usable(uid,path) then return path end
+        end
+    end
     local cloud_hint=type(book_id)=='string' and book_id:sub(1,3)=='CB_' and book.cb_cloud_view_resume
     local hint=cloud_hint or book.unindexed_resume
     local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
@@ -2871,13 +2876,20 @@ function M:openBookForReading(book, quiet, options)
         end
     end
     if file_exists(full_path) then
-        if options and options.prefer_exact and claims.inspect(book,full_path,claim_cache).kind=='combined' then
-            local catalog=book.chapters
-            if (type(catalog)~='table' or #catalog==0) and self.library_db then catalog=self.library_db:getChapters(book_id) end
-            if type(catalog)~='table' or #catalog==0 then catalog=Content.load_catalog_cache(self.client,self.settings,book) end
-            local uid=Reading.resume_uid(catalog,book,account)
-            if uid and uid~=confirmed_missing_uid and not claims.usable(book,full_path,uid,claim_cache) then
-                return false,'resume_not_cached',uid
+        if options and options.prefer_exact then
+            local uid=Reading.resume_uid(book.chapters,book,account,function()
+                local catalog=self.library_db and self.library_db:getChapters(book_id)
+                if type(catalog)=='table' and #catalog>0 then return catalog end
+                return Content.load_catalog_cache(self.client,self.settings,book)
+            end)
+            local combined=uid and claims.combined(book,full_path,claim_cache)
+            if combined and not combined.items['chapter_'..uid] then
+                local target=exact_chapter_path(uid)
+                if target then
+                    if not options.check_only then self:openFile(target,nil,book) end
+                    return true
+                end
+                if uid~=confirmed_missing_uid then return false,'resume_not_cached',uid end
             end
         end
         if not (options and options.check_only) then self:openFile(full_path,nil,book) end
@@ -2901,12 +2913,17 @@ function M:openBookForReading(book, quiet, options)
 
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
-        local target=uid and ReadAccess.cached_chapter(cached_chapters,uid)
-        if uid and uid~=confirmed_missing_uid and not usable(uid,target) then
+        local target=uid and exact_chapter_path(uid)
+        if target then
+            if not options.check_only then self:openFile(target,nil,book) end
+            return true
+        end
+        if uid and uid~=confirmed_missing_uid then
+            local ambiguous_target=unusable_shared
             for _id,path in pairs(cached_chapters) do
                 if usable(_id,path) then return false,'resume_not_cached',uid end
             end
-            if file_exists(target) and claims.shared(book,target,claim_cache) then return false,'ambiguous_cache',uid end
+            if ambiguous_target then return false,'ambiguous_cache',uid end
         end
     end
     if type(chapters) == "table" then

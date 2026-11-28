@@ -500,6 +500,11 @@ partial.pending_upload_account='account-a'
 opened_path=nil
 expect(host:openBookForReading(partial,true,{prefer_exact=true}) and opened_path=='/cache/4.epub',
     'exact numeric-key cache was reported missing or opened another chapter')
+partial.chapters={{chapterUid=2,chapterIdx=2}}
+opened_path=nil
+expect(host:openBookForReading(partial,true,{prefer_exact=true}) and opened_path=='/cache/4.epub',
+    'the stale catalog took precedence over the exact cached resume chapter')
+partial.chapters=original_catalog
 partial.pending_upload_position.chapter_uid='9007199254740993'
 partial.cached_chapters={[9007199254740992]='/cache/2.epub'}
 opened_path=nil
@@ -882,6 +887,7 @@ package.loaded['weread.lib.chapter_cache_claim']={
     combined=function(_,path) if path=='/cache/full.epub' then return proof end end,
     inspect=function() return {kind='unknown'} end,
     usable=function() return single_valid end,
+    shared=function() return false end,
     complete=function() return true end,
 }
 local navigated
@@ -908,15 +914,23 @@ host:openChapter(selected_book,selected_chapter)
 expect(not navigated and single_download_options and single_download_options.single_chapter,
     'combined book without the target bypassed the ambiguous-cache warning')
 do
-    local claims=package.loaded['weread.lib.chapter_cache_claim']
-    local inspect=claims.inspect
-    claims.inspect=function() return proof end
     selected_book.chapter_uid=2;opened_path=nil
-    expect(not host:openBookForReading(selected_book,true,{prefer_exact=true,confirmed_missing_uid='3'})
-        and not opened_path,'consent for another chapter accepted an incomplete combined book')
+    selected_book.cached_chapters={}
+    local combined_available,combined_reason,combined_uid=host:openBookForReading(selected_book,true,{prefer_exact=true,
+        confirmed_missing_uid='3',check_only=true})
+    expect(not combined_available and combined_reason=='resume_not_cached' and combined_uid=='2' and not opened_path,
+        'unshared combined book lost its missing chapter or accepted consent for another chapter')
     expect(host:openBookForReading(selected_book,true,{prefer_exact=true,confirmed_missing_uid='2'})
         and opened_path==selected_book.full_path,'consent did not allow the verified incomplete combined book')
-    claims.inspect=inspect
+    opened_path=nil
+    selected_book.cached_chapters={['2']=selected_book.full_path,[2]='/cache/missing.epub'}
+    single_valid=true
+    expect(host:openBookForReading(selected_book,true,{prefer_exact=true,check_only=true}) and not opened_path,
+        'checking an exact cached copy opened a document')
+    expect(host:openBookForReading(selected_book,true,{prefer_exact=true,confirmed_missing_uid='2'})
+        and opened_path=='/cache/missing.epub','a newly available exact copy lost priority to the incomplete combined book')
+    selected_book.cached_chapters={['2']='/cache/missing.epub'}
+    single_valid=false
 end
 local old_info, unavailable = host.showInfo
 host.showInfo=function(_,text) unavailable=text end
