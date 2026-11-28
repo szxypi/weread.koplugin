@@ -6,6 +6,7 @@ local M={MAX_QUERIES=12,MAX_PAGES=12,MAX_PAYLOAD=2*1024*1024,MAX_TOTAL=16*1024*1
 -- Cache row serials start at one. Zero points to a guest category snapshot
 -- and lets older versions ignore the position and open an account-local list.
 local PUBLIC_REFERENCE_SERIAL=0
+local query_metadata={metadata_only=true}
 local function fail() error('discovery_cache/invalid',0) end
 local function text(value,limit,empty)
     return type(value)=='string' and (empty or value~='') and #value<=limit and not value:find('[%z%c]')
@@ -60,12 +61,12 @@ local function books(value,build_cards)
     end
     return out
 end
-local function page(value,display_cursor)
+local function page(value,build_cards)
     if type(value)~='table' or not integer(value.cursor) or not integer(value.next_cursor)
         or type(value.has_more)~='boolean' or not integer(value.loaded_at,2^53) or value.loaded_at==0
         or value.has_more and value.next_cursor<=value.cursor then fail() end
     return {cursor=value.cursor,next_cursor=value.next_cursor,has_more=value.has_more,loaded_at=value.loaded_at,
-        books=books(value.books,display_cursor==nil or value.cursor==display_cursor)}
+        books=books(value.books,build_cards~=false)}
 end
 local function valid_source(kind)
     return kind=='native' or kind=='gateway' or kind=='public'
@@ -76,7 +77,7 @@ local function validate_snapshot(value,selection)
         or not array(value.pages,M.MAX_PAGES) or #value.pages==0
         or not valid_source(value.source_kind) then fail() end
     local cursor=selection and selection.cursor
-    if selection and not cursor then
+    if selection and not selection.metadata_only and not cursor then
         local newest=value.pages[#value.pages]
         if type(newest)~='table' then fail() end
         cursor=newest.cursor
@@ -84,9 +85,10 @@ local function validate_snapshot(value,selection)
     local out={schema=1,generation=value.generation,query=M.query(value.query),updated_at=value.updated_at,
         source_kind=value.source_kind,pages={}};local seen={}
     for _,row in ipairs(value.pages) do
-        -- All batches must be valid. Only the requested batch needs cards and
-        -- optional public details when opening a saved snapshot for display.
-        local projected=page(row,cursor);if seen[projected.cursor] then fail() end
+        -- Validate every batch even when the caller only needs the query or
+        -- the cards for one batch.
+        local build_cards=not selection or cursor~=nil and type(row)=='table' and row.cursor==cursor
+        local projected=page(row,build_cards);if seen[projected.cursor] then fail() end
         seen[projected.cursor]=true;out.pages[#out.pages+1]=projected
     end
     if not seen[0] then fail() end
@@ -255,7 +257,7 @@ end
 local function decode_search(self,payload)
     local value=self.codec:json_decode(payload)
     local query=type(value)=='table' and value.query
-    if type(query)=='table' and query.kind=='search' then return M.validate(value) end
+    if type(query)=='table' and query.kind=='search' then return validate_snapshot(value,query_metadata) end
 end
 -- List only validated search queries already stored in this account's cache.
 -- Results remain display-only and are reopened with the ordinary cache path.
@@ -303,7 +305,7 @@ function M:remove_search(keyword,generation,source_kind)
     if not valid then return nil end
     return run(self,function(db,begin,commit)
         begin()
-        local saved,reference=search(self,db,query)
+        local saved,reference=search(self,db,query,query_metadata)
         if not saved or saved.generation~=generation then
             commit();return 'changed'
         end

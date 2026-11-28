@@ -27,10 +27,11 @@ next_page.books[1]._public_info={intro='Second public excerpt'}
 local PublicInfo=require('weread.lib.public_book_info')
 local project=PublicInfo.project
 local projected=0
-PublicInfo.project=function(...)
+local function count_public_info(...)
     projected=projected+1
     return project(...)
 end
+PublicInfo.project=count_public_info
 next_page._cache_generation=assert(store:write(next_page,first,true))
 expect(projected==2,'a save did not validate both its previous and new batches')
 projected=0
@@ -158,6 +159,7 @@ expect(store:read{kind='search',keyword='Budget 1'}==nil and store:read{kind='se
 local function search(kind,cursor)
     local item=state('search',cursor);item.keyword='Shared search';item.source_kind=kind
     item.books[1].bookId=kind..'-'..tostring(item.cursor)
+    item.books[1]._public_info={intro='Search result detail'}
     return item
 end
 local public_first=search('public')
@@ -184,8 +186,12 @@ expect(entries[1].keyword=='Shared search' and entries[1].source_kind=='native'
 expect(store:remove_search('Shared search',public_second._cache_generation,'native')=='changed')
 expect(store:remember(assert(store:read(public_query,0)),{anchor=1,focus='public-0'}))
 expect(store:read().source_kind=='public' and store:read().cursor==0)
-expect(store:remove_search('Shared search',public_second._cache_generation,'public')=='deleted'
-    and store:read(native_query,20) and not store:read(public_query,0))
+projected=0
+PublicInfo.project=count_public_info
+expect(store:remove_search('Shared search',public_second._cache_generation,'public')=='deleted')
+PublicInfo.project=project
+expect(projected==0 and store:read(native_query,20) and not store:read(public_query,0),
+    'removing a saved search built cards or altered another source')
 expect(store:read().source_kind=='native' and store:read().cursor==20)
 
 account='900099'
@@ -203,19 +209,20 @@ rawdb=library:open()
 move=rawdb:prepare('UPDATE discovery_cache SET cache_key=? WHERE cache_key=?')
 move:bind(Cache.key(old_public),Cache.key(old_public,true)):step();move:close()
 local damage=rawdb:prepare('UPDATE discovery_cache SET payload=? WHERE cache_key=?')
-damage:bind('{"query":{"kind":"search"}}',Cache.key(damaged_search)):step();damage:close()
+local broken=rawdb:prepare('SELECT payload FROM discovery_cache WHERE cache_key=?')
+local invalid=codec:json_decode(broken:bind(Cache.key(damaged_search)):step()[1]);broken:close()
+invalid.pages[1].books[1].title=false
+damage:bind(codec:json_encode(invalid),Cache.key(damaged_search)):step();damage:close()
 rawdb:close()
 projected=0
-PublicInfo.project=function(...)
-    projected=projected+1
-    return project(...)
-end
+PublicInfo.project=count_public_info
 entries=assert(store:search_entries())
 PublicInfo.project=project
-expect(projected==3,'search history projected books from unrelated result types')
+expect(projected==0,'search history built cards to show query metadata')
 expect(#entries==3 and entries[1].keyword==old_public.keyword and entries[1].source_kind=='public'
     and entries[2].keyword==public_search.keyword and entries[2].source_kind=='public'
-    and entries[3].keyword==native_search.keyword and entries[3].source_kind=='native')
+    and entries[3].keyword==native_search.keyword and entries[3].source_kind=='native',
+    'search history lost valid entries, changed their order, or showed a damaged batch')
 expect(store:read(category,0) and store:read(similar,0) and store:read(state('recommend'),0),
     'skipping non-search batches altered their cached results')
 print('PASS: discovery SQLite cache; '..checks..' checks')
