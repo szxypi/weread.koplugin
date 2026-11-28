@@ -50,13 +50,82 @@ assert(invalid_utf8~=raw130)
 for _,damaged in ipairs({'{}',invalid_utf8}) do
     replace130(damaged)
     expect(cache:valid_ids({'940130'})==nil and cache:writeIfMissing(other)==nil and cache:read('940130')==nil)
+    expect(Cache.with_read_snapshot(library,codec,function(mark_reader,thought_reader)
+        return mark_reader:read('940130')==nil and thought_reader:read('940130')~=nil
+    end))
 end
 replace130(raw130)
 expect(cache:read('940130').updated[1].markText=='bulk-130-only')
+do
+    local open_read=library.openRead
+    local opens,closes=0,0
+    function library:openRead()
+        local db=assert(open_read(self))
+        opens=opens+1
+        return {
+            exec=function(_,sql) return db:exec(sql) end,
+            prepare=function(_,sql) return db:prepare(sql) end,
+            close=function() closes=closes+1;return db:close() end,
+        }
+    end
+    local notebook=require('weread.lib.notebook_search')
+    local target={{bookId='940130'}}
+    local actual=Cache.with_read_snapshot(library,codec,function(mark_reader,thought_reader)
+        local new=snapshot('940130');new.updated[1].markText='concurrent mark'
+        expect(cache:write(new))
+        expect(thoughts:write({schema=1,book_id='940130',fetched_at=2000,
+            reviews={{reviewId='next-thought',content='concurrent thought'}}}))
+        expect(mark_reader:read('940130').updated[1].markText=='bulk-130-only')
+        expect(thought_reader:read('940130').reviews[1].reviewId=='synthetic-thought')
+        return notebook.search(target,mark_reader,thought_reader,'bulk-130-only')
+    end)
+    expect(actual and actual.checked==261 and #actual.items==1 and actual.items[1].book_id=='940130')
+    expect(opens==1 and closes==1)
+    actual=Cache.with_read_snapshot(library,codec,function(mark_reader,thought_reader)
+        return notebook.search(target,mark_reader,thought_reader,'concurrent')
+    end)
+    expect(actual and #actual.items==2 and actual.items[1].kind=='marks'
+        and actual.items[2].item_id=='next-thought')
+    expect(Cache.with_read_snapshot(library,codec,function() error('synthetic search failure') end)==nil)
+    expect(opens==3 and closes==3)
+    expect(Cache.with_read_snapshot(library,codec,function()
+        account='900011';return true
+    end)==nil)
+    expect(opens==4 and closes==4)
+    library.openRead=open_read
+end
 account='900011'
+expect(Cache.with_read_snapshot(library,codec,function(mark_reader,thought_reader)
+    return #mark_reader:list_ids()==0 and #thought_reader:list_ids()==0
+end))
 local empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))
 local fresh=assert(library:open());fresh:close()
 empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))
+do
+    local search_model=require('weread.lib.notebook_search')
+    local page_notes=snapshot('940001')
+    page_notes.updated={}
+    for i=1,205 do page_notes.updated[i]={bookmarkId='page-note-'..i,type=1,markText='matching text'} end
+    expect(cache:write(page_notes))
+    local function page(query,cursor)
+        return Cache.with_read_snapshot(library,codec,function(mark_reader,thought_reader)
+            return search_model.search({{bookId='940001'}},mark_reader,thought_reader,query,cursor)
+        end)
+    end
+    local first=assert(page('matching'))
+    expect(first.truncated and first.next_cursor.offset==200 and first.items[200].item_id=='page-note-200')
+    local next_page=assert(page('matching',first.next_cursor))
+    expect(not next_page.truncated and #next_page.items==5 and next_page.items[1].item_id=='page-note-201')
+    page_notes.updated[10].markText='changed text'
+    expect(cache:write(page_notes))
+    expect(assert(page('matching',first.next_cursor)).changed)
+    local db=assert(library:open())
+    db:exec('CREATE TABLE my_cloud_thoughts (book_id TEXT PRIMARY KEY, serial INTEGER)')
+    db:exec("INSERT INTO my_cloud_thoughts VALUES ('940001', 1)")
+    db:close()
+    local partial=assert(page('not found'))
+    expect(partial.checked==2 and partial.failed==1 and #partial.items==0)
+end
 account='900000';Cache.MAX_BOOKS=64 -- Exercise both quota boundaries with a small fixture.
 expect(cache:write(snapshot()));expect(cache:read('900001').updated[1].markText=='合成引用')
 projected,saved=cache:writeProjected(snapshot('CB_SyntheticNotes'),'CB_SyntheticNotes')

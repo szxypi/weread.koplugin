@@ -13,6 +13,19 @@ local function statement(db,sql,...)
     local ok,row=pcall(function() return stmt:bind(unpack(args)):step() end)
     stmt:close();if not ok then error('my_marks_store/statement',0) end;return row
 end
+local function missing_database(library)
+    local path=type(library.databasePath)=='function' and library:databasePath()
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not path or not ok then return false end
+    local attributes,_,code=lfs.attributes(path)
+    return not attributes and code==2
+end
+local function has_table(db,name)
+    local schema=statement(db,'SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE',name)
+    if not schema then return false end
+    if schema[1]~='table' then error('my_marks_store/schema',0) end
+    return true
+end
 local function run(self,task,read_only,empty)
     if not self.library or self.table_name~='my_cloud_marks' and self.table_name~='my_cloud_thoughts' then return nil end
     local db
@@ -21,12 +34,7 @@ local function run(self,task,read_only,empty)
         if not db then
             -- A missing account database is an empty cache, but an unreadable
             -- or locked existing database must remain an error, not an empty list.
-            local path=type(self.library.databasePath)=='function' and self.library:databasePath()
-            local ok,lfs=pcall(require,'libs/libkoreader-lfs')
-            if empty and path and ok then
-                local attributes,_,code=lfs.attributes(path)
-                if not attributes and code==2 then return empty end
-            end
+            if empty and missing_database(self.library) then return empty end
             return nil
         end
     else
@@ -36,9 +44,7 @@ local function run(self,task,read_only,empty)
     local transaction=false
     local ok,result=pcall(function()
         if read_only then
-            local schema=statement(db,'SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE',self.table_name)
-            if not schema then return empty end
-            if schema[1]~='table' then error('my_marks_store/schema',0) end
+            if not has_table(db,self.table_name) then return empty end
         else
             db:exec([[CREATE TABLE IF NOT EXISTS ]]..self.table_name..[[ (
                 book_id TEXT PRIMARY KEY,payload TEXT NOT NULL,serial INTEGER NOT NULL
@@ -50,32 +56,79 @@ local function run(self,task,read_only,empty)
     if transaction then pcall(db.exec,db,'ROLLBACK') end
     pcall(db.close,db);return ok and result or nil
 end
+local function payload_query(store)
+    return 'SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
+        ..store.table_name..' WHERE book_id=?'
+end
+local function decode_snapshot(store,row,id)
+    if not row or type(row[1])~='string' then return nil end
+    return store.data.validate(store.codec,store.codec:json_decode(row[1]),id)
+end
 function M:read(id)
     if not Data.display_id(id) then return nil end
     return run(self,function(db)
-        local row=statement(db,[[SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END
-            FROM ]]..self.table_name..[[ WHERE book_id=?]],M.MAX_PAYLOAD,id)
-        if not row or type(row[1])~='string' then return nil end
-        return self.data.validate(self.codec,self.codec:json_decode(row[1]),id)
+        return decode_snapshot(self,statement(db,payload_query(self),M.MAX_PAYLOAD,id),id)
     end,true)
 end
--- Enumerate only bounded account-local snapshot identities; payloads are
--- validated separately by read() and never returned by this query.
+local function list_ids(db,table_name)
+    local stmt=db:prepare('SELECT book_id FROM '..table_name..' ORDER BY serial DESC, book_id LIMIT ?')
+    local ids,seen={},{}
+    local ok=pcall(function()
+        local row=stmt:bind(M.MAX_BOOKS+1):step()
+        while row do
+            local id=row[1]
+            if not Data.display_id(id) or seen[id] or #ids>=M.MAX_BOOKS then error('my_marks_store/identities',0) end
+            ids[#ids+1]=id;seen[id]=true;row=stmt:step()
+        end
+    end)
+    stmt:close();if not ok then error('my_marks_store/identities',0) end
+    return ids
+end
+-- Enumerate only bounded account-local snapshot identities.
 function M:list_ids()
-    return run(self,function(db)
-        local stmt=db:prepare('SELECT book_id FROM '..self.table_name..' ORDER BY serial DESC, book_id LIMIT ?')
-        local ids,seen={},{}
-        local ok=pcall(function()
-            local row=stmt:bind(M.MAX_BOOKS+1):step()
-            while row do
-                local id=row[1]
-                if not Data.display_id(id) or seen[id] or #ids>=M.MAX_BOOKS then error('my_marks_store/identities',0) end
-                seen[id]=true;ids[#ids+1]=id;row=stmt:step()
-            end
-        end)
-        stmt:close();if not ok then error('my_marks_store/identities',0) end
-        return ids
-    end,true,{})
+    return run(self,function(db) return list_ids(db,self.table_name) end,true,{})
+end
+
+local empty_reader={list_ids=function() return {} end,read=function() return nil end}
+local function snapshot_reader(db,store,statements)
+    if not db or not has_table(db,store.table_name) then return empty_reader end
+    -- A damaged payload column must still count as failed reads when this
+    -- table's identities are available.
+    local ok,stmt=pcall(db.prepare,db,payload_query(store))
+    if ok then statements[#statements+1]=stmt end
+    return {
+        list_ids=function() return list_ids(db,store.table_name) end,
+        read=function(_,id)
+            if not ok or not Data.display_id(id) then return nil end
+            local valid,value=pcall(function()
+                local row=stmt:reset():bind(M.MAX_PAYLOAD,id):step()
+                return decode_snapshot(store,row,id)
+            end)
+            return valid and value or nil
+        end,
+    }
+end
+
+-- These readers live only for one search batch. Both note tables remain on
+-- the same read generation and payloads are fetched one at a time.
+function M.with_read_snapshot(library,codec,task)
+    local account=library:accountKey()
+    if not account then return nil end
+    local db=library:openRead()
+    if not db and not missing_database(library) then return nil end
+    local statements={}
+    local ok,result=pcall(function()
+        if db then db:exec('BEGIN') end
+        local marks=snapshot_reader(db,M:new(library,codec),statements)
+        local thoughts=snapshot_reader(db,M:new(library,codec,'thoughts'),statements)
+        return task(marks,thoughts)
+    end)
+    for _,stmt in ipairs(statements) do pcall(stmt.close,stmt) end
+    if db then
+        pcall(db.exec,db,'ROLLBACK')
+        pcall(db.close,db)
+    end
+    if ok and library:accountKey()==account then return result end
 end
 -- Return only snapshots that can actually be decoded and validated. A corrupt
 -- or inaccessible existing row is an error, not proof that it is missing.
@@ -92,8 +145,7 @@ function M:valid_ids(ids)
         seen[id]=true
     end
     return run(self,function(db)
-        local stmt=db:prepare('SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
-            ..self.table_name..' WHERE book_id=?')
+        local stmt=db:prepare(payload_query(self))
         local result={}
         local ok=pcall(function()
             for _,id in ipairs(ids) do
@@ -117,8 +169,7 @@ local function save(self,value,options)
     local result=run(self,function(db,begin,commit)
         begin()
         if options and options.only_if_absent then
-            local existing=statement(db,'SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
-                ..self.table_name..' WHERE book_id=?',M.MAX_PAYLOAD,projected.book_id)
+            local existing=statement(db,payload_query(self),M.MAX_PAYLOAD,projected.book_id)
             if existing then
                 if type(existing[1])~='string' then error('my_marks_store/invalid_snapshot',0) end
                 self.data.validate(self.codec,self.codec:json_decode(existing[1]),projected.book_id)

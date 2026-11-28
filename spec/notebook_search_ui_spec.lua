@@ -11,10 +11,18 @@ end} end
 local mark={schema=1,book_id='1',updated={{bookmarkId='m1',markText='Needle in original'}},chapters={}}
 local thought={schema=1,book_id='2',reviews={{reviewId='t2',content='Another needle'}}}
 local snapshots={marks={['1']=mark},thoughts={['2']=thought}}
-package.preload['weread.lib.my_cloud_marks_store']=function() return {MAX_BOOKS=64,new=function(_,_,_,variant)
-    local rows=snapshots[variant or 'marks'];return {list_ids=function() local ids={};for id in pairs(rows) do ids[#ids+1]=id end;return ids end,
-        read=function(_,id) return rows[id] end}
-end} end
+package.preload['weread.lib.my_cloud_marks_store']=function()
+    local store={MAX_BOOKS=64}
+    function store:new(_,_,variant)
+        local rows=snapshots[variant or 'marks']
+        return {list_ids=function() local ids={};for id in pairs(rows) do ids[#ids+1]=id end;return ids end,
+            read=function(_,id) return rows[id] end}
+    end
+    function store.with_read_snapshot(library,codec,task)
+        return task(store:new(library,codec),store:new(library,codec,'thoughts'))
+    end
+    return store
+end
 local Search=require('weread.ui.notebook_search')
 local function setup()
     local state={current=true,notices={},online_calls=0,cancelled=0}

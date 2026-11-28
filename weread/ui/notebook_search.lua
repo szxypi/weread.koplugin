@@ -113,8 +113,9 @@ function M.start(host,owner,current,query,paging)
     if not ok or not worker then M.cancel(host,owner);host:showInfo(_('Could not search saved notes.'));return false end
     owner.note_search_worker=worker
     local started,active=pcall(worker.start,worker,function()
-        return Model.search(catalog and catalog.books or {},Store:new(host.library_db,host.client),
-            Store:new(host.library_db,host.client,'thoughts'),query,cursor)
+        return Store.with_read_snapshot(host.library_db,host.client,function(marks,thoughts)
+            return Model.search(catalog and catalog.books or {},marks,thoughts,query,cursor)
+        end)
     end,function(result)
         if not valid() then if owner.note_search_job==job then M.cancel(host,owner) end;return end
         M.cancel(host,owner)
