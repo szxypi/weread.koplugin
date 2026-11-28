@@ -22,7 +22,18 @@ first._cache_generation=assert(store:write(first))
 local public_info=assert(store:read(first,0).books[1]._public_info)
 expect(public_info.intro=='Public excerpt' and public_info.publisher=='Public publisher'
     and public_info.newRating==860 and public_info.newRatingCount==12 and not public_info.token)
-local next_page=state('search',20);next_page._cache_generation=assert(store:write(next_page,first,true))
+local next_page=state('search',20)
+next_page.books[1]._public_info={intro='Second public excerpt'}
+local PublicInfo=require('weread.lib.public_book_info')
+local project=PublicInfo.project
+local projected=0
+PublicInfo.project=function(...)
+    projected=projected+1
+    return project(...)
+end
+next_page._cache_generation=assert(store:write(next_page,first,true))
+PublicInfo.project=project
+expect(projected==2 and store:read(first,20).books[1]._public_info.intro=='Second public excerpt')
 expect(store:read(first,20).history[1]==0 and store:read(first,0).has_more)
 expect(store:read().cursor==20 and store:read().cached)
 local rawdb=library:open();local _,name,file=rawdb:rowexec('PRAGMA database_list');expect(name=='main' and file==library:databasePath())
@@ -73,6 +84,23 @@ function library:open()
     return proxy
 end
 expect(not store:write(state()) and closed);library.open=open;expect(store:read().cursor==220)
+local refreshed_batch=state('search',20);refreshed_batch.books[1].title='Refreshed second batch'
+expect(store:write(refreshed_batch,previous,true)==previous._cache_generation)
+expect(store:read().cursor==20 and store:read(first,20).books[1].title=='Refreshed second batch'
+    and store:read(first,220).cursor==220)
+local wrong_source=state();wrong_source.source_kind='unknown'
+expect(not store:write(wrong_source) and store:read().cursor==20)
+rawdb=library:open()
+local saved_payload=rawdb:rowexec('SELECT payload FROM discovery_cache')
+local damaged=json.decode(saved_payload);damaged.pages[1].books[1].title=false
+local function set_payload(payload)
+    local statement=rawdb:prepare('UPDATE discovery_cache SET payload=?')
+    statement:bind(payload):step();statement:close()
+end
+set_payload(json.encode(damaged))
+expect(not store:write(refreshed_batch,previous,true) and not store:read(first,20))
+set_payload(saved_payload);rawdb:close()
+expect(store:read(first,20).books[1].title=='Refreshed second batch')
 local oversized=state();for i=1,100 do
  oversized.books[i]={bookId=tostring(900000+i),title=string.rep('x',4096),author=string.rep('a',4096),category=string.rep('c',4096),cover=string.rep('u',8192)}
 end

@@ -63,11 +63,14 @@ local function page(value)
         or value.has_more and value.next_cursor<=value.cursor then fail() end
     return {cursor=value.cursor,next_cursor=value.next_cursor,has_more=value.has_more,loaded_at=value.loaded_at,books=books(value.books)}
 end
+local function valid_source(kind)
+    return kind=='native' or kind=='gateway' or kind=='public'
+end
 function M.validate(value)
     if type(value)~='table' or value.schema~=1 or not text(value.generation,32) or not value.generation:match('^[a-f0-9]+$')
         or #value.generation~=32 or not integer(value.updated_at,2^53) or value.updated_at==0
         or not array(value.pages,M.MAX_PAGES) or #value.pages==0
-        or value.source_kind~='native' and value.source_kind~='gateway' and value.source_kind~='public' then fail() end
+        or not valid_source(value.source_kind) then fail() end
     local out={schema=1,generation=value.generation,query=M.query(value.query),updated_at=value.updated_at,
         source_kind=value.source_kind,pages={}};local seen={}
     for _,row in ipairs(value.pages) do
@@ -301,8 +304,10 @@ function M:write(state,previous,continuation)
             saved=read(self,db,key)
             if not saved or saved.generation~=previous._cache_generation then return nil end
         else
-            if state.cursor~=0 then return nil end
-            saved={schema=1,generation=nonce(),query=query,source_kind=state.source_kind,pages={},updated_at=state.loaded_at}
+            if projected.cursor~=0 or not valid_source(state.source_kind) then return nil end
+            local generation=nonce()
+            if not generation then return nil end
+            saved={schema=1,generation=generation,source_kind=state.source_kind,pages={}}
             if query.kind=='search' then
                 local legacy_key=public_search and M.key(query) or key
                 local ok,legacy=pcall(read,self,db,legacy_key)
@@ -317,13 +322,15 @@ function M:write(state,previous,continuation)
                 end
             end
         end
-        local found=false
-        for i,row in ipairs(saved.pages) do if row.cursor==state.cursor then saved.pages[i]=projected;found=true;break end end
-        if not found then saved.pages[#saved.pages+1]=projected end
-        saved.updated_at=state.loaded_at;saved.query=query
-        saved=M.validate(saved)
-        -- Keep the newest online batch last, as the fallback for older caches.
-        for i,row in ipairs(saved.pages) do if row.cursor==state.cursor then table.remove(saved.pages,i);saved.pages[#saved.pages+1]=row;break end end
+        -- read() validated all saved pages. The new page and query were
+        -- checked separately. Apply the cap after removing any replaced page.
+        for i,row in ipairs(saved.pages) do
+            if row.cursor==projected.cursor then table.remove(saved.pages,i);break end
+        end
+        if #saved.pages>=M.MAX_PAGES then return nil end
+        -- The newest online batch stays last, as the fallback for older caches.
+        saved.pages[#saved.pages+1]=projected
+        saved.updated_at=projected.loaded_at;saved.query=query
         local payload=self.codec:json_encode(saved)
         if type(payload)~='string' or #payload>M.MAX_PAYLOAD then return nil end
         local serial=assert(tonumber(statement(db,'SELECT COALESCE(MAX(serial),0)+1 FROM discovery_cache')[1]))
