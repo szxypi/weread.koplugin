@@ -415,6 +415,8 @@ do
     local list=large._my_marks_menu
     row(list,'Search saved notes').callback()
     local dialog=list._shelf_popup;dialog.input='needle';dialog.buttons[1][2].callback()
+    expect(state.started==1 and comparisons==0 and large.busy_message,'large query blocked on the interface')
+    state.complete(state.task())
     expect(comparisons==5000,'large query did not check every row')
     row(list,'Highlights only').callback()
     row(list,'Sort saved notes').callback()
@@ -423,6 +425,14 @@ do
     expect(comparisons==5000,'changing type or order rescanned the same query')
     row(list,'Search saved notes').callback()
     dialog=list._shelf_popup;dialog.input='needle 5000';dialog.buttons[1][2].callback()
+    local late,abandoned=state.complete,state.task
+    large.busy_message.cancel()
+    late(abandoned())
+    expect(not large.busy_message and large._my_marks_owner.search=='needle','cancelled search replaced the previous results')
+    comparisons=5000
+    row(list,'Search saved notes').callback()
+    dialog=list._shelf_popup;dialog.input='needle 5000';dialog.buttons[1][2].callback()
+    state.complete(state.task())
     expect(comparisons==10000 and row(list,notes.updated[5000].markText),'new query reused outdated matches')
     row(list,'Highlights only').callback()
     expect(row(list,'No matching notes in this view.'),'new query lost the highlight filter')
@@ -435,7 +445,34 @@ do
     state.complete(refreshed)
     expect(comparisons==10001 and row(list,'Updated needle 5000')
         and not pcall(row,list,notes.updated[5000].markText),'refresh retained results or a preview from the old snapshot')
+    row(list,'Refresh my cloud marks').callback()
+    state.complete(notes)
+    expect(large._my_marks_owner.note_search_job and comparisons==10001,
+        'refreshing a large snapshot blocked while applying the active query')
+    state.complete(state.task())
+    expect(comparisons==15001 and row(list,notes.updated[5000].markText),'updated snapshot did not reapply the active search')
+    row(list,'Search saved notes').callback()
+    dialog=list._shelf_popup;dialog.input='stale query';dialog.buttons[1][2].callback()
+    late=state.complete
+    state.account='different'
+    late({flags=string.rep('0',5000)})
+    expect(not large.busy_message and large._my_marks_owner.search=='needle 5000','a previous account search changed the list')
     Marks.cancel(large)
     Search.find=find
+end
+do
+    local note=snapshot()
+    note.updated[1].markText=string.rep('字',23000)..'needle'
+    local small,state=fixture(note)
+    expect(Marks.show(small,'900001'),'single long note list did not open')
+    local list=small._my_marks_menu
+    row(list,'Search saved notes').callback()
+    local dialog=list._shelf_popup
+    dialog.input='needle';dialog.buttons[1][2].callback()
+    expect(state.started==1 and small.busy_message,'long text was scanned by the interface')
+    state.complete({flags='not a result'})
+    expect(not small.busy_message and not small._my_marks_owner.search and #state.notices==1,
+        'malformed response replaced the collection')
+    Marks.cancel(small)
 end
 print('PASS: own marks native UI ownership, filters, cache and cancellation ('..checks..' checks)')

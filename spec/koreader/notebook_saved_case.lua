@@ -75,20 +75,41 @@ return function(host,mode,catalog,counters,wait,tick)
     local notes=assert(host._my_marks_menu)
     local function choose(label) notes:onMenuSelect(assert(find(notes,'text',tr(label)))) end
     local Search=require('weread.lib.shelf_search')
-    local original_find,checked=Search.find,0
+    local ffi=require('ffi')
+    local parent=tonumber(ffi.C.getpid())
+    local original_find,checked,delayed=Search.find,0,false
+    counters[80]=0
     Search.find=function(value,...)
-        if type(value)=='string' then checked=checked+1 end
+        if type(value)=='string' then
+            if tonumber(ffi.C.getpid())==parent then checked=checked+1
+            else
+                if not delayed then delayed=true;require('socket').sleep(.5) end
+                counters[80]=counters[80]+1
+            end
+        end
         return original_find(value,...)
     end
-    choose('Search saved notes')
-    search=assert(notes._shelf_popup)
-    search:setInputText('filterword');search.buttons[1][2].callback()
-    assert(checked==5000)
+    local function submit()
+        choose('Search saved notes')
+        search=assert(notes._shelf_popup)
+        search:setInputText('filterword');search.buttons[1][2].callback()
+    end
+    local note_owner=assert(host._my_marks_owner)
+    submit()
+    assert(note_owner.note_search_job and note_owner.note_search_job.worker.job and not note_owner.search and checked==0)
+    local heartbeat=false;UI:scheduleIn(.1,function() heartbeat=true end)
+    wait(function() return heartbeat end)
+    assert(note_owner.note_search_job and host.busy_message and counters[80]==0)
+    host.busy_message:onTapClose()
+    assert(not note_owner.note_search_job and not note_owner.search,'cancelling replaced the previous list')
+    submit()
+    wait(function() return not note_owner.note_search_job end)
+    assert(note_owner.search=='filterword' and checked==0 and counters[80]==5000)
     choose('Highlights only')
     choose('Sort saved notes')
     assert(notes._shelf_popup).buttons[2][1].callback()
     choose('All cloud marks')
-    assert(checked==5000,'changing type and sort rescanned the existing query')
+    assert(checked==0 and counters[80]==5000,'changing type and sort rescanned the existing query')
     Search.find=original_find
     local last=assert(find(notes,'my_note_id','synthetic-filter-1'))
     notes:onMenuSelect(last)

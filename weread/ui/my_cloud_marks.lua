@@ -12,6 +12,7 @@ local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 local MAX_PREVIEWS=128
+local INLINE_SEARCH_ROWS,INLINE_SEARCH_BYTES=128,64*1024
 local function current(host,owner)
     return host._my_marks_owner==owner and host._my_marks_menu==owner.menu and not owner.menu._shelf_closed
         and owner.account==host.library_db:accountKey() and owner.account~=nil
@@ -19,7 +20,15 @@ local function current(host,owner)
         and owner.document==(host.ui and host.ui.document) and owner.parent==host._book_detail_view
         and host.settings:auth_scope_matches(owner.scope)
 end
+local function cancel_search(host,owner)
+    local job=owner.note_search_job
+    if not job then return end
+    owner.note_search_job=nil
+    job.worker:cancel()
+    if job.busy and host.busy_message==job.busy then host:closeBusy() end
+end
 local function stop(host,owner)
+    cancel_search(host,owner)
     require('weread.ui.thought_images').cancel(host,owner)
     local card=package.loaded['weread.ui.excerpt_card']
     if card then card.close_owner(host,owner) end
@@ -74,7 +83,7 @@ local function search_summary(value)
     local text=preview(value);local short=Protocol.utf8_substr(text,16)
     return #short<#text and short..'…' or short
 end
-local render,refresh
+local render,refresh,submit_search
 local function search_dialog(host,owner)
     local InputDialog=require('ui/widget/inputdialog')
     local dialog
@@ -83,9 +92,7 @@ local function search_dialog(host,owner)
         if not valid() then return end
         local query=SearchQuery.trim(value)
         if #query>1024 then host:showInfo(_('Search text is too long.'));return end
-        owner.search=query~='' and query or nil
-        owner.needle=Search.prepare(owner.search)
-        Popup.close(owner.menu);render(host,owner)
+        Popup.close(owner.menu);submit_search(host,owner,query~='' and query or nil)
     end
     dialog=InputDialog:new{title=_('Search saved notes'),input=owner.search or '',input_type='text',buttons={{
         {text=_('Clear'),callback=function() apply('') end},
@@ -94,13 +101,15 @@ local function search_dialog(host,owner)
     Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
 end
 
+local function matches_query(owner,row,needle)
+    return Search.contains(row.content,needle) or Search.contains(row.markText,needle)
+        or Search.contains(row.abstract,needle) or Search.contains(chapter_title(owner,row),needle)
+end
 local function matches(owner,view,row)
     if not view.matches then return true end
     local found=view.matches[row]
     if found==nil then
-        local needle=view.needle
-        found=Search.contains(row.content,needle) or Search.contains(row.markText,needle)
-            or Search.contains(row.abstract,needle) or Search.contains(chapter_title(owner,row),needle)
+        found=matches_query(owner,row,view.needle)
         view.matches[row]=found
     end
     return found
@@ -152,11 +161,82 @@ local function ordered_rows(host,owner)
         view={value=value,rows=rows}
         owner.note_view=view
     end
-    if owner.sort=='original' then return view.rows end
+    if owner.sort=='original' then return view.rows,view end
     if view.mode~=owner.sort then
         view.mode=owner.sort;view.ordered=Order.rows(view.rows,owner.sort)
     end
-    return view.ordered
+    return view.ordered,view
+end
+
+local function needs_search_worker(owner,view)
+    if view.long_search~=nil then return view.long_search end
+    local bytes=0
+    if #view.rows<=INLINE_SEARCH_ROWS then
+        for _,row in ipairs(view.rows) do
+            bytes=bytes+#(row.content or '')+#(row.markText or '')+#(row.abstract or '')+#(chapter_title(owner,row) or '')
+            if bytes>INLINE_SEARCH_BYTES then break end
+        end
+    end
+    view.long_search=#view.rows>INLINE_SEARCH_ROWS or bytes>INLINE_SEARCH_BYTES
+    return view.long_search
+end
+
+local function search_background(host,owner,view,query,needle,replaced)
+    cancel_search(host,owner)
+    local function failed(cancelled)
+        if not current(host,owner) or owner.value~=view.value then return end
+        -- A replaced snapshot invalidates the old list. Show the new notes
+        -- unfiltered if its saved search could not finish.
+        if replaced then
+            owner.search,owner.needle=nil,nil
+            render(host,owner)
+        end
+        if not cancelled then host:showInfo(_('Could not search saved notes.')) end
+    end
+    local ok,worker=pcall(function()
+        return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    end)
+    if not ok or not worker then failed();return end
+    local job={worker=worker,view=view,needle=needle}
+    owner.note_search_job=job
+    host:showBusy(_('Searching saved notes…\nTap or press a key to cancel.'),function()
+        if owner.note_search_job~=job then return end
+        cancel_search(host,owner);failed(true)
+    end)
+    job.busy=host.busy_message
+    local started,active=pcall(worker.start,worker,function()
+        local flags={}
+        for index,row in ipairs(view.rows) do flags[index]=matches_query(owner,row,needle) and '1' or '0' end
+        return {flags=table.concat(flags)}
+    end,function(result)
+        if owner.note_search_job~=job then return end
+        cancel_search(host,owner)
+        if not current(host,owner) or owner.value~=view.value or owner.note_view~=view then return end
+        local flags=type(result)=='table' and result.flags
+        if type(flags)~='string' or #flags~=#view.rows or flags:find('[^01]') then failed();return end
+        local found={}
+        for index,row in ipairs(view.rows) do found[row]=flags:byte(index)==49 end
+        view.needle,view.matches=needle,found
+        owner.search,owner.needle=query,needle
+        render(host,owner)
+    end)
+    if not started or not active then cancel_search(host,owner);failed() end
+end
+
+submit_search=function(host,owner,query)
+    if not current(host,owner) then return end
+    if owner.context or owner.editor then
+        host:showInfo(_('Wait for the current operation to finish.'));return
+    end
+    local needle=Search.prepare(query)
+    local _,view=ordered_rows(host,owner)
+    if needle and needle~=view.needle and needs_search_worker(owner,view) then
+        search_background(host,owner,view,query,needle)
+    else
+        cancel_search(host,owner)
+        owner.search,owner.needle=query,needle
+        render(host,owner)
+    end
 end
 
 render=function(host,owner)
@@ -165,9 +245,15 @@ render=function(host,owner)
         if not current(host,owner) then return end
         owner.generation=(owner.generation or 0)+1
         local generation=owner.generation
-        local rows=ordered_rows(host,owner)
-        local view=owner.note_view
+        local rows,view=ordered_rows(host,owner)
         if view.needle~=owner.needle then
+            if owner.needle and needs_search_worker(owner,view) then
+                local job=owner.note_search_job
+                if not job or job.view~=view or job.needle~=owner.needle then
+                    search_background(host,owner,view,owner.search,owner.needle,true)
+                end
+                return
+            end
             view.needle=owner.needle
             view.matches=owner.needle and {} or nil
         end
@@ -342,6 +428,7 @@ refresh=function(host,owner,resume_draft,automatic)
     end
     local access=owner.data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end
+    cancel_search(host,owner)
     local context={resume_draft=resume_draft,generation=owner.generation};owner.context=context
     local function valid()
         return current(host,owner) and owner.context==context
