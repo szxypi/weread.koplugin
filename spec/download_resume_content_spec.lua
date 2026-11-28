@@ -146,6 +146,16 @@ Content.save_full_download_css(workspace, "")
 expect(Content.load_full_download_css(workspace) == "", "empty stylesheet was not restored")
 Content.save_full_download_css(workspace, "body{color:black}")
 local real_open = io.open
+local repeated_style_writes=0
+-- luacheck: push ignore 122
+io.open=function(path,mode)
+    if mode=="wb" and path:match("/style%..+%.part$") then repeated_style_writes=repeated_style_writes+1 end
+    return real_open(path,mode)
+end
+Content.save_full_download_css(workspace,"body{color:black}")
+io.open=real_open
+-- luacheck: pop
+expect(repeated_style_writes==0,"unchanged shared stylesheet or its receipt was rewritten")
 -- luacheck: push ignore 122
 io.open = function(path, mode)
     local file, err = real_open(path, mode)
@@ -509,6 +519,16 @@ local web_data='\137PNG\r\n\26\n'..string.rep('a',70000)
 write(web_path,web_data)
 local web_assets={{href='images/'..web_file,path=web_path,media_type='image/png'}}
 local web_digest=WebImages.stage(workspace,web_assets)
+local repeated_web_writes=0
+-- luacheck: push ignore 122
+io.open=function(path,mode)
+    if mode=='wb' and path:match('/web%-asset%-receipts/') then repeated_web_writes=repeated_web_writes+1 end
+    return real_open(path,mode)
+end
+expect(WebImages.stage(workspace,web_assets)==web_digest)
+io.open=real_open
+-- luacheck: pop
+expect(repeated_web_writes==0,'unchanged Web image receipt was rewritten')
 local valid,web_names=WebImages.verify(workspace,web_digest)
 expect(valid and #web_names==1 and web_names[1]==web_file,'web image receipt rejected a valid Unicode image')
 Content.save_full_download_chapter(workspace,web_chapter,3,'<p>web</p>',7,nil,nil,nil,web_digest)
@@ -667,10 +687,39 @@ expect(not Content.full_download_chapter_exists(reopened,chapters[1],1,0),
 Content.save_full_download_chapter(scoped,chapters[1],1,"<p>Unknown version</p>",0)
 expect(Content.full_download_chapter_exists(reopened,chapters[1],1,0),
     "the exact unknown-version checkpoint could not reopen")
+Content.save_full_download_rendered_chapter(scoped,chapters[1],1,"<p>Saved text</p>")
+local staged={__workspace_text_dir=scoped.rendered_text_dir,__source_workspace=scoped}
+local single={chapters[1]}
+local saved_epub=Content.save_book_epub(settings,offline_book,single,staged,"full",{},"body {}")
+local previous_epub=read_all(saved_epub)
+assert(os.remove(Content.full_download_rendered_chapter_path(scoped,chapters[1],1)))
+expect(not pcall(Content.save_book_epub,settings,offline_book,single,staged,"full",{},"body {}")
+    and read_all(saved_epub)==previous_epub,"missing rendered chapter replaced an existing EPUB")
 Content.cleanup_download_workspace(scoped)
 
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),
     "successful cleanup did not remove the resumable workspace")
+
+local proof_files=require("libs/libkoreader-lfs")
+local existing_stat=proof_files.symlinkattributes
+local inode,reads=1,0
+proof_files.symlinkattributes=function(_path,field)
+    if field=="mode" then return "directory" end
+    return {mode="file",dev=1,ino=inode,size=10,modification=1,change=1}
+end
+local function inspect(_path)
+    reads=reads+1
+    return 10,"proof-"..reads
+end
+local Proofs=require("weread.lib.download_file_checks")
+local first=Proofs.memoize(inspect)
+expect(select(2,first("/workspace/shared.png"))=="proof-1"
+    and select(2,first("/workspace/shared.png"))=="proof-1","same file was reread within a validation pass")
+inode=2
+expect(select(2,first("/workspace/shared.png"))=="proof-2","replacement reused an earlier file proof")
+local second=Proofs.memoize(inspect)
+expect(select(2,second("/workspace/shared.png"))=="proof-3","new validation pass reused an earlier proof")
+proof_files.symlinkattributes=existing_stat
 
 print(("download_resume_content_spec: %d checks"):format(checks))

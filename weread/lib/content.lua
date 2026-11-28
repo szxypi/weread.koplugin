@@ -429,23 +429,38 @@ end
 
 local read_full_download_checkpoint
 local MAX_FULL_STYLE_BYTES=16*1024*1024
+local NATIVE_IMAGE_MIME={png='image/png',jpg='image/jpeg',gif='image/gif',webp='image/webp'}
 local function full_style_path(workspace, digest)
     if type(digest)~='string' or #digest~=64 or not digest:match('^[0-9a-f]+$')
         or not workspace or type(workspace.style_dir)~='string' then return nil end
     return workspace.style_dir..'/eink-'..digest..'.css'
 end
-local function full_style_valid(workspace,digest)
+local function resource_digest(path, maximum)
+    local file=io.open(path,'rb')
+    if not file then return end
+    local data,read_error=file:read(maximum+1)
+    local closed=file:close()
+    data=data or ''
+    if closed and not read_error and #data<=maximum then return #data,Crypto.sha256_hex(data) end
+end
+
+local function stylesheet_digest(path)
+    return resource_digest(path,MAX_FULL_STYLE_BYTES)
+end
+
+local function image_digest(path)
+    return resource_digest(path,8*1024*1024)
+end
+
+local function full_style_valid(workspace,digest,checks)
     local path=full_style_path(workspace,digest)
     if not path then return false end
     local ok,lfs=pcall(require,'libs/libkoreader-lfs')
     if not ok then ok,lfs=pcall(require,'lfs') end
     if ok and lfs.symlinkattributes and (lfs.symlinkattributes(workspace.style_dir,'mode')~='directory'
         or lfs.symlinkattributes(path,'mode')~='file') then return false end
-    local file=io.open(path,'rb')
-    if not file then return false end
-    local data,read_error=file:read(MAX_FULL_STYLE_BYTES+1);local closed=file:close()
-    data=data or ''
-    return closed and not read_error and #data<=MAX_FULL_STYLE_BYTES and Crypto.sha256_hex(data)==digest
+    local _,actual=(checks and checks.style or stylesheet_digest)(path)
+    return actual==digest
 end
 local function full_style_href(digest)
     return '../eink-style-'..digest..'.css'
@@ -461,7 +476,7 @@ end
 local function native_asset_name(name)
     if type(name)~='string' then return nil end
     local digest,extension=name:match('^eink%-([0-9a-f]+)%.([a-z]+)$')
-    if not digest or #digest~=64 or not ({png=true,jpg=true,gif=true,webp=true})[extension] then return nil end
+    if not digest or #digest~=64 or not NATIVE_IMAGE_MIME[extension] then return nil end
     return digest
 end
 local function full_asset_receipt_names(workspace,digest)
@@ -485,37 +500,59 @@ local function full_asset_receipt_names(workspace,digest)
     if raw~=table.concat(names,'\n')..(#names>0 and '\n' or '') then return nil end
     return names
 end
-local function full_assets_valid(workspace,digest)
+local function full_assets_valid(workspace,digest,checks)
     local names=full_asset_receipt_names(workspace,digest)
     if not names then return false end
     local ok,lfs=pcall(require,'libs/libkoreader-lfs')
     if not ok then ok,lfs=pcall(require,'lfs') end
     local total=0
     for _,name in ipairs(names) do
-        local image_digest=native_asset_name(name)
+        local expected=native_asset_name(name)
         local image_path=workspace.asset_dir..'/'..name
         if ok and lfs.symlinkattributes and lfs.symlinkattributes(image_path,'mode')~='file' then return false end
-        local image=io.open(image_path,'rb');if not image then return false end
-        local bytes=image:read(8*1024*1024+1);local image_closed=image:close()
-        if not image_closed or not bytes or #bytes==0 or #bytes>8*1024*1024
-            or Crypto.sha256_hex(bytes)~=image_digest then return false end
-        total=total+#bytes;if total>64*1024*1024 then return false end
+        local size,actual=(checks and checks.image or image_digest)(image_path)
+        if not size or size==0 or actual~=expected then return false end
+        total=total+size;if total>64*1024*1024 then return false end
     end
     return true,names
 end
 
-function Content.full_download_rendered_chapter_exists(workspace, chapter, chapter_index)
+local function resource_checks(workspace)
+    local Files=require('weread.lib.download_file_checks')
+    return {style=Files.memoize(stylesheet_digest),image=Files.memoize(image_digest),
+        web=require('weread.lib.web_image_receipt').batch_verifier(workspace)}
+end
+
+local function verify_checkpoint_resources(workspace,checkpoint,checks)
+    if checkpoint[7] then
+        if checkpoint[9]~=workspace.native_owner or not full_style_valid(workspace,checkpoint[7],checks) then
+            return false
+        end
+        return full_assets_valid(workspace,checkpoint[8],checks)
+    end
+    if checkpoint[10] then
+        if checkpoint[11]~=workspace.native_owner then return false end
+        if checks then return checks.web(checkpoint[10]) end
+        return require('weread.lib.web_image_receipt').verify(workspace,checkpoint[10])
+    end
+    return true
+end
+
+local function read_rendered_chapter(workspace, chapter, chapter_index, style, maximum)
     local path = Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
-    if not file then return false end
-    local xhtml = file:read("*a") or ""
+    if not file then return end
+    local xhtml,err = file:read(maximum and maximum+1 or "*a")
     local closed = file:close()
+    if not err and closed and xhtml and (not maximum or #xhtml<=maximum) and xhtml:find(workspace_chapter_marker(chapter),1,true)
+        and xhtml:find(full_style_link(style),1,true) then return xhtml end
+end
+
+function Content.full_download_rendered_chapter_exists(workspace, chapter, chapter_index)
     local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
-    local style,assets,owner,web_images,web_owner=checkpoint[7],checkpoint[8],checkpoint[9],checkpoint[10],checkpoint[11]
-    return checkpoint[1]~=nil and closed and xhtml:find(workspace_chapter_marker(chapter), 1, true) ~= nil
-        and xhtml:find(full_style_link(style),1,true)~=nil
-        and (not style or owner==workspace.native_owner and full_style_valid(workspace,style) and full_assets_valid(workspace,assets))
-        and (not web_images or web_owner==workspace.native_owner and require('weread.lib.web_image_receipt').verify(workspace,web_images))
+    return checkpoint[1]==basename_safe(chapter and chapter.chapterUid or "unknown")
+        and read_rendered_chapter(workspace,chapter,chapter_index,checkpoint[7])~=nil
+        and verify_checkpoint_resources(workspace,checkpoint)==true
 end
 
 read_full_download_checkpoint = function(path)
@@ -567,30 +604,33 @@ read_full_download_checkpoint = function(path)
         receipt, style, assets, owner, web_images, web_owner, scope
 end
 
-function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images)
+local function verified_download_chapter(workspace, chapter, chapter_index, expected_version, require_web_images, checks)
+    local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
+    local uid,length,digest,version,book_id,receipt,style=unpack(checkpoint,1,7)
+    if uid~=basename_safe(chapter and chapter.chapterUid or "unknown")
+        or book_id and book_id~=workspace.book_id
+        or expected_version and expected_version~=0 and version~=expected_version
+        or workspace.offline_version~=nil and (not workspace.checkpoint_scope or checkpoint[12]~=workspace.checkpoint_scope
+            or book_id~=workspace.book_id or version~=workspace.offline_version)
+        or require_web_images and not (style or checkpoint[10]) then return end
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
-    if not file then return false end
-    local xhtml = file:read("*a") or ""
+    if not file then return end
+    local xhtml,err = file:read("*a")
     local closed = file:close()
-    if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
-        return false
+    if err or not closed or not xhtml or length~=#xhtml or not xhtml:find(workspace_chapter_marker(chapter),1,true)
+        or not xhtml:find(full_style_link(style),1,true) or digest~=Crypto.sha256_hex(xhtml) then return end
+    local source
+    if receipt then
+        source=PositionSource.resolve({workspace=workspace,receipt=receipt},workspace.book_id,chapter.chapterUid or chapter.chapterId)
+        if not source then return end
     end
-    local uid, length, digest, source_version, source_book, receipt, style, assets, owner, web_images, web_owner, scope = read_full_download_checkpoint(
-        Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
-    return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
-        and length == #xhtml
-        and digest == Crypto.sha256_hex(xhtml)
-        and (not source_book or source_book == workspace.book_id)
-        and (not expected_version or expected_version == 0 or source_version == expected_version)
-        and (workspace.offline_version==nil or workspace.checkpoint_scope and scope==workspace.checkpoint_scope
-            and source_book==workspace.book_id and source_version==workspace.offline_version)
-        and (not receipt or PositionSource.resolve({ workspace = workspace, receipt = receipt },
-            workspace.book_id, chapter.chapterUid or chapter.chapterId) ~= nil)
-        and xhtml:find(full_style_link(style),1,true)~=nil
-        and (not style or owner==workspace.native_owner and full_style_valid(workspace,style) and full_assets_valid(workspace,assets))
-        and (not require_web_images or style or web_images)
-        and (not web_images or web_owner==workspace.native_owner and require('weread.lib.web_image_receipt').verify(workspace,web_images))
+    local valid,names=verify_checkpoint_resources(workspace,checkpoint,checks)
+    if valid then return checkpoint,names,source end
+end
+
+function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images)
+    return verified_download_chapter(workspace,chapter,chapter_index,expected_version,require_web_images)~=nil
 end
 
 -- Repair is permitted only for resources named by this chapter's intact,
@@ -717,7 +757,7 @@ function Content.stage_full_download_assets(workspace,assets)
         local name=type(asset)=='table' and type(asset.href)=='string' and asset.href:match('^images/([^/]+)$')
         local digest=native_asset_name(name)
         local extension=name and name:match('%.([a-z]+)$')
-        local mime=({png='image/png',jpg='image/jpeg',gif='image/gif',webp='image/webp'})[extension]
+        local mime=NATIVE_IMAGE_MIME[extension]
         if not digest or asset.path~=workspace.asset_dir..'/'..name or asset.media_type~=mime then
             error('invalid chapter assets',0)
         end
@@ -825,16 +865,32 @@ function Content.save_full_download_rendered_chapter(workspace, chapter, chapter
     return path
 end
 
+local function file_matches(path, expected)
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if ok and lfs.symlinkattributes and lfs.symlinkattributes(path,'mode')~='file' then return false end
+    local file=io.open(path,"rb")
+    if not file then return false end
+    local bytes,err=file:read(#expected+1)
+    return file:close() and not err and (bytes or "")==expected
+end
+
 function Content.save_full_download_css(workspace, css)
     if not workspace or not workspace.path then return nil end
     css = css or ""
     if type(css) ~= "string" or #css > MAX_FULL_STYLE_BYTES then error("invalid book stylesheet") end
-    local ok, err = atomic_write(workspace.path .. "/style.css", css)
-    if not ok then error(err or "could not checkpoint stylesheet") end
+    local path=workspace.path.."/style.css"
+    if not file_matches(path,css) then
+        local ok,err=atomic_write(path,css)
+        if not ok then error(err or "could not checkpoint stylesheet") end
+    end
     local scope = workspace.checkpoint_scope
-    ok, err = atomic_write(workspace.path .. "/style.sha256",
-        Crypto.sha256_hex(css) .. "\n" .. (scope and scope .. "\n" or ""))
-    if not ok then error(err or "could not checkpoint stylesheet digest") end
+    local receipt=Crypto.sha256_hex(css).."\n"..(scope and scope.."\n" or "")
+    local receipt_path=workspace.path.."/style.sha256"
+    if not file_matches(receipt_path,receipt) then
+        local ok,err=atomic_write(receipt_path,receipt)
+        if not ok then error(err or "could not checkpoint stylesheet digest") end
+    end
     return true
 end
 
@@ -861,8 +917,9 @@ end
 
 function Content.full_download_completed_chapters(workspace, chapters, expected_version, require_web_images)
     local completed = {}
+    local checks=resource_checks(workspace)
     for chapter_index, chapter in ipairs(chapters or {}) do
-        if Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images) then
+        if verified_download_chapter(workspace,chapter,chapter_index,expected_version,require_web_images,checks) then
             completed[chapter_index] = true
         end
     end
@@ -870,17 +927,20 @@ function Content.full_download_completed_chapters(workspace, chapters, expected_
 end
 
 function Content.load_selected_download_chapter(workspace, chapter, index)
-    if workspace.offline_version~=nil and not Content.full_download_chapter_exists(workspace,chapter,index) then
-        position_error(false)
+    local checkpoint,names
+    if workspace.offline_version~=nil then
+        checkpoint,names=verified_download_chapter(workspace,chapter,index)
+    else
+        checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
+        local valid
+        valid,names=verify_checkpoint_resources(workspace,checkpoint)
+        if not valid then position_error(false) end
     end
-    if not Content.full_download_rendered_chapter_exists(workspace, chapter, index) then position_error(false) end
-    local text, err = read_chapter_text(Content.full_download_rendered_chapter_path(workspace, chapter, index))
-    if not text or err then error(err or "chapter text is missing", 0) end
-    local checkpoint = { read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace, chapter, index)) }
+    if not checkpoint or checkpoint[1]~=basename_safe(chapter and chapter.chapterUid or "unknown") then position_error(false) end
+    local text=read_rendered_chapter(workspace,chapter,index,checkpoint[7])
+    if not text then position_error(false) end
     local assets = {}
     if checkpoint[10] then
-        local valid, names = require("weread.lib.web_image_receipt").names(workspace, checkpoint[10])
-        if not valid then position_error(false) end
         for _, name in ipairs(names) do
             local path = workspace.asset_dir .. "/" .. name
             local _, media_type = media_type_for_file(path)
@@ -1473,14 +1533,6 @@ local function append_position_entries(entries, manifest, source, identity, path
     end
 end
 
-local function rendered_file_digest(path)
-    local file = path and io.open(path, "rb")
-    local raw = file and file:read(PositionSource.MAX_RENDERED_BYTES + 1)
-    local closed = file and file:close()
-    if not closed or not raw or #raw > PositionSource.MAX_RENDERED_BYTES then position_error(false) end
-    return Crypto.sha256_hex(raw)
-end
-
 function Content.single_chapter_xhtml(book,chapter,xhtml)
     local title = chapter.title or book.title or "WeRead"
     return [[<?xml version="1.0" encoding="utf-8"?>
@@ -1603,6 +1655,10 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
     -- string table for the entire book at the final packaging step.
     local workspace_text_dir = type(chapter_bodies) == "table"
         and chapter_bodies.__workspace_text_dir or nil
+    local workspace=workspace_text_dir and chapter_bodies.__source_workspace
+    if workspace_text_dir and (not workspace or workspace.rendered_text_dir~=workspace_text_dir
+        or workspace.book_id~=tostring(book_id)) then position_error(false) end
+    local checks=workspace and resource_checks(workspace)
     local entries = {
         { name = "mimetype", data = "application/epub+zip" },
         { name = "META-INF/container.xml", data = [[<?xml version="1.0" encoding="utf-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>]] },
@@ -1644,56 +1700,46 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
         local filename = string.format("text/chapter-%03d.xhtml", chapter_index)
         local id = item_id("chapter_", uid)
         local title = chapter.title or ("Chapter " .. uid)
-        local reference
+        local source,rendered_digest
         if workspace_text_dir then
-            local workspace = chapter_bodies.__source_workspace
-            if not Content.full_download_chapter_exists(workspace, chapter, chapter_index) then position_error(false) end
-            local checkpoint = { read_full_download_checkpoint(workspace
-                and Content.full_download_checkpoint_path(workspace, chapter, chapter_index)) }
+            local checkpoint,names,verified_source=verified_download_chapter(workspace,chapter,chapter_index,nil,nil,checks)
+            if not checkpoint then position_error(false) end
+            source=verified_source
             local digest, version = checkpoint[3], checkpoint[4]
             local style=checkpoint[7]
-            if style then
-                if not Content.full_download_rendered_chapter_exists(workspace,chapter,chapter_index) then position_error(false) end
-                local verified,names=full_assets_valid(workspace,checkpoint[8])
-                if not verified then position_error(false) end
+            local rendered=read_rendered_chapter(workspace,chapter,chapter_index,style,
+                source and PositionSource.MAX_RENDERED_BYTES)
+            if not rendered then error("missing rendered chapter "..tostring(chapter_index),0) end
+            if source then rendered_digest=Crypto.sha256_hex(rendered) end
+            if names then
                 for _,name in ipairs(names) do
                     local asset=declared_assets['images/'..name]
-                    local extension=name:match('%.([a-z]+)$')
-                    local mime=({png='image/png',jpg='image/jpeg',gif='image/gif',webp='image/webp'})[extension]
-                    if not asset or asset.path~=workspace.asset_dir..'/'..name or asset.media_type~=mime then
+                    if not asset or asset.path~=workspace.asset_dir..'/'..name
+                        or style and asset.media_type~=NATIVE_IMAGE_MIME[name:match('%.([a-z]+)$')] then
                         position_error(false)
                     end
                 end
-                if not seen_styles[style] then
-                    seen_styles[style]=true
-                    local href='eink-style-'..style..'.css'
-                    manifest_items[#manifest_items+1]='<item id="eink-style-'..style..'" href="'..href..'" media-type="text/css"/>'
-                    entries[#entries+1]={name='OEBPS/'..href,path=full_style_path(workspace,style)}
-                end
             end
-            if checkpoint[10] then
-                local valid,names=require('weread.lib.web_image_receipt').verify(workspace,checkpoint[10])
-                if not valid then position_error(false) end
-                for _,name in ipairs(names) do
-                    local asset=declared_assets['images/'..name]
-                    if not asset or asset.path~=workspace.asset_dir..'/'..name then position_error(false) end
-                end
+            if style and not seen_styles[style] then
+                seen_styles[style]=true
+                local href='eink-style-'..style..'.css'
+                manifest_items[#manifest_items+1]='<item id="eink-style-'..style..'" href="'..href..'" media-type="text/css"/>'
+                entries[#entries+1]={name='OEBPS/'..href,path=full_style_path(workspace,style)}
             end
-            if checkpoint[6] then reference = { workspace = workspace, receipt = checkpoint[6] } end
             if checkpoint[5] ~= tostring(book_id) then version = 0 end
             source_hashes[#source_hashes + 1] = uid .. ":" .. tostring(digest or "unknown")
             version = FileIdentity.version(version)
             if checkpoint_version == nil then checkpoint_version = version
             elseif checkpoint_version ~= version then checkpoint_version = 0 end
         else
+            local reference
             source_hashes[#source_hashes + 1] = uid .. ":" .. Crypto.sha256_hex(chapter_bodies[uid] or "")
             if position_sources and position_sources.receipts then
                 local receipt = position_sources.receipts[uid]
                 if receipt then reference = { workspace = position_sources.workspace, receipt = receipt } end
             elseif position_sources then reference = position_sources[uid] end
+            source=resolve_position_source(reference,book,chapter)
         end
-        local source = resolve_position_source(reference, book, chapter)
-        local rendered_digest
         if not workspace_text_dir then
             local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -1708,8 +1754,6 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </html>]]
             table.insert(entries, { name = "OEBPS/" .. filename, data = chapter_xhtml })
             if source then rendered_digest = Crypto.sha256_hex(chapter_xhtml) end
-        elseif source then
-            rendered_digest = rendered_file_digest(workspace_text_dir .. "/" .. filename:match("[^/]+$"))
         end
         if source then
             if position_uids[uid] then position_error(false) end

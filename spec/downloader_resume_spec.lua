@@ -130,14 +130,12 @@ package.preload["weread.lib.content"] = function()
         end,
         reset_full_download_rendered_text = function() end,
         save_full_download_rendered_chapter = function() end,
-        full_download_rendered_chapter_exists = function()
-            return rendered_chapters_complete
-        end,
         load_full_download_chapter = function(_workspace, chapter)
             return "<p>checkpoint " .. tostring(chapter.chapterUid) .. "</p>"
         end,
         full_download_workspace_assets = function() return {} end,
         save_book_epub = function(_settings, _book, chapters, bodies)
+            if not rendered_chapters_complete then error("missing rendered chapter") end
             save_book_calls = save_book_calls + 1
             if fail_next_save then error("injected package failure") end
             saved_chapters = chapters

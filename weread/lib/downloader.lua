@@ -1616,14 +1616,6 @@ function Downloader:_step(dl)
                         end
                     end
                     if dl.cancelled then return end
-                    if dl.resumable then
-                        for chapter_index, chapter in ipairs(dl.chapters) do
-                            if not Content.full_download_rendered_chapter_exists(
-                                dl.workspace, chapter, chapter_index) then
-                                error("missing rendered chapter " .. tostring(chapter_index))
-                            end
-                        end
-                    end
                     path = Content.save_book_epub(
                         self.settings, packaging_book,
                         dl.resumable and dl.chapters or dl.selected,

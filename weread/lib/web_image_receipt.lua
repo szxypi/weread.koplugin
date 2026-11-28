@@ -85,6 +85,14 @@ function M.stage(workspace,assets)
     local mode=lfs.symlinkattributes and lfs.symlinkattributes(part,'mode') or lfs.attributes(part,'mode')
     local removed=os.remove(part)
     if mode and not removed then error('invalid web image receipt temporary file',0) end
+    local target=lfs.symlinkattributes and lfs.symlinkattributes(path,'mode') or lfs.attributes(path,'mode')
+    if target=='file' then
+        local file=io.open(path,'rb')
+        if file then
+            local previous,read_err=file:read(#raw+1)
+            if file:close() and not read_err and (previous or '')==raw then return digest end
+        end
+    end
     local out=assert(io.open(part,'wb'))
     local wrote,write_err=out:write(raw);local closed,close_err=out:close()
     if not wrote or not closed then os.remove(part);error(write_err or close_err or 'web image receipt write failed',0) end
@@ -126,16 +134,25 @@ function M.names(workspace,digest)
     return true,names
 end
 
-function M.verify(workspace,digest)
+local function verify(workspace,digest,inspect)
     local entries=records(workspace,digest)
     if not entries then return false end
     local names={}
     for _,entry in ipairs(entries) do
-        local actual_size,actual=digest_file(workspace.asset_dir..'/'..entry.name)
+        local actual_size,actual=inspect(workspace.asset_dir..'/'..entry.name)
         if not actual_size or tostring(actual_size)~=entry.size or actual~=entry.digest then return false end
         names[#names+1]=entry.name
     end
     return true,names
+end
+
+function M.verify(workspace,digest)
+    return verify(workspace,digest,digest_file)
+end
+
+function M.batch_verifier(workspace)
+    local inspect=require('weread.lib.download_file_checks').memoize(digest_file)
+    return function(digest) return verify(workspace,digest,inspect) end
 end
 
 return M
