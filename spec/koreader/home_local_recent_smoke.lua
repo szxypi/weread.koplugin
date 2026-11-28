@@ -449,6 +449,15 @@ local real_index=assert(LibraryView.bookIndex(downloads.books,id))
 local original_page=math.ceil(real_index/downloads.page_size)
 assert(original_page>1,'multiple download pages were not available')
 downloads.on_page_changed(original_page);replace_download_view()
+assert(downloads:getFocusedBookId()~=id and downloads:getBrowsePosition().book_id~=id,
+    'touch-return fixture did not distinguish the opened book from the first visible book')
+downloads.on_select(downloads.books[real_index])
+fixture_count=fixture_count+original_page*downloads.page_size-real_index+1
+assert(plugin._book_detail_view):onClose();replace_download_view()
+real_index=assert(LibraryView.bookIndex(downloads.books,id))
+assert(downloads.page==original_page+1 and downloads.page==math.ceil(real_index/downloads.page_size),
+    'return from a tap followed the first visible book instead of the opened book')
+original_page=downloads.page
 focus_download()
 downloads.on_select(downloads.books[real_index])
 fixture_count=fixture_count+page_size

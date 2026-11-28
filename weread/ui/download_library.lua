@@ -92,7 +92,10 @@ local function show_detail(host, book, choose_native)
         for key,value in pairs(record) do detail[key] = value end
     end
     for key,value in pairs(book) do if key~='_native_cached_hint' then detail[key] = value end end
-    return host:showBookMenu(detail,{read_saved_native=native_cached and (choose_native or not downloaded)})
+    local owner = host.shelf_view
+    local menu = host:showBookMenu(detail,{read_saved_native=native_cached and (choose_native or not downloaded)})
+    if menu and owner then owner._download_detail_book_id=book.bookId end
+    return menu
 end
 
 local function show_actions(host, book, view, current)
@@ -251,7 +254,14 @@ local function render(host, rows, plans, browse, plan_page)
         empty_text = query == '' and _('No downloaded books for this account.') or _('No matching books.'),
         on_refresh = reload,
         on_return = function(next_position)
-            local current = Scope.capture(host, host.shelf_view)
+            local view = host.shelf_view
+            local book_id = view._download_detail_book_id
+            view._download_detail_book_id = nil
+            if book_id and next_position.focus_book_id ~= book_id then
+                next_position.book_id = book_id
+                next_position.focus_book_id = nil
+            end
+            local current = Scope.capture(host, view)
             -- The detail close callback runs before KOReader removes its widget.
             UI:nextTick(function() if current() then reload(next_position) end end)
         end,
