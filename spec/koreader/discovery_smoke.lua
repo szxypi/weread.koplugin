@@ -533,7 +533,11 @@ end
 local online_probe = plugin.isNetworkOnline
 plugin.isNetworkConnected = function() return true end
 plugin.isNetworkOnline = function() error('shelf display attempted a synchronous online probe') end
-plugin:showBookshelf()
+-- This is a new progress scenario with an independent shelf snapshot. The
+-- earlier related-books scenario deliberately saved a search and scroll offset.
+plugin:showBookshelf(false)
+assert(plugin.shelf_view.page==1 and plugin.shelf_view.books[1].bookId==seed_id,
+    'progress fixture did not start at the seeded first book')
 -- An uncached cover must also begin in the real background worker without
 -- asking the UI thread to resolve an external host.
 local fresh_cover = { bookId = 'fresh-cover', cover = 'https://weread.qq.com/mock/illustration.png' }
