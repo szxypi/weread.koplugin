@@ -1894,6 +1894,7 @@ local zh = {
     ["Downloading images · chapter %1/%2"] = "正在下载图片 · 章节 %1/%2",
     ["Processing chapter %1/%2"] = "正在处理章节 %1/%2",
     ["Processing footnotes · chapter %1/%2"] = "正在处理脚注 · 章节 %1/%2",
+    ["Processing footnotes and building EPUB…"] = "正在处理脚注并生成 EPUB…",
     ["Building EPUB..."] = "正在生成 EPUB……",
     ["%1 thought batch(es) failed after retries; the EPUB contains the remaining available thoughts."] = "%1 批想法重试后仍失败；EPUB 已包含其余成功下载的想法。",
     ["%1 footnote reference(s) could not be resolved and were kept as original links."] = "%1 个脚注引用无法解析，已保留原始链接。",

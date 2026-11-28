@@ -607,9 +607,8 @@ function Downloader:_startPrefetchWorker(dl)
     return false
 end
 
--- Network work, immutable raw-source staging and EPUB building run in the child.
--- Rendered completion checkpoints, settings and UI stay in the parent. Reuse
--- KOReader's pipe transport and cancellation/reaping.
+-- Reuse KOReader's pipe transport and cancellation for network and disk work.
+-- Settings and UI updates stay in the parent.
 function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
     local function scoped_client()
@@ -776,7 +775,6 @@ function Downloader:start(book, chapters, suffix, options)
         bodies = {},
         position_sources = {},
         assets = {},
-        assets_by_uid = {},
         state = {},
         total = total,
         failed = {},
@@ -785,16 +783,7 @@ function Downloader:start(book, chapters, suffix, options)
         completed = {},
         completed_count = 0,
         annotation_failed_batches = 0,
-        footnote_scans = {},
-        footnote_stats = {
-            candidates = 0,
-            converted = 0,
-            image_notes = 0,
-            backlinks = 0,
-            removed_note_blocks = 0,
-            unresolved = 0,
-            fallback = 0,
-        },
+        footnote_scans = not resumable and {} or nil,
         single_chapter = options.single_chapter == true,
         separate_chapters = options.separate_chapters == true and options.single_chapter ~= true,
         include_annotations = false,
@@ -1138,19 +1127,38 @@ local function add_footnote_stats(total, current)
     end
 end
 
+local function render_footnotes(original, uid, scan, index_data, total)
+    local ok, transformed, stats = pcall(Footnotes.transform_chapter, original, scan, index_data)
+    if ok then
+        local valid, validation_error = Footnotes.validate(transformed)
+        if valid then
+            add_footnote_stats(total, stats)
+            return transformed, Footnotes.has_converted(stats)
+        end
+        logger.warn("footnote transform validation failed; keeping original chapter:",
+            "chapter_uid=", uid, "error=", log_error(validation_error))
+    else
+        logger.warn("footnote transform failed; keeping original chapter:",
+            "chapter_uid=", uid, "error=", log_error(transformed))
+    end
+    total.fallback = total.fallback + 1
+    return original, false
+end
+
+local function log_footnote_stats(stats)
+    logger.info("book footnotes processed:",
+        "candidates=", tostring(stats.candidates),
+        "converted=", tostring(stats.converted),
+        "images=", tostring(stats.image_notes),
+        "backlinks=", tostring(stats.backlinks),
+        "removed_note_blocks=", tostring(stats.removed_note_blocks),
+        "unresolved=", tostring(stats.unresolved),
+        "fallback=", tostring(stats.fallback))
+end
+
 function Downloader:_footnoteStep(dl)
     if dl.cancelled then
-        if dl.resumable then
-            self:_preserveWorkspace(dl, dl.cancel_reason or "cancelled")
-        else
-            self:_releaseStandby(dl)
-            self:_cleanupWorkspace(dl)
-            self:_notifyCompletion(dl, false, dl.cancel_reason or "cancelled")
-            self:_finishJob(dl)
-        end
-        if not dl.prefetch then
-            self.show_transient(_("Download cancelled"), 2)
-        end
+        self:_step(dl)
         return
     end
     local job = dl.footnote_job
@@ -1166,55 +1174,27 @@ function Downloader:_footnoteStep(dl)
             dl.state.css = (dl.state.css or "") .. "\n"
                 .. Footnotes.FOOTNOTES_CSS
         end
-        logger.info("book footnotes processed:",
-            "candidates=", tostring(dl.footnote_stats.candidates),
-            "converted=", tostring(dl.footnote_stats.converted),
-            "images=", tostring(dl.footnote_stats.image_notes),
-            "backlinks=", tostring(dl.footnote_stats.backlinks),
-            "removed_note_blocks=", tostring(dl.footnote_stats.removed_note_blocks),
-            "unresolved=", tostring(dl.footnote_stats.unresolved),
-            "fallback=", tostring(dl.footnote_stats.fallback))
+        log_footnote_stats(dl.footnote_stats)
         self:_scheduleGuarded(dl, function() self:_step(dl) end)
         return
     end
 
-    local chapter = (job.chapters or dl.selected)[job.index]
+    local chapter = dl.selected[job.index]
     local uid = tostring(chapter.chapterUid or job.index)
     self:_setStage(dl,
         T(_("Processing footnotes · chapter %1/%2"),
             tostring(job.index), tostring(#dl.selected)), dl.total)
     local original = dl.bodies[uid]
-    if dl.resumable then
-        original = Content.load_full_download_chapter(
-            dl.workspace, chapter, job.index)
-    elseif dl.separate_chapters then
+    if dl.separate_chapters then
         local reason
         original, reason = Content.load_download_chapter_text(dl.workspace, dl.selected_indices[job.index])
         if not original then self:_chapterStagingFailed(dl, reason); return end
     end
     local started = time.now()
-    local ok, transformed, stats = pcall(Footnotes.transform_chapter,
-        original, dl.footnote_scans[uid], job.index_data)
-    local output = original
-    if ok then
-        local valid, validation_error = Footnotes.validate(transformed)
-        if valid then
-            output = transformed
-            add_footnote_stats(dl.footnote_stats, stats)
-            if Footnotes.has_converted(stats) then job.css_needed = true end
-        else
-            dl.footnote_stats.fallback = dl.footnote_stats.fallback + 1
-            logger.warn("footnote transform validation failed; keeping original chapter:",
-                "chapter_uid=", uid, "error=", log_error(validation_error))
-        end
-    else
-        dl.footnote_stats.fallback = dl.footnote_stats.fallback + 1
-        logger.warn("footnote transform failed; keeping original chapter:",
-            "chapter_uid=", uid, "error=", log_error(transformed))
-    end
-    if dl.resumable then
-        Content.save_full_download_rendered_chapter(dl.workspace, chapter, job.index, output)
-    elseif dl.separate_chapters then
+    local previous_fallback = dl.footnote_stats.fallback
+    local output, converted = render_footnotes(original, uid, dl.footnote_scans[uid], job.index_data, dl.footnote_stats)
+    job.css_needed = job.css_needed or converted
+    if dl.separate_chapters then
         if output ~= original then
             local saved, reason = Content.stage_download_chapter_text(dl.workspace, dl.selected_indices[job.index], output)
             if not saved then self:_chapterStagingFailed(dl, reason); return end
@@ -1223,14 +1203,13 @@ function Downloader:_footnoteStep(dl)
         dl.bodies[uid] = output
     end
     self:_perf(dl, "footnotes", started, "chapter_uid=", uid,
-        "ok=", tostring(ok), "fallback=", tostring(not ok))
+        "fallback=", tostring(dl.footnote_stats.fallback > previous_fallback))
     job.index = job.index + 1
     self:_scheduleGuarded(dl, function() self:_footnoteStep(dl) end)
 end
 
-function Downloader:_startFootnotes(dl)
-    dl.footnote_scans = dl.footnote_scans or {}
-    dl.footnote_stats = dl.footnote_stats or {
+local function new_footnote_stats()
+    return {
         candidates = 0,
         converted = 0,
         image_notes = 0,
@@ -1239,30 +1218,17 @@ function Downloader:_startFootnotes(dl)
         unresolved = 0,
         fallback = 0,
     }
-    local selected = dl.resumable and dl.chapters or dl.selected
-    if dl.resumable then
-        -- Keep source checkpoints pristine. Footnote conversion removes
-        -- consumed definitions, so its output belongs in a disposable
-        -- rendering directory that can be rebuilt after an interrupted run.
-        Content.reset_full_download_rendered_text(dl.workspace)
-    end
+end
+
+function Downloader:_startFootnotes(dl)
+    dl.footnote_scans = dl.footnote_scans or {}
+    dl.footnote_stats = dl.footnote_stats or new_footnote_stats()
     local scans = {}
     local chapter_hrefs = {}
-    for chapter_index, chapter in ipairs(selected or {}) do
+    for chapter_index, chapter in ipairs(dl.selected) do
         local uid = tostring(chapter.chapterUid or chapter_index)
         if not dl.single_chapter and not dl.separate_chapters then
             chapter_hrefs[uid] = string.format('chapter-%03d.xhtml', chapter_index)
-        end
-        if dl.resumable then
-            local body = Content.load_full_download_chapter(
-                dl.workspace, chapter, chapter_index)
-            local scan_ok, scan = pcall(Footnotes.scan_chapter, body, chapter)
-            if scan_ok then
-                dl.footnote_scans[uid] = scan
-            else
-                logger.warn("checkpoint footnote scan failed; keeping original chapter:",
-                    "chapter_uid=", uid, "error=", log_error(scan))
-            end
         end
         if dl.footnote_scans[uid] then
             scans[uid] = dl.footnote_scans[uid]
@@ -1270,11 +1236,48 @@ function Downloader:_startFootnotes(dl)
     end
     dl.footnote_job = {
         index = 1,
-        chapters = selected,
-        index_data = Footnotes.build_book_index(scans, selected, chapter_hrefs),
+        index_data = Footnotes.build_book_index(scans, dl.selected, chapter_hrefs),
         css_needed = false,
     }
     self:_scheduleGuarded(dl, function() self:_footnoteStep(dl) end)
+end
+
+function Downloader:_renderCheckpointFootnotes(dl)
+    -- Only derived files are replaced, so interruption leaves the original
+    -- chapter checkpoints ready for another attempt.
+    Content.reset_full_download_rendered_text(dl.workspace)
+    local function read_chapter(chapter, index)
+        local body, err = Content.load_full_download_chapter(dl.workspace, chapter, index)
+        if not body or err then error(err or "chapter text is missing", 0) end
+        return body
+    end
+    local scans, hrefs = {}, {}
+    for index, chapter in ipairs(dl.chapters) do
+        local uid = tostring(chapter.chapterUid or index)
+        local body = read_chapter(chapter, index)
+        local ok, scan = pcall(Footnotes.scan_chapter, body, chapter)
+        if ok then
+            scans[uid] = scan
+        else
+            logger.warn("checkpoint footnote scan failed:", "chapter_uid=", uid, "error=", log_error(scan))
+        end
+        if not dl.separate_chapters then hrefs[uid] = string.format("chapter-%03d.xhtml", index) end
+    end
+    local index_data = Footnotes.build_book_index(scans, dl.chapters, hrefs)
+    local stats = new_footnote_stats()
+    local css_needed = false
+    for index, chapter in ipairs(dl.chapters) do
+        local uid = tostring(chapter.chapterUid or index)
+        local body = read_chapter(chapter, index)
+        local output, converted = render_footnotes(body, uid, scans[uid], index_data, stats)
+        scans[uid] = nil
+        css_needed = css_needed or converted
+        Content.save_full_download_rendered_chapter(dl.workspace, chapter, index, output)
+    end
+    local css = dl.state.css
+    if css_needed then css = (css or "") .. "\n" .. Footnotes.FOOTNOTES_CSS end
+    log_footnote_stats(stats)
+    return css, stats
 end
 
 function Downloader:_finishChapter(dl)
@@ -1354,10 +1357,10 @@ function Downloader:_finishChapter(dl)
     else
         dl.bodies[uid] = xhtml
     end
-    dl.assets_by_uid = dl.assets_by_uid or {}
-    dl.assets_by_uid[uid] = chapter_assets or {}
     table.insert(dl.selected, chapter)
     if not dl.resumable then
+        dl.assets_by_uid = dl.assets_by_uid or {}
+        dl.assets_by_uid[uid] = chapter_assets or {}
         for _i, asset in ipairs(chapter_assets or {}) do
             table.insert(dl.assets, asset)
             dl.asset_bytes = (dl.asset_bytes or 0) + (tonumber(asset.size) or 0)
@@ -1488,8 +1491,6 @@ function Downloader:_step(dl)
                         break
                     end
                 end
-                dl.footnote_scans = {}
-                dl.footnotes_done = false
                 self:_setStage(dl,
                     T(_("Verifying downloaded chapters %1/%2"),
                         tostring(completed_count), tostring(dl.total)),
@@ -1499,11 +1500,12 @@ function Downloader:_step(dl)
             end
             dl.workspace_verified = true
         end
-        if dl.footnote_scans and not dl.footnotes_done then
+        if not dl.resumable and dl.footnote_scans and not dl.footnotes_done then
             self:_startFootnotes(dl)
             return
         end
-        self:_setStage(dl, _("Building EPUB..."), dl.total)
+        local render_checkpoints = dl.resumable and not dl.footnotes_done
+        self:_setStage(dl, _(render_checkpoints and "Processing footnotes and building EPUB…" or "Building EPUB..."), dl.total)
         local save_started = time.now()
         local ok, package = pcall(function()
             return self:_runInterruptible(dl, function()
@@ -1522,6 +1524,8 @@ function Downloader:_step(dl)
                     local receipt = dl.position_sources and dl.position_sources[uid]
                     return receipt and { workspace = dl.workspace, receipt = receipt } or nil
                 end
+                local css, footnote_stats = dl.state.css
+                if render_checkpoints then css, footnote_stats = self:_renderCheckpointFootnotes(dl) end
                 local path, chapter_paths
                 if dl.single_chapter then
                     local chapter = dl.selected[1]
@@ -1529,7 +1533,7 @@ function Downloader:_step(dl)
                     path = Content.save_chapter_epub(
                         self.settings, packaging_book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
-                        dl.state.css, dl.source_identity, source_for(uid), nil,
+                        css, dl.source_identity, source_for(uid), nil,
                         (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
                     )
                 elseif dl.separate_chapters then
@@ -1550,7 +1554,7 @@ function Downloader:_step(dl)
                         end
                         paths[uid] = Content.save_chapter_epub(
                             self.settings, packaging_book, chapter, xhtml, assets or {},
-                            dl.state.css, identity, source, nil, guard
+                            css, identity, source, nil, guard
                         )
                     end
                     path, chapter_paths = paths[tostring(dl.selected[1].chapterUid or 1)], paths
@@ -1577,13 +1581,14 @@ function Downloader:_step(dl)
                         dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
                             __source_workspace = dl.workspace } or dl.bodies,
                         dl.suffix,
-                        dl.resumable and Content.full_download_workspace_assets(dl.workspace,dl.chapters,dl.state.css) or dl.assets,
-                        dl.state.css, cover_data, dl.source_identity,
+                        dl.resumable and Content.full_download_workspace_assets(dl.workspace,dl.chapters,css) or dl.assets,
+                        css, cover_data, dl.source_identity,
                         { workspace = dl.workspace, receipts = dl.position_sources or {} }, nil,
                         (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
                     )
                 end
-                return { path = path, chapter_paths = chapter_paths, cache_dir = packaging_book.cache_dir }
+                return { path = path, chapter_paths = chapter_paths, cache_dir = packaging_book.cache_dir,
+                    footnote_stats = footnote_stats }
             end)
         end)
         local path = ok and package and package.path or package
@@ -1593,7 +1598,7 @@ function Downloader:_step(dl)
         if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
             self:_step(dl); return
         end
-        self:_perf(dl, "save_epub", save_started, "ok=", tostring(ok),
+        self:_perf(dl, render_checkpoints and "render_and_save_epub" or "save_epub", save_started, "ok=", tostring(ok),
             "single=", tostring(dl.single_chapter))
         if dl.progress_dialog then
             dl.progress_dialog:close()
@@ -1601,6 +1606,7 @@ function Downloader:_step(dl)
         end
         self:_releaseStandby(dl)
         if ok then
+            dl.footnote_stats = package.footnote_stats or dl.footnote_stats
             local book_id = tostring(dl.book.book_id or dl.book.bookId or "")
             local change = { cached_chapters = {}, cache_dir = package.cache_dir,
                 reader_url = dl.book.reader_url or WeRead.reader_url(book_id) }
@@ -1806,14 +1812,14 @@ function Downloader:_step(dl)
     if not dl.resumable then
         dl.position_sources = dl.position_sources or {}
         dl.position_sources[uid] = result.position_receipt
-    end
-    local scan_ok, scan = pcall(Footnotes.scan_chapter, xhtml, chapter)
-    dl.footnote_scans = dl.footnote_scans or {}
-    if scan_ok then
-        dl.footnote_scans[uid] = scan
-    else
-        logger.warn("footnote scan failed; chapter will keep original footnote markup:",
-            "chapter_uid=", uid, "error=", log_error(scan))
+        local scan_ok, scan = pcall(Footnotes.scan_chapter, xhtml, chapter)
+        dl.footnote_scans = dl.footnote_scans or {}
+        if scan_ok then
+            dl.footnote_scans[uid] = scan
+        else
+            logger.warn("footnote scan failed; chapter will keep original footnote markup:",
+                "chapter_uid=", uid, "error=", log_error(scan))
+        end
     end
     dl.current = { chapter = chapter, xhtml = xhtml, position_receipt = result.position_receipt,
         native_assets = result.native_assets, native_style = result.native_style,
