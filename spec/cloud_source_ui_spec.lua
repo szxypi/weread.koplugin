@@ -32,6 +32,11 @@ package.preload['weread.ui.download_recovery']=function() return {
     cancel=function(_host,_leave,owner) recovery_cancelled=owner end,
 } end
 local captures=0
+local discarded,published
+package.preload['weread.lib.chapter_cache_path']=function() return {
+    discard_copy=function(copy) discarded=copy.path end,
+    publish_copy=function(copy) copy.path=copy.target;published=copy.target;return true end,
+} end
 package.preload['weread.lib.source_cloud']=function() return {
     capture=function(settings) return settings.access end,
     matches=function(settings,access) return settings.access==access end,
@@ -51,8 +56,14 @@ local function fixture()
     local state={online=true,available=true,busy=false,cancelled=0,paused=false,moves=0,navs=0}
     local document={file='/synthetic.epub',page=1,identity='original-file'}
     local jobs={}
+    local saved={book_id='900001',cached_chapters={['2']='/original.epub'}}
     local host={settings={access={web={}},get=function(self,key,default) return key=='api_key' and (self.api_key or default) or default end,
         get_auth_scope=function(self) return {vid='900000',epoch=self.epoch or 1} end,
+        get_book=function() return saved end,
+        record_download=function(_self,id,book,change)
+            assert(id==saved.book_id and book==saved);state.recorded=change
+            return state.record_ok~=false
+        end,
         auth_scope_matches=function(self,scope) return scope.vid=='900000' and scope.epoch==(self.epoch or 1) end},
         ui={document=document,view={view_mode='page'}},_reader_session_gen=1,
         detectWeReadBook=function() return '900001' end,
@@ -214,7 +225,8 @@ f.host.downloader={start=function(self,_book,rows,_suffix,options)
 end,cancelJob=function(_self,job) cancelled=job end}
 prompt.ok_callback()
 expect(f.host.cloud_source_request.download==owned and download_options.single_chapter
-    and download_options.silent_completion and download_options.offer_read==false,'download ownership/options were lost')
+    and download_options.stage_chapter_copy and download_options.silent_completion
+    and download_options.offer_read==false,'download ownership/options were lost')
 expect(download_options.recovery_owner==f.host.cloud_source_request and download_options.recovery_current(),
     'cloud target did not own its recovery')
 f.host.settings.access={web={}}
@@ -240,14 +252,43 @@ f=fixture();prompt=need_chapter(f)
 f.host.downloader={start=function(self,_book,_rows,_suffix,options)
     completion=options.on_complete;self._active_job={};return true
 end,cancelJob=function() end}
-prompt.ok_callback();completion(true,'/download.epub');f.host.downloader._active_job=nil
+prompt.ok_callback()
+local pending={path='/new.epub.pending',target='/new.epub',change={cached_chapters={['2']='/new.epub'}}}
+completion(true,pending);f.host.downloader._active_job=nil
 expect(#login_tasks==1 and #f.jobs==1,'download reverified before downloader cleanup')
 table.remove(login_tasks,1)()
 expect(#f.jobs==2 and f.host.busy_message,'download completion did not recheck cloud source in worker')
 -- A moving cloud chapter stops the operation rather than prompting a second download.
 require('weread.lib.source_cloud').fetch=function() return {book_id='900001',chapter_uid='3'} end
 f.deliver()
-expect(not f.host.cloud_source_request and f.state.info:find('changed during download',1,true),'changed cloud chapter was silently followed')
+expect(not f.host.cloud_source_request and f.state.info:find('changed during download',1,true)
+    and discarded==pending.path and not f.state.recorded,'changed cloud chapter was silently followed or published')
+require('weread.lib.source_cloud').fetch=function() return {book_id='900001',chapter_uid='2'} end
+for _,case in ipairs({'verified','competing','storage'}) do
+    f=fixture();prompt=need_chapter(f)
+    f.host.downloader={start=function(_self,_book,_rows,_suffix,options)
+        completion=options.on_complete;return true
+    end,cancelJob=function() end}
+    local opened
+    f.host.openFile=function(_self,path) opened=path end
+    published,discarded=nil,nil
+    prompt.ok_callback()
+    pending={path='/new.epub.pending',target='/new.epub',change={cached_chapters={['2']='/new.epub'}}}
+    completion(true,pending)
+    expect(not f.state.recorded and pending.claimed,'staged copy was recorded before checking cloud')
+    table.remove(login_tasks,1)()
+    if case=='competing' then f.host.settings:get_book().cached_chapters['2']='/newer.epub' end
+    if case=='storage' then f.state.record_ok=false end
+    f.deliver()
+    if case=='verified' then
+        expect(f.state.recorded==pending.change and opened=='/new.epub' and published==opened and not discarded,
+            'verified download did not open the separately recorded copy')
+    elseif case=='competing' then
+        expect(not opened and not f.state.recorded and discarded=='/new.epub.pending','concurrent chapter was replaced')
+    else
+        expect(not opened and discarded=='/new.epub','failed library save opened or retained the new copy')
+    end
+end
 for _,change in ipairs({'page','account','navigation','deadline'}) do
     f=fixture();prompt=need_chapter(f);cancelled=nil
     f.host.downloader={start=function(self,_book,_rows,_suffix,options)

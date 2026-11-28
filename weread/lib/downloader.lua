@@ -796,6 +796,7 @@ function Downloader:start(book, chapters, suffix, options)
         annotation_failed_batches = 0,
         footnote_scans = not resumable and {} or nil,
         single_chapter = options.single_chapter == true,
+        stage_chapter_copy = options.stage_chapter_copy == true and options.single_chapter == true and not options.prefetch,
         separate_chapters = options.separate_chapters == true and options.single_chapter ~= true,
         include_annotations = false,
         open_on_complete = options.open_on_complete == true,
@@ -1571,15 +1572,16 @@ function Downloader:_step(dl)
                 end
                 local css, footnote_stats = dl.state.css
                 if render_checkpoints then css, footnote_stats = self:_renderCheckpointFootnotes(dl) end
-                local path, chapter_paths
+                local path, chapter_paths, staged_copy
                 if dl.single_chapter then
                     local chapter = dl.selected[1]
                     local uid = tostring(chapter.chapterUid or 1)
-                    path = Content.save_chapter_epub(
+                    path, staged_copy = Content.save_chapter_epub(
                         self.settings, packaging_book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
                         css, dl.source_identity, source_for(uid), nil,
-                        (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil
+                        (dl.native_chapter_resources or dl.full_auth_scope) and native_guard or nil,
+                        dl.stage_chapter_copy
                     )
                 elseif dl.separate_chapters then
                     local paths = {}
@@ -1629,14 +1631,15 @@ function Downloader:_step(dl)
                     )
                 end
                 return { path = path, chapter_paths = chapter_paths, cache_dir = packaging_book.cache_dir,
-                    footnote_stats = footnote_stats }
+                    footnote_stats = footnote_stats, staged_copy = staged_copy }
             end)
         end)
         local path = ok and package and package.path or package
         local chapter_paths = ok and package and package.chapter_paths
-        if dl.cancelled then self:_step(dl); return end
-        if dl.resumable and not full_scope_current(self.settings,dl) then self:_step(dl);return end
-        if dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+        local staged_copy = ok and package and package.staged_copy
+        if dl.cancelled or dl.resumable and not full_scope_current(self.settings,dl)
+            or dl.native_chapter_resources and not require('weread.lib.native_read_access').matches(self.settings, dl.native_selected) then
+            if staged_copy then require('weread.lib.chapter_cache_path').discard_copy(staged_copy) end
             self:_step(dl); return
         end
         self:_perf(dl, render_checkpoints and "render_and_save_epub" or "save_epub", save_started, "ok=", tostring(ok),
@@ -1670,6 +1673,14 @@ function Downloader:_step(dl)
                 if Content.register_annotation_document then
                     Content.register_annotation_document(change, path, dl.resumable and dl.chapters or dl.selected)
                 end
+            end
+            if staged_copy then
+                staged_copy.change = change
+                self:_cleanupWorkspace(dl)
+                self:_notifyCompletion(dl, true, staged_copy)
+                if not staged_copy.claimed then require('weread.lib.chapter_cache_path').discard_copy(staged_copy) end
+                self:_finishJob(dl)
+                return
             end
             local recorded, reason = self:_recordDownload(dl, book_id, change)
             if not recorded then

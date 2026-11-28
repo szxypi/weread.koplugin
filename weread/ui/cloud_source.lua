@@ -1,5 +1,7 @@
 -- Manual read-only cloud navigation, bound to the current reader and session.
 local Cloud=require('weread.lib.source_cloud')
+local ChapterCache=require('weread.lib.chapter_cache_path')
+local Access=require('weread.lib.read_access')
 local Context=require('weread.lib.source_context')
 local Handoff=require('weread.lib.cloud_source_handoff')
 local Identity=require('weread.lib.book_file_identity')
@@ -40,6 +42,7 @@ function M.cancel(host)
         require('weread.ui.download_recovery').cancel(host,false,job)
         if job.download then host.downloader:cancelJob(job.download,'cancelled') end
     end
+    if job.staged then ChapterCache.discard_copy(job.staged) end
     if job.navigation and host.source_navigation and host.source_navigation.job==job.navigation then host.source_navigation:cancel() end
     close_busy(host,job)
     if host.source_position then host.source_position:resume('cloud_source') end
@@ -200,7 +203,7 @@ function M.start(host,resume,options)
         confirm=require('ui/widget/confirmbox'):new{
             keep_dialog_open=true,
             text=require('ffi/util').template(_('Cloud position is in "%1". No matching downloaded file is available.\n\nDownload this chapter and open the verified position?'),
-                require('weread.lib.protocol').utf8_substr(result.chapter.title or '',80)),
+                require('weread.lib.protocol').utf8_substr(result.chapter.title or '',80))..'\n\n'.._('The old file and notes are kept.'),
             ok_text=_('Download target chapter'),cancel_text=_('Cancel'),
             cancel_callback=function()
                 if host.cloud_source_request==job and job.confirm==confirm then
@@ -216,10 +219,12 @@ function M.start(host,resume,options)
                     finish('download_unavailable');return
                 end
                 job.started,job.downloading=os.time(),true
-                local saved=host.settings.get_book and host.settings:get_book(id) or {book_id=id,title=''}
+                local saved,conflict=Access.load_cached_book(host.settings,id)
+                if conflict then finish('source_changed');return end
                 saved=saved or {book_id=id,title=''}
+                local first,alternate=Access.cached_chapter_candidates(saved.cached_chapters,result.remote.chapter_uid)
                 local ok,started=pcall(require('weread.ui.download_recovery').start,host,saved,{result.chapter},'chapter',{
-                    single_chapter=true,silent_completion=true,offer_read=false,
+                    single_chapter=true,silent_completion=true,offer_read=false,stage_chapter_copy=true,
                     recovery_owner=job,
                     recovery_current=function() return current(host,job,false,true) end,
                     on_recovery_auth_updated=function()
@@ -229,13 +234,20 @@ function M.start(host,resume,options)
                         job.access=fresh
                         return true
                     end,
-                    on_complete=function(success,path)
+                    on_complete=function(success,value)
                         if not current(host,job) then if host.cloud_source_request==job then M.cancel(host) end return end
                         job.download=nil
                         if not success then
-                            if path=='cancelled' then M.cancel(host) else finish('download_unavailable') end
+                            if value=='cancelled' then M.cancel(host) else finish('download_unavailable') end
                             return
                         end
+                        if type(value)~='table' or type(value.path)~='string' or type(value.target)~='string' then
+                            finish('download_unavailable');return
+                        end
+                        value.claimed,job.staged=true,value
+                        job.previous_target,job.previous_alternate=first,alternate
+                        job.download_book=saved
+                        local path=value.path
                         job.task=function()
                             job.task=nil
                             if not current(host,job) then if host.cloud_source_request==job then M.cancel(host) end return end
@@ -263,13 +275,25 @@ function M.start(host,resume,options)
         if type(result)~='table' or result.request_id~=job.sequence then finish('target_unavailable');return end
         local position=result.position
         if position and result.file and result.file~=job.file and not resume then
-            local transfer=Handoff.prepare(host,job,result.file,result.identity,result.remote,function(next_host,selected_remote,file_id,selected_access)
+            local staged=job.staged
+            if staged and result.file~=staged.path then finish('source_changed');return end
+            local path=staged and staged.target or result.file
+            local transfer=Handoff.prepare(host,job,path,result.identity,result.remote,function(next_host,selected_remote,file_id,selected_access)
                 return receive(next_host,selected_remote,file_id,selected_access,job.sync_choice)
             end)
             if not transfer then finish('source_changed');return end
+            if staged then
+                local saved,conflict=Access.load_cached_book(host.settings,id)
+                local first,alternate=Access.cached_chapter_candidates(saved and saved.cached_chapters,position.chapter_uid)
+                if conflict or first~=job.previous_target or alternate~=job.previous_alternate
+                    or not ChapterCache.publish_copy(staged) then finish('source_changed');return end
+                local called,recorded=pcall(host.settings.record_download,host.settings,id,saved or job.download_book,staged.change)
+                if not called or recorded~=true then finish('download_unavailable');return end
+                job.staged=nil
+            end
             job.switching=true
             M.cancel(host)
-            local called=pcall(host.openFile,host,result.file,transfer)
+            local called=pcall(host.openFile,host,path,transfer)
             if not called then host:showInfo(_('Could not locate the cloud position in this file. Please check the current page.')) end
             return
         end

@@ -345,10 +345,48 @@ local changed_book={book_id='900001',bookId='900001',bookVersion=7,title='Cloud 
 local changed=Content.save_chapter_epub(settings,changed_book,chapters[6],'<html><body><p>Different source fixture.</p></body></html>',{},nil,
     Identity.capture(changed_book),assert(Source.capture(changed_book,chapters[6],source.raw..'\n','web_xhtml')))
 open(changed)
+local function file_bytes(path)
+    local file=assert(io.open(path,'rb'));local value=assert(file:read('*a'));file:close();return value
+end
+local original_bytes=file_bytes(changed)
+local original_settings=reader.doc_settings
+original_settings:saveSetting('synthetic_cloud_original','kept');assert(original_settings:flush())
+local saved=plugin.settings:get_book('900001')
+assert(plugin.settings:record_download('900001',saved,{cached_chapters={['6']=changed}}))
 assert(plugin:showCloudSourcePosition())
 pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
 assert(document.file==changed and document:getCurrentPage()==1 and not plugin.source_navigation.job,'different source guessed a position')
-plugin.cloud_source_request.confirm:onClose();reader:onClose()
+local function wait_for_staged()
+    local staged
+    pump(function()
+        staged=plugin.cloud_source_request and plugin.cloud_source_request.staged
+        return staged~=nil
+    end)
+    assert(staged.path:match('%.epub%.pending$') and staged.target~=changed and file_bytes(staged.path))
+    assert(file_bytes(changed)==original_bytes and plugin.settings:get_book('900001').cached_chapters['6']==changed,
+        'pending download replaced the previous EPUB or its cache mapping')
+    return staged.path
+end
+control{match='/web/book/getProgress',times=1,status=429}
+plugin.cloud_source_request.confirm.ok_callback()
+local discarded=wait_for_staged()
+pump(function() return not plugin.cloud_source_request end)
+assert(not io.open(discarded,'rb') and document.file==changed and document:getCurrentPage()==1
+    and plugin.settings:get_book('900001').cached_chapters['6']==changed,'failed verification replaced the active chapter')
+close_info();control{match='',times=0,delay=0}
+assert(plugin:showCloudSourcePosition())
+pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+previous_reader=reader
+plugin.cloud_source_request.confirm.ok_callback()
+local published=wait_for_staged()
+adopt_target(previous_reader)
+assert(not io.open(published,'rb') and document.file~=changed
+    and plugin.settings:get_book('900001').cached_chapters['6']==document.file
+    and file_bytes(changed)==original_bytes,'verified cloud download did not preserve the old chapter')
+assert(require('util').partialMD5(changed)~=require('util').partialMD5(document.file)
+    and require('docsettings'):open(changed):readSetting('synthetic_cloud_original')=='kept',
+    'the new download reused the old reading record')
+reader:onClose()
 assert(count('/web/book/read')==writes,'cross-file continuation wrote progress or reading time')
 local report={result='PASS',synthetic_only=true,source_target_visible=true,cross_chapter_full_book=true,
     background_http=true,independent_archive=true,retained_original_offset=true,upload_verified=false,
@@ -356,6 +394,7 @@ local report={result='PASS',synthetic_only=true,source_target_visible=true,cross
     navigator_cancelled=true,reader_reopen_cancelled=true,old_queued_upload_cancelled=true,report_gate_not_granted=true,
     cached_full_handoff=true,cached_chapter_handoff=true,startup_pull_superseded=true,download_declined=true,
     owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,
+    existing_epub_preserved=true,failed_recheck_kept_original_mapping=true,
     expired_download_recovered=recovery,renewal_cancelled=cancelled_renewal,read_renewal=read_recovery,reading_writes=0}
 local file=assert(io.open(evidence..'/cloud-source.json','w'));file:write(client:json_encode(report));file:close()
 print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/cached full/cached chapter/confirmed download/cancel; no reading writes')

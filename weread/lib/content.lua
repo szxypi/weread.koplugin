@@ -1548,13 +1548,13 @@ function Content.single_chapter_xhtml(book,chapter,xhtml)
 </html>]]
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output, before_commit)
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output, before_commit, stage_copy)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local plan=not output and require('weread.lib.chapter_cache_path').plan(book,chapter,dir)
+    local plan=not output and require('weread.lib.chapter_cache_path').plan(book,chapter,dir,stage_copy)
     local path = output and output.path or plan.path
     local chapter_uid=chapter.chapterUid or chapter.chapterId
     local title = chapter.title or book.title or "WeRead"
@@ -1617,6 +1617,10 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     }
     for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
+    if plan and plan.nonce then
+        -- Hash-based KOReader sidecars sample the beginning of the EPUB.
+        table.insert(entries,2,{name='META-INF/weread-chapter-copy-id.txt',data=plan.nonce})
+    end
     local guard=before_commit
     if plan then
         guard=function(target)
@@ -1626,6 +1630,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
         end
     end
     write_epub(path, entries, output, guard)
+    if plan and plan.target then return plan.target,require('weread.lib.chapter_cache_path').ready_copy(plan) end
     Content.register_annotation_document(book, path, { chapter })
     return path
 end

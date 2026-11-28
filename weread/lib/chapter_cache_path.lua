@@ -45,13 +45,24 @@ local function owned(path,book_id,uid)
     end)
     return ok and result==true
 end
-function M.plan(book,chapter,dir)
+function M.plan(book,chapter,dir,stage_copy)
     local id=Context.book_id(book)
     if type(chapter)~='table' then error('chapter_cache/identity',0) end
     local a=chapter.chapterUid~=nil and Context.identifier(chapter.chapterUid,true)
     local b=chapter.chapterId~=nil and Context.identifier(chapter.chapterId,true)
     if not (a or b) or a and b and a~=b then error('chapter_cache/identity',0) end
     local uid=a or b
+    local base=dir..'/wr-chapter-'..Crypto.sha256_hex(id..'\0'..uid)
+    if stage_copy then
+        local random=assert(io.open('/dev/urandom','rb'))
+        local bytes=random:read(16)
+        assert(random:close() and bytes and #bytes==16,'chapter_cache/nonce')
+        local nonce=Crypto.sha256_hex(bytes)
+        local target=base..'-'..nonce:sub(1,32)..'.epub'
+        local path=target..'.pending'
+        if stat(path) or stat(target) then error('chapter_cache/conflict',0) end
+        return {path=path,target=target,nonce=nonce,book=id,uid=uid}
+    end
     local old=Access.cached_chapter(book.cached_chapters,uid)
     local function plan(path)
         local state=stat(path)
@@ -65,7 +76,6 @@ function M.plan(book,chapter,dir)
         -- A missing legacy file is not evidence of ownership: use a fresh name.
         if value and value.prior then return value end
     end
-    local base=dir..'/wr-chapter-'..Crypto.sha256_hex(id..'\0'..uid)
     for index=0,999 do
         local path=base..(index==0 and '' or '-'..index)..'.epub'
         if exclusive(book,uid,path) then
@@ -79,5 +89,20 @@ function M.current(plan)
     local now=stat(plan.path)
     if not same(plan.prior,now) then return false end
     return not now or owned(plan.path,plan.book,plan.uid)
+end
+function M.ready_copy(plan)
+    local info=stat(plan.path)
+    if not info or info.mode~='file' then error('chapter_cache/conflict',0) end
+    return {path=plan.path,target=plan.target,info=info}
+end
+
+function M.publish_copy(copy)
+    if not same(copy.info,stat(copy.path)) or stat(copy.target) or not os.rename(copy.path,copy.target) then return false end
+    copy.path=copy.target
+    return true
+end
+
+function M.discard_copy(copy)
+    if same(copy.info,stat(copy.path)) then os.remove(copy.path) end
 end
 return M
