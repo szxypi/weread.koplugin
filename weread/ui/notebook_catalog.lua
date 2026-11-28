@@ -55,26 +55,44 @@ local function search_dialog(host,owner)
     }}}
     Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
 end
-local function ordered_books(owner)
-    local entries={}
-    for index,book in ipairs(owner.value.books) do
-        if Search.matches(book,owner.needle,owner.terms) then
-            local total
-            if book.noteCount~=nil and book.reviewCount~=nil and book.bookmarkCount~=nil then
-                total=book.noteCount+book.reviewCount+book.bookmarkCount
-            end
-            entries[#entries+1]={book=book,index=index,total=total}
+local function sort_by_count(books)
+    local order,totals={},{}
+    for index,book in ipairs(books) do
+        order[index]=index
+        if book.noteCount~=nil and book.reviewCount~=nil and book.bookmarkCount~=nil then
+            totals[index]=book.noteCount+book.reviewCount+book.bookmarkCount
         end
     end
-    if owner.sort=='count' then
-        table.sort(entries,function(a,b)
-            if a.total==b.total then return a.index<b.index end
-            if a.total==nil then return false end
-            if b.total==nil then return true end
-            return a.total>b.total
-        end)
+    table.sort(order,function(a,b)
+        local left,right=totals[a],totals[b]
+        if left==right then return a<b end
+        if left==nil then return false end
+        return right==nil or left>right
+    end)
+    for index,original in ipairs(order) do order[index]=books[original] end
+    return order
+end
+local function ordered_books(owner)
+    local cache=owner.book_order
+    if not cache or cache.snapshot~=owner.value then
+        cache={snapshot=owner.value,normalize=Search.cached_fold()}
+        owner.book_order=cache
     end
-    return entries
+    if not cache.original or cache.needle~=owner.needle then
+        local books=owner.value.books
+        if owner.needle then
+            books={}
+            for _,book in ipairs(owner.value.books) do
+                if Search.matches(book,owner.needle,owner.terms,cache.normalize) then books[#books+1]=book end
+            end
+        end
+        cache.needle,cache.original,cache.by_count=owner.needle,books,nil
+    end
+    if owner.sort=='count' then
+        if not cache.by_count then cache.by_count=sort_by_count(cache.original) end
+        return cache.by_count
+    end
+    return cache.original
 end
 local function sort_dialog(host,owner)
     local dialog
@@ -157,14 +175,13 @@ render=function(host,owner)
             local stamp=owner.value.fetched_at
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
             items[#items+1]={text=_('Saved notebooks'),mandatory=date,select_enabled=false}
-            local entries=ordered_books(owner)
-            for _,entry in ipairs(entries) do
-                local book=entry.book
+            local books=ordered_books(owner)
+            for _,book in ipairs(books) do
                 items[#items+1]={text=book.title,mandatory=book.author,notebook_id=book.bookId,callback=function()
                     if owner.generation==generation then open_book(host,owner,book) end
                 end}
             end
-            if #entries==0 then items[#items+1]={text=_(owner.needle and 'No matching notebooks.' or 'No notebooks yet.'),select_enabled=false} end
+            if #books==0 then items[#items+1]={text=_(owner.needle and 'No matching notebooks.' or 'No notebooks yet.'),select_enabled=false} end
         else items[#items+1]={text=_('No saved notebooks. Refresh while online.'),select_enabled=false} end
         owner.menu:switchItemTable(nil,items)
     end)

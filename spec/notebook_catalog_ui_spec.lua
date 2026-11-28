@@ -91,12 +91,25 @@ local function search(text)
     row(menu,'Search notebooks').callback();local dialog=menu._shelf_popup
     dialog.input=text;dialog.buttons[1][2].callback()
 end
+local Search=require('weread.lib.shelf_search')
+local original_matches=Search.matches
+local matches=0
+function Search.matches(...)
+    matches=matches+1
+    return original_matches(...)
+end
 search('  alpha  ')
 expect(row(menu,'Alpha book') and row(menu,'Beta book') and not pcall(row,menu,'Gamma book'),'search missed title/author or retained unrelated book')
 hidden_callback();expect(not menu._shelf_popup,'stale row escaped search filter')
 expect(not value.started and value.writes==0,'offline search accessed network or saved query')
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
 expect(listed(menu)=='Beta book,Alpha book','sort did not compose with search')
+row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
+expect(listed(menu)=='Alpha book,Beta book','sort did not restore filtered original order')
+row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
+search('ALPHA')
+expect(matches==#search_snapshot.books and listed(menu)=='Beta book,Alpha book',
+    'sort toggle or equivalent query rescanned the same notebook snapshot')
 search('writer');expect(listed(menu)=='Gamma book,Unknown count','unknown count sorted ahead of known count')
 search('missing');expect(row(menu,'No matching notebooks.').select_enabled==false,'empty search did not show message')
 row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
@@ -111,11 +124,16 @@ row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.input=stri
 expect(menu._shelf_popup==popup and #value.notices==1,'too-long query closed input')
 Catalog.cancel(host);popup.input='Alpha';popup.buttons[1][2].callback();expect(not host._notebook_menu,'stale search reopened closed menu')
 host,value=fixture(search_snapshot);value.online=true;Catalog.show(host);menu=host._notebook_menu
+search('alpha')
+row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
+local previous_matches=matches
 row(menu,'Refresh my notebooks').callback();row(menu,'Search notebooks').callback();popup=menu._shelf_popup
 local refreshed={schema=1,fetched_at=1001,books={{bookId='900005',title='New alpha',author='Writer',noteCount=3,reviewCount=0,bookmarkCount=0}}}
 value.complete(refreshed);expect(menu._shelf_popup==popup and row(menu,'Alpha book'),'refresh displaced search input')
 popup.input='alpha';popup.buttons[1][2].callback()
-expect(row(menu,'New alpha') and not pcall(row,menu,'Alpha book') and value.writes==1,'search did not apply to refreshed snapshot')
+expect(listed(menu)=='New alpha' and matches==previous_matches+1 and value.writes==1,
+    'current search and sort were not rebuilt from the refreshed snapshot')
+Search.matches=original_matches
 Catalog.cancel(host)
 for _,change in ipairs({'account','epoch','session','document','scope','revision','close','cancel'}) do
     host,value=fixture(snapshot());value.online=true;Catalog.show(host);menu=host._notebook_menu
