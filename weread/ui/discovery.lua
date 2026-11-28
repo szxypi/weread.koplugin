@@ -192,6 +192,7 @@ function M:showDiscoveryPage(tab, books, options)
     self.shelf_view = view
     view._finish_dirty=carry_dirty
     view._discovery_tab = tab
+    view._capture_download_return = options.capture_download_return
     local state=options.bookstore_state
     if home or state or options.remember_position then
         local account=self.library_db and self.library_db:accountKey()
@@ -424,7 +425,8 @@ function M:showSimilarBooks(book)
     if not id or tostring(id) == "" then return end
     local view = self.shelf_view
     local origin = self._book_detail_view and view and not view._shelf_closed
-        and (view._bookstore_state or view._discovery_tab == 'home' or view._shelf_return_position) and view or nil
+        and (view._bookstore_state or view._discovery_tab == 'home'
+            or view._shelf_return_position or view._capture_download_return) and view or nil
     self:loadDiscoveryBatch("similar", nil, 0, false, false, {
         book_id = tostring(id), book_title = book.title or tostring(id),
         return_view = origin,

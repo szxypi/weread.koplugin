@@ -389,6 +389,79 @@ do
     plugin.isNetworkConnected = connected
     plugin:showBookstore()
 end
+do
+    local Downloads = require('weread.ui.download_library')
+    local tr = require('weread.lib.plugin_util').tr
+    local settings, store = plugin.settings, plugin.discovery_state
+    local original, records = settings:get('books'), settings:get('books')
+    local account = plugin.library_db:accountKey()
+    for index=1,18 do
+        local book=assert(response.books[index+1])
+        local id=book.bookId
+        local dir=settings.cache_dir..'/download-navigation-'..id
+        assert(require('util').makePath(dir))
+        local path=dir..'/synthetic-download.txt'
+        local file=assert(io.open(path,'wb'))
+        assert(file:write('Synthetic download for the navigation test.'));assert(file:close())
+        records[id]={book_id=id,title=book.title,author=book.author,
+            cached_full_book=path,_library_account_key=account}
+    end
+    settings:set('books',records);settings:flush()
+    Downloads.show(plugin)
+    local socket=require('socket')
+    local deadline=socket.gettime()+15
+    while plugin._download_library_job do
+        assert(socket.gettime()<deadline,'download library worker deadline')
+        flush_tasks();socket.sleep(.01)
+    end
+    local view=assert(plugin.shelf_view)
+    assert(view._discovery_tab=='downloads' and view.page_count>=2)
+    view.on_settings()
+    local filter=assert(view._shelf_popup)
+    for _,buttons in ipairs(filter.buttons) do
+        if buttons[1].text==tr('Standard downloads') then buttons[1].callback();break end
+    end
+    flush_tasks()
+    view=plugin.shelf_view
+    view.on_search()
+    local search_downloads=assert(view._shelf_popup)
+    search_downloads:setInputText('合成读物')
+    search_downloads.buttons[1][2].callback();flush_tasks()
+    view=plugin.shelf_view
+    assert(#view.books==18 and view.title:find(tr('Standard downloads'),1,true)
+        and view.title:find('合成读物',1,true))
+    view.on_page_changed(2);flush_tasks()
+    view=plugin.shelf_view
+    assert(view.page==2)
+    local seed=assert(view:getVisibleBooks()[1])
+    for y, row in ipairs(view.layout) do
+        if row[1].book==seed then
+            view:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break
+        end
+    end
+    local title=view.title
+    local connected=plugin.isNetworkConnected
+    for _,online in ipairs({true,false}) do
+        plugin.isNetworkConnected=function() return online end
+        view.on_select(seed)
+        assert(plugin._book_detail_view,'downloaded book did not open its details')
+        press(plugin._book_detail_view,'Similar books');flush_tasks()
+        assert(plugin.discovery_state.kind=='similar' and plugin.discovery_state.book_id==seed.bookId
+            and not plugin._book_detail_view, 'related results did not open for the downloaded book')
+        if online then press(plugin.shelf_view,'Next batch');flush_tasks() end
+        plugin.shelf_view._header_buttons[1].callback();flush_tasks()
+        view=assert(plugin.shelf_view,'return from related books closed the downloaded list')
+        assert(view._discovery_tab=='downloads' and not plugin._download_library_job and view.title==title and #view.books==18
+            and view.page==2 and view:getFocusedBookId()==seed.bookId and plugin.discovery_state==store,
+            'return from related books lost the download filter, search, page, focus, or bookstore results')
+    end
+    plugin:closeWeReadUI()
+    Downloads.clearBrowsePosition()
+    plugin.isNetworkConnected=connected
+    settings:set('books',original);settings:flush()
+    plugin:showBookstore()
+    print('PASS: downloaded book details -> similar books -> original filter, search, page and focus (online and offline)')
+end
 -- Public category browsing must also work without a configured login.
 plugin.requireLogin = function() error("public bookstore requested login") end
 press(plugin.shelf_view, "Browse books")

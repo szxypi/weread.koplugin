@@ -184,5 +184,20 @@ do
     Navigation.show(plugin,related,plugin.shelf_view)
     expect(Navigation.back(plugin,related) and plugin.discovery_state==separate and shown_shelf==position,
         'shelf return lost its browsing position or the independent bookstore query')
+
+    local restored_downloads=0
+    plugin.shelf_view={_browse_account='a',_capture_download_return=function()
+        return function() restored_downloads=restored_downloads+1 end
+    end}
+    Navigation.show(plugin,related,plugin.shelf_view)
+    local last_batch={kind='similar',account='a',cursor=20}
+    Navigation.show(plugin,last_batch,nil,related)
+    account='b'
+    expect(not Navigation.back(plugin,last_batch) and restored_downloads==0,
+        'another account could return to downloaded books')
+    account='a'
+    expect(Navigation.back(plugin,last_batch) and restored_downloads==1 and plugin.discovery_state==separate
+        and not Navigation.back(plugin,last_batch),
+        'return from a later related batch did not restore the downloads and independent bookstore query once')
 end
 print("discovery_similar_spec: " .. checks .. " checks")

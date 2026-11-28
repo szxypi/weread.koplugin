@@ -32,6 +32,9 @@ local function return_target(host, state, prior, origin)
         if position and position.account == state.account then
             return { state = prior, shelf = position }
         end
+    elseif origin._capture_download_return and origin._browse_account == state.account then
+        local restore = origin._capture_download_return(origin)
+        if restore then return { state = prior, downloads = restore } end
     end
 end
 
@@ -71,6 +74,8 @@ function M.back(host, state)
         host:showHome()
     elseif target.shelf then
         host:showBookshelf(false, target.shelf)
+    elseif target.downloads then
+        target.downloads()
     else
         host:showBookstore()
     end

@@ -334,6 +334,18 @@ local function render(host, rows, plans, browse, plan_page, normalize)
         title = query == '' and title or T(_('%1 · %2'), title, query),
         rotation_anchor = anchor,
         focus_book_id = position and position.focus_book_id,
+        capture_download_return = function(view)
+            local snapshot = Browse.normalize(browse)
+            if not account or not snapshot then return end
+            local saved_positions = Browse.positions(snapshot)
+            saved_positions[key] = view:getBrowsePosition()
+            return function()
+                if host.library_db:accountKey() == account then
+                    -- Reuse the collected list for Back. Refresh still rescans local files.
+                    render(host, rows, plans, snapshot, nil, normalize)
+                end
+            end
+        end,
         remember_position = function(next_position)
             if not account or db:accountKey()~=account then return end
             local snapshot=Browse.normalize(at(next_position))
