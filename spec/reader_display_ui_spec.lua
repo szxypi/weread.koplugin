@@ -1,5 +1,9 @@
 package.path='./?.lua;'..package.path
 local tasks,removed={},{}
+local device={frontlight=false,eink=false}
+function device:hasFrontlight() return self.frontlight end
+function device:hasEinkScreen() return self.eink end
+package.preload.device=function() return device end
 package.preload['ui/uimanager']=function() return {
     show=function() end,close=function(_,view) if view.onCloseWidget then view:onCloseWidget() end end,
     scheduleIn=function(_,_,fn) tasks[#tasks+1]=fn end,unschedule=function(_,fn) removed[fn]=true end,
@@ -41,17 +45,18 @@ function footer:addToMainMenu(menu)
         {text='Configure items',sub_item_table={row('all_at_once')}}}}
 end
 local Display=require('weread.ui.reader_display')
-local function button(id)
+local function find_button(id)
     for _,row in ipairs(host._weread_reader_display.dialog.buttons) do
         for _,item in ipairs(row) do if item.id=='display_'..id then return item end end
     end
-    error('missing button '..id)
 end
+local function button(id) return assert(find_button(id),'missing button '..id) end
 local function flush() local fn=table.remove(tasks);if fn and not removed[fn] then fn() end end
 local function click(id) assert(button(id).enabled~=false);button(id).callback();flush() end
 local message;function host:showInfo(value) message=value end
 assert(Display.show(host));local dialog=host._weread_reader_display.dialog
 assert(dialog.title:find('cycle one at a time',1,true))
+assert(not find_button('frontlight') and not find_button('full_refresh'))
 click('all_at_once');assert(settings.all_at_once and dialog.title:find('shown together',1,true))
 click('percentage');assert(not settings.percentage and button('percentage').text:find('Off',1,true))
 click('progress_bar');assert(settings.disable_progress_bar)
@@ -65,4 +70,30 @@ saved.footer=settings;settings.disabled=true;assert(not Display.show(host) and m
 settings.disabled=false;assert(Display.show(host));stale=button('time').callback;footer.settings=nil;stale()
 assert(settings.time and not host._weread_reader_display,'missing settings changed')
 footer.settings=settings
-print('reader_display_ui_spec: native controls, visibility and stale sessions passed')
+local lights,refreshes=0,0
+function device:showLightDialog()
+    assert(not host._weread_reader_display,'frontlight was opened over the temporary panel')
+    lights=lights+1
+end
+local ui_manager=require('ui/uimanager')
+function ui_manager:setDirty(widget,mode)
+    assert(not host._weread_reader_display,'refresh was requested with the temporary panel visible')
+    assert(widget=='all' and mode=='full')
+    refreshes=refreshes+1
+end
+device.frontlight=true;device.eink=true;settings.disabled=true
+assert(Display.show(host) and not find_button('visible'),'disabled footer hid the device controls')
+click('frontlight');assert(lights==1 and refreshes==0)
+assert(Display.show(host));click('full_refresh');assert(lights==1 and refreshes==1)
+view.footer=nil;device.frontlight=false
+assert(Display.show(host) and not find_button('frontlight') and not find_button('visible'))
+stale=button('full_refresh').callback
+assert(Display.show(host));local replacement=host._weread_reader_display
+stale();assert(refreshes==1 and host._weread_reader_display==replacement,'stale refresh disturbed the newer panel')
+stale=button('full_refresh').callback;host._weread_suspended=true;stale()
+assert(refreshes==1 and not host._weread_reader_display and not Display.show(host),'sleep allowed a refresh')
+host._weread_suspended=false;device.eink=false;device.frontlight=true
+assert(Display.show(host) and not find_button('full_refresh'))
+stale=button('frontlight').callback;host._reader_session_gen=3;stale()
+assert(lights==1 and not host._weread_reader_display,'closed reader opened the frontlight')
+print('reader_display_ui_spec: native footer, frontlight, full refresh, capability and session checks passed')

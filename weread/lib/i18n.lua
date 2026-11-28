@@ -1215,6 +1215,7 @@ local zh = {
     ["Could not save margin defaults."] = "无法保存默认页边距。",
     ["Margin defaults saved."] = "默认页边距已保存。",
     ["Page display"] = "页面显示",
+    ["Full screen refresh"] = "全屏刷新",
     ["Status bar · global settings\n%1\nProgress refers to the current file."] = "状态栏 · 全局设置\n%1\n进度按当前文件计算。",
     ["Selected items shown together"] = "同时显示已选项目",
     ["Items cycle one at a time"] = "已选项目逐项轮换",

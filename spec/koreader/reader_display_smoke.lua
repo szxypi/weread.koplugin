@@ -12,13 +12,18 @@ return function(reader,host,pump,shot,clean,reopen,evidence)
         return
     end
     local anchor=reader.document:getXPointer()
-    clean(reader);assert(host:onShowWeReadQuickMenu());UI:forceRePaint()
-    local quick=assert(UI:getTopmostVisibleWidget())
-    assert(quick:getButtonById('reader_display')):onTapSelectButton()
-    pump(function() return host._weread_reader_display~=nil end)
-    local state=assert(host._weread_reader_display)
+    local function open_panel()
+        clean(reader);assert(host:onShowWeReadQuickMenu());UI:forceRePaint()
+        local quick=assert(UI:getTopmostVisibleWidget())
+        assert(quick:getButtonById('reader_display')):onTapSelectButton()
+        pump(function() return host._weread_reader_display~=nil end)
+        return assert(host._weread_reader_display).dialog
+    end
+    local dialog=open_panel()
+    local state=host._weread_reader_display
     UI:forceRePaint()
-    assert(state.dialog:getContentSize().h<=require('device').screen:getHeight(),'display panel exceeds screen')
+    local Device=require('device')
+    assert(dialog:getContentSize().h<=Device.screen:getHeight(),'display panel exceeds screen')
     shot('reader-display')
     local function press(id)
         local button=assert(state.dialog:getButtonById('display_'..id),id)
@@ -44,5 +49,33 @@ return function(reader,host,pump,shot,clean,reopen,evidence)
     local output=assert(io.open(file,'wb'));assert(output:write(json.encode(saved)));output:close()
     assert(state.dialog:getButtonById('display_close')):onTapSelectButton()
     assert(not host._weread_reader_display)
+    dialog=open_panel();UI:forceRePaint()
+    assert(Device:hasFrontlight() and Device:hasEinkScreen())
+    local power=Device:getPowerDevice()
+    local brightness=power:frontlightIntensity()
+    assert(dialog:getButtonById('display_frontlight')):onTapSelectButton()
+    assert(not host._weread_reader_display)
+    local light=assert(UI:getTopmostVisibleWidget())
+    assert(light.powerd==power and light.fl.cur==brightness,'the native frontlight panel did not open')
+    UI:forceRePaint()
+    local increase=brightness<light.fl.max
+    assert(increase and light.fl_plus or light.fl_minus):onTapSelectButton()
+    assert(power:frontlightIntensity()==brightness+(increase and 1 or -1),'native brightness step was lost')
+    light:setBrightness(brightness);light:onClose()
+    assert(power:frontlightIntensity()==brightness,'emulated brightness did not restore')
+    dialog=open_panel();UI:forceRePaint()
+    local dirty=UI.setDirty
+    local full=0
+    UI.setDirty=function(manager,widget,mode,...)
+        if widget=='all' and mode=='full' then
+            assert(not host._weread_reader_display,'refresh was requested before the panel closed')
+            full=full+1
+        end
+        return dirty(manager,widget,mode,...)
+    end
+    assert(dialog:getButtonById('display_full_refresh')):onTapSelectButton()
+    UI.setDirty=dirty;UI:forceRePaint()
+    assert(full==1 and not host._weread_reader_display,'expected one full screen request')
+    assert(reader.document:isXPointerInCurrentPage(anchor),'device display controls changed reading position')
     clean(reader)
 end

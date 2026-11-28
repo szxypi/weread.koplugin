@@ -83,6 +83,15 @@ local function quick(active,id)
     UI:forceRePaint();local button=assert(UI:getTopmostVisibleWidget():getButtonById(id))
     assert(button.enabled~=false);button:onTapSelectButton()
 end
+quick(host,'reader_display')
+pump(function() return host._weread_reader_display~=nil end)
+local display=assert(host._weread_reader_display).dialog
+UI:forceRePaint();assert(display:getContentSize().h<=Device.screen:getHeight(),'native display panel exceeded the screen')
+assert(display:getButtonById('display_frontlight'),'native chapter omitted frontlight controls')
+assert(display:getButtonById('display_full_refresh')):onTapSelectButton()
+UI:forceRePaint()
+assert(not host._weread_reader_display and first.document:isXPointerInCurrentPage(anchor),
+    'native display refresh did not return to the same chapter page')
 quick(host,'reader_progress')
 pump(function() return host._weread_reader_progress~=nil end)
 local progress=assert(host._weread_reader_progress)
