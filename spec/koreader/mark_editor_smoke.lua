@@ -65,6 +65,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     reader.font:onSetFontSize(font_size);clean_popups(reader);reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
     local own_box=plugin._personal_marks.overlay.visible[1].rect
     assert(plugin:_onXPointerOverlayTap{pos={x=own_box.x+own_box.w/2,y=own_box.y+own_box.h/2}},'personal underline tap was not routed')
+    pump(function() return not plugin._my_marks_loading_source end)
     owner=assert(plugin._my_marks_owner);assert(owner.menu._shelf_popup,'personal underline did not open its own quote')
     require('weread.ui.shelf_popup').close(owner.menu)
     local function select(id)

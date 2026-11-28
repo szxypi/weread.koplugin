@@ -24,7 +24,7 @@ package.preload['weread.lib.memory_worker']=function() return {new=function(_sel
         local job={value=result,callback=callback};jobs[#jobs+1]=job;return true
     end}
 end} end
-local chapter='7';local meta='metadata-1'
+local chapter='7';local meta='metadata-1';local viewport='native-point'
 package.preload['weread.lib.position_source']=function() return {document_metadata=function()
     return {metadata=meta,chapter_uid=chapter,record={format='web_xhtml'}}
 end} end
@@ -65,7 +65,7 @@ local state={account='owner-a',valid=true,show=true,book='900001'}
 local scope={vid='owner-a',epoch=1}
 local notes={{text='native note'}}
 local host={client=codec,_reader_session_gen=1,ui={highlight={},annotation={annotations=notes},
-    document={file='/cached.epub',info={},getXPointer=function() return 'native-point' end,
+    document={file='/cached.epub',info={},getXPointer=function() return viewport end,
         compareXPointers=function(_self,a,b) return a<b and 1 or a>b and -1 or 0 end},
     view={view_modules={},registerViewModule=function(self,key,view) self.view_modules[key]=view end}},
     settings={get=function() return {show_annotations=state.show} end,get_auth_scope=function() return scope end,
@@ -165,24 +165,38 @@ s.overlay.setRecords=original_overlay_set;s.indicator.setRecords=original_indica
 Display.changed(host,snapshot);drain()
 local clicked=false
 s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
-host.showMyCloudBookmarks=function(_self,book)
-    expect(book==state.book);host._my_marks_owner={menu={item_table={{my_note_id='synthetic-point',callback=function() clicked=true end}}}}
+local pending_open
+host.showMyCloudBookmarks=function(_self,book,options)
+    expect(book==state.book and options.source==s and options.current())
+    pending_open=function()
+        if options.current() then
+            options.on_open{menu={item_table={{my_note_id='synthetic-point',callback=function() clicked=true end}}}}
+        end
+    end
     return true
 end
-expect(Display.tap(host,{pos={x=1,y=1}}) and clicked,'corner did not open the matching bookmark')
+expect(Display.tap(host,{pos={x=1,y=1}}) and not clicked,'corner tap did not queue the bookmark')
+viewport='another-page';pending_open()
+expect(not clicked,'the queued bookmark opened after a page turn')
+viewport='native-point';expect(Display.tap(host,{pos={x=1,y=1}}));pending_open()
+expect(clicked,'corner did not open the matching bookmark')
 local two=Fixture.clone(snapshot)
 two.updated[2].markText='First page preview'
 two.updated[3]={bookmarkId='second-point',type=0,chapterUid=7,range='20',markText='Second page preview'}
 Display.changed(host,two);drain();expect(#s.bookmarks==2,'second same-page bookmark missing')
 s.indicator.hitTestAll=function() return s.bookmarks end
 host.showList=function(_,_,items) return {item_table=items} end
-host.showMyCloudBookmarks=function(self)
-    self._my_marks_owner={menu={item_table={}}}
-    for _,item in ipairs(s.bookmarks) do self._my_marks_owner.menu.item_table[#self._my_marks_owner.menu.item_table+1]={
+host.showMyCloudBookmarks=function(_,_,options)
+    local items={}
+    for _,item in ipairs(s.bookmarks) do items[#items+1]={
         my_note_id=item.bookmarkId,callback=function() clicked=item.bookmarkId end} end
+    options.on_open{menu={item_table=items}}
     return true
 end
+local saved=s.snapshot
+s.snapshot=setmetatable({},{__index=function() error('opening a bookmark picker traversed the full snapshot') end})
 expect(Display.tap(host,{pos={x=1,y=1}},true));local picker=s.picker
+s.snapshot=saved
 local choice
 for _,item in ipairs(picker and picker.item_table or {}) do if item.my_note_id=='second-point' then choice=item end end
 expect(picker and #picker.item_table==2 and choice and choice.my_note_kind=='bookmark'

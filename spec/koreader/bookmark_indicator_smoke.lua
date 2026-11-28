@@ -55,6 +55,7 @@ return function(reader,plugin,pump,shot,clean,id)
     assert(s.indicator.rect,'visible scroll point has no corner');shot('bookmark-indicator-scroll')
     r=s.indicator.rect
     assert(plugin:_onXPointerOverlayTap{pos={x=r.x+r.w/2,y=r.y+r.h/2}},'corner tap did not route')
+    pump(function() return not plugin._my_marks_loading_source end)
     local owner=assert(plugin._my_marks_owner)
     assert(owner.bookmarks and owner.menu._shelf_popup,'corner tap did not open the matching bookmark')
     plugin:cancelMyCloudMarks();clean(reader)

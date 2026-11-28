@@ -141,12 +141,13 @@ for _,row in ipairs(host._personal_marks.records) do if row.thoughtId then thoug
 expect(thought and thought.thoughtId=='thought-1' and thought.style==3,'thought lost its distinct identity or style')
 local selected
 host.showList=function(_,_,items) return {item_table=items} end
-host.showMyCloudThoughts=function(self)
-    self._my_marks_owner={menu={item_table={{my_note_id='thought-1',callback=function() selected='thought' end}}}}
+host.ui.document.getXPointer=function() return 'native-page' end
+host.showMyCloudThoughts=function(_,_,options)
+    options.on_open{menu={item_table={{my_note_id='thought-1',callback=function() selected='thought' end}}}}
     return true
 end
-host.showMyCloudMarks=function(self)
-    self._my_marks_owner={menu={item_table={{my_note_id='first',callback=function() selected='mark' end}}}}
+host.showMyCloudMarks=function(_,_,options)
+    options.on_open{menu={item_table={{my_note_id='first',callback=function() selected='mark' end}}}}
     return true
 end
 local overlay=host._personal_marks.overlay

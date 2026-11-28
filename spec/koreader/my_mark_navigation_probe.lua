@@ -407,8 +407,15 @@ local ok,reason=pcall(function()
             end
             assert(box)
             if synthetic and _i==1 then
-                assert(plugin:_onXPointerOverlayTap{pos={x=box.x+box.w/2,y=box.y+box.h/2}},'personal highlight tap was not routed')
-                local tapped=assert(plugin._my_marks_owner);assert(tapped.menu._shelf_popup,'personal highlight detail was not opened')
+                assert(plugin:_onXPointerOverlayTap{pos={x=box.x+box.w/2,y=box.y+box.h/2}},'personal note tap was not routed')
+                if s.picker then
+                    local picked
+                    for _,item in ipairs(s.picker.item_table) do if item.my_note_id==row.bookmarkId then picked=item;break end end
+                    assert(picked,'the displayed note was missing from the picker');picked.callback()
+                end
+                wait(function() return not plugin._my_marks_loading_source end)
+                local tapped=assert(plugin._my_marks_owner)
+                assert(tapped.menu._shelf_popup and tapped.bookmarks==bookmarks,'personal note detail was not opened')
                 require('weread.ui.my_cloud_marks').cancel(plugin)
             end
             report.personal_spans=report.personal_spans+1

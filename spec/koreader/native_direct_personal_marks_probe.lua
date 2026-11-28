@@ -126,13 +126,47 @@ else
     end
     reader.document:clearSelection();UI:forceRePaint()
     assert(#state.overlay.visible>0,'direct personal mark has no visible native boxes')
-    local rect=state.overlay.visible[1].rect
-    assert(Display.tap(host,{pos={x=rect.x+1,y=rect.y+1}}),'overlapping notes did not open')
-    assert(state.picker and #state.picker.item_table==2,'overlapping notes were not offered separately')
-    local choices=state.picker.item_table
-    local thought_choice
-    for _,item in ipairs(choices) do if item.my_note_kind=='thought' then thought_choice=item end end
-    assert(thought_choice,'thought choice missing');thought_choice.callback()
+    local function choose_thought()
+        local rect=state.overlay.visible[1].rect
+        assert(Display.tap(host,{pos={x=rect.x+1,y=rect.y+1}}),'overlapping notes did not open')
+        assert(state.picker and #state.picker.item_table==2,'overlapping notes were not offered separately')
+        local thought_choice
+        for _,item in ipairs(state.picker.item_table) do if item.my_note_kind=='thought' then thought_choice=item end end
+        assert(thought_choice,'thought choice missing');thought_choice.callback()
+        assert(state.saved_note_open and not host._my_marks_owner,'thought did not start a background read')
+    end
+    local Cache=require('weread.lib.my_cloud_marks_store')
+    local read=Cache.read
+    local memory,gate
+    if input.offline then
+        pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
+        memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+        gate=ffi.cast('int *',memory)
+    end
+    Cache.read=function(store,id)
+        assert(ffi.C.getpid()~=reader_pid,'reading the selected note blocked the interface')
+        if gate and store.table_name=='my_cloud_thoughts' then
+            gate[0]=gate[0]+1
+            local deadline=socket.gettime()+10
+            while gate[1]==0 do assert(socket.gettime()<deadline,'test read was not released');socket.sleep(.01) end
+        end
+        return read(store,id)
+    end
+    choose_thought()
+    if gate then
+        local beat=false;UI:scheduleIn(.1,function() beat=true end)
+        wait(function() return beat and gate[0]==1 end)
+        assert(state.saved_note_open and not host._my_marks_owner,'the interface did not respond during the local read')
+        local viewport=reader.document:getXPointer()
+        reader.rolling:onGotoPage(reader.document:getCurrentPage()==1 and 2 or 1);UI:forceRePaint()
+        assert(reader.document:getXPointer()~=viewport,'the test did not change the reader position')
+        gate[1]=1
+        wait(function() return not state.saved_note_open end)
+        assert(not host._my_marks_owner and not host.busy_message,'a pending thought opened on a different page')
+        reader.rolling:onGotoXPointer(thought.pos0);UI:forceRePaint()
+        choose_thought()
+    end
+    wait(function() return not state.saved_note_open end)
     assert(host._my_marks_owner and host._my_marks_owner.thoughts and host._my_marks_owner.menu._shelf_popup,
         'thought choice did not open its content')
     require('weread.ui.my_cloud_marks').cancel(host)
@@ -144,11 +178,14 @@ else
         local picker=assert(state.picker);local choice
         for _,item in ipairs(picker.item_table) do if item.my_note_kind=='bookmark' and item.my_note_id==id then choice=item end end
         assert(choice and choice.text:find('paragraph 0001',1,true),'bookmark preview missing');choice.callback()
+        wait(function() return not state.saved_note_open end)
         local owner=assert(host._my_marks_owner);assert(owner.bookmarks and owner.menu._shelf_popup,'chosen bookmark popup missing')
         local expected=id=='synthetic-direct-point' and 'Unique paragraph 0001' or 'nique paragraph 0001'
         assert(owner.menu._shelf_popup.text:find(expected,1,true),'wrong bookmark opened')
         require('weread.ui.my_cloud_marks').cancel(host);UI:forceRePaint()
     end
+    Cache.read=read
+    if memory then ffi.C.munmap(memory,4096) end
     local first_bookmark
     for _,item in ipairs(state.bookmarks) do if item.bookmarkId=='synthetic-direct-point' then first_bookmark=item end end
     assert(first_bookmark)

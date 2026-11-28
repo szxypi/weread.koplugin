@@ -175,6 +175,7 @@ for _,row in ipairs(state.records) do
             end
             assert(choice,'personal thought choice missing');choice.callback()
         end
+        wait(function() return not host._my_marks_loading_source end)
         local owner=host._my_marks_owner
         assert(owner and owner.thoughts and owner.menu and owner.menu._shelf_popup,'personal thought popup missing')
         local original

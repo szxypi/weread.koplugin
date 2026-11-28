@@ -131,13 +131,16 @@ if input.expect_bookmarks then
     for _,item in ipairs(state.indicator.visible) do if item.bookmarkId==input.expected_id then visible=true end end
     assert(visible,'bookmark corner not visible')
     local selected;local open=target_host.showMyCloudBookmarks
-    target_host.showMyCloudBookmarks=function(current,...)
-        local opened=open(current,...);local list=current._my_marks_owner
-        for _,item in ipairs(list and list.menu.item_table or {}) do
-            local callback,id=item.callback,item.my_note_id
-            if callback and id then item.callback=function(...) selected=id;return callback(...) end end
+    target_host.showMyCloudBookmarks=function(current,book,options)
+        local on_open=options.on_open
+        options.on_open=function(list)
+            for _,item in ipairs(list.menu.item_table) do
+                local callback,id=item.callback,item.my_note_id
+                if callback and id then item.callback=function(...) selected=id;return callback(...) end end
+            end
+            on_open(list)
         end
-        return opened
+        return open(current,book,options)
     end
     local position={x=corner.x+1,y=corner.y+1}
     assert(Display.tap(target_host,{pos=position},true),'bookmark corner tap failed')
@@ -146,6 +149,7 @@ if input.expect_bookmarks then
         for _,item in ipairs(state.picker.item_table) do if item.my_note_id==input.expected_id then wanted=item end end
         assert(wanted,'bookmark corner choice missing');wanted.callback()
     end
+    wait(function() return not target_host._my_marks_loading_source end)
     local bookmark_owner=assert(target_host._my_marks_owner)
     local viewer=assert(bookmark_owner.menu._shelf_popup,'bookmark corner popup missing')
     assert(bookmark_owner.bookmarks and selected==input.expected_id and viewer.button_table:getButtonById('open_bookmark'),

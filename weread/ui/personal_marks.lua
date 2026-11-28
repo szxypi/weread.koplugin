@@ -21,7 +21,11 @@ local function dirty(host) UI:setDirty(host.dialog or host.ui,'ui') end
 local function enabled(host,s)
     return current(host,s) and not s.suspended and host.settings:get('cache',{}).show_annotations~=false
 end
-local function cancel_work(s)
+local function cancel_note_open(host,s)
+    if s.saved_note_open then require('weread.ui.my_cloud_marks').cancel_saved(host,s) end
+end
+local function cancel_work(host,s)
+    cancel_note_open(host,s)
     s.generation=s.generation+1;s.job=nil
     if s.task then UI:unschedule(s.task);s.task=nil end
     if s.worker then s.worker:cancel() end
@@ -105,7 +109,11 @@ batch=function(host,s,job)
             end
             s.source_format=result.format
         end
-        local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil,text=row.markText} end
+        local originals={}
+        for _,row in ipairs(rows) do
+            originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil,text=row.markText,
+                note=job.thoughts[row.bookmarkId] or row}
+        end
         local expected={}
         if #result.rows>Task.BATCH then s.job=nil;return end
         for _i,row in ipairs(result.rows) do
@@ -123,25 +131,27 @@ batch=function(host,s,job)
                 or not s.direct and Dom.open_prepared(s.document,s.book,job.metadata,options))
             if not job.index then return false end
             for _i,row in ipairs(result.rows) do
+                local original=originals[row.bookmarkId]
                 if row.bookmark then
                     local point,reason
                     if not job.direct_search then point,reason=job.index:locate_anchor(row.anchor) end
                     if s.direct and (job.direct_search or reason=='source_dom/walk_diverged') then
                         job.direct_search=true
-                        point=job.index:locate_point_search(row.anchor,originals[row.bookmarkId].text,Task.MAX_NATIVE_BYTES)
+                        point=job.index:locate_point_search(row.anchor,original.text,Task.MAX_NATIVE_BYTES)
                     end
                     if point and point.co==row.anchor.co then
-                        points[#points+1]={bookmarkId=row.bookmarkId,pos0=point.xpointer,chapter_uid=job.uid,range=job.ranges[row.bookmarkId]}
+                        points[#points+1]={bookmarkId=row.bookmarkId,pos0=point.xpointer,chapter_uid=job.uid,
+                            range=job.ranges[row.bookmarkId],note=original.note}
                     end
                 else
                     local span,reason
                     if not job.direct_search then span,reason=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES) end
                     if s.direct and (job.direct_search or reason=='source_dom/walk_diverged') then
                         job.direct_search=true
-                        span=job.index:locate_span_search(row.first_anchor,row.last_anchor,originals[row.bookmarkId].text,Task.MAX_NATIVE_BYTES)
+                        span=job.index:locate_span_search(row.first_anchor,row.last_anchor,original.text,Task.MAX_NATIVE_BYTES)
                     end
                     if span then
-                        pending[row.bookmarkId]={bookmarkId=row.bookmarkId,thoughtId=job.thoughts[row.bookmarkId],
+                        pending[row.bookmarkId]={bookmarkId=row.bookmarkId,thoughtId=original.note.reviewId,note=original.note,
                             pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,
                             range=job.ranges[row.bookmarkId],style=job.styles[row.bookmarkId]}
                         verify[#verify+1]={bookmarkId=row.bookmarkId,text=span.text,normalized_sha256=expected[row.bookmarkId].normalized_sha256}
@@ -193,7 +203,7 @@ local function probe_network(host,s)
         if generation==s.generation then s.probing=false end
         if current(host,s) and not s.suspended and not s.editing and not s.loading and enabled(host,s)
             and generation==s.generation and not s.remote_attempted and type(result)=='table' and result.online==true then
-            cancel_work(s);s.loading=false;load(host,s,true)
+            cancel_work(host,s);s.loading=false;load(host,s,true)
         end
     end)
     if not ok or not started then s.probing=false end
@@ -205,7 +215,8 @@ function M.update(host)
     if s.indicator.enabled~=show then s.indicator:setEnabled(show);dirty(host) end
     if not show then
         close_picker(s)
-        if s.job or s.task or s.loading or s.probing then cancel_work(s);s.loading=false;s.metadata=nil;s.complete=false end
+        cancel_note_open(host,s)
+        if s.job or s.task or s.loading or s.probing then cancel_work(host,s);s.loading=false;s.metadata=nil;s.complete=false end
         return
     end
     if s.editing or s.loading then return end
@@ -215,10 +226,10 @@ function M.update(host)
     end
     local m=metadata(host,s)
     if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then
-        cancel_work(s);s.metadata=nil;clear(host,s);return
+        cancel_work(host,s);s.metadata=nil;clear(host,s);return
     end
     if s.metadata==m.metadata and (s.job or s.complete) then return end
-    cancel_work(s);s.metadata=m.metadata;s.complete=false;clear(host,s)
+    cancel_work(host,s);s.metadata=m.metadata;s.complete=false;clear(host,s)
     if not s.snapshot and not s.thought_snapshot then return end
     local uid=m.chapter_uid;local rows,ranges,styles,thoughts={},{},{},{}
     for _i,row in ipairs(Chapters.rows(s,'snapshot',uid)) do
@@ -233,7 +244,7 @@ function M.update(host)
         if require('weread.lib.my_thought_target').can_locate(row) then
             local key='\1'..row.reviewId
             rows[#rows+1]={bookmarkId=key,type=1,chapterUid=row.chapterUid,markText=row.abstract,range=row.range}
-            ranges[key]=row.range;styles[key]=3;thoughts[key]=row.reviewId
+            ranges[key]=row.range;styles[key]=3;thoughts[key]=row
         end
     end end
     table.sort(rows,function(a,b) return a.bookmarkId<b.bookmarkId end)
@@ -361,7 +372,7 @@ end
 function M.detach(host)
     local s=host._personal_marks;host._personal_marks=nil
     if not s then return end
-    cancel_work(s);close_picker(s)
+    cancel_work(host,s);close_picker(s)
     s.overlay:setEnabled(false);s.indicator:setEnabled(false)
     if host.ui and host.ui.view and host.ui.view.view_modules then
         host.ui.view.view_modules[M.KEY]=nil;host.ui.view.view_modules[M.BOOKMARK_KEY]=nil
@@ -370,19 +381,19 @@ function M.detach(host)
 end
 function M.pause(host)
     local s=host._personal_marks;if not s then return end
-    s.editing=true;s.loading=false;cancel_work(s);close_picker(s)
+    s.editing=true;s.loading=false;cancel_work(host,s);close_picker(s)
 end
 function M.changed(host,snapshot)
     local s=host._personal_marks
     if not s or not current(host,s) or type(snapshot)~='table' or snapshot.book_id~=s.book then return end
     local ok,value=pcall(Marks.validate,host.client,snapshot,s.book);if not ok then return end
-    cancel_work(s);s.loading=false;s.loaded=true;s.snapshot=value;s._mark_chapters=nil;s.metadata=nil;s.editing=false;s.complete=false;clear(host,s);M.update(host)
+    cancel_work(host,s);s.loading=false;s.loaded=true;s.snapshot=value;s._mark_chapters=nil;s.metadata=nil;s.editing=false;s.complete=false;clear(host,s);M.update(host)
 end
 function M.thoughts_changed(host,snapshot)
     local s=host._personal_marks
     if not s or not s.direct or not current(host,s) or type(snapshot)~='table' or snapshot.book_id~=s.book then return end
     local ok,value=pcall(require('weread.lib.my_cloud_thoughts').validate,host.client,snapshot,s.book);if not ok then return end
-    cancel_work(s);s.loading=false;s.thought_snapshot=value;s._thought_chapters=nil;s.metadata=nil;s.complete=false;clear(host,s);M.update(host)
+    cancel_work(host,s);s.loading=false;s.thought_snapshot=value;s._thought_chapters=nil;s.metadata=nil;s.complete=false;clear(host,s);M.update(host)
 end
 function M.resume(host)
     local s=host._personal_marks;if not s or not s.editing then return end
@@ -392,7 +403,7 @@ function M.resume(host)
 end
 function M.suspend(host)
     local s=host._personal_marks;if not s then return end
-    s.suspended=true;s.loading=false;cancel_work(s);close_picker(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
+    s.suspended=true;s.loading=false;cancel_work(host,s);close_picker(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
 end
 function M.wake(host)
     local s=host._personal_marks;if not s then return end
@@ -402,7 +413,7 @@ end
 function M.network_connected(host)
     local s=host._personal_marks
     if not s or not s.direct or not enabled(host,s) or s.editing then return end
-    cancel_work(s);s.loading=false;load(host,s,true)
+    cancel_work(host,s);s.loading=false;load(host,s,true)
 end
 function M.invalidate(host)
     local s=host._personal_marks;if not s then return end
@@ -422,21 +433,16 @@ function M.available(host)
     end end
     return false
 end
-local function open_record(host,s,record,bookmark)
-    if not enabled(host,s) then return false end
-    if bookmark then
-        if not host:showMyCloudBookmarks(s.book) then return false end
-    elseif record.thoughtId then
-        if not host:showMyCloudThoughts(s.book) then return false end
-    elseif not host:showMyCloudMarks(s.book) then return false end
-    local owner=host._my_marks_owner
-    for _i,item in ipairs(owner and owner.menu.item_table or {}) do
-        if item.my_note_id==(record.thoughtId or record.bookmarkId) then item.callback();return true end
-    end
-    if owner and owner.value then
-        if record.thoughtId then M.thoughts_changed(host,owner.value) else M.changed(host,owner.value) end
-    end
-    return true
+local function open_record(host,s,record,bookmark,view_current)
+    local method=bookmark and 'showMyCloudBookmarks' or record.thoughtId and 'showMyCloudThoughts' or 'showMyCloudMarks'
+    return host[method](host,s.book,{source=s,current=view_current,on_open=function(owner)
+        for _,item in ipairs(owner.menu.item_table) do
+            if item.my_note_id==(record.thoughtId or record.bookmarkId) then item.callback();return end
+        end
+        if owner.value then
+            if record.thoughtId then M.thoughts_changed(host,owner.value) else M.changed(host,owner.value) end
+        end
+    end})
 end
 local function note_preview(row,thought)
     if not row then return '' end
@@ -448,29 +454,31 @@ local function note_preview(row,thought)
     return #shortened<#value and shortened..'…' or shortened
 end
 local function choose_records(host,s,records,bookmarks,pos)
-    if #records==1 then return open_record(host,s,records[1],bookmarks) end
+    local generation,position=s.generation,s.document:getXPointer()
+    local function view_current()
+        return enabled(host,s) and s.generation==generation and s.document:getXPointer()==position
+    end
+    if #records==1 then return open_record(host,s,records[1],bookmarks,view_current) end
     if type(host.showList)~='function' then return false end
+    cancel_note_open(host,s)
     close_picker(s)
     local _=require('weread.lib.i18n').tr
-    local generation=s.generation;local items,menu={}
-    local marks,thoughts={},{}
-    for _,row in ipairs(s.snapshot and s.snapshot.updated or {}) do marks[row.bookmarkId]=row end
-    for _,row in ipairs(s.thought_snapshot and s.thought_snapshot.reviews or {}) do thoughts[row.reviewId]=row end
+    local items,menu={}
     for index,record in ipairs(records) do
-        local preview=note_preview(record.thoughtId and thoughts[record.thoughtId] or marks[record.bookmarkId],record.thoughtId~=nil)
+        local preview=note_preview(record.note,record.thoughtId~=nil)
         local label=_(bookmarks and 'Bookmark' or record.thoughtId and 'Thought' or 'Highlight')..' '..index
         items[#items+1]={text=preview~='' and label..': '..preview or label,my_note_id=record.thoughtId or record.bookmarkId,
             my_note_kind=bookmarks and 'bookmark' or record.thoughtId and 'thought' or 'mark',
             callback=function()
                 if s.picker~=menu then return end
                 close_picker(s)
-                if not enabled(host,s) or s.generation~=generation then return end
+                if not view_current() then return end
                 if bookmarks then
                     local still_visible=false
                     for _,item in ipairs(s.indicator:hitTestAll(pos)) do if item==record then still_visible=true;break end end
                     if not still_visible then return end
                 end
-                open_record(host,s,record,bookmarks)
+                open_record(host,s,record,bookmarks,view_current)
             end}
     end
     menu=host:showList(_('WeRead notes'),items,nil,{thought_text=true})
