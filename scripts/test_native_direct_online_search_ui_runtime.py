@@ -88,6 +88,7 @@ def main():
                             assert result['chapters']==40 and result['cancel_resume'] and result['last_hit_visible'] and not server.calls
                             print(json.dumps(dict(width=width,height=height,**result),sort_keys=True),flush=True)
                             assert 1<result['workers']<41 and result['redraws']==1 and result['busy_redraws']==0
+                            assert result['scan_archive_reads']==result['locate_archive_reads']==1
                         elif case in ('offline','fallback'):
                             assert result['offline_fallback']
                             if case=='offline':assert not server.calls

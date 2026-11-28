@@ -10,6 +10,7 @@ local M={MAX_FILE=128*1024*1024,MAX_COPIES=100,MAX_ENTRIES=2000,MAX_BOOKS=2000}
 local CHUNK=65536
 local OPERATION='.native-operation'
 local RETIRING='.native-cleanup'
+local RENDER='OEBPS/text/chapter.xhtml'
 M.RETIRING=RETIRING
 
 local function fs()
@@ -51,14 +52,15 @@ end
 local function matches_source(opf,book_id,uid)
     return type(opf)=='string' and opf:find('<dc:source>'..Protocol.reader_url(book_id,uid)..'</dc:source>',1,true)~=nil
 end
-local function archive_identity(path,book_id,uid,version,text_digest)
-    local ok,result,opf=pcall(function()
-        local members=Archive.read(path,{[Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024})
+local function archive_identity(path,book_id,uid,version,text_digest,text_limit)
+    local ok,result,opf,text=pcall(function()
+        local wanted={[Identity.PATH]=Identity.MAX_BYTES,['OEBPS/content.opf']=1024*1024,[RENDER]=text_limit}
+        local members=Archive.read(path,wanted)
         if members and matches_source(members['OEBPS/content.opf'],book_id,uid) then
-            return checked_identity(members[Identity.PATH],book_id,version,text_digest),members['OEBPS/content.opf']
+            return checked_identity(members[Identity.PATH],book_id,version,text_digest),members['OEBPS/content.opf'],members[RENDER]
         end
     end)
-    if ok and result then return result,opf end
+    if ok and result then return result,opf,text end
 end
 local function archive_members(book,chapter,prepared,text_digest)
     local rendered=require('weread.lib.content').single_chapter_xhtml(book,chapter,prepared.xhtml)
@@ -75,7 +77,7 @@ local function archive_members(book,chapter,prepared,text_digest)
             return matches_source(raw,book.book_id,chapter.chapterUid)
         end},
         ['mimetype']={maximum=128,bytes='application/epub+zip'},
-        ['OEBPS/text/chapter.xhtml']={maximum=8*1024*1024,bytes=rendered},
+        [RENDER]={maximum=8*1024*1024,bytes=rendered},
         ['OEBPS/style.css']={maximum=8*1024*1024,bytes=prepared.css},
     }
     for _,asset in ipairs(prepared.assets) do
@@ -602,27 +604,38 @@ function M.begin_capacity(settings,account,book_id,current)
     return nil,'unavailable'
 end
 
--- The caller supplies the entry read from this exact account directory.
-local function verify_open(settings,account,lfs,book_dir,dir,entry,current)
-    local path=dir..'/'..filename(entry.book_id,entry.chapter_uid)
+local function receipt_digest(lfs,dir,path,entry)
     local receipt=read_file(lfs,dir..'/receipt.txt',256)
     local key,size,digest
     if receipt then key,size,digest=receipt:match('^native%-direct%-v1\ncontent=([a-f0-9]+)\nsize=(%d+)\ndigest=([a-f0-9]+)\n$') end
     if key~=entry.key or not size or not hash(digest) then return nil end
     local actual_size,actual_digest=digest_file(lfs,path)
-    if not actual_size or tostring(actual_size)~=size or actual_digest~=digest then return nil end
-    local identity=archive_identity(path,entry.book_id,entry.chapter_uid,entry.book_version,entry.text_digest)
-    if not identity or current()~=true or mode(lfs,dir..'/'..RETIRING) then return nil end
+    if actual_size and tostring(actual_size)==size and actual_digest==digest then return digest end
+end
+
+local function same_file(first,actual)
+    return first and actual and first.mode=='file' and actual.mode=='file' and first.dev~=nil and first.ino~=nil
+        and actual.dev==first.dev and actual.ino==first.ino and actual.size==first.size
+        and actual.modification==first.modification and actual.change==first.change
+end
+
+-- The caller supplies the entry read from this exact account directory.
+local function verify_open(settings,account,lfs,book_dir,dir,entry,current,text_limit)
+    local path=dir..'/'..filename(entry.book_id,entry.chapter_uid)
+    local file_info=text_limit and mode(lfs,path)
+    local digest=receipt_digest(lfs,dir,path,entry)
+    if not digest then return nil end
+    local identity,_,text=archive_identity(path,entry.book_id,entry.chapter_uid,entry.book_version,entry.text_digest,text_limit)
+    if not identity or text_limit and (type(text)~='string' or not same_file(file_info,mode(lfs,path)))
+        or current()~=true or mode(lfs,dir..'/'..RETIRING) then return nil end
     if not marker_present(lfs,book_dir,entry.book_id,account,entry) then
         save_presence(settings,account,entry.book_id,entry,current)
     end
     return {path=path,book_version=entry.book_version,source_sha256=entry.source_sha256,
-        missing_images=entry.missing_images,file_id=identity.file_id}
+        missing_images=entry.missing_images,file_id=identity.file_id},text,digest,file_info
 end
 
--- Callers that also need the chapter identity can take the verified entry
--- from this same check, including the catalog reference it compared.
-function M.open(settings,account,book_id,entry,current,with_entry)
+local function open_entry(settings,account,book_id,entry,current)
     if not valid_entry(entry,book_id,account) or type(current)~='function' or current()~=true then return nil end
     local lfs,book_dir=existing_book_dir(settings,account,book_id)
     if not lfs then return nil end
@@ -635,6 +648,14 @@ function M.open(settings,account,book_id,entry,current,with_entry)
         ref=read_ref(lfs,dir,actual)
         if not ref or ref_payload(ref)~=ref_payload(entry) then return nil end
     end
+    return lfs,book_dir,dir,actual,ref
+end
+
+-- Callers that also need the chapter identity can take the verified entry
+-- from this same check, including the catalog reference it compared.
+function M.open(settings,account,book_id,entry,current,with_entry)
+    local lfs,book_dir,dir,actual,ref=open_entry(settings,account,book_id,entry,current)
+    if not lfs then return nil end
     local opened=verify_open(settings,account,lfs,book_dir,dir,actual,current)
     if not opened then return nil end
     if with_entry then
@@ -642,6 +663,26 @@ function M.open(settings,account,book_id,entry,current,with_entry)
         return opened,attach_ref(actual,ref)
     end
     return opened
+end
+
+-- Read the search text together with its identity. After scanning, verify the
+-- same sidecars and exact archive digest before returning any result.
+function M.open_search(settings,account,entry,current)
+    local book_id=type(entry)=='table' and entry.book_id
+    local lfs,book_dir,dir,actual,ref=open_entry(settings,account,book_id,entry,current)
+    if not lfs then return nil end
+    local limit=require('weread.lib.source_coordinates').MAX_BYTES
+    local opened,text,digest,file_info=verify_open(settings,account,lfs,book_dir,dir,actual,current,limit)
+    if not opened then return nil end
+    local path=opened.path
+    local pinned=attach_ref(actual,ref)
+    local function recheck()
+        local check_fs,_,check_dir=open_entry(settings,account,book_id,pinned,current)
+        return check_dir==dir and same_file(file_info,mode(check_fs,path))
+            and receipt_digest(check_fs,dir,path,pinned)==digest and same_file(file_info,mode(check_fs,path))
+            and current()==true and not mode(check_fs,dir..'/'..RETIRING)
+    end
+    return opened,text,recheck
 end
 
 -- Resolve an open file back to a verified, account-bound chapter. The path is

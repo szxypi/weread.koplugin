@@ -1,14 +1,12 @@
 -- Worker-only search of verified, account-bound native chapter EPUBs. The
 -- generated XHTML has no Web position authority: anchors are local-only.
 local Cache=require('weread.lib.native_direct_cache')
-local Archive=require('weread.lib.source_archive')
 local Coordinates=require('weread.lib.source_coordinates')
 local Dom=require('weread.lib.source_dom')
 local Protocol=require('weread.lib.protocol')
 local NativeProtocol=require('weread.lib.native_position_protocol')
 local Unicode=require('weread.lib.unicode_search')
 local M={MAX_HITS=30,MAX_EXAMINED=100}
-local RENDER='OEBPS/text/chapter.xhtml'
 
 local function fold_ascii(value)
     return (value:gsub('[A-Z]',function(char) return string.char(char:byte()+32) end))
@@ -31,24 +29,18 @@ local function scan(settings,account,entry,keyword,from,ignore_case,current,opti
         or not NativeProtocol.integer(max_hits,1,M.MAX_HITS)
         or ignore_case~=nil and type(ignore_case)~='boolean' or not live(current) then return {error='invalid'} end
     local cache=options and options.cache or Cache
-    local archive=options and options.archive or Archive
     local ok,result=pcall(function()
         local wanted=Dom.normalize(keyword)
         if type(wanted)~='string' or wanted=='' then return {error='invalid'} end
-        local saved=cache.open(settings,account,entry.book_id,entry,current)
+        local saved,raw,recheck=cache.open_search(settings,account,entry,current)
         if not saved or type(saved.file_id)~='string' or #saved.file_id~=64
             or not saved.file_id:match('^[a-f0-9]+$') or not live(current) then return {error='unavailable'} end
         if expected_file_id and saved.file_id~=expected_file_id then return {error='changed'} end
         local function finish(value)
             if not live(current) then return {error='cancelled'} end
-            local fresh=cache.open(settings,account,entry.book_id,entry,current)
-            if not fresh or fresh.path~=saved.path or fresh.file_id~=saved.file_id or not live(current) then
-                return {error='unavailable'}
-            end
+            if recheck()~=true or not live(current) then return {error='unavailable'} end
             return value
         end
-        local members=archive.read(saved.path,{[RENDER]=Coordinates.MAX_BYTES})
-        local raw=members and members[RENDER]
         local map=raw and Coordinates.build(raw,{format='web_xhtml'})
         if not map then return {error='unavailable'} end
         map:_index()

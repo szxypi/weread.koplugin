@@ -15,6 +15,67 @@ local cache=settings:get('cache');cache.show_annotations=false;cache.auto_prefet
 local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report);settings:flush()
 local scope=assert(settings:get_auth_scope())
 local chapters,paths=40,{}
+local scan_reads,locate_reads
+local function check_search_archive(direct_cache,live,path)
+    local Search=require('weread.lib.native_direct_search')
+    local Coordinates=require('weread.lib.source_coordinates')
+    local Archive=require('weread.lib.source_archive')
+    local lfs=require('libs/libkoreader-lfs')
+    local entry=assert(direct_cache.identify(settings,scope.vid,path,live))
+    local reads=0
+    local read=Archive.read
+    Archive.read=function(candidate,...)
+        if candidate==path then reads=reads+1 end
+        return read(candidate,...)
+    end
+    local function scan() return Search.scan(settings,scope.vid,entry,'cobaltneedle',1,false,live) end
+    local hit=assert(scan().hits[1]);scan_reads=reads
+    local found=Search.find_hit(settings,scope.vid,entry,'cobaltneedle',hit,false,live)
+    locate_reads=reads-scan_reads
+    assert(found.path==path and found.hit.byte==hit.byte and found.hit.anchor.co==hit.anchor.co)
+    Archive.read=read
+
+    local file=assert(io.open(path,'rb'));local bytes=assert(file:read('*a'));assert(file:close())
+    local damaged=string.char((bytes:byte(1)+1)%256)..bytes:sub(2)
+    local function write(target,content)
+        local output=assert(io.open(target,'wb'));assert(output:write(content));assert(output:close())
+    end
+    write(path,damaged);assert(scan().error=='unavailable','damaged chapter was scanned');write(path,bytes)
+
+    local build=Coordinates.build
+    local attributes=lfs.symlinkattributes
+    local file_info=assert(attributes(path))
+    Coordinates.build=function(...)
+        write(path,damaged)
+        -- Model a write with identical file attributes, so the digest alone must reject it.
+        lfs.symlinkattributes=function(candidate,...)
+            if candidate==path and select('#',...)==0 then return file_info end
+            return attributes(candidate,...)
+        end
+        return build(...)
+    end
+    local changed=scan()
+    lfs.symlinkattributes=attributes;Coordinates.build=build;write(path,bytes)
+    assert(changed.error=='unavailable','search accepted an in-place change after reading the archive')
+
+    Coordinates.build=function(...)
+        write(path..'.replacement',bytes)
+        assert(os.rename(path..'.replacement',path))
+        return build(...)
+    end
+    local replaced=Search.find_hit(settings,scope.vid,entry,'cobaltneedle',hit,false,live)
+    Coordinates.build=build
+    assert(replaced.error=='unavailable','locate accepted a replacement during verification')
+
+    local opened,_,recheck=direct_cache.open_search(settings,scope.vid,entry,live)
+    assert(opened and recheck())
+    local catalog=assert(path:match('^(.*)/[^/]+$'))..'/catalog.txt'
+    assert(os.rename(catalog,catalog..'.test'))
+    local still_valid=recheck()
+    assert(os.rename(catalog..'.test',catalog))
+    assert(not still_valid and recheck(),'search did not independently check the saved catalog again')
+    assert(scan().hits[1].byte==hit.byte)
+end
 if input.case=='offline_scan' then
     assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
     local Cache=require('weread.lib.native_direct_cache')
@@ -26,12 +87,14 @@ if input.case=='offline_scan' then
         local uid=tostring(index)
         local xhtml='<html><body>'..string.rep('<p>Synthetic filler paragraph for the native reader.</p>',50)
             ..'<p>cobaltneedle of chapter '..uid..'</p></body></html>'
-        local row={chapterUid=uid,chapterIdx=index,title='Synthetic chapter '..uid}
+        local row={chapterUid=uid,chapterIdx=index,title='Synthetic chapter '..uid,catalog_order=index,catalog_count=chapters,
+            catalog_prev=index>1 and tostring(index-1) or nil,catalog_next=index<chapters and tostring(index+1) or nil}
         local prepared={book_id=book.book_id,chapter_uid=uid,book_version=1,catalog_sha256=digest,
             reading_catalog_sha256=digest,source_sha256=Crypto.sha256_hex(xhtml),source_channel='eink',
             coordinate_source_authoritative=false,missing_images=0,xhtml=xhtml,css='',assets={}}
         paths[index]=assert(Cache.publish(settings,scope.vid,book,row,prepared,live)).path
     end
+    check_search_archive(Cache,live,paths[chapters])
     input.path=paths[1]
 else
     assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
@@ -103,7 +166,8 @@ if input.case=='offline_scan' then
     end
     assert(found)
     print('WEREAD_NATIVE_ONLINE_UI='..json.encode{ok=true,case=input.case,chapters=chapters,workers=workers,
-        redraws=redraws,busy_redraws=busy_redraws,search_ms=search_ms,cancel_resume=true,last_hit_visible=true});return
+        redraws=redraws,busy_redraws=busy_redraws,search_ms=search_ms,cancel_resume=true,last_hit_visible=true,
+        scan_archive_reads=scan_reads,locate_archive_reads=locate_reads});return
 end
 local requests=0
 local function configure(active)
