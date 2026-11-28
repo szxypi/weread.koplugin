@@ -1,0 +1,38 @@
+{
+  "renewal": {
+    "python_http_401_observed": true,
+    "native_lua_http_401_observed": true,
+    "same_owner_verified": true,
+    "keychain_renewed_readback_verified": true,
+    "authentication_posts_attempted": 1,
+    "account_data_writes_attempted": 0
+  },
+  "inspection": {
+    "result": "INSPECTED",
+    "phase": "create_claimed",
+    "dispatched": true,
+    "native_fixture_present": true,
+    "native_group_present": false,
+    "native_baseline_unchanged": true,
+    "web_fixture_present": true,
+    "web_group_present": false,
+    "web_baseline_unchanged": true,
+    "native_original_state_unchanged": true,
+    "web_original_state_unchanged": true,
+    "old_group_absent": true,
+    "data_posts": 0,
+    "authentication_posts": 0,
+    "no_automatic_replay": true
+  },
+  "time_bundle_after_renewal": {
+    "result": "SAME_DAY_DEFERRED",
+    "exact_rows": true,
+    "archive_verified": true,
+    "coverage_verified": true,
+    "pending_unchanged": true,
+    "profile_removed": true,
+    "saved_scopes_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  }
+}

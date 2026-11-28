@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "sample": "new self-authored imported TXT with a non-BMP character before the quote",
+  "source_format": "web_txt",
+  "independent_initial_shelf_baselines_match": true,
+  "server_highlight": "one new record independently read back and then removed",
+  "annotation_posts": 2,
+  "existing_book_writes": 0,
+  "authentication_posts": 0,
+  "native_ui": [
+    {"width": 600, "height": 800, "dpi": 167, "located": 1, "offline_reopen": true, "plugin_http_requests": 0},
+    {"width": 1264, "height": 1680, "dpi": 300, "located": 1, "offline_reopen": true, "plugin_http_requests": 0}
+  ],
+  "source_and_original_observed_state_restored": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "private_values_in_report": false,
+  "limitations": ["single self-authored TXT and highlight", "official visual range semantics not established", "TXT annotation writes not enabled", "physical Kindle not tested"]
+}

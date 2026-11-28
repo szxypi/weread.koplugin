@@ -1,0 +1,275 @@
+{
+  "result": "PASS",
+  "base_commit": "e75d9221d00365635154d3d1a3a2452e90ba2758",
+  "candidate_changes": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "source_manifest_format": "SHA256 of sorted UTF8(path + NUL + SHA256(file) + LF)",
+  "profiles": [
+    {
+      "profile": "reader-response-accepted-flow-600",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "package_sha256": "1d821cd2ca0c0aa1f6ce047acbff81c2790b67cd422ea7875edf693ec9627c61",
+      "source_manifest_sha256": "22628f5b41d5feec49065bae98c302eff4f9f14f5fd6e7388b86650d7ccc579a",
+      "production_files": 184,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "invalid_response_checks": {
+        "cases": 6,
+        "reporting_blocked": true,
+        "local_checkpoint_preserved": true,
+        "cloud_posts_during_rejection": 0,
+        "result": "PASS",
+        "native_location_preserved": true,
+        "synthetic_only": true
+      },
+      "offline_progress_checks": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true,
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true,
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "chosen_updates": 1,
+        "session_entry_and_progress_posts": 2
+      }
+    },
+    {
+      "profile": "reader-response-accepted-flow-ko2",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "package_sha256": "a26883ead2cef85d83d30f22abd9dae5a1b94a65246d45d85e83950c1c839919",
+      "source_manifest_sha256": "22628f5b41d5feec49065bae98c302eff4f9f14f5fd6e7388b86650d7ccc579a",
+      "production_files": 184,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "invalid_response_checks": {
+        "synthetic_only": true,
+        "cloud_posts_during_rejection": 0,
+        "local_checkpoint_preserved": true,
+        "native_location_preserved": true,
+        "reporting_blocked": true,
+        "cases": 6,
+        "result": "PASS"
+      },
+      "offline_progress_checks": {
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "chosen_updates": 1,
+        "session_entry_and_progress_posts": 2,
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true,
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true
+      }
+    },
+    {
+      "profile": "reader-response-accepted-core-600",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "package_sha256": "6f5085daafab2cc63c3f372db4bea3c213bff2ee33f26a2ef3b22652289358ea",
+      "source_manifest_sha256": "22628f5b41d5feec49065bae98c302eff4f9f14f5fd6e7388b86650d7ccc579a",
+      "production_files": 184,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0
+    },
+    {
+      "profile": "reader-response-accepted-core-ko2",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "package_sha256": "ca78c99482e6b804a0b724300652054039315d464f99fc72a0be595b94bc67bf",
+      "source_manifest_sha256": "22628f5b41d5feec49065bae98c302eff4f9f14f5fd6e7388b86650d7ccc579a",
+      "production_files": 184,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0
+    }
+  ],
+  "owner_readonly_contract": {
+    "result": "READER_PROGRESS_CONTRACT_VERIFIED",
+    "checked_at": "2026-11-09T15:51:09.903802+00:00",
+    "account_data_writes_attempted": 0,
+    "private_responses_saved": false,
+    "credentials_written_to_files": false,
+    "cookie_rotation_saved": false,
+    "lua_projection_matches": true,
+    "same_owner_verified": true,
+    "shelf_books": 139,
+    "samples": 8,
+    "positions": 8,
+    "stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ]
+  },
+  "synthetic_model_comparison": {
+    "result": "PASS",
+    "synthetic_cases": 70,
+    "accepted": 10,
+    "python_lua_models_identical": true
+  },
+  "owner_reading_regression": [
+    {
+      "screen": "600",
+      "result": "OWNER_NATIVE_READING_VERIFIED",
+      "checked_at": "2026-11-09T15:56:18.775032+00:00",
+      "shelf_books": 139,
+      "pages": 32,
+      "live_requests": [
+        1,
+        12,
+        4,
+        1,
+        4,
+        31,
+        0
+      ],
+      "offline_requests": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "cloud_position_unchanged": true,
+      "tmpfs_profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "screenshots": 0
+    },
+    {
+      "screen": "ko2",
+      "result": "OWNER_NATIVE_READING_VERIFIED",
+      "checked_at": "2026-11-09T15:56:30.779675+00:00",
+      "shelf_books": 139,
+      "pages": 33,
+      "live_requests": [
+        1,
+        12,
+        4,
+        1,
+        4,
+        31,
+        0
+      ],
+      "offline_requests": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "cloud_position_unchanged": true,
+      "tmpfs_profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "screenshots": 0
+    }
+  ],
+  "checks": {
+    "lua_spec_groups": 156,
+    "luacheck_files": 411,
+    "lua_syntax_files": 413,
+    "python_suites": 37,
+    "python_tests": 386,
+    "result": "PASS",
+    "namespace": true,
+    "timezones": 4,
+    "python_compile": true,
+    "tls": true,
+    "release_notes_extract": true,
+    "remote_response_checks": 121,
+    "progress_sync_checks": 383,
+    "progress_sync_added_checks": 64
+  },
+  "limitations": [
+    "Malformed responses are synthetic; live new response projection covers eight Web books, not live Gateway or all book types",
+    "Existing catalog-word mapping and upload protocol unchanged; no precise real-account write/readback or multi-device proof",
+    "Private owner UI uses tmpfs and anonymous auth injection; no private screenshots or manual visual acceptance",
+    "Physical KO2 inputs, suspend, network and power-loss testing remain pending",
+    "No release or whole-goal completion; concentrated performance phase remains deferred"
+  ]
+}

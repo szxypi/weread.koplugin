@@ -1,0 +1,28 @@
+{
+  "isolated_self_authored_epub": true,
+  "source_independently_verified": true,
+  "initial_position_and_reading_counters_zero": true,
+  "initial_highlights_and_thoughts_empty": true,
+  "steps": [
+    {"operation": "import_notification", "attempts": 1, "independent_readback": true},
+    {"operation": "mark_started", "attempts": 1, "width": 1264, "height": 1680, "native_ui": true, "independent_readbacks": 2},
+    {"operation": "restore_unstarted", "attempts": 1, "width": 600, "height": 800, "native_ui": true, "independent_readbacks": 2},
+    {"operation": "remove_fixture", "attempts": 1, "independent_readback": true}
+  ],
+  "position_counters_highlights_thoughts_restored_before_removal": true,
+  "immediate_both_channel_full_snapshots_match_initial": true,
+  "fresh_process_audit": {
+    "account_data_writes": 0,
+    "membership_flags_and_core_group_fields_match_initial": true,
+    "web_full_snapshot_matches_initial": true,
+    "native_full_snapshot_matches_initial": false,
+    "native_current_full_snapshot_matches_web": true,
+    "initial_native_and_web_full_snapshots_matched": false,
+    "native_full_snapshot_difference_cause": "unknown",
+    "native_ui_roundtrip_proofs_verified": true
+  },
+  "existing_book_writes": 0,
+  "automatic_replays": 0,
+  "temporary_profiles_removed_and_credentials_audited": true,
+  "physical_device_verified": false
+}

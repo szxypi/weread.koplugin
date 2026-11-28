@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-24",
+  "result": "OWNER_CLOUD_GROUP_COPY_UI_VERIFIED",
+  "groups": 5,
+  "regular_memberships": 86,
+  "resolutions": [[600, 800], [1264, 1680]],
+  "account_data_posts": 0,
+  "authorization_posts": 0,
+  "temporary_isolated_account": true,
+  "installed_koreader_filemanager_ui": true,
+  "offline_reopen": true,
+  "temporary_profiles_removed": true,
+  "observed_shelf_unchanged": true,
+  "private_data_in_report": false,
+  "physical_kindle_tested": false
+}

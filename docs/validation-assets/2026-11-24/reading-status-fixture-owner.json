@@ -1,0 +1,33 @@
+{
+  "fixture": "self_authored_epub",
+  "source_verified": true,
+  "existing_book_writes": 0,
+  "mark": {
+    "attempts": 1,
+    "acknowledgement_recognized": false,
+    "observed_start_state_before": 0,
+    "observed_start_state_after": 1,
+    "changed_native_fields": ["isStartReading", "startReadingTime"],
+    "changed_native_shelf_fields": []
+  },
+  "restore": {
+    "attempts": 1,
+    "acknowledgement_recognized": false,
+    "independent_readback_matches_baseline": true
+  },
+  "fixture_cleanup": {
+    "notify_attempts": 1,
+    "remove_attempts": 1,
+    "remove_acknowledged": true,
+    "native_and_web_shelf_restored": true
+  },
+  "new_process_readback": {
+    "fixture_absent": true,
+    "original_shelf_and_groups_verified": true,
+    "both_channels_match": true,
+    "one_shot_claims_preserved": true,
+    "account_data_writes": 0
+  },
+  "no_automatic_replay": true,
+  "physical_device_verified": false
+}

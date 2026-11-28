@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "book_id": "9007199254740993",
+  "adjacent_legacy_numeric_key": "9007199254740992",
+  "actual_reader_and_background_worker": true,
+  "selected_chapter_opened_with_exact_epub_book_id": true,
+  "actual_worker_result_applied_to_separate_in_memory_legacy_cache": true,
+  "adjacent_legacy_cache_preserved": true,
+  "reader_annotation_rejected_adjacent_in_memory_legacy_cache": true,
+  "fresh_offline_reopen": true,
+  "offline_http_requests": 0,
+  "real_account_requests": 0,
+  "physical_kindle_tested": false
+}

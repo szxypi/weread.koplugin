@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "sources": {
+    "luajit": {
+      "url": "https://codeload.github.com/LuaJIT/LuaJIT/tar.gz/63c8f1a9b479ba5518cf6a170ff7729178bc3cfd",
+      "sha256": "8cad76f444b76001b7123dc626c5d0bfc24f1f790333737443345f7e6b41bb5f",
+      "commit": "63c8f1a9b479ba5518cf6a170ff7729178bc3cfd",
+      "version": "2.1-63c8f1a"
+    },
+    "luacheck": {
+      "url": "https://codeload.github.com/lunarmodules/luacheck/tar.gz/cc089e3f65acdd1ef8716cc73a3eca24a6b845e4",
+      "sha256": "919e748df5438e9370609a81d4addd28dafed317a5b076aae9a324ee9f410fb9",
+      "commit": "cc089e3f65acdd1ef8716cc73a3eca24a6b845e4",
+      "version": "1.2.0"
+    },
+    "luafilesystem": {
+      "url": "https://codeload.github.com/lunarmodules/luafilesystem/tar.gz/a186cca5833691e830ed255e38ace8ff6b870dbf",
+      "sha256": "292107c483aff30f6e88101ce4e80c8262863df08775d7e5dc765c630b6391f4",
+      "commit": "a186cca5833691e830ed255e38ace8ff6b870dbf",
+      "version": "1.9.0"
+    },
+    "argparse": {
+      "url": "https://codeload.github.com/luarocks/argparse/tar.gz/a5ab54f8161f9f508b058411f64c2c72d974733b",
+      "sha256": "2de5ce9fbeaac88cd928cd6cc68864509e10354a4dffaa43268632636cf198fe",
+      "commit": "a5ab54f8161f9f508b058411f64c2c72d974733b",
+      "version": "0.7.2"
+    }
+  },
+  "ripgrep": {
+    "x86_64": {
+      "version": "15.2.0",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c"
+    },
+    "aarch64": {
+      "version": "15.2.0",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz",
+      "sha256": "800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "result": "READ_ONLY_CATALOG_VERIFIED",
+  "real_account_catalogs": 6,
+  "real_account_catalog_rows": 308,
+  "real_account_excluded_rows": 0,
+  "same_account_and_shelf_unchanged": true,
+  "koreader_readable_filter_matches": true,
+  "synthetic_cover_and_empty_section": true,
+  "synthetic_screen_scenarios": {
+    "600x800": 23,
+    "1264x1680": 23
+  },
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_data_saved": false,
+  "real_account_cover_verified": false,
+  "real_txt_history_verified": false,
+  "kindle_device_verified": false
+}

@@ -1,0 +1,38 @@
+{
+  "result": "UNVERIFIED",
+  "account_data_posts_attempted": 1,
+  "no_automatic_replay": true,
+  "credentials_written_to_files": false,
+  "detail": "cleanup/progress",
+  "intent_state": "add_cleanup_pending",
+  "native_stages": [
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "cleanup_remove",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    }
+  ]
+}

@@ -5,7 +5,8 @@ local Selection = {}
 Selection.__index = Selection
 
 function Selection:new(chapters, ranges, toc, current_index, state_of)
-    local model = setmetatable({ chapters = chapters, nodes = {}, by_uid = {}, count = 0 }, self)
+    local model = setmetatable({ chapters = chapters, nodes = {}, by_uid = {}, catalog_index = {}, count = 0 }, self)
+    for index, chapter in ipairs(chapters) do model.catalog_index[Chapters.uid(chapter)] = index end
     local by_toc, by_point = {}, {}
     for index, entry in ipairs(toc or {}) do
         if entry.xpointer and not by_point[entry.xpointer] then by_point[entry.xpointer] = index end
@@ -38,9 +39,49 @@ function Selection:new(chapters, ranges, toc, current_index, state_of)
     else
         for _, chapter in ipairs(chapters) do add(chapter.title, chapter.level, chapter) end
     end
-    local current = chapters[current_index or 1]
+    local current = type(current_index)=='number' and current_index%1==0 and chapters[current_index] or nil
     model.current = current and model.by_uid[Chapters.uid(current)]
+    if type(current_index)=='number' and current_index%1==0 and current_index>=1
+        and current_index<=#chapters and model.current then
+        model.current_index=current_index
+    end
     return model
+end
+
+function Selection:chapterIndex(node)
+    local uid = node and node.chapter and Chapters.uid(node.chapter)
+    return uid and self.by_uid[uid] == node and self.catalog_index[uid] or nil
+end
+
+-- Endpoints must both be linked; entries between them follow WeRead catalog
+-- order, not the possibly different order of the local table of contents.
+function Selection:addRange(first, last)
+    if type(first) ~= 'number' or first % 1 ~= 0 or type(last) ~= 'number' or last % 1 ~= 0
+        or first < 1 or last < 1 or first > #self.chapters or last > #self.chapters then return 0 end
+    local start_node = self.by_uid[Chapters.uid(self.chapters[first])]
+    local end_node = self.by_uid[Chapters.uid(self.chapters[last])]
+    if not start_node or not start_node.selectable or not end_node or not end_node.selectable then return 0 end
+    if first > last then first, last = last, first end
+    local added = 0
+    for index = first, last do
+        local node = self.by_uid[Chapters.uid(self.chapters[index])]
+        if node and node.selectable and not node.selected then self:toggle(node); added = added + 1 end
+    end
+    return added
+end
+
+-- Add a bounded window in catalog order; leave unrelated manual selections
+-- intact and never select an unlinked local TOC entry.
+function Selection:addCurrentWindow()
+    if not self.current_index or not self.current or not self.current.selectable then return 0 end
+    local added=0
+    for index=self.current_index,math.min(#self.chapters,self.current_index+9) do
+        local node=self.by_uid[Chapters.uid(self.chapters[index])]
+        if node and node.selectable and not node.selected then
+            self:toggle(node);added=added+1
+        end
+    end
+    return added
 end
 
 function Selection:visible()

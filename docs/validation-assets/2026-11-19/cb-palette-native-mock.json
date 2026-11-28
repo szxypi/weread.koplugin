@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "environment": "KOReader native interface with isolated loopback service",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "normal_path": ["create_blue_marker", "change_to_default", "change_to_blue", "delete", "offline_reopen"],
+  "independent_readback_after_each_write": true,
+  "dry_run_blocks_write": true,
+  "ko2_unconfirmed_cases": ["default_color", "blue_color"],
+  "pending_record_preserved": true,
+  "retry_does_not_send": true,
+  "real_account_writes": 0,
+  "physical_device_tested": false
+}

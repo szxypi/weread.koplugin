@@ -1,0 +1,35 @@
+{
+  "result": "PASS_SYNTHETIC",
+  "screens": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "checks": 175
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "checks": 177
+    }
+  ],
+  "catalog_chapters": 160,
+  "verified_source_chapter_position": 155,
+  "actual_koreader_reader_workers_sqlite_archive": true,
+  "matching_archive_original_and_rendered_bytes_verified": true,
+  "simulated_network_responses": true,
+  "cancelled_scan_posts": 0,
+  "synthetic_initial_dispatches": 1,
+  "synthetic_recovery_additional_dispatches": 0,
+  "acknowledged_record_read_only_recovery": true,
+  "source_rechecked_during_transfer_and_recovery": true,
+  "old_metadata_unchanged": true,
+  "other_lost_ack_and_settlement_regressions": true,
+  "unit_last_supported_chapter": 10000,
+  "unit_cancel_and_stale_callbacks_verified": true,
+  "real_account_tested": false,
+  "physical_kindle_tested": false,
+  "real_account_data_writes": 0,
+  "authentication_posts": 0
+}

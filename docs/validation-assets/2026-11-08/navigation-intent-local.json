@@ -1,0 +1,235 @@
+{
+  "status": "PARTIAL",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Ubuntu ARM64 / Xvfb",
+  "public_network_used": false,
+  "production_account_writes_attempted": 0,
+  "precision_wire_sync_enabled": false,
+  "baseline_failure": "The target chapter opened a new ReaderUI and lost the selected chapter offset.",
+  "handoff_persisted_to_settings": false,
+  "runs": [
+    {
+      "kind": "chapter_handoff_600",
+      "candidate_sha256": "8c6da52602f8184330573f86c677a1a0ece8e5eb4a09a8244bb46a854b061cc4",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "navigation-intent": {
+        "current_page": 1,
+        "total_pages": 3,
+        "status": "PARTIAL",
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false,
+        "native_reader_replaced": true,
+        "cached_chapter_switch": true,
+        "cached_offset": 154,
+        "stale_native_prompt_rejected": true,
+        "old_download_cached_without_open": true,
+        "new_local_source_request": true,
+        "downloaded_chapter_switch": true,
+        "target_chapter": 2,
+        "target_offset": 154
+      }
+    },
+    {
+      "kind": "chapter_handoff_ko2",
+      "candidate_sha256": "16b0a2e614374a977307a45f1fbb71ed3e3bec6b23ed813f5428712ffa22a88f",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "navigation-intent": {
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false,
+        "native_reader_replaced": true,
+        "cached_chapter_switch": true,
+        "status": "PARTIAL",
+        "stale_native_prompt_rejected": true,
+        "old_download_cached_without_open": true,
+        "new_local_source_request": true,
+        "downloaded_chapter_switch": true,
+        "target_chapter": 2,
+        "target_offset": 154,
+        "current_page": 1,
+        "total_pages": 3,
+        "cached_offset": 154,
+        "public_network_used": false
+      }
+    },
+    {
+      "kind": "source_navigation_and_lifecycle_ko2",
+      "candidate_sha256": "76374fa99e8e57dd4292d9b6f50bfcb467597d72747ac6dba5a827b2b39ab8f8",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "source-navigation": {
+        "status": "PARTIAL",
+        "scroll": true,
+        "cancelled_live_worker_reaped": true,
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false,
+        "background_preparation": true,
+        "parent_native_dom": true,
+        "ui_raw_member_reads": 0,
+        "navigation_child_observed": true,
+        "native_phase_event_loop_ticks": 89,
+        "target_chapter": "22",
+        "target_co": 741,
+        "native_page_origin_co": 433,
+        "page_before": 1,
+        "pages_before_reflow": 182,
+        "pages_after_reflow": 266,
+        "source_target_retained": true,
+        "font_reflow": true,
+        "same_page_jump_invalidates": true,
+        "target_page": 93,
+        "upload_verification_unchanged": true,
+        "cancelled_native_walk": true,
+        "native_walk_steps_before_cancel": 507
+      },
+      "source-state": {
+        "status": "PARTIAL",
+        "source_navigation": true,
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "scroll": true,
+        "live_reader_capture": true,
+        "background_process_observed": true,
+        "native_document_kept_in_parent": true,
+        "menu_check": true,
+        "page_turn": true,
+        "account_change": true,
+        "suspend_resume_callbacks": true,
+        "low_memory_recovery": true,
+        "same_path_replacement": true,
+        "reopen_version": 8,
+        "verified_file_chapter_title": true,
+        "stale_dialog_closed": true,
+        "source_navigation_close_reopen": true,
+        "book_switch": true,
+        "initial_co": 16,
+        "page_two_co": 433,
+        "screen": {
+          "width": 1264,
+          "height": 1680
+        },
+        "wire_precision_sync_enabled": false
+      }
+    },
+    {
+      "kind": "legacy_target_retention_600",
+      "candidate_sha256": "76374fa99e8e57dd4292d9b6f50bfcb467597d72747ac6dba5a827b2b39ab8f8",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "navigation": {
+        "public_network_used": false,
+        "cloud_target_retained": true,
+        "same_page_jump_invalidates": true,
+        "return_does_not_revive": true,
+        "native_scroll_update": true,
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false,
+        "page": {
+          "captured_fraction": 0.20265780730897,
+          "native_page_origin_offset": 60797,
+          "pages_after_reflow": 706,
+          "retained_after_reflow": true,
+          "retained_chapter_offset": 60921,
+          "retained_chapter_uid": 1,
+          "total_pages": 602,
+          "requested_fraction": 0.203073089701,
+          "old_rounded_page": 120,
+          "actual_page": 122
+        },
+        "scroll": {
+          "captured_fraction": 0.50312353835637,
+          "requested_fraction": 0.503125,
+          "document_height": 528087,
+          "actual_position": 265693
+        }
+      }
+    },
+    {
+      "kind": "download_package_and_offline_time_ko2",
+      "candidate_sha256": "9645e06fe050754a1a2c7bc7dd21317672eee4d12a64067587550b11f628e8b3",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "source-binding": {
+        "full": {
+          "raw_before_footnotes": 6,
+          "background_packaging": true,
+          "transformed_chapter_dom_roundtrips": 2,
+          "chapters": 6,
+          "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+          "raw_before_images": 6,
+          "file_version": 7
+        },
+        "reader": {
+          "total_pages": 3,
+          "chapter_dom_roundtrip": true,
+          "production_source_navigation": true,
+          "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+          "co": 1395,
+          "raw_before_images": true,
+          "exact_prefix_verified": true,
+          "target_page": 3,
+          "previous_page": 1,
+          "point_offset": 24,
+          "target_visible": true,
+          "raw_bytes": 4421,
+          "file_version": 7
+        },
+        "extra_routes": {
+          "synchronous_range_chapters": 2,
+          "prefetch_worker_chapters": 1,
+          "images_disabled": true
+        },
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "progress_mapping_enabled": false,
+        "wire_progress_write_verified": false
+      }
+    }
+  ],
+  "checks": {
+    "lua_specs": 102,
+    "luacheck_files": 238,
+    "luacheck_warnings": 0,
+    "python_tests": 71,
+    "progress_sync_checks": 259,
+    "progress_target_navigation_checks": 12
+  },
+  "limitations": [
+    "This verifies local navigation ordering and selected offsets in the existing word/fraction model, not precise wire coordinates.",
+    "Cloud source-coordinate/version comparison, precise write/readback and multi-device validation remain unfinished.",
+    "No KO2 hardware, maximum-chapter latency or peak-memory acceptance claim.",
+    "Native chapter text/OPF synchronous work, TXT/complex content and emoji glyph coverage remain incomplete."
+  ]
+}

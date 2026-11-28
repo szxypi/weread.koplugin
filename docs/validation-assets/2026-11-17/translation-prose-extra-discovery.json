@@ -1,0 +1,19 @@
+{
+  "result": "BOUNDED_READONLY_EXTRA_QUERIES_NO_MISSING_PROSE",
+  "additional_fixed_queries": 3,
+  "queries_with_eligible_books": 2,
+  "queries_without_eligible_books": 1,
+  "chapter_checks": 11,
+  "checks_with_existing_translation": 11,
+  "untranslated_content_candidates": 0,
+  "candidate_sample_verified": false,
+  "all_possible_books_checked": false,
+  "old_scopes_unchanged": true,
+  "account_data_posts": 0,
+  "translation_mode_requests": 0,
+  "generation_requests": 0,
+  "authentication_posts": 0,
+  "trial_activations": 0,
+  "purchases": 0,
+  "private_data_on_regular_disk": false
+}

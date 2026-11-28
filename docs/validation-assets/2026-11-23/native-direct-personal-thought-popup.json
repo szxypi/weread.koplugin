@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-23",
+  "scope": "one account, one authorized EPUB chapter in installed KOReader",
+  "screens": ["600x800", "1264x1680"],
+  "chapter_quoted_thoughts": 2,
+  "displayed_and_clicked": 2,
+  "popup_content_independently_matched": true,
+  "native_and_web_source_bytes_match": true,
+  "quotes_independently_matched": true,
+  "offline_reopen_and_click": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "original_cloud_state_unchanged": true,
+  "web_position_unchanged": true,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "component_coverage": ["distinct overlapping-note previews", "unicode truncation", "closed selection rejection", "hide and suspend dismissal", "account switch"],
+  "limitations": ["one account and chapter", "physical Kindle untested", "cross-chapter selection not implemented"]
+}

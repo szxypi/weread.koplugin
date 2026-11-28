@@ -1,0 +1,111 @@
+{
+  "result": "PASS",
+  "source": "isolated KOReader native UI",
+  "account_writes": 0,
+  "cases": {
+    "small": {
+      "same_owner_verified": true,
+      "profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_gets": 138,
+          "cover_gets": 145,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true,
+          "bulk_progress": {
+            "eligible": 138,
+            "saved": 138,
+            "menu_started": true,
+            "cache_verified": true,
+            "skipped": 0
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_gets": 0,
+          "cover_gets": 0,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true,
+          "bulk_progress": {
+            "skipped": 0,
+            "eligible": 138,
+            "menu_started": false,
+            "saved": 138,
+            "cache_verified": true
+          }
+        }
+      ]
+    },
+    "ko2": {
+      "same_owner_verified": true,
+      "profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_gets": 138,
+          "cover_gets": 145,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true,
+          "bulk_progress": {
+            "skipped": 0,
+            "menu_started": true,
+            "cache_verified": true,
+            "saved": 138,
+            "eligible": 138
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_gets": 0,
+          "cover_gets": 0,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true,
+          "bulk_progress": {
+            "cache_verified": true,
+            "eligible": 138,
+            "saved": 138,
+            "skipped": 0,
+            "menu_started": false
+          }
+        }
+      ]
+    }
+  }
+}

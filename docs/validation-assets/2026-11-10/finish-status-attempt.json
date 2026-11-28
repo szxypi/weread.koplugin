@@ -1,0 +1,104 @@
+{
+  "result": "FINISH_MARK_OBSERVED_ACK_UNVERIFIED_RESTORATION_PENDING",
+  "checked_at": "2026-11-10T11:45:29.362427+00:00",
+  "real_data_posts_attempted": 1,
+  "real_authentication_posts_attempted": 1,
+  "original_two_step_permission_stopped_after_first_attempt": true,
+  "automatic_second_step_sent": false,
+  "write_http_status": 200,
+  "acknowledgement_recognized": false,
+  "receipt_shape": {
+    "known_fields": [
+      "status"
+    ],
+    "other_fields_count": 2
+  },
+  "full_roundtrip_verified": false,
+  "target_original_finished": false,
+  "target_observed_finished": true,
+  "initial_shelf_books": 139,
+  "latest_shelf_books": 139,
+  "initial_finished_books": 20,
+  "latest_finished_books": 21,
+  "unrelated_flags_and_members_unchanged": true,
+  "original_position_unchanged": true,
+  "pending_intent_retained": true,
+  "manual_restore_real_posts_attempted": 0,
+  "new_specific_restoration_consent_pending": true,
+  "credential_entries_retained": true,
+  "raw_positions_snapshots_credentials_or_titles_in_report": false,
+  "prototype_stages": [
+    {
+      "stage": "finish_preview_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_preview_position",
+      "status": 200
+    },
+    {
+      "stage": "finish_preflight_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_preflight_position",
+      "status": 200
+    },
+    {
+      "stage": "finish_write",
+      "status": 200
+    },
+    {
+      "stage": "finish_readback_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_readback_position",
+      "status": 200
+    }
+  ],
+  "independent_check_stages": [
+    {
+      "stage": "finish_pending_check_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_pending_check_position",
+      "status": 200
+    }
+  ],
+  "renewal": {
+    "http401_before_data_write": true,
+    "same_owner_verified": true,
+    "shelf_books": 139,
+    "keychain_readback": true,
+    "refresh_token_returned": false
+  },
+  "offline": {
+    "result": "PASS",
+    "python_offline_files": 53,
+    "python_tests": 643,
+    "python_compiled_files": 143
+  },
+  "restoration_tests": 11,
+  "original_prototype_tests": 25,
+  "executed_prototype_head": "79f4de6195179c6ae1b5697436a78cb3beb9103f",
+  "executed_prototype_script_sha256": "78c781fe5389c139bf75a93377b3038b96a04df848eac30413d71888bfaf4075",
+  "executed_store_sha256": "bd0bd92136a1fa6c0f1de51eb983133ffb4501a8f9b598338ea4e4d3a7439445",
+  "prepared_restoration_sha256": {
+    "scripts/secure_finish_experiment.py": "2235ada447b3826bffd6b9a33670ddd67421b4df2c008a5fc64b9768dec6c4ba",
+    "scripts/resolve_finish_experiment.py": "4f80ae337ebcbf6dfb961f039c6a636b7349013241758dfa9550a3c5af37c13a",
+    "scripts/test_resolve_finish_experiment.py": "93dd32ca1ef0dc60d35c6536394291f03a40f56babad46df14ddfeaa913ffde2"
+  },
+  "production_changed": false,
+  "lua_write_implemented": false,
+  "pending": [
+    "specific_one_restore_consent",
+    "actual_cancel_mark_and_response_semantics",
+    "lua_completion_ui",
+    "physical_ko2",
+    "other_server_metadata_restoration",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

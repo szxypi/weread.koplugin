@@ -1,0 +1,31 @@
+{
+  "result": "WEB_AUTH_READ_VERIFIED",
+  "checked_at": "2026-11-09T02:37:04.126438+00:00",
+  "account_data_writes": 0,
+  "credential_maintenance_posts": 0,
+  "credentials_written_to_files": false,
+  "credentials_retained_until_goal_complete": true,
+  "owner_profile_matches_pinned_vid": true,
+  "anonymous_account_control": {
+    "status": 401,
+    "returns_requested_profile": false,
+    "cookie_sent": false,
+    "redirects_followed": 0
+  },
+  "shelf_books": 139,
+  "confirmed_cookie_rotation_saved": false,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

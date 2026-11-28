@@ -1,0 +1,33 @@
+{
+  "result": "READONLY_IMAGE_VERIFIED",
+  "checked_at": "2026-11-09T01:43:50.659640+00:00",
+  "account_data_writes_attempted": 0,
+  "images_written_to_files": false,
+  "private_articles_saved": false,
+  "credential_renewals": 0,
+  "owner_verified": true,
+  "source_images": 3,
+  "image_gets": 1,
+  "image_status": 200,
+  "image_media": "image/jpeg",
+  "image_bytes": 147959,
+  "image_cookie_sent": false,
+  "image_authorization_sent": false,
+  "redirects_followed": 0,
+  "web_cookie_rotation_saved": true,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "mp_content",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

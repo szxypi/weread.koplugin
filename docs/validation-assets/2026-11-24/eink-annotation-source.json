@@ -1,0 +1,40 @@
+{
+  "result": "PASS",
+  "baseline_commit": "30d97e102e1ee16953f465eaf50c029c125b2001",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "synthetic_index_comparisons": 10000,
+  "synthetic_quote_comparisons": 40000,
+  "runs_per_case": 3,
+  "long_single_paragraph": {
+    "bytes": 960020,
+    "median_cpu_seconds_before": 0.035571,
+    "median_cpu_seconds_after": 0.007573,
+    "gc_paused_lua_allocation_delta_kib_before": 6486.171875,
+    "gc_paused_lua_allocation_delta_kib_after": 2389.3828125
+  },
+  "ten_thousand_paragraphs": {
+    "bytes": 710013,
+    "median_cpu_seconds_before": 0.015687,
+    "median_cpu_seconds_after": 0.008730,
+    "gc_paused_lua_allocation_delta_kib_before": 10476.6640625,
+    "gc_paused_lua_allocation_delta_kib_after": 2273.0703125
+  },
+  "owner_kindle_oasis_2_simulated_size": {
+    "underlines_located": 14,
+    "thought_items_checked": 53,
+    "online_and_new_offline_process_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authorization_posts": 0
+  },
+  "synthetic_selection_create_edit_delete_both_sizes": true,
+  "synthetic_highlight_create_delete_ko2_size": true,
+  "synthetic_cross_chapter_marks_thoughts_bookmarks_both_sizes": true,
+  "local_unit_specs": 477,
+  "physical_device_tested": false,
+  "limitations": [
+    "CPU measurements cover index construction for synthetic text, not book loading or physical Kindle performance.",
+    "Lua memory deltas measured with garbage collection paused include the result and temporary allocations; they are not process peak memory.",
+    "Owner verification covers one real chapter at a simulated screen size, not every source format or device."
+  ]
+}

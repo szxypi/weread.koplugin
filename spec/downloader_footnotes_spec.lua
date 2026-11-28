@@ -65,6 +65,11 @@ package.preload["weread.lib.content"] = function()
         save_full_download_rendered_chapter = function(_workspace, chapter, _index, body)
             resumable_rendered[tostring(chapter.chapterUid)] = body
         end,
+        load_download_chapter_text = function(workspace, index) return workspace.text[index] end,
+        stage_download_chapter_text = function(workspace, index, body)
+            workspace.text[index] = body
+            return true
+        end,
     }
 end
 package.preload["weread.ui.download_dialog"] = function() return {} end
@@ -168,12 +173,6 @@ local function new_resumable_footnote_job()
         chapters = { resumed_source_chapter, resumed_reference_chapter },
         selected = { resumed_source_chapter, resumed_reference_chapter },
         bodies = {},
-        footnote_scans = {},
-        footnote_stats = {
-            candidates = 0, converted = 0, image_notes = 0,
-            backlinks = 0, removed_note_blocks = 0,
-            unresolved = 0, fallback = 0,
-        },
         state = { css = "body{}" },
         index = 3,
         total = 2,
@@ -186,10 +185,10 @@ end
 
 local function run_resumable_footnotes(resumable_dl)
     local before = #scheduled
-    downloader:_startFootnotes(resumable_dl)
-    scheduled[before + 1]()
-    scheduled[before + 2]()
-    scheduled[before + 3]()
+    local css, stats = downloader:_renderCheckpointFootnotes(resumable_dl)
+    expect(#scheduled == before, "background rendering scheduled per-chapter UI work")
+    expect(resumable_dl.state.css == "body{}", "rendering changed the raw checkpoint stylesheet")
+    return css, stats
 end
 
 local first_run = new_resumable_footnote_job()
@@ -198,24 +197,69 @@ expect(resumable_raw["11"]:find('id="shared-note"', 1, true),
     "first footnote conversion mutated the raw resumable checkpoint")
 
 local restarted_run = new_resumable_footnote_job()
-run_resumable_footnotes(restarted_run)
+local original_scan, scan_count = Footnotes.scan_chapter, 0
+Footnotes.scan_chapter = function(...)
+    scan_count = scan_count + 1
+    return original_scan(...)
+end
+local rebuilt_css, rebuilt_stats = run_resumable_footnotes(restarted_run)
+Footnotes.scan_chapter = original_scan
+expect(scan_count == #restarted_run.chapters, "checkpoint footnotes scanned a chapter twice")
 expect(rendered_resets == 2,
     "resumed footnote pass did not discard stale rendered chapters")
-expect(restarted_run.footnote_stats.unresolved == 0,
+expect(rebuilt_stats.unresolved == 0,
     "cross-chapter footnote was unresolved after rebuilding from checkpoints")
 expect(resumable_rendered["22"]:find("可跨章节恢复的脚注", 1, true),
     "restarted footnote pass did not embed the cross-chapter definition")
-expect(restarted_run.state.css:find("%.wr%-fn%-ref%{", 1) ~= nil,
+expect(rebuilt_css:find("%.wr%-fn%-ref%{", 1) ~= nil,
     "restarted footnote pass did not rebuild its stylesheet")
+
+local rich_note='<aside id="target2">跨章图注<img src="note.svg"/></aside>'
+for _i, mode in ipairs({'full','single','separate'}) do
+    local job={cancelled=false,selected={source_chapter,note_chapter},
+        single_chapter=mode=='single',separate_chapters=mode=='separate',
+        bodies={['1']=source,['2']=rich_note},footnote_scans={
+            ['1']=Footnotes.scan_chapter(source,source_chapter),
+            ['2']=Footnotes.scan_chapter(rich_note,note_chapter)},
+        state={css='body{}'},index=3,total=2,
+        progress_dialog={setTitle=function() end,reportProgress=function() end}}
+    if job.separate_chapters then
+        job.workspace={text={source,rich_note}};job.bodies={};job.selected_indices={1,2}
+    end
+    local before=#scheduled
+    downloader:_startFootnotes(job)
+    scheduled[before+1]();scheduled[before+2]();scheduled[before+3]()
+    local text=job.workspace and job.workspace.text or {job.bodies['1'],job.bodies['2']}
+    expect(text[2]==rich_note and job.footnote_stats.converted==0,
+        'rich original was changed or copied as plain text')
+    if mode=='full' then
+        expect(job.bodies['1']:find('href="chapter-002.xhtml#target2"',1,true)
+            and job.footnote_stats.native_links==1,'full book did not map its original target')
+    else
+        expect(text[1]==source and job.footnote_stats.unresolved==1,
+            'individual EPUB referenced an absent packaged chapter')
+    end
+end
+
+local separate_note = {selected={source_chapter,note_chapter}, total=2, index=3, separate_chapters=true,
+    selected_indices={1,2},
+    state={css='body{}'}, bodies={}, workspace={text={source,note}}, footnote_scans={
+        ['1']=Footnotes.scan_chapter(source,source_chapter), ['2']=Footnotes.scan_chapter(note,note_chapter)}}
+local before_separate = #scheduled
+downloader:_startFootnotes(separate_note)
+scheduled[before_separate+1]();scheduled[before_separate+2]();scheduled[before_separate+3]()
+expect(separate_note.workspace.text[1]:find("下载器跨章脚注",1,true)
+    and separate_note.footnote_stats.converted==1 and next(separate_note.bodies)==nil,
+    "cross-chapter footnote was not written back to the staged text")
 
 local original_transform = Footnotes.transform_chapter
 Footnotes.transform_chapter = function()
     error("injected footnote transformation failure")
 end
 local transform_fallback_run = new_resumable_footnote_job()
-run_resumable_footnotes(transform_fallback_run)
+local _, transform_stats = run_resumable_footnotes(transform_fallback_run)
 Footnotes.transform_chapter = original_transform
-expect(transform_fallback_run.footnote_stats.fallback == 2,
+expect(transform_stats.fallback == 2,
     "footnote transformation failures did not use original chapter fallbacks")
 expect(resumable_rendered["11"] == resumable_raw["11"]
     and resumable_rendered["22"] == resumable_raw["22"],
@@ -224,12 +268,17 @@ expect(resumable_rendered["11"] == resumable_raw["11"]
 local original_validate = Footnotes.validate
 Footnotes.validate = function() return false, "injected validation failure" end
 local validation_fallback_run = new_resumable_footnote_job()
-run_resumable_footnotes(validation_fallback_run)
+local _, validation_stats = run_resumable_footnotes(validation_fallback_run)
 Footnotes.validate = original_validate
-expect(validation_fallback_run.footnote_stats.fallback == 2,
+expect(validation_stats.fallback == 2,
     "footnote validation failures did not use original chapter fallbacks")
 expect(resumable_rendered["11"] == resumable_raw["11"]
     and resumable_rendered["22"] == resumable_raw["22"],
     "footnote validation fallback did not stage original chapters for packaging")
+
+resumable_raw["22"] = nil
+local readable, read_error = pcall(downloader._renderCheckpointFootnotes, downloader, new_resumable_footnote_job())
+expect(not readable and tostring(read_error):find("chapter text is missing", 1, true)
+    and next(resumable_rendered) == nil, "missing checkpoint allowed a partial footnote render")
 
 print(("downloader_footnotes_spec: %d checks"):format(checks))

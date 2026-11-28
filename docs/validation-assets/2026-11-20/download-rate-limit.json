@@ -1,0 +1,49 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "format": "EPUB",
+      "screen": "600x800/167 DPI",
+      "package_sha256": "71fc4dda4cd89d6ae399bfa56383a0ee9cb15f07e15a433e0aa6dfe8e69cabbd",
+      "no_automatic_retry": true,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "limited_after_one": true,
+      "offline_reopen": true
+    },
+    {
+      "format": "EPUB",
+      "screen": "1264x1680/300 DPI",
+      "package_sha256": "10441f5c0658b0132bcb296ac14fc5ed95abee44277cf8dd7c403b40942fe830",
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "limited_after_one": true,
+      "no_automatic_retry": true,
+      "offline_reopen": true
+    },
+    {
+      "format": "TXT",
+      "screen": "600x800/167 DPI",
+      "package_sha256": "55c32fae12791c77f07fa5431222dea988c1e68275115d41f7086d424000391f",
+      "no_automatic_retry": true,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "limited_after_one": true,
+      "offline_reopen": true
+    },
+    {
+      "format": "TXT",
+      "screen": "1264x1680/300 DPI",
+      "package_sha256": "873cb1204e9bb18296eec7b2ff9f9b319c7b3fc0110017340a7d38d735f6733b",
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "limited_after_one": true,
+      "no_automatic_retry": true,
+      "offline_reopen": true
+    }
+  ],
+  "client_and_context_unit_checks": true,
+  "single_and_prefetch_unit_checks": true
+}

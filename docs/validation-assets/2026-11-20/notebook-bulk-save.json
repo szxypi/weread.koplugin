@@ -1,0 +1,57 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "physical_device": false,
+  "real_account_access": false,
+  "native_bulk_assertions": {
+    "books": 2,
+    "completed_sets": 4,
+    "cancelled_after_sets": 1,
+    "synthetic_reads": 5,
+    "offline_reads": 0
+  },
+  "quota": "actual SQLite preserves existing entries when book-count or total-byte limits are reached",
+  "reader_overlay": "component verified",
+  "cases": {
+    "small": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "forbidden": 0,
+          "workers_reaped": true,
+          "file_sqlite": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "forbidden": 0,
+          "workers_reaped": true,
+          "file_sqlite": true
+        }
+      ]
+    },
+    "ko2": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "forbidden": 0,
+          "workers_reaped": true,
+          "file_sqlite": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "forbidden": 0,
+          "workers_reaped": true,
+          "file_sqlite": true
+        }
+      ]
+    }
+  }
+}

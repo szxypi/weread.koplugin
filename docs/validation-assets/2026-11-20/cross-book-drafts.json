@@ -1,0 +1,29 @@
+{
+  "result": "PASS",
+  "scope": "synthetic KOReader fixtures only; no actual account used",
+  "screens": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300
+    }
+  ],
+  "notebook_cross_book_cached_highlight_draft_restored_offline": true,
+  "fresh_process_offline_selection_draft_restored": true,
+  "pending_selection_write_not_replayed": true,
+  "reference_hash_and_draft_token_guards_tested": true,
+  "stale_async_reference_and_scope_guards_tested": true,
+  "temporary_profiles_removed": true,
+  "screenshots_synthetic": true,
+  "limitations": [
+    "some emoji in list previews rendered as missing glyphs",
+    "no owner account verification for this entry",
+    "physical Kindle KO2 not tested"
+  ],
+  "atomic_draft_compare_and_save_verified": true
+}

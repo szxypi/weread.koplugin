@@ -1,0 +1,15 @@
+{
+  "scope": "bookshelf search with an absent optional author",
+  "component_cases": ["bookId after absent author", "book_id after absent fields", "numeric bookId", "case-insensitive author and active filter", "selected group"],
+  "native_runtime": {
+    "resolutions": [[600, 800], [1264, 1680]],
+    "host": "PluginLoader and FileManager",
+    "input": "native search dialog with leading and trailing whitespace, then whitespace-only input",
+    "selected_group": true,
+    "fresh_offline_process": true,
+    "http_requests": 0,
+    "data": "synthetic"
+  },
+  "physical_kindle_verified": false,
+  "result": "PASS"
+}

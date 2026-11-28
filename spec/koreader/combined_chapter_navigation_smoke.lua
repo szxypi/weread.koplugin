@@ -1,0 +1,191 @@
+-- Packaged plugin, synthetic EPUB and mock service only.
+return function(reader,host,book,id,pump,clean,set_offline)
+    local Reader=require('apps/reader/readerui')
+    local Content=require('weread.lib.content')
+    local Identity=require('weread.lib.book_file_identity')
+    local Dom=require('weread.lib.source_dom')
+    local UI=require('ui/uimanager')
+    local chapters=assert(host:ensureChaptersLoaded(book))
+    local selected={chapters[1],chapters[2],chapters[4]}
+    local present={[1]=true,[2]=true,[4]=true}
+    assert(selected[2].title==selected[3].title,'synthetic chapter titles differ')
+    local original_path=reader.document.file
+    local original_point=reader.document:getXPointer()
+    local copy={};for key,value in pairs(book) do copy[key]=value end
+    local png=require('mime').unb64('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAXElEQVR4nO3PsQ0AQAzCwOy/9P8EKVIZJFNTnOctm2Vp/ziQATTIABpkAA06B7RAz2FpIANokAE0yAAatP5roC0gA2iQATTIABp0DmiBnsPSQAbQIANokAE0aPt/y1n0pl3lRNkAAAAASUVORK5CYII=')
+    local text2='<p>'..string.rep('这是第二章的合成正文。',100)..'</p>'
+    local text4='<p>'..string.rep('这是第四章的合成正文。',100)..'</p>'
+    local combined=Content.save_book_epub(host.settings,copy,selected,{['1']=text2,['2']=text2,['4']=text4},
+        'synthetic-navigation',{},'',png,Identity.capture(copy))
+    -- A stale single-chapter mapping must not hide the verified combined EPUB.
+    copy.cached_full_book=combined;copy.cached_file=combined
+    copy.cached_chapters={['2']=combined,['4']=combined..'.missing'}
+    copy.chapters=selected
+    local saved=host.settings:get('books',{});saved[id]=copy;host.settings:set('books',saved);host.settings:flush()
+    assert(host.library_db:putChapters(id,selected))
+    pump(function() return host.progress_sync.current_book_id==id end)
+    set_offline(true)
+    local function select_chapter(current,selected_book,index)
+        clean(current.ui);current:showChapterList(selected_book)
+        pump(function() return current._chapter_list_view~=nil end)
+        local view=assert(current._chapter_list_view)
+        local row=assert(view._chapter_rows[index]);row.callback()
+    end
+    select_chapter(host,copy,3)
+    pump(function() return Reader.instance and Reader.instance~=reader and Reader.instance.document.file==combined end)
+    reader=assert(Reader.instance);host=assert(reader.weread)
+    local target=assert(Dom.chapter_start(reader.document,id,'4'))
+    pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    local member=assert(Dom.member(reader.document,target))
+    assert(member.render_path=='OEBPS/text/chapter-003.xhtml','handoff selected the wrong member')
+    local original_reader=reader
+    local latest=assert(host.settings:get_book(id));latest.chapters=selected
+    select_chapter(host,latest,2)
+    local first=assert(Dom.chapter_start(reader.document,id,'2'))
+    pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    assert(Reader.instance==original_reader,'same-file chapter selection reopened the reader')
+    local first_member=assert(Dom.member(reader.document,first))
+    assert(first_member.render_path=='OEBPS/text/chapter-002.xhtml','same-file selection chose the wrong member')
+    select_chapter(host,latest,3);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    assert(Reader.instance==original_reader,'return selection reopened the reader')
+    -- The same EPUB is only a subset of the real six-chapter
+    -- catalog. Navigation must keep the old pending position and stop sync.
+    local before=assert(host.settings:get_book(id))
+    local pending={book_id=id,chapter_uid=4,chapter_idx=4,chapter_offset=10,percent=50}
+    local account=assert(host.library_db:accountKey())
+    assert(host.settings:patch_reading_state(id,{pending_upload_position=pending,pending_upload_account=account}))
+    assert(host.library_db:putChapters(id,chapters));latest.chapters=chapters
+    -- Only chapters actually present in the partial EPUB are available.
+    clean(reader);host:showChapterList(latest)
+    pump(function() return host._chapter_list_view~=nil end)
+    local catalog_view=assert(host._chapter_list_view)
+    local cached=require('weread.lib.plugin_util').tr('Cached')
+    for index,item in ipairs(catalog_view.chapters) do
+        assert((item.status==cached)==(present[index]==true),'partial combined cache status was incorrect')
+    end
+    host:showChapterDownloadSelection(latest,chapters)
+    local menu=assert(require('ui/uimanager'):getTopmostVisibleWidget())
+    local row_index=0
+    for _,item in ipairs(menu.item_table) do
+        if not item.separator then
+            row_index=row_index+1
+            assert((item.mandatory==cached)==(present[row_index]==true),
+                'download selection cache status was incorrect')
+        end
+    end
+    assert(row_index==#chapters,'download selection omitted a chapter')
+    select_chapter(host,latest,2);pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    local function press(button_id)
+        UI:forceRePaint()
+        local button=assert(UI:getTopmostVisibleWidget():getButtonById(button_id))
+        assert(button.enabled~=false,button_id..' did not offer the adjacent catalog chapter')
+        button:onTapSelectButton()
+    end
+    local function press_quick(button_id)
+        clean(reader);assert(host:onShowWeReadQuickMenu());press(button_id)
+    end
+    local function press_progress(button_id)
+        press_quick('reader_progress')
+        pump(function() return host._weread_reader_progress and host._weread_reader_progress.dialog end)
+        press(button_id)
+    end
+    local beginning=assert(Dom.chapter_start(reader.document,id,'1'))
+    press_quick('previous_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(beginning) end)
+    press_progress('progress_next_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    assert(Reader.instance==original_reader,'contiguous navigation reopened the partial EPUB')
+    press_progress('progress_next_chapter')
+    pump(function() return host._saved_chapter_menu~=nil end)
+    local missing=assert(host._saved_chapter_menu)
+    assert(missing.subtitle==require('weread.lib.plugin_util').tr('Chapter unavailable offline')
+        and Reader.instance==original_reader and reader.document:isXPointerInCurrentPage(first),
+        'the progress panel skipped the missing chapter or replaced the reader')
+    clean(reader)
+    local Event=require('ui/event')
+    local view_mode=reader.view.view_mode
+    reader:handleEvent(Event:new('SetViewMode','scroll'))
+    reader.rolling:onGotoXPointer(first)
+    press_quick('previous_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(beginning) end)
+    assert(Reader.instance==original_reader,'scroll navigation reopened the partial EPUB')
+    reader:handleEvent(Event:new('SetViewMode',view_mode))
+    reader.rolling:onGotoXPointer(first)
+    assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only,
+        'partial combined file did not pause synchronization')
+    assert(not host.progress_sync:checkpoint_local('synthetic_partial') and not host.progress_sync:sync_now(),
+        'partial combined file allowed a whole-book progress update')
+    local held=assert(host.settings:get_book(id))
+    assert(held.pending_upload_position and tostring(held.pending_upload_position.chapter_uid)=='4'
+        and held.pending_upload_position.chapter_offset==10 and held.pending_upload_account==account,
+        'partial navigation changed the existing pending position')
+    clean(reader)
+    select_chapter(host,latest,4);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only)
+    clean(reader)
+    local action=G_reader_settings:readSetting('end_document_action')
+    local function turn_past_end(mode)
+        G_reader_settings:saveSetting('end_document_action',mode)
+        reader.rolling:onGotoPage(reader.document:getPageCount())
+        reader.rolling:onGotoViewRel(1)
+    end
+    local function press_end_next()
+        local dialog=assert(UI:getTopmostVisibleWidget())
+        local button=assert(dialog:getButtonById('next_chapter'))
+        assert(button.enabled~=false,'the partial combined EPUB ended before the last book chapter')
+        UI:forceRePaint();button:onTapSelectButton()
+    end
+    local function missing_successor()
+        local picker=assert(host._saved_chapter_menu,'missing successor did not open downloaded chapters')
+        assert(Reader.instance==reader and UI:getTopmostVisibleWidget()==picker and not host.downloader._active_job,
+            'missing successor replaced the current reader or started a download')
+        assert(picker.subtitle==require('weread.lib.plugin_util').tr('Chapter unavailable offline'))
+        assert(#picker.item_table==3 and picker.item_table[1].chapter_id=='1'
+            and picker.item_table[2].chapter_id=='2' and picker.item_table[3].chapter_id=='4')
+        return picker
+    end
+    turn_past_end('next_file')
+    local picker=missing_successor()
+    picker:onMenuSelect(picker.item_table[2])
+    pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    assert(Reader.instance==reader and host.progress_sync.file_resume.preserve_only)
+    clean(reader)
+    turn_past_end('pop-up');press_end_next()
+    pump(function() return host._saved_chapter_menu~=nil end)
+    missing_successor()
+    clean(reader)
+    local successor=Content.save_chapter_epub(host.settings,copy,chapters[5],
+        '<p>这是第五章的合成正文。</p>',{},'',Identity.capture(copy))
+    local saved_for_end=host.settings:get('books',{})
+    saved_for_end[id].cached_chapters['5']=successor
+    host.settings:set('books',saved_for_end);host.settings:flush()
+    local function wait_for_successor()
+        pump(function() return Reader.instance and Reader.instance.document.file==successor end)
+        reader=assert(Reader.instance);host=assert(reader.weread)
+        local after=assert(host.settings:get_book(id)).pending_upload_position
+        assert(after and tostring(after.chapter_uid)=='4' and after.chapter_offset==10,
+            'leaving a partial combined EPUB changed its protected pending position')
+    end
+    turn_past_end('pop-up');press_end_next();wait_for_successor()
+    local combined_book=assert(host.settings:get_book(id));combined_book.chapters=chapters
+    select_chapter(host,combined_book,4)
+    pump(function() return Reader.instance and Reader.instance.document.file==combined end)
+    reader=assert(Reader.instance);host=assert(reader.weread)
+    clean(reader)
+    turn_past_end('next_file');wait_for_successor()
+    G_reader_settings:saveSetting('end_document_action',action)
+    assert(host.settings:patch_reading_state(id,{pending_upload_position=before.pending_upload_position or false,
+        pending_upload_account=before.pending_upload_account or false,last_local_position=before.last_local_position or false,
+        last_local_account=before.last_local_account or false}))
+    local restore=host.settings:get('books',{});restore[id]=book;host.settings:set('books',restore);host.settings:flush()
+    assert(host.library_db:putChapters(id,chapters))
+    host:openFile(original_path,function(next_reader)
+        if next_reader.document:isXPointerInDocument(original_point) then next_reader.rolling:onGotoXPointer(original_point) end
+    end)
+    pump(function() return Reader.instance and Reader.instance~=original_reader and Reader.instance.document.file==original_path end)
+    reader=assert(Reader.instance);host=assert(reader.weread)
+    pump(function() return host.progress_sync.current_book_id==id end)
+    assert(reader.document:isXPointerInCurrentPage(original_point),'test return lost the original reading position')
+    set_offline(false)
+    return reader,host
+end

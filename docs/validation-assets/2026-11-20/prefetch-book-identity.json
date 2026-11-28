@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "scenarios_per_size": ["identity-conflict", "identity-change", "promoted-success"],
+  "actual_reader_and_background_worker": true,
+  "conflict_record_preserved": true,
+  "promoted_conflict_not_retried": true,
+  "reader_annotation_not_bound_to_conflicting_record": true,
+  "normal_promoted_prefetch_opened": true,
+  "fresh_offline_reopen": true,
+  "real_account_posts": 0,
+  "physical_kindle_tested": false
+}

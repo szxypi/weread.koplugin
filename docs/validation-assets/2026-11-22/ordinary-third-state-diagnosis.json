@@ -1,0 +1,12 @@
+{
+  "result": "PARTIAL_POSITION_STATE_OBSERVED_AFTER_STOP",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "original_phase": "position_acknowledged",
+  "observed_state": "entered",
+  "target_offset_differs_from_baseline": true,
+  "target_summary_differs_from_baseline": true,
+  "target_percent_differs_from_baseline": true,
+  "later_recovery_preflight_dual_readbacks": 2,
+  "failure_instant_cause_proven": false
+}

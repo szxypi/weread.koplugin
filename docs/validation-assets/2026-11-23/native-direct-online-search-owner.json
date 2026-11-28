@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-23",
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "scope": "one real account; each screen uses one book, two adjacent readable cached chapters and one online search query",
+  "screens": ["600x800", "1264x1680"],
+  "preparation": "isolated book detail host; independently compared native and web chapter source",
+  "search": "installed plugin reader quick menu, same-chapter and cached cross-chapter navigation",
+  "independent_reader_text_visible": true,
+  "request_allowlist_enforced": true,
+  "native_shelf_observed_state_unchanged": true,
+  "native_progress_observation_unchanged": true,
+  "web_progress_observation_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_verification": 0,
+  "separate_prior_authorization_renewal_posts": 1,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "installed_bytes_match": true,
+  "missing_images": [0, 0],
+  "physical_kindle_tested": false,
+  "limitations": ["one book and one query per run", "target chapter already cached", "physical Kindle untested"]
+}

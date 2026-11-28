@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "existing_imported_books_tested": 1,
+  "source_and_explicit_chapter_index_checked": true,
+  "lua_payload_models_compared": 4,
+  "sender": "python",
+  "account_position_write_attempts": 4,
+  "authentication_writes": 0,
+  "position_reported_reading_time_seconds": 0,
+  "enter_read_back": true,
+  "same_position_read_back": true,
+  "one_utf16_unit_advance_read_back": true,
+  "original_position_restored_and_independently_read": true,
+  "original_full_summary_preserved": true,
+  "observed_counters_and_field_presence_preserved": true,
+  "shelf_order_unchanged": true,
+  "other_server_history_verified": false,
+  "permanent_one_shot_journal_consumed": true,
+  "private_data_in_report": false,
+  "native_real_sender_verified": false,
+  "production_imported_sync_enabled": false,
+  "physical_kindle_tested": false
+}

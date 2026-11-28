@@ -89,6 +89,7 @@ function M.show(opts)
         tap_to_page = opts.tap_to_page,
         dialog = opts.dialog,
         close_callback = opts.close_callback,
+        on_replies = opts.on_replies,
     }
     _pool[position] = popup
     UIManager:show(popup)

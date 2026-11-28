@@ -1,6 +1,7 @@
 -- Bounded on-disk cache for bookshelf thumbnails.
 
 local Crypto = require("weread.lib.crypto")
+local FileLease = require("weread.lib.file_lease")
 local lfs = require("libs/libkoreader-lfs")
 
 local CoverCache = {}
@@ -13,6 +14,8 @@ CoverCache.THUMBNAIL_WIDTH = 300
 CoverCache.THUMBNAIL_HEIGHT = 450
 
 local extensions = { "jpg", "png", "webp", "gif" }
+local staged_source = ".source.part"
+local staged_thumbnail = ".thumb.part.png"
 
 local function image_extension(data)
     if type(data) ~= "string" then return nil end
@@ -36,6 +39,7 @@ function CoverCache:new(settings, dependencies)
         open_file = dependencies.open_file or io.open,
         rename_file = dependencies.rename_file or os.rename,
         remove_file = dependencies.remove_file or os.remove,
+        open_lease = dependencies.open_lease or FileLease.open,
         render_thumbnail = dependencies.render_thumbnail or function(...)
             return require("weread.lib.cover_thumbnail").render(...)
         end,
@@ -68,21 +72,40 @@ function CoverCache:sourcePathFor(book)
     return nil
 end
 
+function CoverCache:readImage(book)
+    local source, thumbnail = self:sourcePathFor(book), self:pathFor(book)
+    for _, path in ipairs({ source or false, thumbnail or false }) do
+        local file = path and self.open_file(path, "rb")
+        if file then
+            local data, err = file:read(self.MAX_IMAGE_BYTES + 1)
+            if file:close() and not err and data and #data <= self.MAX_IMAGE_BYTES and image_extension(data) then
+                return data
+            end
+        end
+    end
+end
+
 function CoverCache:_ensureDir()
-    if lfs.attributes(self.dir, "mode") then return true end
+    if lfs.attributes(self.dir, "mode") == "directory" then return true end
     local created, mkdir_err = lfs.mkdir(self.dir)
-    if created or lfs.attributes(self.dir, "mode") then return true end
+    if created or lfs.attributes(self.dir, "mode") == "directory" then return true end
     return nil, tostring(mkdir_err or "cover cache directory creation failed")
 end
 
-function CoverCache:_thumbnailFromSource(book, source)
-    local key = self:key(book)
-    if not key then return nil, "cover URL is missing" end
-    local ready, dir_err = self:_ensureDir()
-    if not ready then return nil, dir_err end
+-- The lock stays beside the cache directory so pruning cannot unlink it.
+-- The OS releases it if a worker is terminated mid-write.
+function CoverCache:_withWriteLease(action, ...)
+    local lease, reason = self.open_lease(self.dir .. ".lock", { create = true, empty = true })
+    if not lease then return nil, reason end
+    local ok, result, detail = pcall(action, self, ...)
+    lease:release()
+    if not ok then error(result, 0) end
+    return result, detail
+end
 
+function CoverCache:_thumbnailFromSource(key, source)
     local path = self.dir .. "/" .. key .. ".thumb.png"
-    local temporary = self.dir .. "/" .. key .. ".thumb.part.png"
+    local temporary = self.dir .. "/" .. staged_thumbnail
     self.remove_file(temporary)
     local rendered, render_result, render_err = pcall(
         self.render_thumbnail,
@@ -111,12 +134,19 @@ function CoverCache:_thumbnailFromSource(book, source)
     return path
 end
 
-function CoverCache:thumbnailFromCached(book)
+function CoverCache:_migrateCached(book)
     local cached = self:pathFor(book)
     if cached then return cached end
     local source = self:sourcePathFor(book)
     if not source then return nil, "cached cover source is missing" end
-    return self:_thumbnailFromSource(book, source)
+    return self:_thumbnailFromSource(self:key(book), source)
+end
+
+function CoverCache:thumbnailFromCached(book)
+    local cached = self:pathFor(book)
+    if cached then return cached end
+    if not self:sourcePathFor(book) then return nil, "cached cover source is missing" end
+    return self:_withWriteLease(self._migrateCached, book)
 end
 
 function CoverCache:store(book, data)
@@ -128,11 +158,17 @@ function CoverCache:store(book, data)
     if #data > self.MAX_IMAGE_BYTES then
         return nil, "cover response is too large"
     end
-    local extension = image_extension(data)
-    if not extension then return nil, "unsupported cover image" end
+    if not image_extension(data) then return nil, "unsupported cover image" end
     local ready, dir_err = self:_ensureDir()
     if not ready then return nil, dir_err end
-    local temporary = self.dir .. "/" .. key .. ".source.part." .. extension
+    return self:_withWriteLease(self._store, key, data)
+end
+
+function CoverCache:_store(key, data)
+    -- KOReader detects the format from the image bytes. One shared input and
+    -- output bound the staging space even if many successive workers are killed.
+    local temporary = self.dir .. "/" .. staged_source
+    self.remove_file(temporary)
     local file, open_err = self.open_file(temporary, "wb")
     if not file then return nil, tostring(open_err or "cover cache open failed") end
     local wrote, write_err = file:write(data)
@@ -141,27 +177,47 @@ function CoverCache:store(book, data)
         self.remove_file(temporary)
         return nil, tostring(write_err or close_err or "cover cache write failed")
     end
-    local path, thumbnail_err = self:_thumbnailFromSource(book, temporary)
+    local path, thumbnail_err = self:_thumbnailFromSource(key, temporary)
     if not path then self.remove_file(temporary) end
     return path, thumbnail_err
 end
 
 function CoverCache:prune(max_bytes)
     max_bytes = math.max(0, tonumber(max_bytes) or self.MAX_BYTES)
-    if not lfs.attributes(self.dir, "mode") then return 0 end
+    if lfs.attributes(self.dir, "mode") ~= "directory" then return 0 end
+    return self:_withWriteLease(self._prune, max_bytes)
+end
+
+local function interrupted_stage(name)
+    if name == staged_source or name == staged_thumbnail then return true end
+    -- Also reclaim staging files written by earlier versions of the cache.
+    local key, suffix = name:match("^([0-9a-f]+)(%..+)$")
+    if not key or #key ~= 32 then return false end
+    if suffix == staged_thumbnail then return true end
+    for _, extension in ipairs(extensions) do
+        if suffix == staged_source .. "." .. extension then return true end
+    end
+    return false
+end
+
+function CoverCache:_prune(max_bytes)
     local files, total = {}, 0
     for name in lfs.dir(self.dir) do
-        if name ~= "." and name ~= ".." and not name:match("%.part$") then
+        if name ~= "." and name ~= ".." then
             local path = self.dir .. "/" .. name
-            local attributes = lfs.attributes(path)
-            if attributes and attributes.mode == "file" then
-                local size = tonumber(attributes.size) or 0
-                total = total + size
-                files[#files + 1] = {
-                    path = path,
-                    size = size,
-                    modified = tonumber(attributes.modification) or 0,
-                }
+            if name:find(".part", 1, true) and interrupted_stage(name) then
+                self.remove_file(path)
+            elseif name:sub(-5) ~= ".part" then
+                local attributes = lfs.attributes(path)
+                if attributes and attributes.mode == "file" then
+                    local size = tonumber(attributes.size) or 0
+                    total = total + size
+                    files[#files + 1] = {
+                        path = path,
+                        size = size,
+                        modified = tonumber(attributes.modification) or 0,
+                    }
+                end
             end
         end
     end

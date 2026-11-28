@@ -1,0 +1,20 @@
+{
+  "result": "CB_NATIVE_COLOR_VERIFIED",
+  "fixture": "self-authored XHTML EPUB",
+  "screen": "1264x1680 KOReader emulator",
+  "fixture_only": true,
+  "dry_run_blocked": true,
+  "native_writes": 4,
+  "steps": ["create_blue_marker", "change_to_default", "change_to_blue", "delete"],
+  "independent_readbacks": 4,
+  "fresh_offline_reopen": true,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "source_and_catalog_unchanged": true,
+  "original_records_restored": true,
+  "fixture_removed": true,
+  "shelf_baseline_restored": true,
+  "no_replay": true,
+  "private_values_in_report": false,
+  "physical_device_tested": false
+}

@@ -1,0 +1,286 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "catalog": {
+        "fresh_progress_intent_preserved": true,
+        "new_settings_instance_catalog_readback": true,
+        "offline_keeps_menu": true,
+        "malformed_missing_object_dates_and_oversize_preserve_cache": true,
+        "synthetic_only": true,
+        "valid_empty_page_label_and_persistence": true,
+        "valid_empty_catalog_reopens_offline": true,
+        "empty_page_does_not_delete_files": true,
+        "large_pipe_100_rows_and_native_pagination": true,
+        "first_batch_label_visible": true,
+        "cancel_close_suspend_session_epoch_cookie_header_cache_move_guards": true,
+        "http_429_no_retry": true,
+        "storage_error_fallback": true,
+        "native_key_dismiss_closes_window": true,
+        "returns_to_visible_reader": true,
+        "http_in_child": true,
+        "result": "PASS",
+        "first_page_only": true,
+        "account_data_writes": 0,
+        "credential_renewals": 0,
+        "failed_refresh_restores_list": true,
+        "ui_heartbeat": true,
+        "cached_body_opened_after_title_change": true
+      },
+      "download_regression": {
+        "symlink_cleanup_does_not_follow": true,
+        "successful_refresh_retains_prior_images": true,
+        "metadata_failure_keeps_complete_cache": true,
+        "local_progress_intent_preserved": true,
+        "synthetic_only": true,
+        "credential_renewals": 0,
+        "account_data_writes": 0,
+        "ui_heartbeat": true,
+        "result": "PASS",
+        "http_in_child": true,
+        "anonymous_cdn": true,
+        "images_streamed_and_deduplicated": true,
+        "cre_rendered_body": true,
+        "generation_images_in_epub": true,
+        "cancel_preserves_old_body_and_images": true,
+        "close_suspend_session_epoch_auth_config_guard": true,
+        "failed_publish_preserves_old_generation": true,
+        "concurrent_file_replacement_preserved": true,
+        "replacement_stage_body_preserved": true,
+        "replaced_stage_root_preserved": true,
+        "invalid_receipts_rejected": true
+      },
+      "cache_regression": {
+        "legacy_label_visible": true,
+        "atomic_save_failure_preserved_body": true,
+        "wrong_identity_rejected": true,
+        "cache_symlink_not_followed": true,
+        "synthetic_only": true,
+        "managed_parent_symlink_rejected": true,
+        "local_progress_pending_unchanged": true,
+        "native_menu_opens_selected_identity": true,
+        "http_reads": 4,
+        "reading_data_writes": 0,
+        "distinct_same_title_bodies": true,
+        "sanitized_id_collision_separated": true,
+        "title_rename_keeps_path": true,
+        "identity_header_checked": true,
+        "image_directories_isolated": true,
+        "native_html_render": true,
+        "result": "PASS",
+        "export_choices_remain_distinct": true,
+        "legacy_ambiguity_visible": true,
+        "legacy_ambiguity_not_read": true,
+        "selected_identity_redownloaded": true,
+        "legacy_file_preserved": true,
+        "legacy_unique_readonly": true,
+        "no_legacy_promotion": true
+      },
+      "export_package_regression": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "legacy_copy_identical": true,
+        "checks": [
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          },
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          }
+        ]
+      }
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "catalog": {
+        "returns_to_visible_reader": true,
+        "credential_renewals": 0,
+        "first_page_only": true,
+        "http_in_child": true,
+        "cached_body_opened_after_title_change": true,
+        "fresh_progress_intent_preserved": true,
+        "new_settings_instance_catalog_readback": true,
+        "offline_keeps_menu": true,
+        "malformed_missing_object_dates_and_oversize_preserve_cache": true,
+        "failed_refresh_restores_list": true,
+        "valid_empty_page_label_and_persistence": true,
+        "valid_empty_catalog_reopens_offline": true,
+        "result": "PASS",
+        "large_pipe_100_rows_and_native_pagination": true,
+        "first_batch_label_visible": true,
+        "cancel_close_suspend_session_epoch_cookie_header_cache_move_guards": true,
+        "http_429_no_retry": true,
+        "storage_error_fallback": true,
+        "native_key_dismiss_closes_window": true,
+        "synthetic_only": true,
+        "ui_heartbeat": true,
+        "account_data_writes": 0,
+        "empty_page_does_not_delete_files": true
+      },
+      "download_regression": {
+        "http_in_child": true,
+        "anonymous_cdn": true,
+        "images_streamed_and_deduplicated": true,
+        "cre_rendered_body": true,
+        "generation_images_in_epub": true,
+        "cancel_preserves_old_body_and_images": true,
+        "close_suspend_session_epoch_auth_config_guard": true,
+        "failed_publish_preserves_old_generation": true,
+        "concurrent_file_replacement_preserved": true,
+        "replacement_stage_body_preserved": true,
+        "replaced_stage_root_preserved": true,
+        "invalid_receipts_rejected": true,
+        "symlink_cleanup_does_not_follow": true,
+        "successful_refresh_retains_prior_images": true,
+        "metadata_failure_keeps_complete_cache": true,
+        "local_progress_intent_preserved": true,
+        "account_data_writes": 0,
+        "credential_renewals": 0,
+        "result": "PASS",
+        "synthetic_only": true,
+        "ui_heartbeat": true
+      },
+      "cache_regression": {
+        "export_choices_remain_distinct": true,
+        "legacy_ambiguity_visible": true,
+        "legacy_ambiguity_not_read": true,
+        "selected_identity_redownloaded": true,
+        "legacy_file_preserved": true,
+        "legacy_unique_readonly": true,
+        "no_legacy_promotion": true,
+        "legacy_label_visible": true,
+        "atomic_save_failure_preserved_body": true,
+        "wrong_identity_rejected": true,
+        "cache_symlink_not_followed": true,
+        "local_progress_pending_unchanged": true,
+        "managed_parent_symlink_rejected": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "http_reads": 4,
+        "reading_data_writes": 0,
+        "distinct_same_title_bodies": true,
+        "sanitized_id_collision_separated": true,
+        "title_rename_keeps_path": true,
+        "identity_header_checked": true,
+        "image_directories_isolated": true,
+        "native_html_render": true,
+        "native_menu_opens_selected_identity": true
+      },
+      "export_package_regression": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "legacy_copy_identical": true,
+        "checks": [
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          },
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          }
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "lua_specs": 132,
+    "python_tests": 268,
+    "luacheck_files": 341,
+    "lua_syntax_files": 343,
+    "catalog_model_checks": 73,
+    "catalog_ui_checks": 33
+  },
+  "limits": {
+    "real_successful_mp_catalog_verified": false,
+    "all_history_pagination": false,
+    "subscription": false,
+    "physical_ko2": false,
+    "real_account_data_writes": 0
+  },
+  "candidate_verification": [
+    {
+      "case": "mp-catalog600-final2",
+      "result": "PASS",
+      "installed_files": 162,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-catalogko2-final",
+      "result": "PASS",
+      "installed_files": 162,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-catalog-discoveryko2-final",
+      "result": "PASS",
+      "installed_files": 162,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-catalog-translationko2-final",
+      "result": "PASS",
+      "installed_files": 162,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ],
+  "hardware": {
+    "recognizable_kindle_usb_devices": 0,
+    "mounted_koreader_roots": 0
+  }
+}

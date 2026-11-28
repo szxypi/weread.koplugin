@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "actual_native_cached_duplicate_index_and_last_local": true,
+  "cached_position_and_file_checked": true,
+  "new_process_offline_reopen": true,
+  "offline_http_requests": 0,
+  "progress_or_time_posts": 0,
+  "unique_uid_and_index_and_remote_fallback": "component-tested",
+  "real_account_tested": false,
+  "physical_kindle_tested": false
+}

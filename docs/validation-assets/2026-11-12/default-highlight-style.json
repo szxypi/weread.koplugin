@@ -1,0 +1,312 @@
+{
+  "schema": 1,
+  "date": "2026-11-12",
+  "result": "PASS",
+  "base_head": "d2c80e4e46e66fe557e2b21a085b69babeef013c",
+  "feature": "Default initial highlight style",
+  "python_real": {
+    "result": "PASS",
+    "maximum_data_posts": 4,
+    "account_data_posts": 4,
+    "authentication_posts": 0,
+    "trials": [
+      {
+        "style": 0,
+        "phase": "complete",
+        "dry": {
+          "result": "PASS",
+          "mode": "read-only",
+          "account_data_posts": 0,
+          "independent_steps": 0,
+          "original_records_restored": true,
+          "web_position_unchanged": true,
+          "derived_chapter_metadata_changed": false,
+          "original_state_unchanged": true,
+          "intent_state": "absent",
+          "no_automatic_replay": true
+        },
+        "actual": {
+          "result": "PASS",
+          "mode": "apply",
+          "account_data_posts": 2,
+          "independent_steps": 2,
+          "original_records_restored": true,
+          "web_position_unchanged": true,
+          "derived_chapter_metadata_changed": false,
+          "original_state_unchanged": true,
+          "intent_state": "absent",
+          "no_automatic_replay": true
+        },
+        "native_gets": 33,
+        "web_gets": 16,
+        "writer_stages": [
+          {
+            "stage": "highlight_trial_create_pending",
+            "status": 200
+          },
+          {
+            "stage": "highlight_trial_delete_pending",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "style": 2,
+        "phase": "complete",
+        "dry": {
+          "result": "PASS",
+          "mode": "read-only",
+          "account_data_posts": 0,
+          "independent_steps": 0,
+          "original_records_restored": true,
+          "web_position_unchanged": true,
+          "derived_chapter_metadata_changed": false,
+          "original_state_unchanged": true,
+          "intent_state": "absent",
+          "no_automatic_replay": true
+        },
+        "actual": {
+          "result": "PASS",
+          "mode": "apply",
+          "account_data_posts": 2,
+          "independent_steps": 2,
+          "original_records_restored": true,
+          "web_position_unchanged": true,
+          "derived_chapter_metadata_changed": false,
+          "original_state_unchanged": true,
+          "intent_state": "absent",
+          "no_automatic_replay": true
+        },
+        "native_gets": 33,
+        "web_gets": 16,
+        "writer_stages": [
+          {
+            "stage": "highlight_trial_create_pending",
+            "status": 200
+          },
+          {
+            "stage": "highlight_trial_delete_pending",
+            "status": 200
+          }
+        ]
+      }
+    ],
+    "intent_state": "absent",
+    "original_records_and_exact_positions_restored": true,
+    "same_plan_dry_runs": 2
+  },
+  "readonly_python_lua_contract": {
+    "result": "PASS",
+    "plans": 7,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "python_lua_match": true,
+    "no_intent_created": true,
+    "initial_style_values": [
+      1,
+      0,
+      2
+    ]
+  },
+  "native": {
+    "result": "PASS",
+    "runs": [
+      {
+        "result": "PASS",
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "package_sha256": "a26af6a7f8609bacbfa0c983ccedbc6007ede9e9db5f99853b410758f89294d4",
+        "production_files": 250,
+        "source_package_installed_bytes_match": true,
+        "highlight": {
+          "offline_no_write": true,
+          "source_change_refuses_post": true,
+          "linked_thought_delete_refused": true,
+          "pending_no_resend": true,
+          "readonly_recovery": true,
+          "result": "PASS",
+          "personal_overlay_saved_and_deleted": true,
+          "synthetic_only": true,
+          "personal_overlay_font_reflow": true,
+          "synthetic_offline_cache_seeded": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "style_lost_receipt_confirmed": true,
+          "style_unknown_pending": true,
+          "default_style_direct_create": true,
+          "default_style_snapshot_frozen": true,
+          "mock_data_posts": 10,
+          "real_account_data_posts": 0,
+          "native_styles_changed": true,
+          "style_color_and_quote_preserved": true,
+          "offline_default_saved": true,
+          "durable_intent_before_post": true,
+          "downloaded_file_unchanged": true,
+          "background_workers": true,
+          "personal_overlay_toggle_and_tap": true,
+          "original_records_restored": true,
+          "cancel_refuses_commit": true,
+          "native_selection": true,
+          "native_list_delete": true
+        },
+        "offline": {
+          "fresh_process": true,
+          "pending_style_kept": true,
+          "offline_source_restore": true,
+          "local_draft_and_pending_kept": true,
+          "result": "PASS",
+          "cached_personal_highlight_displayed": true,
+          "synthetic_only": true,
+          "offline_http_requests": 0,
+          "automatic_replay": false,
+          "offline_bookmark_located": true
+        },
+        "close": {
+          "mock_authentication_posts": 1,
+          "closed_save_only_retry": true,
+          "real_account_data_writes_attempted": 0,
+          "preclose_explicit_comparison": true,
+          "elapsed_seconds": 0,
+          "result": "PASS",
+          "actual_native_document_closed": true,
+          "synthetic_only": true,
+          "preclose_explicit_local_choice": true,
+          "independent_source_preparation": true,
+          "no_closed_native_document_calls": true,
+          "source_wire_and_summary": true,
+          "durable_dispatch_before_http": true,
+          "report_posts": 1,
+          "position_readback_gets": 1,
+          "closed_401_recovered": true
+        }
+      },
+      {
+        "result": "PASS",
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "package_sha256": "a9fdc994b4a31e5ced8116a818a7a048d92de2600fe1ede4a6a2435b01b0764b",
+        "production_files": 250,
+        "source_package_installed_bytes_match": true,
+        "highlight": {
+          "offline_no_write": true,
+          "source_change_refuses_post": true,
+          "linked_thought_delete_refused": true,
+          "pending_no_resend": true,
+          "readonly_recovery": true,
+          "cancel_refuses_commit": true,
+          "personal_overlay_saved_and_deleted": true,
+          "personal_overlay_toggle_and_tap": true,
+          "personal_overlay_font_reflow": true,
+          "result": "PASS",
+          "native_styles_changed": true,
+          "synthetic_only": true,
+          "style_lost_receipt_confirmed": true,
+          "style_unknown_pending": true,
+          "default_style_direct_create": true,
+          "default_style_snapshot_frozen": true,
+          "offline_default_saved": true,
+          "original_records_restored": true,
+          "downloaded_file_unchanged": true,
+          "background_workers": true,
+          "durable_intent_before_post": true,
+          "real_account_data_posts": 0,
+          "mock_data_posts": 10,
+          "style_color_and_quote_preserved": true,
+          "synthetic_offline_cache_seeded": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "native_selection": true,
+          "native_list_delete": true
+        },
+        "offline": {
+          "synthetic_only": true,
+          "local_draft_and_pending_kept": true,
+          "pending_style_kept": true,
+          "cached_personal_highlight_displayed": true,
+          "fresh_process": true,
+          "offline_http_requests": 0,
+          "automatic_replay": false,
+          "offline_source_restore": true,
+          "result": "PASS",
+          "offline_bookmark_located": true
+        },
+        "close": {
+          "durable_dispatch_before_http": true,
+          "elapsed_seconds": 0,
+          "position_readback_gets": 1,
+          "actual_native_document_closed": true,
+          "preclose_explicit_comparison": true,
+          "preclose_explicit_local_choice": true,
+          "independent_source_preparation": true,
+          "no_closed_native_document_calls": true,
+          "source_wire_and_summary": true,
+          "result": "PASS",
+          "report_posts": 1,
+          "synthetic_only": true,
+          "closed_401_recovered": true,
+          "mock_authentication_posts": 1,
+          "closed_save_only_retry": true,
+          "real_account_data_writes_attempted": 0
+        }
+      }
+    ]
+  },
+  "checks": {
+    "python_files": 94,
+    "python_tests": 1145,
+    "python_skips": 0,
+    "lua_specs": 223,
+    "time_zones": 4,
+    "python_compile": 292,
+    "lua_syntax": 627,
+    "result": "PASS"
+  },
+  "lint": {
+    "files": 625,
+    "warnings": 0,
+    "errors": 0
+  },
+  "new_tests": {
+    "python_prototype": 12,
+    "lua_chooser_boundary_checks": 21
+  },
+  "regression": {
+    "previous_head_baseline_failure_reproduced": true,
+    "reason": "target_layout_unverified",
+    "production_sync_gate_unchanged": true,
+    "explicit_public_sync_action_and_local_choice_before_close": true,
+    "offline_overlay_located_before_display_check": true
+  },
+  "actual_test_intent_absent": true,
+  "credentials_retained": true,
+  "production_files_changed": 6,
+  "protected_files_unchanged": true,
+  "real_native_default_create_claimed": false,
+  "real_screenshots": 0,
+  "physical_ko2_acceptance": false,
+  "goal_complete": false,
+  "performance_phase_started": false,
+  "all_workflow_checks": {
+    "result": "PASS",
+    "steps": 28,
+    "workflow_sha256": "553da5d8fdaa9526370076805af794a9ccaf71ae75dd8d1e6ecd9208de25136d",
+    "python_test_files": 94,
+    "python_tests": 1145,
+    "skips": 0
+  },
+  "privacy": {
+    "python_bookmark_intent_absent": true,
+    "native_bookmark_intent_absent": true,
+    "result": "PASS",
+    "files": 1519,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "test_intents_absent": true,
+    "python_style_intent_absent": true,
+    "native_style_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 148
+  }
+}

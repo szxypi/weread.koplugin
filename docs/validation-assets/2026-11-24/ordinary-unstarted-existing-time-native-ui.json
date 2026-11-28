@@ -1,0 +1,42 @@
+{
+  "scope": "a distinct existing numeric-ID EPUB book with initially zero time and no chapter on both channels",
+  "preparation": {
+    "read_only_candidate_and_source_checks": true,
+    "candidate_distinct_from_previous_probe": true,
+    "time_only_dry_run_account_data_posts": 0,
+    "time_only_account_data_posts": 1,
+    "observed_real_elapsed_seconds": 2,
+    "real_koreader_reading_session": false,
+    "both_channels_remained_no_chapter": true,
+    "statistics_and_book_counters_verified": true,
+    "separate_one_shot_record_retained": true
+  },
+  "installed_plugin_ui": {
+    "resolution": "1264x1680",
+    "device": "KOReader emulator in an isolated Linux environment",
+    "dry_run_account_data_posts": 0,
+    "dry_run_dispatched": false,
+    "account_data_posts": 1,
+    "explicit_acknowledgement": true,
+    "source_and_signed_request_independently_checked": true,
+    "native_and_web_target_independently_verified": true,
+    "native_and_web_reading_time_preserved_seconds": 2,
+    "profile_removed": true,
+    "one_shot_record_retained": true,
+    "first_position_remains_established": true,
+    "original_no_chapter_restored": false
+  },
+  "fresh_process_readback": {
+    "account_data_posts": 0,
+    "independent_readbacks": 2,
+    "position_time_source_shelf_and_prior_records_verified": true
+  },
+  "synthetic_ui_coverage": {
+    "resolutions": ["600x800", "1264x1680"],
+    "dry_run_success_and_lost_ack": true,
+    "lost_ack_not_replayed": true,
+    "independent_http_readback": true
+  },
+  "credentials_remain_in_keychain": true,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,18 @@
+{
+  "result": "OWNER_PERSONAL_HIGHLIGHTS_KO2_SIMULATION_VERIFIED",
+  "screen_size": "1264x1680",
+  "dpi": 300,
+  "books": 1,
+  "chapters": 5,
+  "highlights": 52,
+  "original_text_and_visible_spans_verified": 52,
+  "offline_new_process_reverse_order_verified": 52,
+  "native_process_network_requests": 0,
+  "original_file_native_notes_and_position_unchanged": true,
+  "observed_cloud_marks_and_position_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "temporary_profiles_in_memory_and_removed": true,
+  "real_screenshots": 0,
+  "physical_kindle_verified": false
+}

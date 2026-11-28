@@ -18,14 +18,14 @@ local M = {}
 
 -- Show the quick menu dialog. The title already carries the WeRead brand,
 -- so the buttons use plain labels (书架 / 搜索 / 目录 / 下一章).
---   opts.show_chapter_nav : boolean — show the chapter-list/next-chapter row
---                           (true only for single-chapter files, not full books)
+--   opts.show_chapter_nav : boolean — show the chapter list and adjacent chapter row
+--   opts.show_previous_chapter : boolean — show the "previous chapter" button
 --   opts.show_next_chapter : boolean — show the "next chapter" button
 --   opts.enable_* : boolean — whether each context-dependent action is enabled
 --   opts.annotations_visible : boolean — current annotation visibility state
---   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
---                             on_book_details, on_read_stats, on_sync_progress,
---                             on_toggle_annotations, on_close_book }
+--   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_previous, on_next,
+--                             on_search_current, on_book_details, on_shelf_status, on_read_stats, on_sync_progress,
+--                             on_toggle_annotations, on_reader_progress, on_delayed_screenshot, on_close_book }
 -- Returns the dialog widget instance.
 function M.show(opts, callbacks)
     opts = opts or {}
@@ -51,13 +51,23 @@ function M.show(opts, callbacks)
     if opts.show_chapter_nav then
         local nav_row = {
             {
-                text = _("Chapter list"),
+                id = 'chapter_list',
+                text = opts.chapter_list_downloaded and _("Downloaded chapters") or _("Chapter list"),
                 enabled = opts.enable_chapter_list ~= false,
                 callback = function() dismiss_then(callbacks.on_chapter_list) end,
             },
         }
+        if opts.show_previous_chapter then
+            table.insert(nav_row, {
+                id = 'previous_chapter',
+                text = _("Previous chapter"),
+                enabled = opts.enable_previous_chapter ~= false,
+                callback = function() dismiss_then(callbacks.on_previous) end,
+            })
+        end
         if opts.show_next_chapter then
             table.insert(nav_row, {
+                id = 'next_chapter',
                 text = _("Next chapter"),
                 enabled = opts.enable_next_chapter ~= false,
                 callback = function() dismiss_then(callbacks.on_next) end,
@@ -66,35 +76,120 @@ function M.show(opts, callbacks)
         table.insert(buttons, nav_row)
     end
 
-    -- Row 2: book details / reading statistics
-    table.insert(buttons, {
-        {
-            text = _("Book details"),
-            enabled = opts.enable_book_details ~= false,
-            callback = function() dismiss_then(callbacks.on_book_details) end,
-        },
-        {
-            text = _("Reading statistics"),
-            callback = function() dismiss_then(callbacks.on_read_stats) end,
-        },
-    })
+    -- Row 2: information and actions for the current book, plus reading statistics.
+    local book_actions = {{
+        text = _("Book details"),
+        enabled = opts.enable_book_details ~= false,
+        callback = function() dismiss_then(callbacks.on_book_details) end,
+    }}
+    if callbacks.on_shelf_status then
+        book_actions[#book_actions + 1] = { id = 'shelf_status', text = _("Shelf status"),
+            callback = function() dismiss_then(callbacks.on_shelf_status) end }
+    end
+    book_actions[#book_actions + 1] = { text = _("Reading statistics"),
+        callback = function() dismiss_then(callbacks.on_read_stats) end }
+    table.insert(buttons, book_actions)
 
-    -- Row 3: bookshelf / search
+    -- Row 3: bookshelf / bookstore search
     table.insert(buttons, {
         {
             text = _("Bookshelf"),
             callback = function() dismiss_then(callbacks.on_bookshelf) end,
         },
         {
-            text = _("Search"),
+            text = _("Search bookstore"),
             callback = function() dismiss_then(callbacks.on_search) end,
         },
     })
 
+    -- KOReader searches the open document, which may be a single chapter.
+    table.insert(buttons, {
+        {
+            text = _("Search current file"),
+            enabled = opts.enable_search_current == true,
+            callback = function() dismiss_then(callbacks.on_search_current) end,
+        },
+        {
+            id = 'search_book',
+            text = _("Search entire book"),
+            enabled = opts.enable_search_book == true,
+            callback = function() dismiss_then(callbacks.on_search_book) end,
+        },
+    })
+
+    local downloaded_row={{
+        id = 'search_cached',
+        text = _("Search downloaded chapters"),
+        enabled = opts.enable_search_cached == true,
+        callback = function() dismiss_then(callbacks.on_search_cached) end,
+    }}
+    if callbacks.on_saved_chapters then
+        table.insert(downloaded_row, {
+            id = 'saved_chapters',
+            text = _("Saved chapters"),
+            callback = function() dismiss_then(callbacks.on_saved_chapters) end,
+        })
+    end
+    table.insert(buttons, downloaded_row)
+    if callbacks.on_download_chapters then
+        table.insert(buttons, {{id='download_chapters',text=_('Download E-Ink chapters'),
+            callback=function() dismiss_then(callbacks.on_download_chapters) end}})
+    end
+
+    if callbacks.on_native_position_check or callbacks.on_native_offline_reminder then
+        local row={}
+        if callbacks.on_native_position_check then row[#row+1]={id='native_position_check',text=_('Check native reading position'),
+            callback=function() dismiss_then(callbacks.on_native_position_check) end} end
+        if callbacks.on_native_offline_reminder then row[#row+1]={id='native_offline_reminder',text=_('Offline position'),
+            callback=function() dismiss_then(callbacks.on_native_offline_reminder) end} end
+        table.insert(buttons,row)
+    end
+    if callbacks.on_native_cloud_position then
+        table.insert(buttons, {{id='native_cloud_position',text=_('Open cloud reading position'),
+            callback=function() dismiss_then(callbacks.on_native_cloud_position) end}})
+    end
+    if callbacks.on_native_refresh_images then
+        table.insert(buttons, {{id='native_refresh_images',text=_('Retry missing chapter images'),
+            callback=function() dismiss_then(callbacks.on_native_refresh_images) end}})
+    end
+    if callbacks.on_native_upload_position or callbacks.on_native_bookmark then
+        local row={}
+        if callbacks.on_native_upload_position then row[#row+1]={id='native_upload_position',text=_('Sync this page to cloud'),
+            callback=function() dismiss_then(callbacks.on_native_upload_position) end} end
+        if callbacks.on_native_bookmark then row[#row+1]={id='native_save_bookmark',text=_('Save cloud bookmark'),
+            callback=function() dismiss_then(callbacks.on_native_bookmark) end} end
+        table.insert(buttons,row)
+    end
+
+    if opts.show_claim_location then
+        table.insert(buttons, {{
+            text = _("Save this page locally for this account"),
+            callback = function() dismiss_then(callbacks.on_claim_location) end,
+        }})
+    end
+
+    if callbacks.on_reader_progress or callbacks.on_reader_typography then
+        local row={}
+        if callbacks.on_reader_progress then row[#row+1]={id='reader_progress',text=_('Reading progress'),
+            callback=function() dismiss_then(callbacks.on_reader_progress) end} end
+        if callbacks.on_reader_typography then row[#row+1]={id='reader_typography',text=_('Reading settings'),
+            callback=function() dismiss_then(callbacks.on_reader_typography) end} end
+        table.insert(buttons,row)
+    end
+
+    if callbacks.on_delayed_screenshot or callbacks.on_reader_display then
+        local row={}
+        if callbacks.on_reader_display then row[#row+1]={id='reader_display',text=_('Page display'),
+            callback=function() dismiss_then(callbacks.on_reader_display) end} end
+        if callbacks.on_delayed_screenshot then row[#row+1]={id='delayed_screenshot',text=_('Delayed screenshot'),
+            callback=function() dismiss_then(callbacks.on_delayed_screenshot) end} end
+        table.insert(buttons,row)
+    end
+
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a
     -- disabled sync button instead of a no-op/error after tapping.
-    table.insert(buttons, {
+    if opts.show_sync_row~=false then table.insert(buttons, {
         {
             text = _("Sync progress now"),
             enabled = opts.enable_sync_progress ~= false,
@@ -102,11 +197,11 @@ function M.show(opts, callbacks)
         },
         {
             text = opts.annotations_visible == false
-                and _("Show underlines and thoughts")
-                or _("Hide underlines and thoughts"),
+                and _("Show underlines, thoughts and bookmarks")
+                or _("Hide underlines, thoughts and bookmarks"),
             callback = function() dismiss_then(callbacks.on_toggle_annotations) end,
         },
-    })
+    }) end
 
     -- Final row: cancel / close book
     table.insert(buttons, {
@@ -115,7 +210,8 @@ function M.show(opts, callbacks)
             callback = function() UIManager:close(dialog) end,
         },
         {
-            text = _("Close book"),
+            id = 'close_book',
+            text = _(opts.close_to_home and "Close book and return home" or "Close book"),
             callback = function() dismiss_then(callbacks.on_close_book) end,
         },
     })

@@ -1,0 +1,31 @@
+{
+  "result": "PASS",
+  "actual_account": true,
+  "self_authored_fixtures_only": true,
+  "existing_book_writes": 0,
+  "web_protocol_seconds": 2,
+  "web_book_daily_monthly_deltas_verified": true,
+  "native_reader_screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "native_reader_seconds_each": 10,
+  "native_book_daily_monthly_deltas_verified": true,
+  "native_fresh_offline_reopen_each": true,
+  "zero_time_seed_positions_verified": true,
+  "fixtures_removed_and_shelf_restored": true,
+  "private_baselines_saved_in_keychain": true,
+  "first_web_trial_unverified": true,
+  "first_web_trial_replayed": false,
+  "first_web_fixture_independently_audited_and_removed": true,
+  "first_native_attempt_stopped_before_time": true,
+  "first_native_fixture_removed": true,
+  "credentials_not_persisted_in_profiles": true,
+  "physical_kindle_tested": false,
+  "historical_offline_upload_tested": false,
+  "other_server_history_verified": false,
+  "private_data_in_report": false,
+  "one_shot_journals_consumed": true,
+  "native_baseline_updated_at_was_capture_clock": true,
+  "native_historical_update_time_independently_recoverable": false
+}

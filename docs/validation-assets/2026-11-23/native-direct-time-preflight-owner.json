@@ -1,0 +1,29 @@
+{
+  "result": "NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "books": 1,
+  "chapters_per_run": 1,
+  "prior_position_present": true,
+  "real_statistics_capture": true,
+  "today_menu_prepared": true,
+  "production_transfer_task": true,
+  "native_and_web_source_verified": true,
+  "cloud_progress_and_statistics_checked": true,
+  "signed_request_prepared": true,
+  "dispatch_journal_creation_blocked": true,
+  "write_endpoint_guard_tested": true,
+  "local_ledger_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "shelf_unchanged": true,
+  "web_position_unchanged": true,
+  "temporary_profiles_removed": true,
+  "unstarted_book_initial_attempt": "stopped_missing_native_position",
+  "unstarted_book_upload_tested": false,
+  "real_time_upload_tested": false,
+  "physical_kindle_tested": false
+}

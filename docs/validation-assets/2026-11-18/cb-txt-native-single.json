@@ -1,0 +1,29 @@
+{
+  "result": "TXT_SINGLE_PAGE_NATIVE_READING_VERIFIED",
+  "scope": "one separately uploaded self-authored short TXT",
+  "source_format": "web_txt",
+  "screens": [[600, 800, 167], [1264, 1680, 300]],
+  "each_screen": {
+    "native_shelf_selection_and_reader": true,
+    "source_text_visible_and_identity_verified": true,
+    "single_page": true,
+    "page_turn_tested": false,
+    "local_source_position_and_navigation_verified": true,
+    "fresh_offline_process": true,
+    "observed_cloud_position_unchanged": true,
+    "account_data_posts_during_reader": 0,
+    "authentication_posts_during_reader": 0,
+    "real_screenshots": 0,
+    "tmpfs_profile_removed": true
+  },
+  "fixture_import_and_removal_independently_observed": true,
+  "import_notification_posts": 1,
+  "fixture_removal_posts": 1,
+  "previous_three_txt_records_unchanged": true,
+  "prior_group_fixture_retained_and_targets_absent": true,
+  "earlier_historical_shelf_baseline_restored": "not established",
+  "private_source_or_credentials_saved": false,
+  "single_use_records_retained": true,
+  "cloud_position_upload_verified": false,
+  "physical_device_verified": false
+}

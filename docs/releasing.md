@@ -34,6 +34,8 @@ bash scripts/package_release.sh
 
 The default output is `dist/weread.koplugin-vX.Y.Z.zip`, where `X.Y.Z` comes
 from `_meta.lua`. A custom output path may be passed as the first argument.
+Build from a Git working tree. The script packages the working copies of
+tracked plugin files, so put new runtime files in the index before testing.
 
 ## Manual GitHub package / 手动打包
 

@@ -1,0 +1,17 @@
+{
+  "result": "INITIAL_STATES_READ",
+  "books_checked": 6,
+  "both_no_chapter": 1,
+  "mixed_no_chapter": 0,
+  "neither_no_chapter": 5,
+  "native_zero_counts": 1,
+  "native_counts_nonzero": 0,
+  "native_counts_incomplete": 0,
+  "reads_per_book_per_channel": 2,
+  "shelf_projection_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_responses_saved": false,
+  "grants_write_authority": false,
+  "web_session_refreshed": false
+}

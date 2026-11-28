@@ -33,6 +33,7 @@ local chapters = {
 
 local function fixture(remote, options)
     options = options or {}
+    local fixture_book=options.book_id or "book"
     local document = {
         file = "/cache/book/full.epub",
         page = 25,
@@ -40,7 +41,7 @@ local function fixture(remote, options)
         getPageCount = function() return 100 end,
     }
     local book = {
-        book_id = "book",
+        book_id = fixture_book,
         title = "Book",
         summary = "Book",
         cached_file = document.file,
@@ -51,12 +52,13 @@ local function fixture(remote, options)
         },
     }
     local values = {
+        account = { user_vid = "fixture-account-a" },
         sync = {
             pull_on_open = true,
             upload_on_close = true,
             ask_on_conflict = true,
         },
-        books = { book = book },
+        books = { [fixture_book] = book },
     }
     local settings = {
         get = function(_self, key, default)
@@ -92,11 +94,16 @@ local function fixture(remote, options)
         client = client,
         scheduler = scheduler,
         get_document = function() return document end,
-        detect_book = function() return "book" end,
+        get_footer = options.get_footer,
+        get_source_position = options.get_source_position,
+        get_view_mode = options.get_view_mode,
+        get_viewport_height = options.get_viewport_height,
+        get_navigation_xpointer = options.get_navigation_xpointer,
+        detect_book = function() return fixture_book end,
         get_book = function() return book end,
         get_chapters = options.get_chapters or function() return chapters end,
         refresh_catalog = options.refresh_catalog,
-        get_file_context = function()
+        get_file_context = options.get_file_context or function()
             return nil, nil, true
         end,
         run_online = options.run_online or function(_kind, callback)
@@ -106,7 +113,7 @@ local function fixture(remote, options)
         upload_position = function(_book_id, position, elapsed)
             uploads[#uploads + 1] = position
             eq(elapsed, 0, "progress upload has zero reading time")
-            return true, { accepted = true }
+            return true, { accepted = true, position_confirmed = true, acknowledged = true }
         end,
         goto_fraction = function(fraction)
             jumps[#jumps + 1] = fraction
@@ -146,10 +153,912 @@ local function fixture(remote, options)
         jumps = jumps,
         notifications = notifications,
         queue = queue,
+        client = client,
         step = step,
         drain = drain,
     }
 end
+
+test('ordinary current source capture saves an unchanged local viewport proof',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end,get_viewport_height=function() return 800 end})
+    f.document.getXPointer=function() return '/body/p/text().1' end
+    f.document.getCurrentPos=function() return 0 end
+    f.document.getDocumentRenderingHash=function() return 12345 end
+    f.document.info={doc_height=8000}
+    eq(f.sync:current_source_target(),nil,'ordinary fixture unexpectedly held a source jump')
+    local point=assert(f.sync:capture_local());local View=require('weread.lib.source_view')
+    eq(type(point.source_view),'table','ordinary capture lost its local viewport proof')
+    eq(View.matches(point.source_view,f.sync:_viewport(f.document),f.sync:_account_key(),source),true,'ordinary source proof was not bound to the actual view')
+    eq(f.sync.verified,false,'local proof granted cloud authority')
+    f.document.getDocumentRenderingHash=function() return nil end
+    eq(assert(f.sync:capture_local()).source_view,nil,'unknown layout created local restoration authority')
+    source=nil
+    eq(assert(f.sync:capture_local()).source_view,nil,'stale source created a local viewport proof')
+end)
+
+test('source no-chapter marker keeps local intent and overrides an older gateway point',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({progress=0,chapterUid=0,chapterOffset=0},{get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('no-chapter position reached upload preparation') end
+    f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150,updateTime=999}} end
+    f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+    f.sync:checkpoint_local('prior_local')
+    f.values.sync.upload_interval_minutes=1
+    f.sync:sync_now();f.drain()
+    eq(f.sync.verified,false,'no-chapter cloud state retained old automatic authority')
+    eq(f.sync.state,'unverified','no-chapter state became an ordinary conflict or network error')
+    eq(#f.choices,0,'no-chapter marker offered impossible cloud navigation')
+    eq(#f.uploads,0,'no-chapter marker sent a guessed first chapter')
+    eq(f.sync.interval.task,nil,'no-chapter marker scheduled automatic upload')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'no-chapter marker erased local intent')
+    eq(f.values.books.book.last_sync_error,'progress_no_chapter','no-chapter reason was lost')
+    eq(f.notifications[#f.notifications].data.error,'progress_no_chapter','no-chapter status lacked its specific notice')
+end)
+
+test('conflicting Web zero-chapter response cannot fall back to an older gateway position',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle='Conflicting title'},
+        {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('conflicting position reached upload preparation') end
+    f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150,updateTime=999}} end
+    local remote,reason=f.sync:_fetch_remote('book',chapters)
+    eq(remote,nil,'conflicting Web state fell back to the gateway')
+    eq(reason,'progress_source_incomplete','conflicting Web state lost its reason')
+    f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+    f.sync:checkpoint_local('prior_local')
+    f.sync:sync_now();f.drain()
+    eq(#f.choices,0,'conflicting cloud state offered a choice');eq(#f.uploads,0,'conflicting cloud state uploaded')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'conflicting cloud state erased local intent')
+end)
+
+test('incomplete Web zero-chapter responses cannot fall back to an older gateway position',function()
+    for _,remote in ipairs({{progress=1,chapterUid=0,chapterOffset=0},
+        {progress=0,chapterUid=0}, {progress=0,chapterUid=0,chapterOffset=0,chapterIdx=1},
+        {progress=0,chapterUid=0,chapterOffset=0,summary='Existing text'}}) do
+        local f=fixture(remote)
+        f.sync.prepare_upload=function() error('incomplete position reached upload preparation') end
+        f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150}} end
+        local point,reason=f.sync:_fetch_remote('book',chapters)
+        eq(point,nil,'incomplete zero-chapter Web state fell back to the gateway')
+        eq(reason,'progress_source_incomplete','incomplete zero-chapter state lost its reason')
+    end
+end)
+
+local function cb_fixture()
+    local source={book_id='CB_SyntheticOnly',chapter_uid='22',chapter_offset=150,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='chapter.xhtml'}
+    local f=fixture({bookId=source.book_id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150},
+        {book_id=source.book_id,get_source_position=function() return source end})
+    f.source=source;f.remote_reads=0;f.prepares=0
+    f.client.get_progress=function() f.remote_reads=f.remote_reads+1;error('unsupported CB fetched cloud position') end
+    f.client.get_web_progress=f.client.get_progress
+    f.sync.prepare_upload=function() f.prepares=f.prepares+1;error('unsupported CB prepared upload') end
+    f.sync.current_book_id=source.book_id;f.sync.dirty=true;f.sync:checkpoint_local('cb_prior_local')
+    f.values.sync.upload_interval_minutes=1;return f
+end
+
+test('unsupported CB sync preserves local intent, reports its limit and does not start remote work',function()
+    local f=cb_fixture();local id=f.source.book_id
+    for _i=1,2 do
+        eq(f.sync:sync_now(),false,'unsupported sync was accepted');f.drain()
+        eq(f.sync.verified,false,'CB point gained unproven cloud authority');eq(f.sync.state,'unverified','CB state became transient error')
+        eq(#f.choices,0,'unverified CB units offered a cloud jump');eq(f.remote_reads,0,'CB retry fetched known unsupported units')
+        eq(f.prepares,0,'CB retry prepared a doomed upload');eq(f.sync.interval.task,nil,'CB retry scheduled automatic upload')
+        eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'CB pending point erased')
+        eq(f.notifications[#f.notifications].data.error,'progress_book_sync_unsupported','missing stable limit notice')
+    end
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f.sync:checkpoint_local('cb_new_local')
+    eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'CB guard broke local reading')
+end)
+
+test('automatic CB opening and resume stay local without retry tasks',function()
+    local f=cb_fixture();f.sync:on_reader_ready();f.drain()
+    eq(f.remote_reads,0,'CB automatic opening fetched unsupported cloud coordinates')
+    eq(#f.notifications,0,'automatic opening repeatedly showed notices')
+    eq(f.sync.verified,false,'CB opening became verified');eq(f.sync.interval.task,nil,'CB opening armed timer')
+    f.sync:on_resume();f.drain();eq(f.remote_reads,0,'CB resume retried unsupported sync')
+end)
+
+test('stale CB authority cannot upload on close, qualify a report, or apply an old cloud target',function()
+    local f=cb_fixture();local id=f.source.book_id;local point=assert(f.sync:capture_local())
+    eq(f.sync:_mark_verified(id,'stale_test',point,{}),false,'CB comparison qualified unsupported coordinates')
+    local _,why=f.sync:position_for_report(id);eq(why,'progress_unverified','CB time report gained authority')
+    f.sync.verified=true;f.sync.dirty=true
+    local _,stale_reason=f.sync:position_for_report(id);eq(stale_reason,'progress_unverified','stale CB flag enabled time reports')
+    f.sync:on_close_document()
+    eq(f.prepares,0,'closing CB prepared unsupported write');eq(#f.uploads,0,'closing CB sent a legacy report')
+    f=cb_fixture()
+    local ok,reason=f.sync:_apply_remote({book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=170,percent=25},
+        {book_id=id,book=f.values.books[id],chapters=chapters})
+    eq(ok,false,'old CB target was applied');eq(reason,'source_book_sync_unsupported','CB target did not explain its limit')
+    eq(#f.jumps,0,'CB guard jumped to guessed source units')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'CB jump erased local point')
+end)
+
+test('a closed unsupported book cannot revoke a newer reader or copy its point into the wrong book',function()
+    local f=cb_fixture();local id=f.source.book_id;local old=assert(f.sync:capture_local())
+    f.sync.detect_book=function() return '900001' end;f.sync.current_book_id='900001';f.sync.verified=true
+    local timer=function() end;f.sync.interval.task=timer;f.notifications={}
+    eq(f.sync:_upload_snapshot(old,'old_closed_book',true),false,'old CB upload was accepted')
+    eq(f.sync.current_book_id,'900001','old CB replaced current book');eq(f.sync.verified,true,'old CB revoked current verification')
+    eq(f.sync.interval.task,timer,'old CB halted current timer')
+    eq(f.values.books[id].last_local_position.book_id,id,'old book checkpoint got a foreign point')
+    f.sync.capture_local=function() return {book_id='900001',percent=40} end
+    f.sync:_apply_remote({book_id=id},{book_id=id})
+    eq(f.values.books[id].last_local_position.book_id,id,'old jump copied current point into a different book')
+    eq(f.sync.current_book_id,'900001','old jump replaced current book')
+end)
+
+local function cb_manual_fixture()
+    local f=cb_fixture();local id=f.source.book_id
+    local remote={bookId=id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=140,updateTime=123}
+    f.client.get_web_progress=function() f.remote_reads=f.remote_reads+1;return {book=remote} end
+    f.client.get_progress=function() error('imported sync used gateway') end
+    local journal=require('weread.lib.source_dispatch'):new{settings=f.sync.settings,nonce=function() return string.rep('a',32) end}
+    f.sync.source_dispatch=journal
+    f.sync.prepare_upload=function(intent,done)
+        f.prepares=f.prepares+1;f.intent=intent;f.ready=done
+    end
+    f.sync.upload_position=function(_id,position,seconds,plan)
+        eq(seconds,0,'CB sync sent reading time')
+        eq(plan.transport,'cb_web_position','CB sender was not selected')
+        eq(plan.before_send(),true,'CB dispatch journal was not saved')
+        eq(plan.before_send(),true,'CB second write did not retain journal')
+        f.uploads[#f.uploads+1]=position
+        return true,{acknowledged=true,position_confirmed=true,remote={book_id=id,chapter_uid=position.chapter_uid,
+            chapter_idx=position.chapter_idx,chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=123,
+            has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    return f,remote
+end
+
+test('imported automatic comparison qualifies only an equal clean source point',function()
+    local f,raw=cb_manual_fixture();local id=f.source.book_id
+    raw.chapterOffset=f.source.chapter_offset
+    f.values.books[id].pending_upload_position=nil
+    f.values.books[id].pending_upload_reason=nil
+    f.values.books[id].pending_upload_account=nil
+    local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(id,chapters))
+    f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(f.sync.verified,true,'equal imported source did not establish automatic baseline')
+    eq(f.sync.interval.task,nil,'clean imported position armed a deadline')
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'equal imported point lacked guarded time intent')
+    eq(eligible and eligible.expected_remote.updated_at,123,'time intent lost its cloud baseline')
+    f.sync:_clear_verified('test');raw.chapterOffset=raw.chapterOffset+1
+    remote=assert(f.sync:_fetch_remote(id,chapters));f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(f.sync.verified,false,'different imported source gained automatic authority')
+    eq(#f.choices,0,'automatic open presented a choice unexpectedly')
+    eq(f.prepares,0,'automatic open prepared an upload')
+end)
+
+test('imported reconnect asks before using an offline local position',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),true,'reconnect did not compare imported positions');f.drain()
+    eq(f.remote_reads,1,'reconnect did not read the imported cloud position')
+    eq(#f.choices,1,'offline imported position did not open a choice')
+    eq(f.sync.state,'awaiting_choice','reconnect did not hold for a decision')
+    eq(f.sync.verified,false,'reconnect granted authority before a decision')
+    eq(f.prepares,0,'reconnect prepared an upload before a decision')
+    eq(#f.uploads,0,'reconnect sent a position before a decision')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'reconnect discarded the offline intent')
+    eq(f.sync:on_network_connected(),false,'duplicate reconnect replaced the active choice')
+    eq(f.remote_reads,1,'duplicate reconnect repeated the read')
+    f.choices[1].keep_local()
+    eq(f.prepares,1,'explicit local choice did not prepare a guarded send')
+    eq(f.intent.cb_guarded_sync,true,'reconnect choice lost imported source guard')
+    eq(#f.uploads,0,'reconnect choice bypassed source preparation')
+end)
+
+test('imported offline progress is compared when network returns during sleep',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected();f.sync:on_suspend();online=true
+    eq(f.sync:on_network_connected(),false,'network event while sleeping started a comparison')
+    eq(f.remote_reads,0,'sleeping reader accessed the network')
+    eq(#f.choices,0,'sleeping reader presented a choice')
+    f.sync:on_resume();f.drain()
+    eq(f.remote_reads,1,'wake did not compare the restored connection')
+    eq(#f.choices,1,'wake did not offer the saved offline position')
+    eq(f.sync.state,'awaiting_choice','wake failed to wait for the reader')
+    eq(f.prepares,0,'wake prepared a write before the reader chose')
+    eq(#f.uploads,0,'wake sent an offline position without a choice')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'wake lost the offline intent')
+    eq(f.sync:on_network_connected(),false,'late network event duplicated the wake choice')
+    eq(f.remote_reads,1,'late event repeated the wake comparison')
+end)
+
+test('network loss during sleep preserves the precise checkpoint',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_suspend(f.source)
+    local saved=f.values.books[id];local original=saved.pending_upload_position
+    eq(original.source_position.chapter_offset,150,'suspend did not capture the exact position')
+    f.sync.get_source_position=function() return nil end
+    f.sync:on_network_disconnected()
+    eq(saved.pending_upload_position.source_position and saved.pending_upload_position.source_position.chapter_offset,150,
+        'sleeping network event replaced the exact pending position')
+    eq(saved.last_local_position.source_position and saved.last_local_position.source_position.chapter_offset,150,
+        'sleeping network event replaced the exact local position')
+    eq(f.sync.state,'offline','sleeping disconnect did not record network loss')
+    eq(f.remote_reads,0,'sleeping disconnect fetched cloud state')
+    eq(#f.uploads,0,'sleeping disconnect sent a position')
+end)
+
+test('repeated sleep notification preserves the original checkpoint',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_suspend(f.source)
+    f.sync.get_source_position=function() return nil end
+    f.sync:on_suspend()
+    local saved=f.values.books[id]
+    eq(saved.pending_upload_position.source_position and saved.pending_upload_position.source_position.chapter_offset,150,
+        'repeated sleep replaced the exact pending position')
+    eq(saved.last_local_position.source_position and saved.last_local_position.source_position.chapter_offset,150,
+        'repeated sleep replaced the exact local position')
+    eq(f.remote_reads,0,'repeated sleep fetched cloud state')
+    eq(#f.uploads,0,'repeated sleep sent a position')
+end)
+
+test('imported reconnect retains its decision gate after an offline retry',function()
+    local f=cb_manual_fixture();local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),false,'offline notification unexpectedly started a request')
+    eq(f.remote_reads,0,'offline notification accessed the network')
+    online=true;f.drain()
+    eq(f.remote_reads,1,'bounded retry did not compare after network recovery')
+    eq(#f.choices,1,'retry lost the reconnect choice')
+    eq(f.prepares,0,'retry prepared an upload without a choice')
+    eq(#f.uploads,0,'retry sent an offline position without a choice')
+end)
+
+test('wake cannot compare an imported reader under a changed account',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected();f.sync:on_suspend()
+    f.values.account={user_vid='changed-account'};f.sync:on_resume();f.drain()
+    eq(f.remote_reads,0,'wake queried cloud under another account')
+    eq(#f.choices,0,'wake offered another account the old decision')
+    eq(f.prepares,0,'wake prepared another account upload')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'account change lost the previous intent')
+end)
+
+test('offline imported wake retries with its choice gate intact',function()
+    local f=cb_manual_fixture();local online=false
+    f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_network_disconnected();f.sync:on_suspend();f.sync:on_resume()
+    eq(f.remote_reads,0,'offline wake read remote progress')
+    online=true;f.drain()
+    eq(f.remote_reads,1,'wake retry did not read remote progress')
+    eq(#f.choices,1,'wake retry did not offer the saved local position')
+    eq(f.prepares,0,'wake retry prepared an upload before a decision')
+    eq(#f.uploads,0,'wake retry sent an upload before a decision')
+end)
+
+test('imported wake preserves an unconfirmed write and a held source target',function()
+    for _,kind in ipairs({'unknown_reason','unknown_journal','held_target','pending_jump'}) do
+        local f=cb_manual_fixture();local id=f.source.book_id;local online=false
+        f.sync.is_online=function() return online end;f.sync.checkpoint_account=f.sync:_account_key()
+        f.sync:on_network_disconnected();f.sync:on_suspend()
+        if kind=='unknown_reason' then f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+        elseif kind=='unknown_journal' then f.sync.source_dispatch.pending=function() return true end
+        elseif kind=='held_target' then f.sync.current_source_target=function() return {upload_verified=false} end
+        else f.sync.pending_jump={synthetic=true} end
+        online=true;f.sync:on_resume();f.drain()
+        eq(#f.choices,0,'wake exposed a protected state: '..kind)
+        eq(f.prepares,0,'wake prepared a protected state: '..kind)
+        eq(#f.uploads,0,'wake sent a protected state: '..kind)
+        eq(f.sync.verified,false,'wake verified a protected state: '..kind)
+        if kind=='held_target' or kind=='pending_jump' then eq(f.remote_reads,0,'wake replaced a protected target') end
+        eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'wake lost protected intent: '..kind)
+    end
+end)
+
+test('online imported wake is not mistaken for an offline reconnect',function()
+    local f=cb_manual_fixture();f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync:on_suspend();f.sync:on_resume();f.drain()
+    eq(#f.choices,0,'normal online wake unexpectedly offered a reconnect choice')
+    eq(f.prepares,0,'normal online wake prepared an upload')
+    eq(#f.uploads,0,'normal online wake sent an upload')
+end)
+
+test('explicit account-change event during sleep invalidates wake comparison',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected();f.sync:on_suspend()
+    f.values.account={user_vid='changed-account'};f.sync:on_account_changed();f.sync:on_resume();f.drain()
+    eq(f.remote_reads,0,'account-change event still allowed a wake comparison')
+    eq(#f.choices,0,'account-change event exposed the old decision')
+    eq(f.prepares,0,'account-change event prepared an old upload')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'account-change event lost the old intent')
+end)
+
+test('imported reconnect choice expires on a second disconnect',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+    eq(f.sync:on_network_connected(),true,'first reconnect did not compare');f.drain()
+    eq(#f.choices,1,'first reconnect did not offer a choice')
+    local old=f.choices[1];f.sync:on_network_disconnected();old.keep_local();old.use_remote()
+    eq(f.prepares,0,'stale imported choice prepared an upload')
+    eq(#f.uploads,0,'stale imported choice wrote a position')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'stale choice discarded offline position')
+    eq(f.sync:on_network_connected(),true,'second reconnect did not start a fresh comparison');f.drain()
+    eq(#f.choices,2,'second reconnect did not offer a fresh choice')
+end)
+
+test('imported reconnect never offers an unknown or foreign pending write',function()
+    for _,kind in ipairs({'missing','foreign','unknown_reason','unknown_journal','manual_only'}) do
+        local f=cb_manual_fixture();local id=f.source.book_id
+        f.sync.checkpoint_account=f.sync:_account_key();f.sync:on_network_disconnected()
+        local book=f.values.books[id]
+        if kind=='missing' then book.pending_upload_position=nil
+        elseif kind=='foreign' then book.pending_upload_account='another-account'
+        elseif kind=='unknown_reason' then book.pending_upload_reason='upload_readback_unconfirmed'
+        elseif kind=='unknown_journal' then f.sync.source_dispatch.pending=function() return true end
+        else f.values.sync.pull_on_open=false end
+        local started=f.sync:on_network_connected();f.drain()
+        eq(started,kind~='manual_only','wrong reconnect start for '..kind)
+        eq(#f.choices,0,'reconnect exposed a protected state: '..kind)
+        eq(f.prepares,0,'reconnect prepared a protected state: '..kind)
+        eq(#f.uploads,0,'reconnect sent a protected state: '..kind)
+        eq(f.sync.verified,false,'reconnect verified a protected state: '..kind)
+    end
+end)
+
+test('imported reconnect does not claim a pending point without an account',function()
+    local f=cb_manual_fixture();local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(f.source.book_id,chapters))
+    f.values.account={};f.values.books[f.source.book_id].pending_upload_account=nil
+    f.sync:_resolve(local_position,remote,context,{manual=false,reconnect=true})
+    eq(#f.choices,0,'anonymous account matched unowned pending state')
+    eq(f.prepares,0,'anonymous account prepared a pending upload')
+    eq(f.sync.verified,false,'anonymous account obtained a cloud baseline')
+end)
+
+test('imported ordinary automatic opening does not reuse reconnect choice',function()
+    local f=cb_manual_fixture();local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(f.source.book_id,chapters))
+    f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(#f.choices,0,'ordinary open was treated as a reconnect')
+    eq(f.sync.verified,false,'ordinary open verified a conflicting position')
+    eq(f.prepares,0,'ordinary open prepared an upload')
+end)
+
+test('manual CB sync requires explicit choice, guarded preparation and durable dispatch',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true,'manual imported sync did not read cloud');f.drain()
+    eq(f.remote_reads,1,'imported sync did not use one Web progress read')
+    eq(#f.choices,1,'different imported positions did not ask the reader')
+    eq(f.prepares,0,'comparison prepared upload before choice')
+    eq(f.sync.verified,false,'comparison enabled automatic reports')
+    f.choices[1].keep_local()
+    eq(f.prepares,1,'explicit local choice did not prepare upload')
+    eq(f.intent.cb_guarded_sync,true,'CB guarded intent missing')
+    eq(f.intent.expected_remote.chapter_offset,140,'chosen cloud point not pinned')
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1,'manual imported position did not reach sender')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed position did not clear own pending state')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed journal did not retire')
+    eq(f.sync.verified,true,'confirmed imported position did not establish a baseline')
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'confirmed imported position lacked guarded time intent')
+    eq(f.sync.interval.task,nil,'manual imported send armed automatic upload')
+    eq(f.notifications[#f.notifications].code,'upload_success','success notice missing')
+end)
+
+test('CB upload confirmation preserves a newer page reached during the send',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local send=f.sync.upload_position
+    f.sync.upload_position=function(...)
+        local accepted,outcome=send(...)
+        f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update()
+        return accepted,outcome
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    local sent_source={};for key,value in pairs(f.source) do sent_source[key]=value end
+    f.ready({position=pos,source_position=sent_source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(f.sync.verified,true,'confirmed old point lost its baseline')
+    eq(f.sync.dirty,true,'newer page was marked synchronized')
+    eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'confirmation overwrote newer local resume point')
+    local pending=f.values.books[id].pending_upload_position
+    eq(pending and pending.source_position and pending.source_position.chapter_offset,151,'confirmation saved newer pending source position')
+    eq(f.values.books[id].pending_upload_account,f.sync:_account_key(),'newer pending source belongs to the current account')
+    eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
+end)
+
+test('CB confirmation retains a newer native page at the same cloud coordinate',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local send=f.sync.upload_position
+    f.document.page=2500;f.document.getPageCount=function() return 10000 end
+    f.document.getXPointer=function(self) return '/body/p.'..self.page end
+    f.document.getCurrentPos=function(self) return self.page-1 end
+    f.document.getDocumentRenderingHash=function() return 12345 end
+    f.document.info={doc_height=10000};f.sync.get_viewport_height=function() return 800 end
+    f.sync.upload_position=function(...)
+        local accepted,outcome=send(...)
+        f.document.page=2501;f.sync:on_page_update()
+        return accepted,outcome
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    local sent_source={};for key,value in pairs(f.source) do sent_source[key]=value end
+    f.ready({position=pos,source_position=sent_source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    local saved=f.values.books[id]
+    eq(saved.last_local_position.fraction,0.2501,'newer native location was not saved')
+    eq(saved.pending_upload_position and saved.pending_upload_position.fraction,0.2501,'newer native location is not pending')
+    eq(saved.last_local_position.source_view.view.xpointer,'/body/p.2501','newer source-bound viewport was not saved')
+    eq(f.sync.local_position.fraction,0.2501,'verification restored the old native location')
+    eq(f.sync.dirty,true,'newer native location was treated as synchronized')
+    eq(f.sync.source_local_anchor.chapter_offset,150,'confirmed source anchor changed')
+end)
+
+test('manual CB TXT sync journals its raw source and retains guarded time eligibility',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:sync_now();f.drain();eq(#f.choices,1);f.choices[1].keep_local()
+    eq(f.intent.cb_guarded_sync,true);eq(f.intent.expected_remote.chapter_offset,140)
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='raw\r\ntext'}
+    f.ready({position=pos,source_position=f.source,basis='raw_txt_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1);eq(f.sync.verified,true);eq(f.sync.source_dispatch:pending(id),false)
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'confirmed TXT point lacked guarded time intent')
+    eq(eligible and eligible.expected_remote.chapter_offset,150,'TXT time intent lost the verified cloud position')
+    f.values.books[id].pending_upload_account=f.sync:_account_key()
+    f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:position_for_report(id),nil,'uncertain TXT upload enabled time reporting')
+    f.values.books[id].pending_upload_reason=nil;f.sync.checkpoint_account='different'
+    eq(f.sync:position_for_report(id),nil,'different account enabled TXT time reporting')
+end)
+
+test('CB reading time requires the same account, exact baseline and no uncertain write',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible.cb_guarded_sync,true);eq(eligible.expected_remote.chapter_offset,150)
+    eligible.expected_remote.chapter_offset=999
+    eq(f.sync.remote_position.chapter_offset,150,'time intent mutated baseline')
+    local saved=f.values.books[id];saved.pending_upload_account=f.sync:_account_key();saved.pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:position_for_report(id),nil,'uncertain CB write enabled time')
+    saved.pending_upload_reason=nil;local account=f.sync.checkpoint_account;f.sync.checkpoint_account='different'
+    eq(f.sync:position_for_report(id),nil,'other account enabled time')
+    f.sync.checkpoint_account=account;f.sync.remote_position.updated_at=nil
+    eq(f.sync:position_for_report(id),nil,'incomplete CB baseline enabled time')
+end)
+
+test('confirmed CB time clears only the matching local position',function()
+    for _,moved in ipairs({false,true}) do
+        local f=cb_manual_fixture();local id=f.source.book_id
+        eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+        local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+        f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+        f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f.sync:checkpoint_local('new_page')
+        local remote={book_id=id,source='web',chapter_uid='22',chapter_idx=2,chapter_offset=151,
+            percent=26,raw_percent=26,updated_at=124,has_chapter_index=true,has_chapter_offset=true}
+        if moved then f.source.chapter_offset=152;f.document.page=27;f.sync:on_page_update();f.sync:checkpoint_local('newer_page') end
+        eq(f.sync:accept_report_confirmation(remote),true,'CB time confirmation rejected')
+        eq(f.sync.dirty,moved,'CB time confirmation misclassified newer movement')
+        eq(f.values.books[id].pending_upload_position~=nil,moved,'CB time confirmation erased newer pending position')
+    end
+end)
+
+test('CB close freezes the verified baseline and completes after the reader closes',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local first={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=first,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(f.sync.verified,true,'CB baseline not verified')
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update()
+    local token,closed_ready={},nil
+    f.sync.freeze_close=function(intent)
+        eq(intent.cb_guarded_sync,true,'close lost guarded intent')
+        eq(intent.expected_remote.chapter_offset,150,'close did not pin verified cloud baseline')
+        return token
+    end
+    f.sync.prepare_closed=function(receipt,_position,callback)
+        eq(receipt,token,'close lost its frozen token');closed_ready=callback
+    end
+    local frozen,position=f.sync:prepare_close(f.source)
+    eq(frozen,token,'verified CB close did not freeze')
+    f.sync:on_close_document(f.source,frozen,position)
+    eq(f.sync.verified,false,'closed reader remained verified')
+    local wire={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=151,percent=position.percent,summary='synthetic source'}
+    closed_ready({position=wire,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',
+        detached=true,is_current=function() return true end})
+    eq(#f.uploads,2,'detached CB close did not send exactly once')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed CB close retained pending point')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed CB close retained journal')
+end)
+
+test('CB close does not freeze an uncertain or unverified baseline',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    local frozen=0;f.sync.freeze_close=function() frozen=frozen+1;return {} end
+    f.sync.prepare_closed=function() error('unexpected close preparation') end
+    f.sync.verified=true;f.sync.remote_position={};f.sync.dirty=true
+    eq(f.sync:prepare_close(f.source),nil,'malformed cloud baseline froze')
+    f.sync.remote_position={book_id=id,source='web',chapter_uid='22',chapter_idx=2,chapter_offset=140,
+        raw_percent=25,updated_at=123,has_chapter_index=true,has_chapter_offset=true}
+    f.values.books[id].pending_upload_account=f.sync:_account_key()
+    f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:prepare_close(f.source),nil,'unconfirmed write froze again')
+    eq(frozen,0,'unsafe CB close reached source freezing')
+end)
+
+test('CB progress comparison uses captured Web access instead of the numeric-only API',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.values.account.user_vid='900000';f.values.cookies={wr_vid='900000',wr_skey='synthetic-session'}
+    local scope={vid='900000',epoch=1}
+    f.sync.settings.get_auth_scope=function() return scope end
+    f.sync.settings.auth_scope_matches=function(_self,value) return value==scope end
+    f.sync.recovery={}
+    local calls=0
+    f.client.get_progress_snapshot=function() error('numeric-only snapshot used for CB') end
+    f.client.get_shelf_display_progress=function(_self,book,access,flags)
+        calls=calls+1;eq(book,id);eq(access.kind,'web');eq(flags.fresh,true)
+        return {book={bookId=id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=140,updateTime=123}}
+    end
+    local remote,reason=f.sync:_fetch_remote(id,chapters,function() return true end)
+    eq(reason,nil);eq(calls,1);eq(remote.source,'web');eq(remote.chapter_offset,140);eq(remote.updated_at,123)
+end)
+
+test('uncertain CB send keeps its dispatch journal and cannot retry automatically',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.upload_position=function(_id,_position,_seconds,plan)
+        eq(plan.before_send(),true,'uncertain CB dispatch was not recorded')
+        f.uploads[#f.uploads+1]=true
+        return false,{acknowledged=false,position_confirmed=false,enter_attempted=true,report_attempted=false,
+            error='upload_write_unconfirmed',error_kind='unconfirmed'}
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1);eq(f.sync.source_dispatch:pending(id),true,'uncertain CB send lost its journal')
+    eq(f.values.books[id].pending_upload_reason,'upload_readback_unconfirmed','uncertain CB reason was lost')
+    eq(f.sync.verified,false);eq(f.sync.interval.task,nil,'uncertain CB send armed automatic retry')
+    f.sync:on_resume();f.drain();eq(#f.uploads,1,'resume retried uncertain CB send')
+end)
+
+test('CB choice cannot upload after page change or run automatically',function()
+    local f=cb_manual_fixture()
+    eq(f.sync:sync_now(),true);f.drain();eq(#f.choices,1)
+    f.source.chapter_offset=151;f.choices[1].keep_local()
+    eq(f.prepares,0,'stale local selection prepared upload')
+    eq(#f.uploads,0,'stale local selection wrote progress')
+    eq(f.sync:position_for_report(f.source.book_id),nil,'manual CB sync granted time-report authority')
+    eq(f.sync:_upload_snapshot(assert(f.sync:capture_local()),'interval',false),false,'automatic CB upload was enabled')
+end)
+
+test('CB cloud choice uses source navigation without granting write authority',function()
+    local f=cb_manual_fixture();local invoked=0
+    f.sync.apply_source_remote=function(remote,options)
+        invoked=invoked+1;eq(remote.chapter_offset,140);eq(options.cb_explicit_sync,true);return true
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].use_remote()
+    eq(invoked,1,'explicit cloud choice did not use native source navigation')
+    eq(f.prepares,0,'cloud choice prepared local write')
+    eq(f.sync.verified,false,'cloud choice granted reporting authority')
+end)
+
+local function cb_first_fixture(mode)
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.client.get_web_progress=function()
+        f.remote_reads=f.remote_reads+1
+        return {book={bookId=id,progress=0,chapterUid=0,chapterIdx=0,chapterOffset=0,summary='',updateTime=1}}
+    end
+    f.sync.upload_position=function(_id,position,seconds,plan)
+        eq(seconds,0,'CB first sync sent reading time')
+        eq(plan.transport,'cb_web_initial','CB first sender was not selected')
+        eq(plan.before_send(),true,'CB first dispatch was not saved')
+        f.uploads[#f.uploads+1]=position
+        if mode=='unknown' then
+            return false,{acknowledged=false,position_confirmed=false,enter_attempted=true,report_attempted=false,error_kind='unconfirmed'}
+        end
+        if mode=='delayed' then
+            f.delayed_position=position
+            return false,{acknowledged=true,position_confirmed=false,enter_attempted=true,report_attempted=false,
+                error_kind='confirmation_pending',confirmation={}}
+        end
+        return true,{acknowledged=true,position_confirmed=true,enter_attempted=true,report_attempted=false,
+            remote={book_id=id,chapter_uid=position.chapter_uid,chapter_idx=position.chapter_idx,
+                chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=2,
+                has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    f.sync.confirm_position=function()
+        local position=f.delayed_position
+        return true,{acknowledged=true,position_confirmed=true,enter_attempted=true,report_attempted=false,
+            remote={book_id=id,chapter_uid=position.chapter_uid,chapter_idx=position.chapter_idx,
+                chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=2,
+                has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    function f:ready_first()
+        local position={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=self.intent.percent,summary='synthetic source'}
+        self.ready({position=position,source_position=self.source,basis=self.source.basis,transport='cb_web_initial',
+            initial_remote=self.intent.expected_remote.no_chapter,is_current=function() return true end})
+    end
+    return f
+end
+
+test('CB first sync requires explicit choice and confirms before granting automatic access',function()
+    local f=cb_first_fixture();local id=f.source.book_id
+    f.sync:_pull({manual=false});f.drain()
+    eq(#f.choices,0,'automatic open offered first sync');eq(f.sync.verified,false,'automatic open gained authority')
+    f.sync:sync_now();f.drain();local choice=assert(f.choices[1])
+    eq(choice.initialize_cloud,true,'CB first sync choice missing');eq(choice.use_remote,nil,'zero chapter offered navigation')
+    eq(f.prepares,0,'first sync prepared before user choice');choice.initialize()
+    eq(f.intent.initialize_cloud,true,'CB first intent missing');eq(f.intent.cb_guarded_sync,true,'CB guard missing')
+    eq(f.intent.expected_remote.no_chapter.kind,'cb_no_chapter','CB no-chapter observation lost')
+    eq(f.sync.verified,false,'first preparation granted authority');f:ready_first()
+    eq(#f.uploads,1,'first CB request missing')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed CB first request retained journal')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed CB first request retained local intent')
+    eq(f.sync.verified,true,'confirmed CB first point did not grant authority')
+    eq(f.notifications[#f.notifications].code,'upload_success','CB first success not shown')
+end)
+
+test('CB TXT first sync requires explicit choice and preserves unknown dispatch',function()
+    local f=cb_first_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:_pull({manual=false});f.drain();eq(#f.choices,0,'automatic TXT first write offered')
+    f.sync:sync_now();f.drain();eq(f.choices[1].initialize_cloud,true,'TXT first choice missing')
+    f.choices[1].initialize();eq(f.intent.cb_guarded_sync,true);f:ready_first()
+    eq(#f.uploads,1);eq(f.sync.verified,true);eq(f.sync.source_dispatch:pending(id),false)
+    f=cb_first_fixture('unknown');id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(#f.uploads,1);eq(f.sync.verified,false);eq(f.sync.source_dispatch:pending(id),true)
+    local choices=#f.choices;f.sync:sync_now();f.drain()
+    eq(#f.choices,choices,'uncertain TXT first write offered another request');eq(#f.uploads,1)
+end)
+
+test('CB first sync accepts delayed dual readback without sending again',function()
+    local f=cb_first_fixture('delayed');local id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(#f.uploads,1,'first request missing');eq(f.sync.source_dispatch:pending(id),true,'pending confirmation lost its journal')
+    f.drain()
+    eq(#f.uploads,1,'delayed confirmation resent first request')
+    eq(f.sync.source_dispatch:pending(id),false,'delayed confirmed request retained journal')
+    eq(f.sync.verified,true,'delayed confirmed request remained unverified')
+end)
+
+test('CB first sync cancellation, unknown receipt and local save failure do not replay',function()
+    local f=cb_first_fixture();f.sync:sync_now();f.drain();f.choices[1].keep_local()
+    eq(f.prepares,0,'cancel prepared first upload');eq(#f.uploads,0,'cancel sent first upload')
+    f=cb_first_fixture('unknown');local id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(f.sync.source_dispatch:pending(id),true,'unknown first send lost its journal')
+    eq(f.sync.verified,false,'unknown first send granted authority')
+    local count=#f.uploads;f.sync:prepare_close();f.drain();eq(#f.uploads,count,'unknown first send replayed on close')
+    local choices=#f.choices;f.sync:sync_now();f.drain()
+    eq(#f.choices,choices,'unknown first send offered another first write')
+    eq(f.notifications[#f.notifications].code,'upload_unconfirmed','unknown first send did not explain the pending result')
+    eq(#f.uploads,count,'manual check replayed unknown first request')
+    f=cb_first_fixture();id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize()
+    local original=f.sync._persist
+    f.sync._persist=function(self,book,patch)
+        if patch.last_uploaded_position then error('synthetic storage failure') end
+        return original(self,book,patch)
+    end
+    eq(pcall(function() f:ready_first() end),true,'CB local save failure escaped the UI')
+    eq(f.sync.source_dispatch:pending(id),true,'local save failure lost first dispatch journal')
+    eq(f.sync.verified,false,'local save failure granted authority')
+    eq(f.notifications[#f.notifications].code,'upload_initial_save_failed','local save failure notice missing')
+    f=cb_first_fixture();id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize()
+    original=f.sync._persist
+    f.sync._persist=function(self,book,patch)
+        if patch.verified_source=='cb_upload_confirmed' then error('synthetic verified save failure') end
+        return original(self,book,patch)
+    end
+    eq(pcall(function() f:ready_first() end),true,'CB verified save failure escaped the UI')
+    eq(f.sync.source_dispatch:pending(id),true,'verified save failure lost first dispatch journal')
+    eq(f.sync.verified,false,'verified save failure granted authority')
+end)
+
+local function first_fixture()
+    local source={book_id='41',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({bookId='41',progress=0,chapterUid=0,chapterOffset=0},
+        {book_id='41',get_source_position=function() return source end})
+    f.source=source;f.document.getXPointer=function() return 'synthetic-xpointer' end
+    f.sync.prepare_upload=function(intent,cb)
+        f.intent=intent;f.prepared=cb
+    end
+    f.sync.current_book_id='41';f.values.sync.upload_interval_minutes=1
+    function f:plan()
+        self.prepared({basis='raw_txt_utf16',transport='native_position',position={book_id='41',chapter_uid='22',chapter_idx=2,
+            chapter_offset=150,percent=self.intent.percent,summary='synthetic raw summary'},source_position=self.source,
+            is_current=function() return true end,release=function() end,
+            dispatch=function(cb) self.complete=cb;return true end})
+    end
+    function f:confirmed()
+        self.complete(true,true,{accepted=true,position_confirmed=true,acknowledged=true,report_attempted=true,
+            remote={book_id='41',chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=self.intent.percent,
+                raw_percent=self.intent.percent,has_chapter_index=true,has_chapter_offset=true,source='native'}})
+    end
+    return f
+end
+
+test('first sync requires a manual choice, cancels locally and never offers UID0 navigation',function()
+    local f=first_fixture();f.sync:_pull({manual=false});f.drain()
+    eq(#f.choices,0,'opening offered automatic first write');eq(f.sync.verified,false,'opening granted authority')
+    f.sync:sync_now();f.drain();local c=assert(f.choices[1])
+    eq(c.initialize_cloud,true,'missing explicit first-sync choice');eq(c.use_remote,nil,'UID0 navigation offered')
+    eq(f.intent,nil,'preparation before user choice');c.keep_local()
+    eq(f.sync.state,'unverified','cancel verified absent chapter');eq(f.sync.interval.task,nil,'cancel scheduled timer')
+    f.sync:prepare_close();eq(f.intent,nil,'close initialized position')
+end)
+
+test('first-sync authority is granted only after ACK readback and local save',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    eq(f.intent.initialize_cloud,true,'explicit intent was lost');eq(f.intent.expected_remote.no_chapter.kind,'no_chapter','baseline was invented')
+    eq(f.sync.verified,false,'preflight granted authority');f:plan();eq(f.sync.verified,false,'dispatch granted authority')
+    f:confirmed();eq(f.sync.verified,true,'confirmed first point did not grant authority')
+    eq(f.sync.verified_reason,'first_sync_confirmed','confirmation provenance lost')
+    eq(f.values.books['41'].pending_upload_position,nil,'confirmed intent remained pending')
+    eq(f.values.books['41'].last_remote_position.chapter_uid,'22','real chapter was not retained')
+    eq(f.values.books['41'].last_remote_position.summary,nil,'summary leaked to checkpoint')
+end)
+
+test('first sync explains unsupported prior reading time and preserves the local position',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    f.prepared(nil,'source_initial_time_unverified')
+    eq(f.notifications[#f.notifications].code,'upload_failed','missing first-sync failure notice')
+    eq(f.notifications[#f.notifications].data.error,'source_initial_time_unverified','specific restriction was lost')
+    eq(f.sync.verified,false,'unsupported state granted sync authority')
+    eq(f.sync.interval.task,nil,'unsupported state armed automatic sync')
+    eq(#f.uploads,0,'unsupported state used the Web sender')
+    eq(f.values.books['41'].pending_upload_position.source_position.chapter_offset,150,'local position was lost')
+end)
+
+test('first-sync unknown result stays unverified and is not resent on close',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.complete(true,false,{acknowledged=false,report_attempted=true,error_kind='unconfirmed',error='upload_readback_unconfirmed'})
+    eq(f.sync.verified,false,'lost receipt became success');eq(f.sync.interval.task,nil,'unknown initial request armed timer')
+    eq(f.values.books['41'].pending_upload_reason,'upload_readback_unconfirmed','unknown intent was lost')
+    f.intent=nil;f.sync:prepare_close();eq(f.intent,nil,'unknown initial request retried on close')
+end)
+
+test('first sync cannot fall back to a Web plan or grant authority from a read-only match',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    f.prepared({basis='raw_txt_utf16',transport='web',position=f.intent,is_current=function() return true end,release=function() end})
+    eq(#f.uploads,0,'initial position used a Web sender');eq(f.sync.verified,false,'wrong transport granted authority')
+    f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.complete(true,true,{acknowledged=false,position_confirmed=true,read_only_confirmation=true,report_attempted=false})
+    eq(f.sync.verified,false,'read-only match initialized authority')
+end)
+
+test('first-sync choice is revoked by movement, document replacement or account change',function()
+    for _i,kind in ipairs({'source','page','document','account'}) do
+        local f=first_fixture();f.sync:sync_now();f.drain()
+        if kind=='source' then f.source.chapter_offset=151
+        elseif kind=='page' then f.document.getXPointer=function() return 'changed' end
+        elseif kind=='document' then local d=f.document;f.sync.get_document=function() return {file=d.file} end
+        else f.values.account.user_vid='other-owner' end
+        f.choices[1].initialize();eq(f.intent,nil,'stale '..kind..' dispatched')
+        eq(f.sync.verified,false,'stale '..kind..' granted authority')
+    end
+end)
+
+test('confirmed first-sync local-save failure keeps authority closed and callback fails for durable journal recovery',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.sync._persist=function() error('synthetic storage failure',0) end
+    eq(pcall(function() f:confirmed() end),false,'sender would retire receipt before local save')
+    eq(f.sync.verified,false,'failed local save enabled automatic first sync');eq(f.sync.state,'error','save failure hidden')
+    eq(f.sync.interval.task,nil,'save failure armed timer')
+end)
+
+test('later local movement remains pending after a confirmed initial snapshot',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.source.chapter_offset=151;f.document.page=26;f.sync:checkpoint_local('newer_local');f:confirmed()
+    eq(f.sync.verified,true,'confirmed baseline lost');eq(f.sync.dirty,true,'later movement was cleared')
+    eq(f.values.books['41'].pending_upload_position.source_position.chapter_offset,151,'newer intent overwritten')
+end)
+
+test('first-sync confirmation saves a page reached without a checkpoint',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f:confirmed()
+    local saved=f.values.books['41']
+    eq(saved.last_local_position.source_position.chapter_offset,151,'newer source point did not survive')
+    eq(saved.pending_upload_position and saved.pending_upload_position.source_position.chapter_offset,151,'newer source point is not pending')
+    eq(saved.pending_upload_account,f.sync:_account_key(),'newer source point lost account ownership')
+    eq(f.sync.verified,true,'confirmed baseline was lost')
+    eq(f.sync.dirty,true,'newer source point was marked synchronized')
+end)
+
+test('source comparison binds a missing index to the explicit catalog value',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    for _i,bad in ipairs({false,true}) do
+        local raw={progress=25.4,chapterUid=22,chapterOffset=150}
+        if bad then raw.chapterIdx=0 end
+        local f=fixture(raw,{get_source_position=function() return source end})
+        f.sync.prepare_upload=function() error('read-only comparison prepared an upload') end
+        f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+        f.sync:checkpoint_local('prior_local');f.sync:sync_now();f.drain()
+        eq(#f.uploads,0,'catalog binding sent a position')
+        eq(#f.choices,0,'catalog binding offered an invalid or already-matching choice')
+        eq(f.sync.verified,not bad,'present zero index was silently replaced or absent index was rejected')
+        if not bad then
+            eq(f.values.books.book.last_remote_position.chapter_idx,2,'array ordinal replaced explicit chapter index')
+            eq(f.values.books.book.last_remote_position.chapter_index_source,'catalog','derived index lost provenance')
+            eq(f.values.books.book.last_remote_position.raw_percent,25.4,'source comparison changed server percentage units')
+            eq(f.values.books.book.last_remote_position.summary,nil,'temporary summary entered local checkpoint')
+            eq(f.values.books.book.pending_upload_position,nil,'matching original position retained obsolete intent')
+        else
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'incomplete response lost local intent')
+            eq(f.notifications[#f.notifications].data.error,'progress_source_incomplete','conflicting explicit index lacked a specific notice')
+        end
+    end
+end)
+
+test("malformed cloud rechecks revoke old authority without losing local intent", function()
+    for _i, bad in ipairs({
+        { bookId = "other", data = { progress = 25 } },
+        { bookId = "book", book_id = "other", progress = 25 },
+        { progress = 140 },
+        { progress = 25, chapterOffset = "bad" },
+        { errCode = -1, progress = 25 },
+        { data = { { progress = 25 }, { progress = 26 } } },
+    }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        -- Use the real state machine to establish a prior accepted decision.
+        if #f.choices > 0 then f.choices[#f.choices].keep_local() end
+        eq(f.sync.verified, true, "initial comparison verified")
+        f.document.page = 30; f.sync:on_page_update(); f.sync:checkpoint_local("test_flush")
+        local pending = f.values.books.book.pending_upload_position
+        local before = #f.uploads
+        f.client.get_progress, f.client.get_web_progress = function() return bad end, function() return bad end
+        assert(f.sync:sync_now()); f.drain()
+        eq(f.sync.state, "error", "bad response is an error")
+        eq(f.sync.verified, false, "old authority revoked")
+        eq(f.values.books.book.pending_upload_position, pending, "local intent retained")
+        eq(f.document.page, 30, "bad data did not navigate")
+        eq(#f.uploads, before, "bad data did not upload")
+        local position, reason = f.sync:position_for_report("book")
+        eq(position, nil, "time reporter cannot reuse old verification")
+        eq(reason, "progress_unverified", "reporter waits for a valid comparison")
+    end
+end)
+
+test("new comparisons cancel queued writes and busy retries for the same book", function()
+    for _i, busy in ipairs({ false, true }) do
+        local callbacks, attempts = {}, 0
+        local f = fixture({}, { run_online = function(_kind, callback)
+            callbacks[#callbacks + 1] = callback; return true
+        end })
+        f.sync.upload_position = function()
+            attempts = attempts + 1; return false, { error_kind = "busy" }
+        end
+        local position = assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position, "manual_sync", true)
+        if busy then callbacks[1]() end
+        local pending = f.values.books.book.pending_upload_position
+        assert(f.sync:sync_now())
+        if busy then f.drain() else callbacks[1]() end
+        callbacks[2]()
+        eq(attempts, busy and 1 or 0, "replaced write never dispatches again")
+        eq(f.sync.uploading, false, "old writer ownership released")
+        eq(f.values.books.book.last_uploaded_position, nil, "no old acknowledgement")
+        eq(f.values.books.book.pending_upload_position, pending, "queued local intent retained")
+    end
+end)
+
+test("a unique valid source remains usable when the other source is malformed", function()
+    for _i, bad_source in ipairs({ "web", "gateway" }) do
+        local good = { progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 }
+        local f = fixture(good)
+        local bad = function() return { bookId = "other", data = good } end
+        if bad_source == "web" then f.client.get_web_progress = bad else f.client.get_progress = bad end
+        f.sync:on_reader_ready(); f.drain()
+        eq(f.sync.verified, true, "valid source can verify the comparison")
+        eq(f.sync.remote_position.source, bad_source == "web" and "gateway" or "web", "malformed source was ignored")
+        eq(#f.choices, 0, "valid matching response needs no conflict choice")
+        eq(#f.uploads, 0, "source fallback remains read-only")
+    end
+end)
 
 test("page turns reuse word counts and document changes rebuild them", function()
     local word_reads = 0
@@ -315,7 +1224,7 @@ test("busy read report is retried with the immutable snapshot", function()
             return false, { error = "busy", error_kind = "busy" }
         end
         uploaded = position
-        return true, { accepted = true }
+        return true, { accepted = true, position_confirmed = true, acknowledged = true }
     end
     f.sync:on_reader_ready()
     f.drain()
@@ -325,11 +1234,13 @@ test("busy read report is retried with the immutable snapshot", function()
     f.drain()
     eq(attempts, 2, "busy upload retried")
     eq(uploaded.percent, 25, "retry uses immutable position")
-    eq(f.values.books.book.pending_upload_position, nil,
-        "retry success clears pending snapshot")
+    eq((f.values.books.book.pending_upload_position or {}).percent, 75,
+        "retry success preserves the newer pending page")
+    eq((f.values.books.book.last_local_position or {}).percent, 75,
+        "retry success preserves the newer local page")
 end)
 
-test("suspend captures movement even without a page event", function()
+test("suspend parks movement locally without starting network work", function()
     local f = fixture({
         bookId = "book",
         progress = 25,
@@ -342,8 +1253,9 @@ test("suspend captures movement even without a page event", function()
     f.drain()
     f.document.page = 40
     f.sync:on_suspend()
-    eq(#f.uploads, 1, "suspend uploads captured movement")
-    eq(f.uploads[1].percent, 40, "suspend uses current page")
+    eq(#f.uploads, 0, "suspend does not start network work")
+    eq(f.values.books.book.pending_upload_position.percent, 40, "suspend saves current page")
+    eq(f.values.books.book.pending_upload_account, f.sync:_account_key(), "suspend binds pending location to account")
 end)
 
 test("single chapter cloud choice waits for target chapter then jumps", function()
@@ -626,6 +1538,1758 @@ test("a fresh automatic pull replaces an older retry chain", function()
     eq(#f.queue, 1, "stale chain does not schedule another retry")
     f.step()
     eq(#f.queue, 1, "replacement chain remains active")
+end)
+
+test("closed session discards queued pulls before network work", function()
+    local callbacks, requests = {}, 0
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.client.get_progress = function() requests = requests + 1 return {} end
+    f.client.get_web_progress = f.client.get_progress
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_close_document()
+    callbacks[1]()
+    eq(requests, 0, "closed pull never sends a request")
+    eq(f.sync.pulling, false, "close releases pull ownership")
+end)
+
+test("old pull cannot clear a replacement session's pull", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(#callbacks, 2, "reopen starts a fresh pull")
+    callbacks[1]()
+    eq(f.sync.pulling, true, "stale completion preserves new pull ownership")
+    if callbacks[2] then callbacks[2]() end
+    eq(f.sync.pulling, false, "current pull completes")
+end)
+
+test("account switch cancels queued uploads and busy retries", function()
+    for _, busy in ipairs({ false, true }) do
+        local callbacks, attempts = {}, 0
+        local f = fixture({}, { run_online = function(_kind, callback)
+            callbacks[#callbacks + 1] = callback
+            return true
+        end })
+        f.sync.upload_position = function()
+            attempts = attempts + 1
+            return not busy, { error_kind = "busy" }
+        end
+        local position = assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position, "manual_sync", true)
+        if busy then callbacks[1]() end
+        f.values.account.user_vid = "fixture-account-b"
+        if busy then f.drain() else callbacks[1]() end
+        eq(attempts, busy and 1 or 0, "stale account never dispatches another upload")
+        eq(f.sync.uploading, false, "stale account releases upload ownership")
+        eq(#f.notifications, 0, "stale account shows no completion notification")
+        eq(f.values.books.book.last_uploaded_position, nil, "stale account receives no acknowledgement")
+    end
+end)
+
+test("old remote-jump refresh cannot persist another book's location", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.choices[1].use_remote()
+    local before = f.values.books.book.last_local_position
+    f.sync.detect_book = function() return "other" end
+    f.document.file = "/cache/other.epub"
+    f.drain()
+    eq(f.values.books.book.last_local_position, before, "late jump refresh leaves old book untouched")
+end)
+
+test("upload acknowledgement preserves newer movement and pending snapshot", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified = true
+    local first = assert(f.sync:capture_local())
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 75
+    local latest = assert(f.sync:capture_local())
+    f.sync.local_position = latest
+    f.sync.dirty = true
+    f.sync:_upload_snapshot(latest, "document_close", false)
+    callbacks[1]()
+    eq((f.values.books.book.pending_upload_position or {}).percent, 75, "acknowledgement retains newer pending location")
+    eq((f.values.books.book.last_local_position or {}).percent, 75, "acknowledgement does not rewind local state")
+    eq(f.sync.dirty, true, "movement after dispatch remains dirty")
+end)
+
+test("upload acknowledgement durably checkpoints movement during the request", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 75
+    f.sync:on_page_update()
+    local original_persist, acknowledged = f.sync._persist
+    f.sync._persist = function(self, id, patch)
+        if patch.last_uploaded_position then
+            acknowledged = patch
+        end
+        return original_persist(self, id, patch)
+    end
+    callbacks[1]()
+    local saved = f.values.books.book
+    eq((saved.last_local_position or {}).percent, 75, "new local page survives acknowledgement")
+    eq((saved.pending_upload_position or {}).percent, 75, "new local page remains pending")
+    eq(saved.pending_upload_account, f.sync:_account_key(), "pending page belongs to the current account")
+    eq(acknowledged.pending_upload_position.percent, 75, "acknowledgement and new pending page are committed together")
+    eq(f.sync.dirty, true, "new local page remains dirty")
+end)
+
+test("upload acknowledgement keeps a newer page with the same rounded cloud coordinate", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page = 2500
+    f.document.getPageCount = function() return 10000 end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 2501
+    f.sync:on_page_update()
+    local newer = assert(f.sync:capture_local())
+    eq(require('weread.lib.progress_readback').same_wire_position(first,newer),true,'fixture cloud coordinates differ')
+    callbacks[1]()
+    local saved = f.values.books.book
+    eq(saved.last_local_position.fraction, 0.2501, "new page local fraction was not saved")
+    eq(saved.pending_upload_position and saved.pending_upload_position.fraction, 0.2501, "new page was not kept pending")
+    eq(f.sync.local_position.fraction, 0.2501, "new in-memory page was replaced")
+    eq(f.sync.dirty, true, "new page was treated as synchronized")
+end)
+
+test("reflow that keeps the original text visible does not invent movement", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page, f.document.pages = 25, 100
+    f.document.getPageCount = function(self) return self.pages end
+    f.document.getXPointer = function() return 'same-visible-text' end
+    f.document.isXPointerInCurrentPage = function() return true end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page, f.document.pages = 50, 200
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position,nil,'reflow invented a pending upload')
+    eq(f.sync.dirty,false,'reflow marked the unchanged text dirty')
+end)
+
+test("reflow with the original text no longer visible keeps the new page pending", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page, f.document.pages = 25, 100
+    f.document.getPageCount = function(self) return self.pages end
+    f.document.getXPointer = function(self) return self.page == 25 and 'old-text' or 'different-text' end
+    f.document.isXPointerInCurrentPage = function() return false end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page, f.document.pages = 50, 200
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position~=nil,true,'movement during reflow was dropped')
+    eq(f.sync.dirty,true,'movement during reflow was marked synchronized')
+end)
+
+test("upload acknowledgement does not replace another pending intent", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    local saved = f.values.books.book
+    saved.pending_upload_position = { book_id = "book", percent = 80 }
+    saved.pending_upload_account = "another-account"
+    saved.pending_upload_reason = "upload_readback_unconfirmed"
+    f.document.page = 75
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(saved.pending_upload_position.percent, 80, "another pending page is retained")
+    eq(saved.pending_upload_account, "another-account", "another pending owner is retained")
+    eq(saved.pending_upload_reason, "upload_readback_unconfirmed", "uncertainty remains visible")
+    eq(saved.last_local_position.percent, 75, "current local page is still saved")
+end)
+
+test("close upload survives document teardown without changing the next session", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document()
+    f.sync.detect_book = function() return "other" end
+    f.document.file = "/cache/other.epub"
+    f.sync:on_reader_ready()
+    f.sync.state, f.sync.dirty = "waiting", true
+    callbacks[1]()
+    eq(#f.uploads, 1, "same-account close upload completes")
+    eq(f.uploads[1].book_id, "book", "close keeps original book identity")
+    eq(f.sync.state, "waiting", "old acknowledgement preserves next session state")
+    eq(f.sync.dirty, true, "old acknowledgement preserves next session movement")
+end)
+
+test("queued pull compares the live page and local choice captures current movement", function()
+    local callbacks = {}
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 }, {
+        run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback return true end,
+    })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.document.page = 50
+    callbacks[1]()
+    eq(#f.choices, 0, "page changed while queued already matches cloud")
+    f.document.page = 25
+    f.sync:sync_now()
+    callbacks[2]()
+    f.document.page = 75
+    f.choices[1].keep_local()
+    callbacks[3]()
+    eq(f.uploads[1].percent, 75, "keep local uses latest local page")
+    f.choices[1].keep_local()
+    eq(#callbacks, 3, "conflict decision only executes once")
+end)
+
+test("account transition revokes decisions and pending cross-chapter jumps", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    local choice = f.choices[1]
+    f.sync:on_account_changed()
+    choice.keep_local()
+    choice.use_remote()
+    eq(#f.uploads, 0, "old decision cannot upload after reauthentication")
+    eq(#f.jumps, 0, "old decision cannot navigate after reauthentication")
+    eq(f.sync.verified, false, "new account starts with an unverified reader")
+    f.sync.pending_jump = { book_id = "book", account_generation = 0, account = "old-account", chapter_uid = 22 }
+    eq(f.sync:_apply_pending_jump("book"), false, "old account's chapter jump is discarded")
+    eq(f.sync.pending_jump, nil, "old chapter intent removed")
+end)
+
+test("account changes during the first source prevent the second source request", function()
+    local f = fixture({})
+    local web_calls = 0
+    f.client.get_progress = function()
+        f.values.account.user_vid = "fixture-account-b"
+        return {}
+    end
+    f.client.get_web_progress = function() web_calls = web_calls + 1 return {} end
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(web_calls, 0, "second source never uses replacement account credentials")
+    eq(f.values.books.book.last_remote_position, nil, "mixed-account source result not persisted")
+end)
+
+test("selecting cloud cancels queued local writes", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    local local_position, _, context = f.sync:capture_local()
+    f.sync:_upload_snapshot(local_position, "manual_sync", true)
+    assert(f.sync:_apply_remote({ percent = 50, chapter_uid = 33, chapter_offset = 100 }, context))
+    callbacks[1]()
+    eq(#f.uploads, 0, "cloud selection cancels queued local upload")
+    eq(f.values.books.book.pending_upload_position, nil, "superseded local intent removed")
+    eq(f.sync.uploading, false, "superseded upload ownership released")
+end)
+
+test("source cloud navigation defers old intent and never grants report permission", function()
+    local callbacks={}
+    local f=fixture({}, {run_online=function(_kind,callback) callbacks[#callbacks+1]=callback;return true end})
+    local local_position=f.sync:capture_local()
+    f.sync:_mark_verified('book','fixture',local_position,{})
+    f.sync:_upload_snapshot(local_position,'before_source_cloud',false)
+    f.sync:begin_cloud_source_navigation()
+    callbacks[1]()
+    eq(#f.uploads,0,'source choice cancels unsent local request')
+    eq(f.sync.verified,false,'source choice blocks automatic reporting')
+    eq(f.values.books.book.pending_upload_position.percent,local_position.percent,'failed or cancelled lookup retains durable local intent')
+    local held={book_id='book',chapter_uid='22',chapter_offset=15,file_id=string.rep('a',64),book_version=7,
+        raw_sha256=string.rep('b',64),render_path='chapter.xhtml',basis='filtered_xhtml_utf16',upload_verified=false}
+    f.sync.current_source_target=function() return held end
+    local wrong={};for key,value in pairs(held) do wrong[key]=value end;wrong.chapter_offset=16
+    eq(f.sync:accept_cloud_source_target(wrong),false,'foreign source target cannot discard local intent')
+    eq(f.sync:accept_cloud_source_target(held),true,'applied held cloud target supersedes local intent')
+    eq(f.values.books.book.pending_upload_position,nil,'successful source choice discards old local intent')
+    eq(f.sync.verified,false,'read target cannot grant wire verification')
+    local provided,reason=f.sync:position_for_report('book')
+    eq(provided,nil,'unverified precise target cannot report')
+    eq(reason,'progress_unverified','precise target keeps the report gate closed')
+    local other=fixture({})
+    local foreign={book_id='other-book'};other.sync.upload_job,other.sync.uploading=foreign,true
+    other.sync:begin_cloud_source_navigation()
+    eq(other.sync.upload_job,foreign,'source choice does not cancel a different book upload')
+    eq(other.sync.uploading,true,'other book keeps upload ownership')
+end)
+
+test("suspend invalidates queued pulls and short resume retries unverified session", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    local requests = 0
+    f.client.get_progress = function() requests = requests + 1 return {} end
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_suspend()
+    callbacks[1]()
+    eq(requests, 0, "suspend cancels queued reads")
+    f.sync:on_resume()
+    eq(#callbacks, 2, "short resume retries a cancelled unverified pull")
+end)
+
+test("wake does not replay a queued pre-suspend upload ahead of cloud recheck", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    local position = assert(f.sync:capture_local())
+    f.sync:_upload_snapshot(position, "manual_sync", false)
+    f.sync:on_suspend()
+    f.sync:on_resume()
+    callbacks[1]()
+    eq(#f.uploads, 0, "pre-suspend upload remains cancelled after wake")
+    eq(f.sync.verified, false, "time reporting waits for cloud comparison")
+    eq(f.sync.pulling, true, "wake starts a fresh cloud comparison")
+    eq(f.values.books.book.pending_upload_position.percent, position.percent, "wake retains unsent local intent")
+end)
+
+test("reopening the same book cancels its previous session's queued close upload", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document()
+    f.sync:on_reader_ready()
+    callbacks[1]()
+    eq(#f.uploads, 0, "reopened book supersedes old close upload")
+    eq(f.sync.uploading, false, "old close upload no longer blocks current session")
+end)
+
+test("a matching cloud read discards superseded pending intent", function()
+    local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterOffset = 150 })
+    f.values.books.book.pending_upload_position = { book_id = "book", percent = 10 }
+    f.values.books.book.pending_upload_account = f.sync:_account_key()
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(f.values.books.book.pending_upload_position, nil, "aligned current location replaces old unsent intent")
+    eq(f.sync.verified, true, "matching cloud location still verifies reporting")
+end)
+
+test("capture uses the live document before footer refresh", function()
+    local mode = "page"
+    local f = fixture({}, {
+        get_footer = function() return { percent_finished = 0.99 } end,
+        get_view_mode = function() return mode end,
+    })
+    f.document.page = 31
+    local position = assert(f.sync:capture_local())
+    eq(position.percent, 31, "stale footer cannot overwrite current page")
+    f.document.getCurrentPos = function() return 23345 end
+    f.document.info = { doc_height = 100000 }
+    mode = "scroll"
+    position = assert(f.sync:capture_local())
+    eq(position.percent, 23, "scroll capture uses engine position instead of page percentage")
+    eq(position.fraction, 0.23345, "scroll capture preserves fractional precision")
+end)
+
+test("late jump refresh preserves a subsequent page turn", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.choices[1].use_remote()
+    f.document.page = 75
+    f.sync:on_page_update()
+    f.drain()
+    eq(f.sync.dirty, true, "jump refresh does not acknowledge a later page turn")
+    eq(f.sync.local_position.percent, 75, "jump refresh keeps the actual current page")
+end)
+
+test("local source coordinates remain separate from the existing wire units", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345,
+        file_id = string.rep("a", 64), basis = "filtered_xhtml_utf16", upload_verified = false }
+    local f = fixture({ chapterUid = 22, chapterOffset = 10, progress = 25 }, {
+        get_source_position = function() return source end,
+    })
+    local before = assert(f.sync:capture_local())
+    eq(before.chapter_offset == source.chapter_offset, false, "source offset did not replace wire units")
+    eq(before.source_position.chapter_offset, 12345, "read-only local source snapshot included")
+    before.source_position.chapter_offset = -1
+    eq(source.chapter_offset, 12345, "capture copied source snapshot")
+    eq(f.sync:status().source_position.basis, "filtered_xhtml_utf16", "status exposes precise local basis")
+    f.sync.current_book_id = "book"
+    f.sync.local_position = assert(f.sync:capture_local())
+    f.sync.dirty = false
+    f.sync:on_source_position_changed("ready", source)
+    eq(f.sync.source_state, "ready", "source readiness delivered")
+    eq(f.sync.dirty, false, "preparation did not create upload intent")
+    f.sync:on_source_position_changed("waiting", nil)
+    eq(f.sync.local_position.source_position, nil, "page invalidation cleared source snapshot")
+end)
+
+test("selected cloud target survives page rounding until actual navigation", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_idx = 2,
+        chapter_offset = 154, percent = 25.4, has_chapter_offset = true }, context))
+    eq(f.document.page, 25, "target is on the current native page")
+    local retained = assert(f.sync:capture_local())
+    eq(retained.chapter_offset, 154, "page origin did not replace selected target")
+    eq(retained.viewport_fraction, 0.25, "actual viewport remains distinguishable from retained target")
+    eq(retained.retained_remote_target, true, "retained target is explicit")
+    f.sync:on_page_update()
+    f.drain()
+    eq(f.sync.local_position.chapter_offset, 154, "redraw and delayed capture retained target")
+    eq(f.sync.dirty, false, "redraw did not create upload intent")
+    eq(assert(f.sync:position_for_report("book")).chapter_offset, 154, "report uses selected target")
+    f.document.page = 26
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 160, "real navigation resumes live capture")
+    eq(f.sync.dirty, true, "real movement is uploadable under existing gate")
+    f.document.page = 25
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 150, "returning to the page cannot revive an old target")
+end)
+
+test("retention preserves exact offsets and the selected chapter at a boundary", function()
+    local f = fixture({}, { get_chapters = function()
+        return { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+            { chapterUid = 22, chapterIdx = 2, wordCount = 301 },
+            { chapterUid = 33, chapterIdx = 3, wordCount = 5 } }
+    end })
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    for _, offset in ipairs({ 4, 9, 14, 19, 301 }) do
+        assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = offset, percent = 25 }, context))
+        local retained = assert(f.sync:capture_local())
+        eq(retained.chapter_uid, 22, "retained source chapter is not inferred from percentage")
+        eq(retained.chapter_offset, offset, "known offset does not make a floating-point round trip")
+    end
+end)
+
+test("reflow retains a visible target but subsequent navigation never revives it", function()
+    local mode, layout, xp, visible, at = "page", 1, "original", true, 123
+    local f = fixture({}, { get_view_mode = function() return mode end })
+    f.document.getXPointer = function() return xp end
+    f.document.getDocumentRenderingHash = function() return layout end
+    f.document.getCurrentPos = function() return at end
+    f.document.getPosFromXPointer = function() return at end
+    f.document.info = { doc_height = 10000 }
+    f.document.isXPointerInCurrentPage = function() return visible end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    layout, xp, f.document.page, at = 2, "reflowed", 30, 200
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "visible native anchor survives reflow")
+    eq(f.sync.dirty, false, "reflow is not reading movement")
+    mode = "scroll"
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "mode switch preserved the same native anchor")
+    at = at + 1
+    f.sync:on_page_update()
+    eq(f.sync.local_position.retained_remote_target, nil, "real scroll invalidates target even while anchor is visible")
+    mode, layout, xp, f.document.page, at = "page", 1, "original", 25, 123
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 150, "return to original layout does not revive target")
+
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    layout, xp, f.document.page, visible = 3, "unrelated", 40, false
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "reflow without visible anchor is not accepted")
+    eq(f.sync.verified, false, "unverified layout cannot report a guessed page-origin position")
+    f.sync:on_close_document()
+    f.drain()
+    eq(#f.uploads, 0, "unverified reflow cannot cause a reverse close upload")
+end)
+
+test("retained target is bound to document and account and survives short suspend", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.sync:on_suspend()
+    f.sync:on_resume()
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "short suspend without movement retains target")
+    f.values.account.user_vid = "fixture-other-owner"
+    eq(assert(f.sync:capture_local()).chapter_offset, 150, "changed account cannot retain old target")
+    f.values.account.user_vid = "fixture-account-a"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "restored account cannot revive target")
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    local replacement = {}
+    for key, value in pairs(f.document) do replacement[key] = value end
+    f.sync.get_document = function() return replacement end
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "same-path document replacement invalidates target")
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(f.sync.remote_anchor, nil, "reader ready never inherits a prior target")
+end)
+
+test("layout settles once and an explicit native navigation marker cancels retention", function()
+    local layout, xp, marker, at = 1, "original", "original", 0
+    local f = fixture({}, {
+        get_navigation_xpointer = function() return marker end,
+        get_viewport_height = function() return 800 end,
+    })
+    f.document.getXPointer = function() return xp end
+    f.document.getDocumentRenderingHash = function() return layout end
+    f.document.getCurrentPos = function() return at end
+    f.document.isXPointerInCurrentPage = function() return true end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, xp, at, f.document.page = 2, "intermediate", 50, 30
+    f.sync:on_page_update()
+    xp, at = "settled", 60
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "intermediate layout frame did not become reading movement")
+    eq(#f.queue, 1, "layout rebasing is coalesced")
+    f.step()
+    xp, at = "native-position-restored-on-draw", 70
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "post-draw native restoration retained target")
+    f.drain()
+    eq(f.sync.local_position.chapter_offset, 154, "settled layout retained target")
+    eq(f.sync.dirty, false, "intermediate frames did not mark progress dirty")
+    marker = "a-new-target-in-the-same-native-page"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "same-page explicit jump cancels old target")
+
+    marker = "original"
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, at = 3, 80
+    f.sync:on_page_update()
+    marker = "new-user-navigation-during-layout"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "user navigation during reflow cancels retention")
+    f.drain()
+    eq(f.sync.remote_anchor, nil, "late layout task cannot revive superseded anchor")
+
+    marker = "original"
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, at = 4, 100
+    f.sync:on_page_update()
+    f.sync:on_suspend()
+    f.drain()
+    eq(f.sync.remote_anchor.reflow_pending, nil, "suspend stops layout sampling")
+    f.sync:on_resume()
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "resume can finish an interrupted layout")
+    f.drain()
+    layout = 5
+    f.sync:on_page_update()
+    for index = 1, 4 do
+        xp, at = "changing-" .. index, 100 + index * 10
+        f.step()
+    end
+    eq(f.sync.remote_anchor, nil, "never-stable layout has a bounded retry count")
+    eq(#f.queue, 0, "bounded layout work leaves no polling loop")
+    eq(f.sync.verified, false, "unstable layout requires position verification before reports")
+end)
+
+test("closing an unchanged selected cloud target does not upload its page origin", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.sync:on_close_document()
+    f.drain()
+    eq(#f.uploads, 0, "cloud selection without reading movement does not write back")
+    eq(f.values.books.book.last_local_position.chapter_offset, 154, "persisted selection remains exact")
+    eq(f.sync.remote_anchor, nil, "close releases retained native anchor")
+end)
+
+test("chapter-file transitions retain their original offset after opening the target", function()
+    local catalog = { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+        { chapterUid = 22, chapterIdx = 2, wordCount = 301 } }
+    local current = catalog[1]
+    local f = fixture({}, { get_chapters = function() return catalog end })
+    f.sync.get_file_context = function() return 1, current, false end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 4, percent = 25 }, context))
+    eq(f.sync.pending_jump.chapter_offset, 4, "pending chapter stores exact selected offset")
+    current = catalog[2]
+    f.document.file = "/cache/book/chapter-two.epub"
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(assert(f.sync:capture_local()).chapter_offset, 4, "new chapter reader retained target offset")
+    eq(f.sync.local_position.retained_remote_target, true, "new chapter reader uses retained position")
+end)
+
+test("new local navigation revokes queued cloud reads and conflict choices", function()
+    local queued = {}
+    local f = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 }, {
+        run_online = function(_kind, callback) queued[#queued + 1] = callback;return true end,
+    })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1;return {} end
+    f.sync:on_reader_ready();f.drain()
+    f.sync:begin_local_navigation()
+    queued[1]()
+    eq(reads, 0, "queued read cannot start after a newer local request")
+    eq(f.sync.verified, false, "local request does not grant upload rights")
+
+    local conflict = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 })
+    conflict.sync:on_reader_ready();conflict.drain()
+    local choice = conflict.choices[1]
+    conflict.sync:begin_local_navigation()
+    choice.use_remote();choice.keep_local()
+    eq(#conflict.jumps, 0, "superseded conflict choice cannot navigate")
+    eq(#conflict.uploads, 0, "superseded conflict choice cannot write")
+end)
+
+test("an early local request supersedes the delayed open comparison", function()
+    local f = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1;return {} end
+    f.sync:on_reader_ready()
+    f.sync:begin_local_navigation()
+    f.drain()
+    eq(reads, 0, "old open timer cannot start a new cloud pull")
+    eq(f.sync.current_book_id, "book", "reader bookkeeping still initialized")
+    eq(f.sync.verified, false, "early request preserves verification gate")
+end)
+
+test("chapter handoff reaches a new controller once and recomputes file geometry", function()
+    local catalog = { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+        { chapterUid = 22, chapterIdx = 2, wordCount = 301 } }
+    local sender = fixture({}, { get_chapters = function() return catalog end })
+    sender.sync.get_file_context = function() return 1, catalog[1], false end
+    local before, _, context = sender.sync:capture_local();sender.sync.local_position = before
+    assert(sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 4, percent = 25 }, context))
+    local handoff = assert(sender.sync:chapter_handoff("/cache/book/chapter-two.epub"))
+    sender.sync:on_close_document()
+    local receiver = fixture({}, { get_chapters = function() return catalog end })
+    receiver.document.file = "/cache/book/chapter-two.epub"
+    receiver.sync.get_file_context = function() return 2, catalog[2], false end
+    receiver.sync:on_reader_ready()
+    local reader = { document = receiver.document, weread = { progress_sync = receiver.sync } }
+    eq(handoff(reader), true, "new reader accepts one explicit handoff")
+    eq(handoff(reader), false, "handoff cannot replay")
+    receiver.drain()
+    eq(receiver.sync.local_position.chapter_uid, 22, "receiver kept target chapter")
+    eq(receiver.sync.local_position.chapter_offset, 4, "receiver kept exact offset")
+    eq(receiver.sync.verified, true, "receiver applies selected target")
+    eq(sender.sync.pending_jump, nil, "sender releases transferred intent")
+
+    local full_sender = fixture({}, { get_chapters = function() return catalog end })
+    full_sender.sync.get_file_context = function() return 1, catalog[1], false end
+    local _, _, full_context = full_sender.sync:capture_local()
+    assert(full_sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25 }, full_context))
+    local full_handoff = assert(full_sender.sync:chapter_handoff("/cache/book/full.epub"))
+    full_sender.sync:on_close_document()
+    local full = fixture({}, { get_chapters = function() return catalog end })
+    full.sync:on_reader_ready()
+    assert(full_handoff({ document = full.document, weread = { progress_sync = full.sync } }))
+    full.drain()
+    eq(full.sync.local_position.chapter_offset, 154, "combined file retains selected chapter offset")
+    eq(full.jumps[1], 255/402, "combined file uses overall fraction instead of old chapter-file fraction")
+end)
+
+test("chapter handoff rejects replacement accounts, paths and newer requests", function()
+    for _, mode in ipairs({ "account", "path", "new_request" }) do
+        local sender = fixture({})
+        sender.sync.get_file_context = function() return 1, chapters[1], false end
+        local _, _, context = sender.sync:capture_local()
+        assert(sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+        local handoff = assert(sender.sync:chapter_handoff("/cache/book/chapter-two.epub"))
+        if mode == "new_request" then sender.sync:begin_local_navigation() end
+        sender.sync:on_close_document()
+        local receiver = fixture({})
+        receiver.document.file = mode == "path" and "/different.epub" or "/cache/book/chapter-two.epub"
+        if mode == "account" then receiver.values.account.user_vid = "different-owner" end
+        receiver.sync:on_reader_ready()
+        eq(handoff({ document = receiver.document, weread = { progress_sync = receiver.sync } }), false,
+            "handoff rejected " .. mode)
+        eq(receiver.sync.pending_jump, nil, "foreign intent not installed")
+    end
+end)
+
+for _i,format in ipairs({'web_xhtml','web_txt'}) do
+test("native source targets remain file bound and separate from legacy progress: "..format, function()
+    local Source = require("weread.lib.position_source")
+    local Identity = require("weread.lib.book_file_identity")
+    local Crypto = require("weread.lib.crypto")
+    local native_point = "/body/DocFragment/body/p/text().12"
+    local marker = native_point
+    local f
+    f = fixture({}, {
+        get_navigation_xpointer = function() return marker end,
+        get_source_position = function() return f and f.sync:current_source_target() end,
+    })
+    local book = { book_id = "book", bookVersion = 7 }
+    local chapter = { chapterUid = 22 }
+    local raw = "<html><body><p>Unique synthetic chapter for native source target binding.</p></body></html>"
+    if format=='web_txt' then raw='Literal <tag>&amp; 😀 unique original TXT source for local position binding.' end
+    local original = assert(Source.capture(book, chapter, raw, format))
+    local root = Identity.encode(book, {chapter}, Identity.capture(book), Crypto.sha256_hex(raw))
+    local identity = assert(Identity.decode(root))
+    local path = "OEBPS/text/chapter.xhtml"
+    local metadata = assert(Source.bind(original, identity, path, Crypto.sha256_hex(raw)))
+    f.document.getDocumentFileContent = function(_self, name)
+        if name == Identity.PATH then return root end
+        if name == Source.meta_path(22) or name == Source.path_meta_path(path) then return metadata end
+        error("source target binding read a body member")
+    end
+    f.document.getHTMLFromXPointers = function() return '<DocFragment Source="' .. path .. '"><body/>' end
+    f.document.getNormalizedXPointer = function(_self, xp) return xp end
+    f.document.getXPointer = function() return "viewport" end
+    f.document.getCurrentPos = function() return 0 end
+    f.document.getDocumentRenderingHash = function() return 12345 end
+    f.document.info={doc_height=8000};f.sync.get_viewport_height=function() return 800 end
+    f.document.isXPointerInCurrentPage = function() return true end
+    local position = { book_id = "book", chapter_uid = "22", chapter_offset = 32, file_id = identity.file_id,
+        book_version = 7, raw_sha256 = original.raw_sha256, render_path = path,
+        basis = Source.coordinate_basis(format), upload_verified = false, raw = "BODY_CANARY" }
+    local wrong_basis={};for key,value in pairs(position) do wrong_basis[key]=value end
+    wrong_basis.basis=format=='web_txt' and 'filtered_xhtml_utf16' or 'raw_txt_utf16'
+    eq(f.sync:retain_source_target(wrong_basis,native_point,metadata),false,'source format and coordinate basis must match')
+    eq(f.sync:retain_source_target(position, native_point, metadata), true, "verified visible source target retained")
+    local held = assert(f.sync:current_source_target())
+    eq(held.retained_source_target, true, "source retention is explicit")
+    eq(held.raw, nil, "binding retained only approved metadata")
+    eq(held.basis, Source.coordinate_basis(format), 'retained source basis changed')
+    if format=='web_txt' then
+        eq(f.sync:accept_cloud_source_target(position),false,'TXT local target acquired cloud interpretation')
+        eq(f.sync:accept_cloud_source_target(wrong_basis),false,'XHTML target matched a retained TXT position')
+    end
+    held.chapter_offset = 999
+    eq(f.sync:current_source_target().chapter_offset, 32, "returned source target is a copy")
+    local captured = assert(f.sync:capture_local())
+    eq(captured.chapter_offset, 150, "source target did not replace legacy wire units")
+    eq(captured.source_position.chapter_offset, 32, "source target exposed independently")
+    eq(type(captured.source_view),'table','visible exact source target saved its local viewport proof')
+    eq(require('weread.lib.source_view').matches(captured.source_view,f.sync:_viewport(f.document),f.sync:_account_key(),captured.source_position),true,
+        'saved source viewport matches its account, native view and original point')
+    eq(f.sync.verified, false, "local source jump did not grant cloud upload rights")
+    local _, _, context = f.sync:capture_local()
+    local cancelled = 0
+    f.sync.on_before_navigate = function() cancelled = cancelled + 1 end
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    eq(cancelled, 1, "cloud application cancels any pending local source navigation first")
+    eq(f.sync:current_source_target(), nil, "new cloud choice clears an old source target even on the same native page")
+    assert(f.sync:retain_source_target(position, native_point, metadata))
+    marker = "new-point-in-the-same-page"
+    eq(f.sync:current_source_target(), nil, "new native marker invalidates source target")
+    position.file_id = string.rep("a", 64)
+    eq(f.sync:retain_source_target(position, native_point, metadata), false, "foreign file target rejected")
+end)
+end
+
+test("close keeps the final ready source snapshot after the source service stops", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345,
+        file_id = string.rep("a", 64), basis = "filtered_xhtml_utf16", upload_verified = false }
+    local f = fixture({}, { get_source_position = function() return nil end })
+    local legacy = assert(f.sync:capture_local())
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document(source)
+    source.chapter_offset = 999
+    f.drain()
+    eq(#f.uploads, 1, "existing close upload still executes")
+    eq(f.uploads[1].chapter_offset, legacy.chapter_offset, "close retained wire units")
+    eq(f.uploads[1].source_position.chapter_offset, 12345, "close copied final source snapshot")
+    eq(f.sync:status().source_position, nil, "closed service exposes no live position")
+
+    local disabled = fixture({})
+    disabled.sync.verified, disabled.sync.dirty = true, true
+    disabled.values.sync.upload_on_close = false
+    disabled.sync:on_close_document(source)
+    disabled.drain()
+    eq(#disabled.uploads, 0, "source readiness cannot enable disabled uploads")
+end)
+
+test("suspend retains a copied source snapshot only for the same book", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345 }
+    local f = fixture({})
+    f.sync.local_position = assert(f.sync:capture_local())
+    f.sync.verified, f.sync.dirty = true, true
+    local legacy_offset = f.sync.local_position.chapter_offset
+    f.sync:on_suspend(source)
+    source.chapter_offset = 999
+    local pending = f.values.books.book.pending_upload_position
+    eq(pending.source_position.chapter_offset, 12345, "suspend copied ready source before cancellation")
+    eq(pending.chapter_offset, legacy_offset, "suspend retained wire units")
+    eq(#f.uploads, 0, "suspend only persists existing intent")
+
+    local other = fixture({})
+    other.sync.local_position = assert(other.sync:capture_local())
+    other.sync.verified, other.sync.dirty = true, true
+    other.sync:on_suspend({ book_id = "other", chapter_offset = 54321 })
+    eq(other.values.books.book.pending_upload_position.source_position, nil, "other book source rejected")
+    local unverified = fixture({})
+    unverified.sync.dirty = true
+    unverified.sync:on_suspend(source)
+    eq(unverified.values.books.book.pending_upload_position, nil, "source cannot bypass verification gate")
+end)
+
+test("offline unverified close preserves the latest local reading intent", function()
+    local f = fixture({}, { is_online = function() return false end })
+    f.sync:on_reader_ready(); f.drain()
+    f.document.page = 64; f.sync:on_page_update(); f.sync:on_close_document()
+    local saved = f.values.books.book
+    eq(saved.last_local_position.percent, 64, "offline close saves latest location")
+    eq((saved.pending_upload_position or {}).percent, 64, "unverified movement remains available for later comparison")
+    eq(saved.pending_upload_account, f.sync:_account_key(), "offline intent remains account-bound")
+    eq(#f.uploads, 0, "local checkpoint does not grant upload permission")
+end)
+
+test("manual-only reading checkpoints without enabling automatic sync", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open, f.values.sync.upload_on_close = false, false
+    f.sync:on_reader_ready(); f.drain()
+    f.document.page = 61; f.sync:on_page_update()
+    f.sync:checkpoint_local("settings_flush")
+    eq(f.values.books.book.pending_upload_position.percent, 61, "flush saves manual-only movement")
+    eq(f.sync.verified, false, "local save cannot verify the cloud session")
+    eq(f.sync:on_network_connected(), false, "manual-only settings prevent reconnect lookup")
+    f.document.page = 73; f.sync:on_page_update(); f.sync:on_suspend()
+    eq(f.values.books.book.pending_upload_position.percent, 73, "unverified sleep captures newer page")
+    f.sync:on_resume()
+    eq(#f.uploads, 0, "manual-only resume cannot replay checkpoint")
+    eq(#f.choices, 0, "manual-only resume does not ask a cloud question")
+    f.document.page = 82; f.sync:on_page_update(); f.sync:on_close_document()
+    eq(f.values.books.book.pending_upload_position.percent, 82, "close replaces older local checkpoint")
+end)
+
+test("unchanged reading and replaced accounts cannot create a new local intent", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.sync:checkpoint_local("settings_flush")
+    eq(f.values.books.book.pending_upload_position, nil, "opening alone is not unsent movement")
+    f.document.page = 65; f.sync:on_page_update()
+    f.values.account = { user_vid = "fixture-account-b" }
+    eq(f.sync:checkpoint_local("settings_flush"), nil, "changed account rejects old document position")
+    eq(f.values.books.book.pending_upload_position, nil, "new account did not inherit old movement")
+    f.sync:on_account_changed()
+    f.sync:on_close_document()
+    eq(f.values.books.book.pending_upload_position, nil, "account-change close did not save old reader as new user")
+end)
+
+test("reconnect restarts an exhausted offline read chain before any upload", function()
+    local online = false
+    local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterOffset = 150 },
+        { is_online = function() return online end })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1; return { book = { bookId = "book", progress = 25 } } end
+    f.sync:on_reader_ready(); f.drain()
+    eq(reads, 0, "offline retries made no request")
+    f.document.page = 65; f.sync:on_page_update(); f.sync:on_network_disconnected()
+    eq(f.values.books.book.pending_upload_position.percent, 65, "disconnect parks the live page")
+    online = true
+    eq(f.sync:on_network_connected(), true, "link event starts a fresh read after retries exhausted")
+    eq(reads, 1, "one gateway lookup on reconnect")
+    eq(#f.uploads, 0, "reconnect cannot send before a position decision")
+    eq(#f.choices, 1, "changed cloud position is compared with the live local page")
+    eq(f.sync:on_network_connected(), false, "duplicate link event keeps current choice")
+    eq(reads, 1, "duplicate event does not refetch cloud")
+    f.choices[1].keep_local()
+    eq(#f.uploads, 1, "explicit current local choice uploads once")
+    eq(f.values.books.book.pending_upload_position, nil, "acknowledgement clears chosen checkpoint")
+end)
+
+test("network loss revokes queued writes and old conflict decisions", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.sync.verified = true
+    f.document.page = 54; f.sync:on_page_update()
+    f.sync:_upload_snapshot(assert(f.sync:capture_local()), "manual_sync", false)
+    f.sync:on_network_disconnected()
+    callbacks[1]()
+    eq(#f.uploads, 0, "lost link revoked the queued write")
+    eq(f.sync.verified, false, "report gate closes on link loss")
+    eq(f.values.books.book.pending_upload_position.percent, 54, "revoked write retains durable intent")
+    f.sync:on_network_connected()
+    eq(#callbacks, 1, "disabled automatic sync does not restart cloud work")
+
+    local g = fixture({ bookId = "book", progress = 70 })
+    g.sync:on_reader_ready(); g.drain()
+    local old = g.choices[1]
+    g.sync:on_network_disconnected()
+    old.keep_local(); old.use_remote()
+    eq(#g.uploads, 0, "old conflict decision cannot write after disconnect")
+    eq(#g.jumps, 0, "old conflict decision cannot navigate after disconnect")
+    g.sync:on_network_connected()
+    eq(#g.choices, 2, "reconnect creates a current comparison")
+end)
+
+test("reconnect respects source navigation and session ownership", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.values.sync.pull_on_open = true
+    f.sync.current_source_target = function() return { upload_verified = false } end
+    eq(f.sync:on_network_connected(), false, "read-only source target is not replaced by reconnect")
+    f.sync.current_source_target = function() return nil end
+    f.values.account = { user_vid = "fixture-account-b" }
+    eq(f.sync:on_network_connected(), false, "new credentials cannot compare the old reading session")
+    eq(#f.choices, 0, "account mismatch did not create a decision")
+end)
+
+test("retained chapter keeps the active copy's progress during open, reconnect and close", function()
+    local f=fixture({bookId='book',chapterUid=22,chapterIdx=2,chapterOffset=110,progress=25})
+    f.sync.is_retained_chapter=function() return true end
+    local saved=f.values.books.book
+    saved.last_local_position={chapter_uid='22',chapter_offset=230}
+    saved.pending_upload_position={chapter_uid='22',chapter_offset=240}
+    saved.verified_source='active_copy'
+    f.sync:on_reader_ready();f.drain()
+    f.sync:on_page_update()
+    eq(f.sync:on_network_disconnected(),false,'old copy revoked the current book verification')
+    eq(f.sync:on_network_connected(),false,'old copy started a cloud comparison')
+    f.sync:on_suspend();f.sync:on_resume();f.drain()
+    eq(f.sync:sync_now(),false,'old copy accepted manual sync')
+    f.sync:on_close_document();f.drain()
+    eq(saved.last_local_position.chapter_offset,230,'old copy rewrote the active reading position')
+    eq(saved.pending_upload_position.chapter_offset,240,'old copy overwrote the protected pending position')
+    eq(saved.verified_source,'active_copy','old copy changed active sync metadata')
+    eq(#f.jumps+#f.uploads+#f.choices,0,'old copy moved to or wrote cloud progress')
+end)
+
+test("failed cloud navigation preserves the checkpoint while revoking its queued write", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    local position, _, context = f.sync:capture_local()
+    f.sync:_upload_snapshot(position, "manual_sync", false)
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync.goto_fraction = function() return false, "engine_unavailable" end
+    eq(f.sync:_apply_remote({ percent = 50, chapter_uid = 33, chapter_offset = 100 }, context), false,
+        "native navigation failure is reported")
+    eq((f.values.books.book.pending_upload_position or {}).percent, position.percent,
+        "failed cloud jump retains the durable local location")
+    eq(f.sync.verified, false, "failed jump cannot retain upload verification")
+    f.sync:on_close_document()
+    callbacks[1]()
+    eq(#f.uploads, 0, "failed navigation cannot revive the old queued write")
+end)
+
+test("a cloud chapter switch discards local intent only after the new chapter is applied", function()
+    for _, mode in ipairs({ "failed", "cancelled", "applied" }) do
+        local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        local chapter = chapters[1]
+        f.sync.get_file_context = function() return 1, chapter, false end
+        f.sync.open_chapter = function() return mode ~= "failed", "download_failed" end
+        f.sync:on_reader_ready(); f.drain()
+        local position = assert(f.sync:capture_local())
+        f.values.books.book.pending_upload_position = position
+        f.values.books.book.pending_upload_account = f.sync:_account_key()
+        f.choices[1].use_remote()
+        eq((f.values.books.book.pending_upload_position or {}).percent, position.percent,
+            "waiting or failed chapter open retains local intent: " .. mode)
+        if mode == "cancelled" then
+            f.sync:cancel_pending_jump("cancelled")
+            eq((f.values.books.book.pending_upload_position or {}).percent, position.percent, "cancel preserves local intent")
+        elseif mode == "applied" then
+            chapter = chapters[2]
+            f.sync:on_reader_ready(); f.drain()
+            eq(f.values.books.book.pending_upload_position, nil, "applied new chapter supersedes old local intent")
+            eq(f.sync.verified, true, "applied cloud chapter verifies")
+        end
+        eq(#f.uploads, 0, "cloud navigation does not write local checkpoint: " .. mode)
+    end
+end)
+
+test('failed file resume preserves the previous local intent until real movement',function()
+    local f=fixture({})
+    f.values.sync.pull_on_open=false
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    local frame=assert(f.sync:begin_file_resume())
+    f.drain()
+    eq(saved.last_local_position,old,'initial reader timer did not replace the old local point')
+    eq(f.sync:checkpoint_local('during_restore'),nil,'pending restore checkpointed the default new-file page')
+    eq(f.sync:finish_file_resume(frame,false),true,'failed restore did not finish')
+    f.sync:on_page_update()
+    eq(f.sync:checkpoint_local('unchanged_failed'),nil,'failed unchanged restore overwrote the previous point')
+    eq(saved.pending_upload_position,old,'failed restore discarded unsent intent')
+    eq(f.sync:on_network_connected(),false,'failed unchanged file resume started automatic sync')
+    f.document.page=f.document.page+1;f.sync:on_page_update()
+    eq(f.sync.file_resume,nil,'real movement did not release failed-position protection')
+    assert(f.sync:checkpoint_local('actual_movement'))
+    eq(saved.pending_upload_position.percent,f.document.page,'real movement did not replace old pending intent')
+    eq(#f.uploads,0,'file resume state wrote to cloud')
+end)
+
+test('closing or suspending a failed unchanged file resume preserves local records',function()
+    local f=fixture({});f.values.sync.pull_on_open=false
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    f.values.books.book.last_local_position=old
+    local frame=assert(f.sync:begin_file_resume());assert(f.sync:finish_file_resume(frame,false))
+    f.sync:on_suspend();f.sync:on_resume()
+    eq(f.sync:checkpoint_local('after_resume'),nil,'suspend/resume released unchanged-failure protection')
+    f.sync:on_close_document()
+    eq(f.values.books.book.last_local_position,old,'closing an unchanged failed target replaced the original local point')
+    eq(f.sync.file_resume,nil,'closed reader retained transient file-resume state')
+    eq(#f.uploads,0,'failed restore close uploaded a default new-file page')
+end)
+
+test('successful file resume carries local intent without approving a cloud write',function()
+    local f=fixture({});f.values.sync.pull_on_open=false
+    local old=assert(f.sync:capture_local())
+    f.values.books.book.pending_upload_position=old;f.values.books.book.pending_upload_account=f.sync:_account_key()
+    local frame=assert(f.sync:begin_file_resume())
+    f.document.page=40;f.sync:on_page_update()
+    eq(f.sync.local_position.percent,old.percent,'automatic restore movement became a premature checkpoint')
+    eq(f.sync:finish_file_resume(frame,true),true,'successful restore did not finish')
+    eq(f.values.books.book.pending_upload_position.percent,40,'pending intent was not rebound to the actual new viewport')
+    eq(f.values.books.book.last_local_position.percent,40,'restored local point was not persisted')
+    eq(f.sync.verified,false,'local file restore granted upload verification')
+    eq(#f.uploads,0,'local file restore uploaded progress')
+end)
+
+test('reopening a partial combined file never infers a whole-book position',function()
+    local f=fixture({}, {get_file_context=function() return nil,nil,true,true end})
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready();f.drain()
+    eq(f.notifications[#f.notifications].data.error,'partial_combined_book','reopened partial file did not explain the sync restriction')
+    local point,reason=f.sync:capture_local()
+    eq(point,nil,'partial combined file produced an inferred whole-book position')
+    eq(reason,'partial_combined_book','partial combined-file reason was lost')
+    eq(f.sync:sync_now(),false,'reopened partial file allowed manual sync')
+    eq(f.notifications[#f.notifications].data.error,'partial_combined_book','manual sync did not explain the limitation')
+    f.document.page=60;f.sync:on_page_update();f.sync:on_close_document()
+    eq(saved.last_local_position,old,'reopened partial file changed the prior position')
+    eq(saved.pending_upload_position,old,'reopened partial file changed pending progress')
+    eq(#f.uploads,0,'reopened partial file uploaded inferred progress')
+end)
+
+test('partial combined selection preserves prior intent and suppresses synchronization',function()
+    local f=fixture({})
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    local frame=assert(f.sync:begin_file_resume({partial_combined=true}))
+    eq(frame.local_only,true,'partial combined navigation did not block syncing')
+    eq(frame.preserve_only,true,'partial combined navigation could replace prior intent')
+    f.drain();f.document.page=40;f.sync:on_page_update()
+    eq(f.sync:finish_file_resume(frame,true),true,'partial local navigation could not finish')
+    eq(f.sync:checkpoint_local('partial'),nil,'partial file produced a whole-book checkpoint')
+    eq(f.sync:sync_now(),false,'manual synchronization bypassed the partial-file guard')
+    eq(f.sync:_upload_snapshot(old,'guard',false),false,'partial-file guard allowed upload')
+    f.sync:on_suspend();f.sync:on_resume();f.sync:on_close_document()
+    eq(saved.pending_upload_position,old,'partial navigation changed the pending upload')
+    eq(saved.last_local_position,old,'partial navigation changed the prior local position')
+    eq(#f.uploads,0,'partial navigation uploaded an approximate position')
+    local bad=fixture({});bad.document.file=nil
+    eq(bad.sync:begin_file_resume({partial_combined=true}),nil,'missing document accepted as a partial book')
+end)
+
+test('local source navigation can opt into a confirmed partial EPUB',function()
+    local partial=fixture({}, {get_file_context=function() return nil,nil,true,true end})
+    eq(partial.sync:begin_file_resume(),nil,'ordinary source navigation accepted an incomplete EPUB')
+    local options={allow_partial_combined=true}
+    local frame=assert(partial.sync:begin_file_resume(options))
+    eq(frame.local_only,true,'incomplete EPUB was not scoped to this device')
+    eq(frame.preserve_only,true,'incomplete EPUB could update the whole-book position')
+    local complete=fixture({})
+    eq(assert(complete.sync:begin_file_resume(options)).local_only,nil,'a complete book was forced into local-only navigation')
+    local missing=fixture({}, {get_chapters=function() return nil end})
+    eq(missing.sync:begin_file_resume(options),nil,'missing catalog was treated as a confirmed incomplete EPUB')
+end)
+
+test('catalog-free file resume keeps prior intent and suppresses synchronization',function()
+    local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
+    local saved=f.values.books['41']
+    local old={book_id='41',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    eq(f.sync:begin_file_resume(),nil,'ordinary file resume unexpectedly accepted a missing catalog')
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    eq(frame.local_only,true,'catalog-free navigation was not scoped to local state')
+    f.drain();f.document.page=40;f.sync:on_page_update()
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    eq(f.sync:finish_file_resume(frame,true,point),true,'catalog-free navigation could not finish')
+    eq(saved.unindexed_resume.chapter_uid,'22','local-only chapter selection was not saved')
+    eq(f.sync:checkpoint_local('after_jump'),nil,'catalog-free point was checkpointed as a complete progress')
+    eq(f.sync:sync_now(),false,'manual synchronization proceeded without a catalog')
+    eq(f.sync:_upload_snapshot(old,'guard',false),false,'direct upload bypassed the local-only guard')
+    f.sync:on_suspend();f.sync:on_resume();f.sync:on_close_document()
+    eq(saved.pending_upload_position,old,'catalog-free navigation changed the pending upload')
+    eq(saved.last_local_position,old,'catalog-free navigation changed the previous bookshelf position')
+    eq(#f.uploads,0,'catalog-free navigation wrote to cloud')
+end)
+
+test('catalog-free navigation does not override unrelated capture failures',function()
+    local f=fixture({}, {get_chapters=function() return nil end})
+    f.document.file=nil
+    eq(f.sync:begin_file_resume({allow_missing_catalog=true}),nil,
+        'unavailable document was treated as a missing catalog')
+    eq(f.sync.file_resume,nil,'invalid document left a local-only navigation frame')
+    eq(#f.uploads,0,'invalid document caused a cloud write')
+end)
+
+test('catalog-free manual sync may resume only after a real catalog is available',function()
+    local available=false
+    local f=fixture({}, {book_id='41',get_chapters=function() return available and chapters or nil end})
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    assert(f.sync:finish_file_resume(frame,true,{book_id='41',chapter_uid='22',file_id=string.rep('a',64),
+        raw_sha256=string.rep('b',64),basis='filtered_xhtml_utf16',upload_verified=false}))
+    local called=0
+    f.sync._pull=function(_self,options) called=called+1;eq(options.manual,true,'sync was not explicit');return true end
+    eq(f.sync:sync_now(),false,'sync proceeded while catalog was absent')
+    eq(called,0,'catalog-free explicit sync invoked the cloud comparison')
+    available=true
+    eq(f.sync:sync_now(),true,'explicit sync did not resume after catalog was restored')
+    eq(called,1,'restored catalog did not start exactly one explicit comparison')
+end)
+
+test('new indexed progress clears only its own catalog-free chapter hint',function()
+    local f=fixture({}, {book_id='41'})
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    local make=require('weread.lib.unindexed_resume').make
+    local own=assert(make(point,'41',f.sync:_account_key(),0))
+    local saved=f.values.books['41'];saved.unindexed_resume=own
+    f.sync:_persist('41',{verified_source='fixture'})
+    eq(saved.unindexed_resume,own,'unrelated reading state discarded the selected chapter')
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.unindexed_resume,nil,'new indexed local progress kept a stale chapter preference')
+    local foreign=assert(make(point,'41',string.rep('d',20),0));saved.unindexed_resume=foreign
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.unindexed_resume,foreign,'a different account discarded the prior selection')
+end)
+
+test('local checkpoints record their owner independently of legacy recency',function()
+    local f=fixture({}, {book_id='41'})
+    local saved=f.values.books['41'];saved.recent_read_account='previous-owner'
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.last_local_account,f.sync:_account_key(),'new local position did not capture its account')
+    eq(saved.recent_read_account,'previous-owner','local checkpoint changed legacy pending ownership')
+    f.values.account={};f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='11',percent=20}})
+    eq(saved.last_local_account,'','signed-out position inherited an older account')
+end)
+
+test('a login change cannot save a stale catalog-free selection',function()
+    local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    f.values.auth_epoch=1
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    eq(f.sync:finish_file_resume(frame,true,point),false,'a stale login session persisted a chapter')
+    eq(f.values.books['41'].unindexed_resume,nil,'stale navigation changed the local chapter hint')
+end)
+
+test('file resume refreshes automatic comparison only after success and under its current scope',function()
+    for _i,change in ipairs({'success','account','navigation','failure'}) do
+        local f=fixture({});local pulls=0
+        f.values.sync.pull_on_open=true
+        f.sync._pull=function(_self,options) eq(options.manual,false,'file restore used manual write intent');pulls=pulls+1;return true end
+        local frame=assert(f.sync:begin_file_resume())
+        eq(pulls,0,'file resume compared before locating its source')
+        assert(f.sync:finish_file_resume(frame,change~='failure'))
+        if change=='account' then f.sync:on_account_changed()
+        elseif change=='navigation' then f.sync:begin_local_navigation() end
+        f.drain()
+        eq(pulls,change=='success' and 1 or 0,'automatic file-resume comparison ignored its final state/scope')
+    end
+end)
+
+test('file resume departure revokes queued writes and stale frames cannot finish',function()
+    local callbacks={}
+    local f=fixture({}, {run_online=function(_kind,callback) callbacks[#callbacks+1]=callback;return true end})
+    f.values.sync.pull_on_open=false
+    local local_position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',local_position,{})
+    f.sync:_upload_snapshot(local_position,'before_file_resume',false)
+    f.sync:begin_file_resume_departure();callbacks[1]()
+    eq(#f.uploads,0,'old queued upload survived local file handoff')
+    eq(f.sync.verified,false,'old file retained reporting permission')
+    local frame=assert(f.sync:begin_file_resume())
+    f.sync:on_account_changed()
+    eq(f.sync:finish_file_resume(frame,true),false,'old account file-resume result committed')
+end)
+
+test("an acknowledgement without exact readback retains intent and stops automatic replay", function()
+    for _i, result in ipairs({ { accepted = true }, { accepted = true, position_confirmed = true, acknowledged = false } }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        local calls = 0
+        f.sync.upload_position = function() calls = calls + 1; return true, result end
+        local point = f.sync:capture_local()
+        f.sync:_upload_snapshot(point, "test_unconfirmed", true)
+        eq(f.sync.verified, false, "unconfirmed write revokes reporting permission")
+        eq(f.values.books.book.last_uploaded_position, nil, "acknowledgement was recorded as confirmed")
+        eq(f.values.books.book.pending_upload_position.chapter_offset, point.chapter_offset, "unconfirmed intent lost")
+        eq(f.notifications[#f.notifications].code, "upload_unconfirmed", "clear unconfirmed message missing")
+        f.document.page = 50; f.sync:on_page_update(); f.sync:on_close_document(); f.drain()
+        eq(calls, 1, "close replayed unconfirmed write")
+        eq(f.values.books.book.pending_upload_reason, "upload_readback_unconfirmed", "close discarded uncertain status")
+    end
+end)
+
+test("delayed confirmation polls only reads and retains a newer page", function()
+    local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+    f.sync:on_reader_ready(); f.drain()
+    local writes, reads, receipt = 0, 0, {}
+    f.sync.upload_position = function()
+        writes = writes + 1
+        return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+    end
+    f.sync.confirm_position = function(value)
+        eq(value, receipt, "confirmation belongs to initial write")
+        reads = reads + 1
+        if reads == 1 then return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt } end
+        return true, { acknowledged = true, position_confirmed = true }
+    end
+    local point = f.sync:capture_local()
+    f.sync:_upload_snapshot(point, "test_delayed", true)
+    local available, why = f.sync:position_for_report("book")
+    eq(available, nil, "periodic reporter crossed pending confirmation")
+    eq(why, "progress_confirmation_pending", "pending reporting reason")
+    f.step()
+    f.document.page = 75; f.sync:on_page_update(); f.sync:checkpoint_local("newer_page")
+    f.drain()
+    eq(writes, 1, "confirmation resent a write")
+    eq(reads, 2, "bounded read count")
+    eq(f.values.books.book.last_uploaded_position.percent, point.percent, "receipt bound to newer page")
+    eq(f.values.books.book.pending_upload_position.percent, 75, "old confirmation erased newer page")
+    eq(f.sync.dirty, true, "new movement is no longer dirty")
+end)
+
+test("confirmation exhaustion and cancellation never dispatch another write", function()
+    for _i, change in ipairs({ "exhaust", "suspend", "account", "recheck", "source" }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        local writes, reads, receipt = 0, 0, {}
+        f.sync.upload_position = function()
+            writes = writes + 1
+            return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+        end
+        f.sync.confirm_position = function()
+            reads = reads + 1
+            return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+        end
+        f.sync:_upload_snapshot(f.sync:capture_local(), "test_pending", true)
+        if change == "suspend" then f.sync:on_suspend()
+        elseif change == "account" then f.sync:on_account_changed()
+        elseif change == "recheck" then f.sync:sync_now()
+        elseif change == "source" then f.sync:begin_cloud_source_navigation() end
+        f.drain()
+        eq(writes, 1, "pending write replayed")
+        eq(reads, change == "exhaust" and 2 or 0, "stale or unbounded confirmation read")
+        eq(f.values.books.book.last_uploaded_position, nil, "unconfirmed callback committed")
+    end
+end)
+
+test("an adjacent newer pending coordinate is not cleared by a tolerant receipt", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    local point = f.sync:capture_local()
+    f.sync:_upload_snapshot(point, "old", false)
+    local pending = f.values.books.book.pending_upload_position
+    pending.chapter_offset = pending.chapter_offset + 1
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position, pending, "adjacent pending intent cleared")
+    eq(f.values.books.book.last_uploaded_position.chapter_offset, point.chapter_offset, "receipt snapshot was mutated")
+end)
+
+test("fresh comparisons require exact coordinates for a prior unconfirmed write", function()
+    for _i, mode in ipairs({ "adjacent", "missing_index", "same" }) do
+        local remote = { progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = mode == "adjacent" and 151 or 150 }
+        if mode == "missing_index" then remote.chapterIdx = nil end
+        local f = fixture(remote)
+        f.values.sync.ask_on_conflict = false
+        local point = f.sync:capture_local()
+        f.values.books.book.pending_upload_position = point
+        f.values.books.book.pending_upload_account = f.sync:_account_key()
+        f.values.books.book.pending_upload_reason = "upload_readback_unconfirmed"
+        f.sync:on_reader_ready(); f.drain()
+        if mode == "same" then
+            eq(#f.choices, 0, "matching exact readback needs no new decision")
+            eq(f.values.books.book.pending_upload_position, nil, "matching cloud coordinate did not resolve pending intent")
+        else
+            eq(#f.choices, 1, "approximate comparison silently resolved unknown write")
+            eq(f.values.books.book.pending_upload_position, point, "uncertain intent lost before explicit decision")
+            eq(f.sync.verified, false, "uncertain comparison granted reporting permission")
+        end
+        eq(#f.uploads, 0, "read-only recheck replayed unknown write")
+    end
+end)
+
+test("source snapshot becoming ready during confirmation does not resend an unchanged wire position", function()
+    local source
+    local f = fixture({}, { get_source_position = function() return source end })
+    local point = f.sync:capture_local()
+    f.sync:_mark_verified("book", "fixture", point, {})
+    local writes, receipt = 0, {}
+    f.sync.upload_position = function()
+        writes = writes + 1
+        return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+    end
+    f.sync.confirm_position = function()
+        return true, { acknowledged = true, position_confirmed = true }
+    end
+    f.sync:_upload_snapshot(point, "unchanged", false)
+    source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345, upload_verified = false }
+    f.drain()
+    eq(f.sync.dirty, false, "new read-only metadata became a new cloud intent")
+    f.sync:on_close_document(); f.drain()
+    eq(writes, 1, "close resent the same wire position after source preparation")
+end)
+
+test('prepared source wire coordinates preserve local units and clear only their own intent',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local callback
+    f.sync.prepare_upload=function(_position,ready) callback=ready;return true end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    local wire={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent,summary='SOURCE_SUMMARY_CANARY'}
+    local plan={position=wire,basis='filtered_xhtml_utf16',is_current=function() return true end}
+    f.sync.upload_position=function(_book,sent,elapsed,grant)
+        eq(sent.chapter_offset,10000,'dispatch uses source coordinate')
+        eq(elapsed,0,'source position upload does not add duration')
+        eq(grant,plan,'dispatch owns its fresh plan')
+        return true,{acknowledged=true,position_confirmed=true}
+    end
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    eq(f.sync.uploading,true,'asynchronous preparation owns upload slot')
+    eq(f.values.books.book.pending_upload_position.chapter_offset,position.chapter_offset,'pending keeps local projection')
+    callback(plan)
+    local saved=f.values.books.book
+    eq(saved.last_uploaded_position.chapter_offset,10000,'uploaded record has actual wire coordinate')
+    eq(saved.last_uploaded_position.wire_basis,'filtered_xhtml_utf16','persisted wire coordinate is labelled')
+    eq(saved.last_uploaded_position.summary,nil,'source summary was persisted')
+    eq(saved.pending_upload_position,nil,'matching original intent was not cleared')
+    eq(f.sync.dirty,false,'unchanged source became dirty after upload')
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    source.chapter_offset=10001
+    f.sync:on_source_position_changed('ready',source)
+    f.sync:checkpoint_local('new_source_point')
+    callback(plan)
+    eq(f.sync.dirty,true,'new same-page source point was lost')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10001,'old confirmation cleared later source intent')
+end)
+
+test('late source preparation clears only an unchanged viewport intent',function()
+    for _i,mode in ipairs({'unchanged','page_changed','layout_changed','unknown_layout','newer_pending','source_changed','navigation','account'}) do
+        local source
+        local f=fixture({}, {get_source_position=function() return source end,get_viewport_height=function() return 800 end})
+        f.document.getXPointer=function(self) return '/body/p/text().'..tostring(self.page) end
+        f.document.getCurrentPos=function() return 0 end
+        f.document.getDocumentRenderingHash=function(self) return self.hash end
+        f.document.hash=123;f.document.info={doc_height=8000}
+        local point=assert(f.sync:capture_local());f.sync:_mark_verified('book','fixture',point,{})
+        local ready
+        f.sync.prepare_upload=function(_intent,callback) ready=callback;return true end
+        local sends=0
+        f.sync.upload_position=function()
+            sends=sends+1
+            if mode=='source_changed' then source.chapter_offset=10001 end
+            return true,{acknowledged=true,position_confirmed=true}
+        end
+        f.sync:_upload_snapshot(point,'explicit_local_choice',true)
+        eq(f.sync.uploading,true,mode..': source preparation not started')
+        source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+            file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+        if mode=='page_changed' then f.document.page=26 elseif mode=='layout_changed' then f.document.hash=124
+        elseif mode=='unknown_layout' then f.document.hash=nil
+        elseif mode=='navigation' then f.sync:begin_local_navigation()
+        elseif mode=='account' then f.values.account={user_vid='fixture-account-b'};f.sync:on_account_changed()
+        elseif mode=='newer_pending' then
+            local newer=assert(f.sync:capture_local());newer.chapter_offset=newer.chapter_offset+1
+            f.values.books.book.pending_upload_position=newer
+        end
+        ready{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=point.percent},
+            source_position=source,basis='filtered_xhtml_utf16',is_current=function() return true end}
+        eq(sends,(mode=='navigation' or mode=='account') and 0 or 1,mode..': unexpected dispatch count')
+        local saved=f.values.books.book
+        if mode=='unchanged' then
+            eq(saved.pending_upload_position,nil,'unchanged source completion left a duplicate pending position')
+            eq(f.sync.dirty,false,'unchanged source completion marked reading dirty')
+        else
+            eq(type(saved.pending_upload_position),'table',mode..': a newer or unverifiable position was cleared')
+            if mode=='source_changed' then eq(saved.pending_upload_position.source_position.chapter_offset,10001,'new source point lost') end
+        end
+    end
+end)
+
+test('failed and closed source preparations never fall back to estimated uploads',function()
+    for _i,mode in ipairs({'failed','closed','expired'}) do
+        local f=fixture({})
+        local callback
+        f.sync.prepare_upload=function(_position,ready) callback=ready;return true end
+        local position=assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position,'source_test',false)
+        if mode=='closed' then f.sync:on_close_document() end
+        local plan
+        if mode~='failed' then plan={position=position,is_current=function() return mode~='expired' end} end
+        callback(plan,'source_position_unavailable')
+        eq(#f.uploads,0,'source failure used old word-coordinate writer')
+        eq(f.sync.uploading,false,'source failure retained upload ownership')
+        eq(f.values.books.book.pending_upload_position~=nil,true,'source failure lost durable intent')
+    end
+end)
+
+test('source comparison distinguishes one unit at identical percentages',function()
+    local f=fixture({})
+    f.sync.prepare_upload=function() end
+    local position=assert(f.sync:capture_local())
+    position.source_position={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10001,percent=position.percent,
+        has_chapter_offset=true,has_chapter_index=true}
+    eq(f.sync:_compare_source(position,remote,chapters),'remote_ahead','one source unit was swallowed by percent tolerance')
+    remote.chapter_offset=9999;eq(f.sync:_compare_source(position,remote,chapters),'local_ahead','source ordering was inverted')
+    remote.chapter_offset=10000;eq(f.sync:_compare_source(position,remote,chapters),'same','equal source point differs')
+    remote.chapter_idx=3;eq(f.sync:_compare_source(position,remote,chapters),nil,'conflicting chapter index accepted')
+    remote.chapter_idx=2;remote.book_id='other';eq(f.sync:_compare_source(position,remote,chapters),nil,'foreign source position accepted')
+    remote.book_id='book';position.source_position.basis='raw_txt_utf16'
+    eq(f.sync:_compare_source(position,remote,chapters),nil,'TXT borrowed XHTML cloud semantics')
+    remote.source='web'
+    eq(f.sync:_compare_source(position,remote,chapters),'same','validated raw TXT comparison was not enabled')
+    remote.chapter_offset=10001
+    eq(f.sync:_compare_source(position,remote,chapters),'remote_ahead','raw UTF16 one-unit movement was lost')
+    remote.source='gateway'
+    eq(f.sync:_compare_source(position,remote,chapters),nil,'gateway coordinates became raw TXT without proof')
+end)
+
+test('source progress keeps server percentages and compares exact coordinates',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    local f=fixture({bookId='book',progress=37,chapterUid=22,chapterIdx=2,chapterOffset=10001,summary='SOURCE_SUMMARY_CANARY'},
+        {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() end
+    local remote=f.sync:_fetch_remote('book',chapters)
+    eq(remote.percent,37,'source offset was divided by catalog words to invent a percent')
+    eq(remote.chapter_offset,10001,'remote source offset was clamped to word count')
+    eq(remote.summary,nil,'remote source text entered position checkpoint')
+    local position=assert(f.sync:capture_local());position.percent=37
+    f.sync:_resolve(position,remote,{book_id='book',book=f.values.books.book,chapters=chapters},{manual=true})
+    eq(f.sync.state,'awaiting_choice','same percent swallowed a one-unit source difference')
+    eq(#f.choices,1,'source difference did not reach the normal choice dialog')
+    local applied
+    f.sync.apply_source_remote=function(value) applied=value;return true end
+    f.choices[1].use_remote()
+    eq(applied.chapter_offset,10001,'cloud choice did not use original source offset')
+    eq(#f.jumps,0,'cloud choice fell back to a word fraction')
+end)
+
+test('read-only source navigation and normal sync choices keep separate reporting gates',function()
+    local f=fixture({})
+    f.sync.prepare_upload=function() end
+    local point={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    f.sync.current_source_target=function() return point end
+    f.sync.verified=true
+    eq(f.sync:accept_cloud_source_target(point),true,'read-only source target was rejected')
+    eq(f.sync.verified,false,'read-only location tool granted reporting authority')
+    eq(f.sync:accept_cloud_source_target(point,true),true,'normal cloud sync choice was rejected')
+    eq(f.sync.verified,true,'normal source choice did not finish its sync decision')
+    eq(f.sync.local_position.source_position.upload_verified,false,'sync choice flipped source metadata upload flag')
+end)
+
+test('imported cloud viewing preserves pending local intent and never verifies upload',function()
+    local id='CB_SyntheticReading'
+    local f=fixture({}, {book_id=id})
+    local point={book_id=id,chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64)}
+    f.sync.current_source_target=function() return point end
+    f.sync.prepare_upload=function() error('viewing dispatched an upload') end
+    local original={book_id=id,chapter_uid='11',chapter_offset=20,percent=3}
+    f.values.books[id].pending_upload_position=original
+    f.values.books[id].pending_upload_reason='synthetic_pending'
+    f.sync.verified=true
+    eq(f.sync:accept_cloud_source_target(point,true),true,'imported read-only cloud target rejected')
+    eq(f.sync.verified,false,'imported viewing granted upload permission')
+    eq(f.values.books[id].pending_upload_position,original,'imported viewing discarded local intent')
+    eq(f.values.books[id].pending_upload_reason,'synthetic_pending','imported viewing changed pending reason')
+    local hint=assert(f.values.books[id].cb_cloud_view_resume)
+    eq(hint.chapter_uid,'22','cloud view did not remember the viewed chapter')
+    f.sync.current_book_id=id;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync.dirty=true;f.sync:checkpoint_local('synthetic_flush')
+    eq(f.values.books[id].pending_upload_position,original,'provisional cloud view replaced the earlier pending point')
+    eq(f.sync.dirty,false,'cloud reflow was treated as a fresh page turn')
+    point.chapter_offset=10001;f.sync.dirty=true;f.sync:checkpoint_local('synthetic_user_move')
+    eq(f.sync.cb_cloud_view_target,nil,'actual movement retained the provisional cloud guard')
+    eq(f.values.books[id].pending_upload_reason,'synthetic_user_move','actual movement failed to checkpoint')
+    f.values.books[id].pending_upload_position=original
+    f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='22'}})
+    eq(f.values.books[id].cb_cloud_view_resume.chapter_uid,'22','same-chapter position erased the cloud view')
+    f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='23'}})
+    eq(f.values.books[id].cb_cloud_view_resume,nil,'new chapter kept a stale cloud view')
+    eq(f.values.books[id].pending_upload_position.chapter_uid,'11','local checkpoint discarded prior pending intent')
+end)
+
+test('closed source plan survives document generation but releases on terminal confirmation',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('closed document used live preparation') end
+    local token,ready={},nil
+    f.sync.freeze_close=function(position) eq(position.source_position.chapter_offset,10000,'close did not freeze source');return token end
+    f.sync.prepare_closed=function(value,_position,callback) eq(value,token,'close lost opaque token');ready=callback;return true end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync.dirty=true
+    local captured,frozen=f.sync:prepare_close(source)
+    eq(captured,token,'eligible close did not freeze')
+    f.sync:on_close_document(source,captured,frozen)
+    eq(f.sync.uploading,true,'close did not retain asynchronous work')
+    local released=0
+    local plan={position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent},
+        basis='filtered_xhtml_utf16',source_position=source,detached=true,is_current=function() return true end,
+        release=function() released=released+1 end}
+    ready(plan)
+    eq(#f.uploads,1,'closed generation rejected detached source plan')
+    eq(released,1,'confirmed close retained detached plan')
+    eq(f.sync.verified,false,'close reactivated closed reader')
+    eq(f.values.books.book.last_uploaded_position.chapter_offset,10000,'close wrote old projection')
+    eq(f.values.books.book.pending_upload_position,nil,'closed acknowledgement did not clear own intent')
+end)
+
+test('superseded dispatch acknowledgement cannot clear a newer pending record',function()
+    local f=fixture({})
+    local finished,released=0,0
+    f.sync.source_dispatch={pending=function() return false end,begin=function() return {} end,
+        owns=function() return true end,finish=function() finished=finished+1;return false end}
+    f.sync.prepare_upload=function(position,ready)
+        ready{position=position,is_current=function() return true end,release=function() released=released+1 end}
+    end
+    f.sync.upload_position=function(_id,_position,_seconds,plan)
+        eq(plan.before_send(),true,'source dispatch did not start')
+        return true,{acknowledged=true,position_confirmed=true}
+    end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync:_upload_snapshot(position,'explicit_local_choice',false)
+    eq(finished,1,'terminal result did not check dispatch ownership')
+    eq(released,1,'superseded plan was retained')
+    eq(f.values.books.book.last_uploaded_position,nil,'superseded result was saved as uploaded')
+    eq(f.values.books.book.pending_upload_position~=nil,true,'superseded result cleared pending intent')
+end)
+
+test('source dispatch interruption keeps journal and blocks replay until explicit comparison',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local journal=require('weread.lib.source_dispatch'):new{settings=f.sync.settings,nonce=function() return string.rep('a',32) end}
+    f.sync.source_dispatch=journal
+    f.sync.prepare_upload=function(position,callback)
+        callback{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent},
+            source_position=source,basis='filtered_xhtml_utf16',is_current=function() return true end}
+    end
+    local sends=0
+    f.sync.upload_position=function(_book,_position,_elapsed,plan)
+        eq(plan.before_send(),true,'dispatch did not reserve before first HTTP')
+        eq(plan.before_send(),true,'same dispatch could not check before second HTTP')
+        sends=sends+1;f.sync:on_network_disconnected()
+        return false,{error_kind='unconfirmed',report_attempted=true}
+    end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    eq(journal:pending('book'),true,'interrupted generation lost journal')
+    f.sync:_upload_snapshot(position,'document_close',false)
+    eq(sends,1,'interrupted dispatch was replayed on close')
+    f.sync.verified=true
+    local value,why=f.sync:position_for_report('book')
+    eq(value,nil,'unresolved dispatch granted periodic position')
+    eq(why,'progress_confirmation_pending','journal did not explain reporting pause')
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,percent=position.percent,
+        has_chapter_offset=true,has_chapter_index=true}
+    f.sync:_resolve(position,remote,{book_id='book',book=f.values.books.book,chapters=chapters},{manual=true})
+    eq(journal:pending('book'),false,'exact read-only comparison did not retire uncertainty')
+    eq(sends,1,'read-only comparison resent a write')
+end)
+
+test('native asynchronous dispatch bypasses Web sender and journal and preserves later intent',function()
+    for _i,mode in ipairs({'confirmed','unknown','newer','readonly','save_failure','readonly_save_failure','notify_failure'}) do
+        local source={book_id='book',chapter_uid='22',chapter_offset=10001,basis='raw_txt_utf16',upload_verified=false,
+            file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='OEBPS/text/chapter.xhtml'}
+        local f=fixture({}, {get_source_position=function() return source end})
+        local point=assert(f.sync:capture_local())
+        local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,raw_percent=20,percent=20,
+            source='web',has_chapter_offset=true,has_chapter_index=true}
+        local delivered,sends,releases=nil,0,0
+        local plan={transport='native_position',basis='raw_txt_utf16',source_position=source,is_current=function() return true end,
+            position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10001,percent=point.percent,summary='RAW_SUMMARY_CANARY'},
+            release=function() releases=releases+1 end,
+            dispatch=function(cb) sends=sends+1;delivered=cb;return true end}
+        f.sync.source_dispatch={pending=function() return false end,begin=function() error('native entered Web journal') end}
+        f.sync.upload_position=function() error('native entered Web sender') end
+        f.sync.prepare_upload=function(intent,ready)
+            eq(intent.native_position_only,true,'native route did not distinguish time reporting')
+            eq(intent.expected_remote.chapter_offset,10000,'cloud decision was not pinned')
+            ready(plan);return true
+        end
+        f.sync:_mark_verified('book','fixture',point,remote)
+        f.sync:_upload_snapshot(point,'explicit_local_choice',true)
+        eq(f.sync.uploading,true,'native async slot closed before result')
+        eq(sends,1,'native dispatcher did not start exactly once')
+        eq(f.values.books.book.last_uploaded_position,nil,'preparation claimed a completed upload')
+        if mode=='newer' then
+            source.chapter_offset=10002;f.sync:on_source_position_changed('ready',source);f.sync:checkpoint_local('later')
+        end
+        local save_failure=mode=='save_failure' or mode=='readonly_save_failure' or mode=='notify_failure'
+        if save_failure then
+            f.sync.settings.patch_reading_state=function() return false,'synthetic full disk' end
+            f.sync.interval.cycle={scope=f.sync:_scope(),minutes=1}
+            f.sync.interval.task=function() error('stale timer fired') end
+            if mode=='notify_failure' then f.sync.notify=function() error('synthetic notice failure') end end
+        end
+        local accepted=mode~='unknown'
+        local readonly=mode=='readonly' or mode=='readonly_save_failure'
+        local returned,save_error=pcall(delivered,true,accepted,{acknowledged=not readonly and accepted,position_confirmed=accepted,
+            read_only_confirmation=readonly,report_attempted=not readonly,
+            error_kind=not accepted and 'unconfirmed' or nil,error=not accepted and 'upload_readback_unconfirmed' or nil})
+        eq(returned,not save_failure,'local commit failure must prevent the sender accepting its durable receipt')
+        if save_failure then eq(save_error,'native_position/local_save_failed','storage details escaped callback boundary') end
+        eq(f.sync.uploading,false,'native completion retained upload slot')
+        eq(releases,1,'native lease was not released')
+        if save_failure then
+            eq(f.sync.verified,false,'failed local save retained sync authority')
+            eq(f.sync.state,'error','failed local save stayed uploading')
+            eq(f.sync.dirty,true,'failed local save lost local intent')
+            eq(f.sync.interval.cycle,nil,'failed local save retained timer cycle')
+            eq(f.sync.interval.task,nil,'failed local save retained scheduled timer')
+            eq(f.values.books.book.last_uploaded_position,nil,'failed save claimed cached success')
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10001,'failed save erased pending intent')
+            if mode~='notify_failure' then
+                eq(f.notifications[#f.notifications].code,'upload_local_save_failed','storage failure lacked a recovery notice')
+                eq(f.notifications[#f.notifications].data.acknowledged,not readonly,'notice invented a data acknowledgement')
+            end
+        elseif mode=='unknown' then
+            eq(f.values.books.book.pending_upload_reason,'upload_readback_unconfirmed','unknown dispatch lost durable intent')
+            eq(f.sync.verified,false,'unknown native result granted automatic synchronization')
+        elseif mode=='newer' then
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10002,'old completion erased a newer source point')
+            eq(f.sync.dirty,true,'new native source became clean')
+        else
+            eq(f.values.books.book.last_uploaded_position.wire_basis,'raw_txt_utf16','native coordinate basis was lost')
+            eq(f.values.books.book.last_uploaded_position.summary,nil,'native summary persisted in checkpoint')
+            eq(f.values.books.book.pending_upload_position,nil,'completed own native intent remained pending')
+        end
+    end
+end)
+
+test('raw close freezes cloud decision and finishes asynchronously after reader generation closes',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10001,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='OEBPS/text/chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local position=assert(f.sync:capture_local())
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,raw_percent=20,percent=20,
+        source='web',has_chapter_offset=true,has_chapter_index=true}
+    local frozen,ready,done;local token={};local sends,releases=0,0
+    f.sync.freeze_close=function(intent) frozen=intent;return token end
+    f.sync.prepare_closed=function(receipt,intent,callback)
+        eq(receipt,token,'raw close lost opaque token');eq(intent.native_position_only,nil,'route flag entered saved position')
+        eq(intent.expected_remote,nil,'cloud decision entered saved position');ready=callback;return true
+    end
+    f.sync.prepare_upload=function() error('closed raw point used live document') end
+    f.sync.upload_position=function() error('closed raw point used Web sender') end
+    f.sync:_mark_verified('book','fixture',position,remote);f.sync.dirty=true
+    local captured,closed=f.sync:prepare_close(source)
+    eq(frozen.native_position_only,true,'close did not opt into native-only route')
+    eq(frozen.expected_remote.chapter_offset,10000,'close lost last cloud decision')
+    f.sync.remote_position.chapter_offset=999
+    eq(frozen.expected_remote.chapter_offset,10000,'later decision mutated close snapshot')
+    f.sync:on_close_document(source,captured,closed)
+    ready{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10001,percent=position.percent},
+        basis='raw_txt_utf16',transport='native_position',source_position=source,detached=true,is_current=function() return true end,
+        dispatch=function(cb) sends=sends+1;done=cb;return true end,release=function() releases=releases+1 end}
+    eq(sends,1,'closed native generation did not dispatch');eq(f.sync.uploading,true,'async close ended early')
+    done(true,true,{acknowledged=true,position_confirmed=true})
+    eq(releases,1,'closed raw receipt leaked');eq(f.sync.verified,false,'closed completion reactivated reader')
+    eq(f.values.books.book.last_uploaded_position.wire_basis,'raw_txt_utf16','closed raw basis was lost')
+    eq(f.values.books.book.pending_upload_position,nil,'closed confirmed raw point retained its intent')
+end)
+test('failed close freezing retains intent without trying live preparation after stop',function()
+    local f=fixture({});local position=assert(f.sync:capture_local())
+    f.sync.freeze_close=function() return nil end
+    f.sync.prepare_upload=function() error('failed freeze touched stopped live source') end
+    f.sync:_mark_verified('book','fixture',position,{});f.sync.dirty=true
+    local token,closed=f.sync:prepare_close()
+    f.sync:on_close_document(nil,token,closed)
+    eq(f.sync.uploading==true,false,'failed freeze started upload')
+    eq(f.values.books.book.pending_upload_position~=nil,true,'failed freeze discarded local intent')
+end)
+
+test('native review preserves current intent and requires a fresh choice with prompts disabled',function()
+    for _i,choice in ipairs({'local','cloud'}) do
+        local f=fixture({bookId='book',progress=50,chapterUid=33,chapterIdx=3,chapterOffset=100})
+        f.values.sync.pull_on_open=false;f.values.sync.ask_on_conflict=false
+        f.sync:on_reader_ready();f.drain()
+        local old=assert(f.sync:capture_local());f.sync:_mark_verified('book','fixture',old,{})
+        f.sync.dirty=true;f.sync:checkpoint_local('older_pending')
+        f.document.page=40;f.sync:begin_native_review()
+        eq(f.values.books.book.pending_upload_position.percent,40,'review erased new movement')
+        eq(f.sync.verified,false,'review retained old sender authority')
+        eq(#f.uploads,0,'begin review sent a request')
+        assert(f.sync:compare_after_native_review());f.drain()
+        eq(#f.choices,1,'review reused automatic keep-local policy')
+        eq(#f.uploads,0,'archive comparison sent before new choice')
+        eq(f.values.books.book.pending_upload_position.percent,40,'comparison erased current local intent')
+        if choice=='local' then f.choices[1].keep_local();eq(#f.uploads,1,'new explicit local choice could not sync')
+        else f.choices[1].use_remote();eq(#f.uploads,0,'cloud choice sent a write') end
+    end
+end)
+
+test('raw TXT cloud choice accepts only the applied held source and keeps source units',function()
+    local point={book_id='41',chapter_uid='22',chapter_offset=1200,file_id=string.rep('a',64),book_version=7,
+        raw_sha256=string.rep('b',64),render_path='OEBPS/text/chapter.xhtml',basis='raw_txt_utf16',upload_verified=false}
+    local f=fixture({}, {get_source_position=function() return point end})
+    f.sync.prepare_upload=function() error('cloud choice dispatched local upload') end
+    f.sync.current_source_target=function() return point end
+    f.sync.get_chapters=function(book) assert(type(book)=='table');return chapters end
+    f.sync.detect_book=function() return '41' end;f.values.books['41']=f.values.books.book;f.values.books['41'].book_id='41'
+    f.sync.current_book_id='41';f.sync.dirty=true;f.sync:checkpoint_local('pending_before_cloud')
+    local wrong={};for k,v in pairs(point) do wrong[k]=v end;wrong.basis='unknown'
+    eq(f.sync:accept_cloud_source_target(wrong,true),false,'unknown source unit accepted')
+    wrong.basis='raw_txt_utf16';wrong.chapter_offset=1201
+    eq(f.sync:accept_cloud_source_target(wrong,true),false,'wrong applied TXT target accepted')
+    local remote={book_id='41',chapter_uid='22',chapter_offset=1200,percent=25,raw_sha256=point.raw_sha256,raw_bytes=2000,basis='raw_txt_utf16',upload_verified=false}
+    eq(f.sync:accept_cloud_source_target(point,true),false,'local TXT target gained cloud authority without a checked remote')
+    eq(f.sync:accept_cloud_source_target(point,true,remote),true,'exact applied TXT target rejected')
+    eq(f.sync.verified,true,'explicit raw cloud choice did not complete verification')
+    eq(f.sync.source_local_anchor.basis,'raw_txt_utf16','TXT source basis replaced')
+    eq(f.sync.source_local_anchor.chapter_offset,1200,'TXT source point replaced by local proportional point')
+    eq(f.values.books['41'].pending_upload_position,nil,'applied cloud choice retained old local intent')
+    eq(#f.uploads,0,'cloud choice posted a position')
 end)
 
 print(string.format(

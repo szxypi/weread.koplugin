@@ -1,0 +1,16 @@
+{
+  "result": "SYNTHETIC_NATIVE_TRANSLATION_PROGRESS_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_book_chapters": 6,
+  "native_progress_bar_and_cancel_button_rendered": true,
+  "progress_updates_monotonic": true,
+  "final_checks_reserved_before_completion": true,
+  "background_progress_contains_only_bounded_percentages": true,
+  "cancel_removes_staged_output": true,
+  "existing_copy_and_original_preserved": true,
+  "new_offline_process_readback": true,
+  "transient_and_persistent_failure_regression_passed": true,
+  "account_data_writes": 0,
+  "real_account_book_tested": false,
+  "physical_kindle_verified": false
+}

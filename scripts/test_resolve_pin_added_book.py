@@ -1,0 +1,99 @@
+import unittest
+from unittest.mock import patch
+from secure_pin_trial import PinTrialStore,SERVICE_V3
+from secure_native_cloud_pin_trial import NativeCloudPinTrialStore
+from test_secure_pin_trial import Backend
+from test_pin_trial_contract import Fixture
+from verify_pin_preflight import fingerprint,reading_fingerprint
+from resolve_pin_added_book import cleanup,RemovalProbe
+from verify_eink_login import BASE
+
+
+class CleanupTests(unittest.TestCase):
+    def test_unknown_add_receipt_cannot_authorize_removal(self):
+        f=Fixture(False);_,raw=f.store.reserve(f.plan,fingerprint(f.progress),'c'*64)
+        f.store.advance(raw,'add_pending');f.present=True
+        with self.assertRaises(ValueError):cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+        self.assertEqual(f.writes,[])
+
+    def setup_trial(self):
+        f=Fixture(False);_,raw=f.store.reserve(f.plan,fingerprint(f.progress),'c'*64)
+        _,raw=f.store.advance(raw,'add_pending');f.store.advance(raw,'add_acknowledged');f.present=True
+        return f
+    def test_preview_then_one_cleanup_and_restore(self):
+        f=self.setup_trial()
+        result=cleanup(f.store,f.current,f.read,lambda:f.write('remove'))
+        self.assertEqual(result['result'],'CLEANUP_PREVIEW_VERIFIED');self.assertEqual(f.writes,[])
+        result=cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+        self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_ORIGINAL_VERIFIED')
+        self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_restored')
+        self.assertFalse(f.store.pending())
+        with self.assertRaises(ValueError):cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+    def test_ambiguous_removal_is_not_retried(self):
+        f=self.setup_trial();f.bad='receipt'
+        with self.assertRaises(ValueError):cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+        self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_pending')
+        with self.assertRaises(ValueError):cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+    def test_change_or_pinned_prevents_removal(self):
+        for kind in ('unrelated','pinned'):
+            f=self.setup_trial()
+            if kind=='unrelated':f.bad=kind
+            else:f.visible=True;f.pinned=True
+            with self.subTest(kind=kind),self.assertRaises(ValueError):cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True)
+            self.assertEqual(f.writes,[]);self.assertEqual(f.store.read()[0]['phase'],'add_acknowledged')
+    def test_progress_not_restored_preserves_pending(self):
+        f=self.setup_trial();original=f.write
+        def remove():
+            result=original('remove');f.bad='progress';return result
+        with self.assertRaisesRegex(ValueError,'cleanup/progress'):cleanup(f.store,f.current,f.read,remove,apply=True)
+        self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_pending')
+
+    def test_v2_cleanup_records_reading_projection_not_full_timestamp(self):
+        f=Fixture(False);f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+        _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+        _,raw=f.store.advance(raw,'add_pending');f.store.advance(raw,'add_acknowledged');f.present=True
+        original=f.write
+        def remove():
+            result=original('remove');f.progress['book']['updateTime']+=1;return result
+        result=cleanup(f.store,f.current,f.read,remove,apply=True,progress_digest=reading_fingerprint,reading_only=True)
+        self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_READING_VERIFIED')
+        self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_reading_restored')
+        self.assertFalse(f.store.pending())
+    def test_v3_cleanup_only_before_native_reservation(self):
+        for phase in ('add_acknowledged','add_verified'):
+            f=Fixture(False);f.store=PinTrialStore(Backend(),service=SERVICE_V3)
+            f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+            _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+            _,raw=f.store.advance(raw,'add_pending');_,raw=f.store.advance(raw,'add_acknowledged')
+            if phase=='add_verified':_,raw=f.store.advance(raw,'add_verified')
+            f.present=True;inner=NativeCloudPinTrialStore(Backend())
+            with self.subTest(phase=phase):
+                result=cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True,
+                               progress_digest=reading_fingerprint,reading_only=True,inner=inner)
+                self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_READING_VERIFIED')
+                self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_reading_restored')
+    def test_v3_blocks_if_native_reservation_exists_or_reading_changed(self):
+        for reason in ('missing_inner','reserved_inner','changed_progress'):
+            f=Fixture(False);f.store=PinTrialStore(Backend(),service=SERVICE_V3)
+            f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+            _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+            _,raw=f.store.advance(raw,'add_pending');_,raw=f.store.advance(raw,'add_acknowledged');f.store.advance(raw,'add_verified')
+            f.present=True;inner=NativeCloudPinTrialStore(Backend())
+            if reason=='reserved_inner':
+                inner=type('Reserved',(),{'read':lambda self:({'phase':'possible_dispatch'},b'record')})()
+            if reason=='changed_progress':f.progress['book']['chapterOffset']=1
+            with self.subTest(reason=reason),self.assertRaises(ValueError):
+                cleanup(f.store,f.current,f.read,lambda:f.write('remove'),apply=True,
+                        progress_digest=reading_fingerprint,reading_only=True,inner=None if reason=='missing_inner' else inner)
+            self.assertEqual(f.writes,[]);self.assertEqual(f.store.read()[0]['phase'],'add_verified')
+
+    def test_removal_transport_is_one_shot(self):
+        p=RemovalProbe();p.target='42';creds={'vid':'123','accessToken':'synthetic'};p.grant=fingerprint(creds)
+        with patch('verify_eink_login.NativeProbe.request',return_value={'succ':1}) as request:
+            p.remove(creds)
+            with self.assertRaises(ValueError):p.remove(creds)
+        self.assertEqual(request.call_count,1);self.assertEqual(p.attempts,1)
+        self.assertEqual(request.call_args.args[0:3],('cleanup_remove',BASE+'/shelf/delete',{'bookIds':['42']}))
+
+
+if __name__=='__main__':unittest.main()

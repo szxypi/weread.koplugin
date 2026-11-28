@@ -1,0 +1,23 @@
+{
+  "result": "SYNTHETIC_SIGNED_OUT_SEARCH_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "book_types": [
+    "ordinary",
+    "imported"
+  ],
+  "online_without_login_entry": true,
+  "downloaded_search_results": 2,
+  "cross_chapter_navigation_after_logout": true,
+  "account_and_auth_scope_absent": true,
+  "downloaded_search_network_requests": 0,
+  "unit_missing_web_credentials_fallback": true,
+  "unit_invalid_account_scope_blocked": true,
+  "online_pagination_offline_fallback_and_renewal_regression": true,
+  "historical_correction": "Earlier mock settings injected a synthetic login, so prior signed-out claims were not valid. Corrected test explicitly logs out and keeps that state while reopening the reader.",
+  "real_account_signed_out_verified": false,
+  "kindle_device_verified": false
+}

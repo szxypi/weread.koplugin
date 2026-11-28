@@ -1,0 +1,295 @@
+-- Installed plugin, actual native ReaderUI and one closed synthetic account.
+require('jit').off();require('ffi').log=function() end;require('setupkoenv')
+assert(os.getenv('WEREAD_SYNTHETIC')=='1')
+local home=assert(os.getenv('KO_HOME'));local plugin=home..'/plugins/weread.koplugin'
+package.path=plugin..'/?.lua;'..package.path
+G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua');G_defaults=require('luadefaults'):open()
+G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+local Device=require('device');require('document/canvascontext'):init(Device)
+local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
+local settings=require('weread.lib.settings'):new()
+settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
+settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey = 'synthetic-web-access'});settings:flush()
+local scope=assert(settings:get_auth_scope())
+local credentials=require('weread.lib.native_credentials'):new(settings)
+local existing,revision=credentials:read()
+if existing then
+    assert(existing.vid==input.credentials.vid and existing.accessToken==input.credentials.accessToken)
+else assert(credentials:save(input.credentials,scope,revision or 0,1)) end
+local fallback_count=0
+if input.force_fallback then
+    local Dom=require('weread.lib.source_dom');local open=Dom.open_direct_prepared
+    Dom.open_direct_prepared=function(...)
+        local index,why=open(...)
+        if index then
+            index.locate_span=function(self) self.invalid='walk_diverged';return nil,'source_dom/walk_diverged' end
+            local search=index.locate_span_search
+            index.locate_span_search=function(self,...)
+                fallback_count=fallback_count+1;return search(self,...)
+            end
+            local point=index.locate_point_search
+            index.locate_point_search=function(self,...)
+                fallback_count=fallback_count+1;return point(self,...)
+            end
+        end
+        return index,why
+    end
+end
+local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
+for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_load{item} end end
+assert(#loader.enabled_plugins==1)
+local UI=require('ui/uimanager');local socket=require('socket');local Reader=require('apps/reader/readerui')
+local ffi=require('ffi');local reader_pid=ffi.C.getpid()
+local access_module=require('weread.lib.native_read_access');local original_capture=access_module.capture
+access_module.capture=function(...)
+    local caller=debug.getinfo(2,'S')
+    if caller and caller.source:find('weread/ui/personal_marks.lua',1,true) then
+        assert(ffi.C.getpid()~=reader_pid,'personal marks read authorization on the reader process')
+        assert(not input.offline,'offline personal marks read authorization unnecessarily')
+    end
+    return original_capture(...)
+end
+local diagnostic
+local function wait(predicate)
+    local deadline=socket.gettime()+15
+    while not predicate() do
+        if socket.gettime()>=deadline then if diagnostic then diagnostic() end;error('personal direct timeout',0) end;UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+end
+local function configure(active)
+    active.settings.mock_endpoint=input.mock_endpoint
+    active.isNetworkConnected=function() return not input.offline end
+    active.isNetworkOnline=function()
+        local caller=debug.getinfo(2,'S')
+        if caller and caller.source:find('weread/ui/personal_marks.lua',1,true) then
+            assert(ffi.C.getpid()~=reader_pid,'personal marks performed a network check on the reader process')
+        end
+        return not input.offline
+    end
+    local previous=active.client.request
+    active.client.request=function(self,options)
+        assert(not input.offline,'offline personal mark requested network')
+        local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
+        local native='https://i.weread.qq.com';local web='https://weread.qq.com'
+        assert(url==native..'/book/info?bookId=42' or url==native..'/book/chapterInfos'
+            or url==native..'/book/bookmarklist?bookId=42&synckey=0'
+            or url==native..'/review/list?bookId=42&listType=11&listMode=0&mine=1&synckey=0&count=20'
+            or url:find(native..'/book/chapterdownload?',1,true)==1
+            or url==web..'/api/userInfo?userVid=12345678' or url==web..'/web/book/chapterInfos'
+            or input.plain_text and (url==web..'/web/book/chapter/t_0' or url==web..'/web/book/chapter/t_1')
+            or url:find(web..'/web/reader/',1,true)==1 or url:find(web..'/web/book/chapter/e_',1,true)==1,
+            'personal direct request outside scope')
+        return previous(self,options)
+    end
+end
+local Display=require('weread.ui.personal_marks');local attach=Display.attach
+Display.attach=function(active) configure(active);return attach(active) end
+Reader:showReader(input.path);wait(function() return Reader.instance and Reader.instance.document and Reader.instance.weread end)
+local reader=Reader.instance;local host=reader.weread
+diagnostic=function()
+    local value=host._personal_marks
+    print('WEREAD_DIRECT_PERSONAL_DIAG='..json.encode{attached=value~=nil,direct=value and value.direct or false,
+        loading=value and value.loading or false,loaded=value and value.loaded or false,complete=value and value.complete or false,
+        entry=value and value.entry~=nil or false,job=value and value.job~=nil or false,task=value and value.task~=nil or false,
+        snapshot=value and value.snapshot~=nil or false,records=value and #value.records or 0})
+end
+local notes=host.client:json_encode(reader.annotation.annotations)
+local state
+if input.expect_missing then
+    wait(function() state=host._personal_marks;return state and state.loaded and not state.loading and not state.job and not state.task end)
+    assert(#state.records==0 and #state.bookmarks==0,'corrupt cached source displayed')
+    reader.rolling:onGotoPage(3);UI:forceRePaint();local before=reader.document:getCurrentPage()
+    local tr=require('weread.lib.plugin_util').tr;local action
+    for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr('My cloud highlights') then action=item.callback end end
+    assert(action);action();wait(function() return host._my_marks_owner~=nil end)
+    local owner=host._my_marks_owner;local target
+    for _,item in ipairs(owner.menu.item_table) do if item.my_note_id=='synthetic-direct-mark' then target=item end end
+    assert(target);target.callback();UI:forceRePaint()
+    local failed=false;host.showInfo=function() failed=true end
+    assert(owner.menu._shelf_popup.button_table:getButtonById('open_highlight')):onTapSelectButton()
+    wait(function() return failed end)
+    assert(reader.document:getCurrentPage()==before and host._my_marks_owner==owner,'corrupt source changed the reading position')
+    require('weread.ui.my_cloud_marks').cancel(host)
+else
+    wait(function() state=host._personal_marks;return state and state.complete end)
+    assert(state.direct and #state.records==2,'direct mark and thought did not both appear')
+    local mark,thought
+    for _,item in ipairs(state.records) do
+        if item.bookmarkId=='synthetic-direct-mark' then mark=item end
+        if item.thoughtId=='synthetic-direct-thought' then thought=item end
+    end
+    assert(mark and thought and thought.style==3,'thought identity or distinct style missing')
+    assert(#state.bookmarks==2,'direct same-page bookmarks missing')
+    if input.force_fallback then assert(fallback_count>0,'verified search fallback was not used') end
+    for _,row in ipairs({mark,thought}) do
+        local text=assert(reader.document:getTextFromXPointers(row.pos0,row.pos1))
+        assert(require('weread.lib.source_dom').normalize(text)==require('weread.lib.source_dom').normalize('Unique paragraph 0001'))
+    end
+    reader.document:clearSelection();UI:forceRePaint()
+    assert(#state.overlay.visible>0,'direct personal mark has no visible native boxes')
+    local function choose_thought()
+        local rect=state.overlay.visible[1].rect
+        assert(Display.tap(host,{pos={x=rect.x+1,y=rect.y+1}}),'overlapping notes did not open')
+        assert(state.picker and #state.picker.item_table==2,'overlapping notes were not offered separately')
+        local thought_choice
+        for _,item in ipairs(state.picker.item_table) do if item.my_note_kind=='thought' then thought_choice=item end end
+        assert(thought_choice,'thought choice missing');thought_choice.callback()
+        assert(state.saved_note_open and not host._my_marks_owner,'thought did not start a background read')
+    end
+    local Cache=require('weread.lib.my_cloud_marks_store')
+    local read=Cache.read
+    local memory,gate
+    if input.offline then
+        pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
+        memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+        gate=ffi.cast('int *',memory)
+    end
+    Cache.read=function(store,id)
+        assert(ffi.C.getpid()~=reader_pid,'reading the selected note blocked the interface')
+        if gate and store.table_name=='my_cloud_thoughts' then
+            gate[0]=gate[0]+1
+            local deadline=socket.gettime()+10
+            while gate[1]==0 do assert(socket.gettime()<deadline,'test read was not released');socket.sleep(.01) end
+        end
+        return read(store,id)
+    end
+    choose_thought()
+    if gate then
+        local beat=false;UI:scheduleIn(.1,function() beat=true end)
+        wait(function() return beat and gate[0]==1 end)
+        assert(state.saved_note_open and not host._my_marks_owner,'the interface did not respond during the local read')
+        local viewport=reader.document:getXPointer()
+        reader.rolling:onGotoPage(reader.document:getCurrentPage()==1 and 2 or 1);UI:forceRePaint()
+        assert(reader.document:getXPointer()~=viewport,'the test did not change the reader position')
+        gate[1]=1
+        wait(function() return not state.saved_note_open end)
+        assert(not host._my_marks_owner and not host.busy_message,'a pending thought opened on a different page')
+        reader.rolling:onGotoXPointer(thought.pos0);UI:forceRePaint()
+        choose_thought()
+    end
+    wait(function() return not state.saved_note_open end)
+    assert(host._my_marks_owner and host._my_marks_owner.thoughts and host._my_marks_owner.menu._shelf_popup,
+        'thought choice did not open its content')
+    require('weread.ui.my_cloud_marks').cancel(host)
+    reader.rolling:onGotoXPointer(state.bookmarks[1].pos0);UI:forceRePaint()
+    assert(#state.indicator.visible==2,'direct cloud bookmarks do not share a visible corner')
+    for _,id in ipairs({'synthetic-direct-point','synthetic-direct-point-two'}) do
+        local corner=assert(state.indicator.rect)
+        assert(Display.tap(host,{pos={x=corner.x+1,y=corner.y+1}},true),'bookmark corner did not open')
+        local picker=assert(state.picker);local choice
+        for _,item in ipairs(picker.item_table) do if item.my_note_kind=='bookmark' and item.my_note_id==id then choice=item end end
+        assert(choice and choice.text:find('paragraph 0001',1,true),'bookmark preview missing');choice.callback()
+        wait(function() return not state.saved_note_open end)
+        local owner=assert(host._my_marks_owner);assert(owner.bookmarks and owner.menu._shelf_popup,'chosen bookmark popup missing')
+        local expected=id=='synthetic-direct-point' and 'Unique paragraph 0001' or 'nique paragraph 0001'
+        assert(owner.menu._shelf_popup.text:find(expected,1,true),'wrong bookmark opened')
+        require('weread.ui.my_cloud_marks').cancel(host);UI:forceRePaint()
+    end
+    Cache.read=read
+    if memory then ffi.C.munmap(memory,4096) end
+    local first_bookmark
+    for _,item in ipairs(state.bookmarks) do if item.bookmarkId=='synthetic-direct-point' then first_bookmark=item end end
+    assert(first_bookmark)
+    local notes_cases={
+        {label='My cloud highlights',id='synthetic-direct-mark',button='open_highlight',target=mark.pos0},
+        {label='My cloud thoughts',id='synthetic-direct-thought',button='open_thought_quote',target=thought.pos0},
+        {label='My cloud bookmarks',id='synthetic-direct-point',button='open_bookmark',target=first_bookmark.pos0},
+    }
+    for _,case in ipairs(notes_cases) do
+        reader.rolling:onGotoPage(3);UI:forceRePaint()
+        local menu_action;local tr=require('weread.lib.plugin_util').tr
+        for _,item in ipairs(host:getMainMenuItems()) do if item.text==tr(case.label) then menu_action=item.callback end end
+        assert(menu_action,'direct cloud notes entry missing');menu_action()
+        wait(function() return host._my_marks_owner~=nil end)
+        local owner=host._my_marks_owner;local item
+        for _,candidate in ipairs(owner.menu.item_table) do if candidate.my_note_id==case.id then item=candidate end end
+        assert(item,'direct cloud note missing');item.callback();UI:forceRePaint()
+        local popup=assert(owner.menu._shelf_popup)
+        assert(popup.button_table:getButtonById(case.button),'direct note navigation action missing'):onTapSelectButton()
+        wait(function() return not host._my_marks_owner end)
+        assert(reader.document:isXPointerInCurrentPage(case.target),'direct cloud note did not navigate to its original page')
+    end
+    -- Exercise the actual CREngine boxes with the installed personal painter.
+    -- Repeat paints must preserve every draw command and hit target while
+    -- preparing their merged geometry only once per cached page.
+    do
+        reader.rolling:onGotoXPointer(mark.pos0);UI:forceRePaint()
+        local layer=state.overlay;local original=layer.prepare_painter;local preparations=0
+        layer.prepare_painter=function(boxes) preparations=preparations+1;return original(boxes) end
+        layer:invalidate()
+        local commands={};local canvas={paintRect=function(_,x,y,w,h) commands[#commands+1]={'p',x,y,w,h} end,
+            darkenRect=function(_,x,y,w,h,alpha) commands[#commands+1]={'d',x,y,w,h,alpha} end}
+        layer:paintTo(canvas,0,0);local first=json.encode(commands)
+        assert(#commands>0 and preparations==1 and #layer.visible>0)
+        local mark_rect=layer.visible[1].rect;local hits=#layer:hitTestAll{x=mark_rect.x+1,y=mark_rect.y+1}
+        commands={};layer:paintTo(canvas,0,0)
+        assert(json.encode(commands)==first and preparations==1 and #layer:hitTestAll{x=mark_rect.x+1,y=mark_rect.y+1}==hits,
+            'cached personal marks changed their drawing or hit targets')
+        layer.prepare_painter=original
+    end
+    -- Visiting a fifth page retains the three most recently used pages rather
+    -- than flushing every cached highlight geometry.
+    do
+        local document=reader.document;assert(document:getPageCount()>=5)
+        local layer=require('weread.ui.xpointer_overlay'):new{records=state.records,records_ordered=true,
+            painter=state.overlay.painter,prepare_painter=state.overlay.prepare_painter,style=state.overlay.style}
+        layer.ui=reader;layer.view=reader.view
+        local compute=layer._computeVisible;local projections=0
+        function layer:_computeVisible() projections=projections+1;return compute(self) end
+        local commands={};local canvas={paintRect=function(_,x,y,w,h) commands[#commands+1]={'p',x,y,w,h} end,
+            darkenRect=function(_,x,y,w,h,alpha) commands[#commands+1]={'d',x,y,w,h,alpha} end}
+        local function draw(page)
+            reader.rolling:onGotoPage(page);UI:forceRePaint();commands={};layer:paintTo(canvas,0,0)
+            return json.encode(commands)
+        end
+        local frames={};for page=1,4 do frames[page]=draw(page) end
+        assert(projections==4)
+        frames[5]=draw(5);assert(projections==5 and layer.cache_count==4)
+        for page=4,2,-1 do
+            assert(draw(page)==frames[page] and projections==5,'fifth page discarded a recent highlight page')
+        end
+        assert(draw(1)==frames[1] and projections==6,'oldest highlight page was not recomputed')
+    end
+    -- A real CREngine viewport must keep the same bookmark results when a
+    -- reader revisits a recently painted page, without another full scan.
+    do
+        local document=reader.document;local pointer=state.bookmarks[1].pos0
+        reader.rolling:onGotoXPointer(pointer);UI:forceRePaint()
+        local page=document:getCurrentPage();local other=page<document:getPageCount() and page+1 or page-1
+        assert(other>=1 and other~=page)
+        local layer=require('weread.ui.bookmark_indicator'):new{color=0};layer.ui=reader;layer.view=reader.view
+        local points={};for i=1,512 do points[i]={pos0=pointer,bookmarkId='cache-test-'..i} end
+        layer:setRecords(points)
+        local original=document.isXPointerInCurrentPage;local own=rawget(document,'isXPointerInCurrentPage');local queries=0
+        document.isXPointerInCurrentPage=function(self,xp) queries=queries+1;return original(self,xp) end
+        local canvas={paintRect=function() end}
+        local before=queries;layer:paintTo(canvas,0,0);assert(queries-before==512 and #layer.visible==512)
+        reader.rolling:onGotoPage(other);UI:forceRePaint()
+        before=queries;layer:paintTo(canvas,0,0);assert(queries-before==512 and #layer.visible==0)
+        reader.rolling:onGotoXPointer(pointer);UI:forceRePaint()
+        before=queries;layer:paintTo(canvas,0,0);assert(queries-before==0 and #layer.visible==512,
+            'returning to a recently viewed page repeated native bookmark scans')
+        document.isXPointerInCurrentPage=own
+    end
+    -- A pure bookmark batch needs source preparation but no text-hash worker.
+    do
+        local original_snapshot,original_thoughts=state.snapshot,state.thought_snapshot
+        local only=json.decode(json.encode(original_snapshot));only.updated=json.decode('[]')
+        for _,row in ipairs(original_snapshot.updated) do
+            if row.type==0 then only.updated[#only.updated+1]=row end
+        end
+        assert(#only.updated==2);state.thought_snapshot=nil
+        local original_start=state.worker.start;local starts=0
+        state.worker.start=function(self,...) starts=starts+1;return original_start(self,...) end
+        Display.changed(host,only);wait(function() return state.complete end)
+        assert(#state.records==0 and #state.bookmarks==2 and starts==1,
+            'bookmark-only batch used an empty verification worker or lost a point')
+        state.worker.start=original_start;state.thought_snapshot=original_thoughts
+        Display.changed(host,original_snapshot);wait(function() return state.complete end)
+        assert(#state.records==2 and #state.bookmarks==2,'mixed notes did not return after point-only batch')
+    end
+    Display.suspend(host);UI:forceRePaint();assert(not state.overlay.enabled)
+    Display.wake(host);wait(function() return state.complete end);UI:forceRePaint()
+    assert(state.overlay.enabled and #state.overlay.visible>0,'direct personal mark not restored')
+end
+assert(host.client:json_encode(reader.annotation.annotations)==notes,'native notes modified')
+print('WEREAD_DIRECT_PERSONAL='..json.encode{ok=true,offline=input.offline==true,missing=input.expect_missing==true})

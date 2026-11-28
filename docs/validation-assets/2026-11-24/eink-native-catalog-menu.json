@@ -1,0 +1,43 @@
+{
+  "result": "PASS",
+  "baseline_commit": "34e0c16eae641ac57b26263e877fbf0eac11964a",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "runs_per_case": 3,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_online_catalog_sizes": [1500, 20000],
+  "synthetic_offline_catalog_size": 2000,
+  "first_and_last_screen_pairs_pixel_identical": 12,
+  "ko2_median_retained_lua_kib": {
+    "online_1500_before": 1758.1015625,
+    "online_1500_after": 1577.12890625,
+    "online_20000_before": 12474.0703125,
+    "online_20000_after": 9535.33203125,
+    "offline_2000_before": 1520.203125,
+    "offline_2000_after": 1294.5390625
+  },
+  "unavailable_pending_selection_and_stale_menu_verified": true,
+  "synthetic_native_chapter_menu_and_offline_reader_both_sizes": true,
+  "real_account_online_and_offline_selection_ko2_simulated": {
+    "chapters": 1,
+    "source_verified_and_offline_reopen": true,
+    "shelf_unchanged": true,
+    "account_data_writes": 0,
+    "authorization_posts": 0
+  },
+  "real_account_batch": {
+    "readable_chapters": 4,
+    "unavailable_chapters_not_requested": 11,
+    "screen_sizes": 2,
+    "source_verified_and_offline_reopen": true,
+    "shelf_flags_groups_and_web_position_unchanged": true,
+    "account_data_writes": 0,
+    "authorization_posts": 0
+  },
+  "local_lua_specs": 478,
+  "physical_device_tested": false,
+  "limitations": [
+    "Lua heap deltas include menu and projected data but exclude the initial synthetic catalog; they do not measure process peak memory.",
+    "No reliable startup speed improvement was established in these simulator runs.",
+    "The synthetic screen comparisons and real-account simulated screens do not measure physical Kindle refresh, power or interaction."
+  ]
+}

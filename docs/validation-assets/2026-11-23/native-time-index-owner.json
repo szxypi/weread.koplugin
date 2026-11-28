@@ -1,0 +1,12 @@
+{
+  "scope": "one real account, one book, one chapter",
+  "account_data_writes": 0,
+  "local_index_supplied": false,
+  "actual_plugin_index_resolver": true,
+  "unique_stable_web_index": true,
+  "native_web_source_digest_matches": true,
+  "book_version_checked_twice": true,
+  "source_and_credentials_in_tool_output": false,
+  "time_transfer_tested": false,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-18",
+  "feature": "canonical-equivalent downloaded chapter search",
+  "normalization": "casefold and canonical decomposition of base plus combining marks",
+  "synthetic_native_reader": {
+    "screens": [
+      [
+        600,
+        800,
+        167
+      ],
+      [
+        1264,
+        1680,
+        300
+      ]
+    ],
+    "source_formats": [
+      "web_txt",
+      "web_xhtml"
+    ],
+    "composed_query_decomposed_source": true,
+    "decomposed_query_composed_source": true,
+    "reordered_combining_marks": true,
+    "source_bound_cross_chapter_navigation": true,
+    "fresh_offline_reopen": true,
+    "pending_sync_preserved": true,
+    "screenshots_visually_checked": true,
+    "account_network_requests": 0
+  },
+  "synthetic_native_unicode_model": {
+    "hangul_composed_and_jamo": true,
+    "emoji_search_without_variation_selector": true
+  },
+  "partial_combining_character_matches_rejected": true,
+  "missing_canonical_library": "existing Unicode casefold retained",
+  "real_account_tested": false,
+  "physical_device_tested": false
+}

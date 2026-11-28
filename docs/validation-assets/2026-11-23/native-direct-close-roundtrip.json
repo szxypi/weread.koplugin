@@ -1,0 +1,23 @@
+{
+  "scope": "one existing XHTML chapter in an isolated KOReader ReaderUI host",
+  "screen": "1264x1680",
+  "production_detached_close_controller": true,
+  "actual_native_document_closed_before_dispatch": true,
+  "closed_document_access_prohibited": true,
+  "baseline_seeded_from_independently_checked_read_only_preview": true,
+  "close_lifecycle_invoked_by_test_host": true,
+  "source_viewport_and_signed_bodies_independently_checked": true,
+  "dry_run_account_data_posts": 0,
+  "account_data_posts": 2,
+  "explicit_success_receipts": 2,
+  "independent_two_channel_readbacks": 2,
+  "original_position_and_summary_restored": true,
+  "fresh_post_run_read_only_verification": true,
+  "intent_phase": "retired",
+  "reading_counts_and_visible_shelves_unchanged": true,
+  "authentication_posts_during_trial": 0,
+  "web_progress_posts": 0,
+  "credential_file_audit_passed": true,
+  "temporary_profile_removed": true,
+  "limitations": ["one account and chapter", "isolated ReaderUI host", "test host invokes close lifecycle", "manual baseline seeded for this trial", "server history and recent-reading time not verified", "physical Kindle untested"]
+}

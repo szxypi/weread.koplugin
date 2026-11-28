@@ -1,0 +1,30 @@
+{
+  "result": "PASS",
+  "profile_removed": true,
+  "installed_bytes_match": true,
+  "stages": [
+    {
+      "result": "PASS",
+      "phase": "complete",
+      "mode": "live",
+      "checks": 50,
+      "requests": 67,
+      "posts": 7,
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true
+    },
+    {
+      "posts": 8,
+      "forbidden": 0,
+      "screenshots": 1,
+      "workers_reaped": true,
+      "mode": "reopen",
+      "phase": "complete",
+      "result": "PASS",
+      "checks": 12,
+      "requests": 76
+    }
+  ],
+  "private_store_verified": true
+}

@@ -1,0 +1,14 @@
+{
+  "result": "READ_ONLY_TRANSLATION_VERSION_OBSERVATION",
+  "public_queries": 2,
+  "books": 3,
+  "readable_chapters": 320,
+  "books_with_positive_book_version": 3,
+  "chapters_with_positive_translation_version": 0,
+  "translation_version_semantics_verified": false,
+  "cross_session_cache_safe_to_reuse_proven": false,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authorization_posts": 0,
+  "physical_kindle_verified": false
+}

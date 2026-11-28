@@ -45,11 +45,25 @@ package.preload["ffi/util"] = function()
 end
 local full_book_save_count = 0
 local saved_cover_data
+local packaged_text = {}
 package.preload["weread.lib.content"] = function()
     return {
-        save_chapter_epub = function(_settings, _book, chapter)
+        register_annotation_document = function(book, path, chapters)
+            book.annotation_documents = book.annotation_documents or {}
+            book.annotation_documents[path] = { chapters = chapters }
+        end,
+        save_chapter_epub = function(_settings, _book, chapter, text)
+            packaged_text[chapter.chapterUid] = text
             return "/cache/book/chapter-" .. tostring(chapter.chapterUid) .. ".epub"
         end,
+        finalize_single_chapter_content = function(_, _, _, _, text) return text, {} end,
+        stage_download_chapter_text = function(workspace, index, text)
+            if workspace.fail then return nil, "injected storage failure" end
+            workspace.text[index] = text
+            return true
+        end,
+        load_download_chapter_text = function(workspace, index) return workspace.text[index] end,
+        cleanup_download_workspace = function(workspace) workspace.cleaned = true end,
         save_book_epub = function(_settings, _book, _chapters, _bodies, _suffix, _assets, _css, cover_data)
             full_book_save_count = full_book_save_count + 1
             saved_cover_data = cover_data
@@ -65,6 +79,7 @@ package.preload["weread.lib.thoughts"] = function()
     return { is_download_enabled = function() return false end }
 end
 local Protocol = require("weread.lib.protocol")
+local BookStore = require("weread.lib.book_store")
 
 local Downloader = require("weread.lib.downloader")
 
@@ -84,6 +99,7 @@ local live_books = {
         book_id = "book",
         progress = 88,
         cached_chapters = { existing = "/cache/book/existing.epub" },
+        annotation_documents = { ["/cache/book/concurrent.epub"] = { chapters = { { chapterUid = 99 } } } },
     },
 }
 local opened
@@ -91,15 +107,18 @@ local info_messages = {}
 local completion_count = 0
 local completion_ok
 local completion_path
+local store_failure
 local settings = {
     get = function(_self, key)
-        return key == "books" and live_books or nil
+        assert(key ~= "books", "download completion read the entire library")
+        if key == "cache" then return {} end
     end,
-    set = function(_self, key, value)
-        if key == "books" then
-            stored_books = value
-            live_books = value
-        end
+    record_download = function(_self, id, _, change)
+        if store_failure then return false, "injected metadata failure" end
+        local record = assert(live_books[id])
+        BookStore.apply_download(record, change)
+        stored_books = live_books
+        return true, record
     end,
     flush = function() end,
 }
@@ -108,12 +127,15 @@ local downloader = Downloader:new{
     client = {},
     refresh_shelf = function() end,
     open_file = function(path) opened = path end,
+    safe_callback = function(_, fn) return fn end,
     show_info = function(text) info_messages[#info_messages + 1] = text end,
     show_transient = function() end,
 }
 local chapter = { chapterUid = 22, title = "Target" }
 local download = {
-    book = { book_id = "book", title = "Book" },
+    book = { book_id = "book", title = "Book", annotation_documents = {
+        ["/cache/book/stale.epub"] = { chapters = { { chapterUid = 1 } } },
+    } },
     chapters = { chapter },
     selected = { chapter },
     bodies = { ["22"] = "<p>body</p>" },
@@ -148,7 +170,71 @@ eq(stored_books.book.progress, 88,
 eq(stored_books.book.cached_chapters.existing, "/cache/book/existing.epub",
     "download cache merge preserved unrelated chapter mappings")
 
+eq(stored_books.book.annotation_documents["/cache/book/concurrent.epub"].chapters[1].chapterUid,
+    99, "background packaging preserved concurrent document mappings")
+eq(stored_books.book.annotation_documents["/cache/book/stale.epub"], nil,
+    "background snapshot did not replace current document mappings")
+eq(stored_books.book.annotation_documents["/cache/book/chapter-22.epub"].chapters[1].chapterUid,
+    22, "parent registered only the completed document")
+
+do
+    local current=false
+    local function completed()
+        local job={}
+        for key,value in pairs(download) do job[key]=value end
+        job.completion_notified=nil
+        job.open_on_complete=false
+        job.offer_read=true
+        job.read_current=function() return current end
+        downloader._active_job=job
+        downloader:_step(job)
+    end
+    opened=nil
+    completed()
+    eq(#shown,0,"stale chapter download did not display a reading prompt")
+    eq(stored_books.book.cached_chapters["22"],"/cache/book/chapter-22.epub","stale navigation kept the completed cache")
+    current=true
+    completed()
+    local prompt=table.remove(shown)
+    eq(type(prompt),"table","current chapter download displayed a reading prompt")
+    if prompt then
+        current=false
+        prompt.ok_callback()
+        eq(opened,nil,"a late Read now click did not change chapter")
+    end
+    current=true
+    completed()
+    local valid_prompt=assert(table.remove(shown))
+    valid_prompt.ok_callback()
+    eq(opened,"/cache/book/chapter-22.epub","a current Read now click opened the downloaded chapter")
+    local queued_reason
+    eq(downloader:start(download.book,{chapter},"chapter",{read_current=function() return false end,
+        on_complete=function(ok,reason) if not ok then queued_reason=reason end end}),false,
+        "a queued chapter with a stale reading intent did not start")
+    eq(queued_reason,"navigation_changed","the queued action was released")
+end
+
+do
+    local job = {}
+    for key, value in pairs(download) do job[key] = value end
+    job.completion_notified = nil
+    job.book = { book_id = "book", title = "Book" }
+    opened = nil
+    store_failure = true
+    downloader._active_job = job
+    downloader:_step(job)
+    eq(completion_ok, false, "failed metadata commit reports failure")
+    eq(completion_path, "download_cache_unavailable", "failed metadata commit has a stable reason")
+    eq(opened, nil, "unregistered EPUB was not opened")
+    eq(job.book.cached_chapters, nil, "failed commit did not publish cache paths in memory")
+    eq(downloader._active_job, nil, "failed metadata commit released the active job")
+    table.remove(info_messages)
+    store_failure = nil
+end
+
 local chapter_33 = { chapterUid = 33, title = "Other" }
+local missing = { chapterUid = 44, title = "Unavailable" }
+local chapter_workspace = {text = {}}
 live_books.book.cached_file = "/cache/book/full.epub"
 live_books.book.cached_full_book = "/cache/book/full.epub"
 local separate = {
@@ -158,28 +244,61 @@ local separate = {
         cached_file = "/cache/book/full.epub",
         cached_full_book = "/cache/book/full.epub",
     },
-    chapters = { chapter, chapter_33 },
-    selected = { chapter, chapter_33 },
-    bodies = { ["22"] = "<p>22</p>", ["33"] = "<p>33</p>" },
+    chapters = { chapter, missing, chapter_33 },
+    selected = {},
+    selected_indices = {},
+    completed = {},
+    completed_count = 0,
+    bodies = {},
+    workspace = chapter_workspace,
     assets = {},
     assets_by_uid = { ["22"] = {}, ["33"] = {} },
     state = { css = "" },
     suffix = "chapters",
-    index = 3,
-    total = 2,
+    index = 1,
+    total = 3,
     failed = {},
     annotation_failed_batches = 0,
     separate_chapters = true,
     silent_completion = true,
     started_at = 999,
 }
+local failures_before = #info_messages
+local schedule = downloader._scheduleGuarded
+downloader._scheduleGuarded = function() end
+separate.current = { chapter = chapter, xhtml = "<p>22</p>" }
+downloader:_finishChapter(separate)
+downloader:_failChapter(separate, "injected chapter source failure")
+separate.current = { chapter = chapter_33, xhtml = "<p>33</p>" }
+downloader:_finishChapter(separate)
+downloader._scheduleGuarded = schedule
+eq(next(separate.bodies), nil, "batch chapter bodies were released before packaging")
+eq(chapter_workspace.text[3], "<p>33</p>", "a failed source did not shift the staged chapter position")
 downloader:_step(separate)
+eq(packaged_text[22], "<p>22</p>", "first EPUB received its staged chapter")
+eq(packaged_text[33], "<p>33</p>", "second EPUB received its staged chapter")
+eq(chapter_workspace.cleaned, true, "successful packaging removed staged text")
 eq(stored_books.book.cached_chapters["22"],
     "/cache/book/chapter-22.epub", "first selected chapter persisted separately")
 eq(stored_books.book.cached_chapters["33"],
     "/cache/book/chapter-33.epub", "second selected chapter persisted separately")
 eq(stored_books.book.cached_full_book, "/cache/book/full.epub",
     "partial download preserved the full-book cache")
+
+local failed_workspace = {text = {}, fail = true}
+local storage_job = {book = separate.book, chapters = {chapter_33}, selected = {}, state = {},
+    index = 1, total = 1, bodies = {}, workspace = failed_workspace, separate_chapters = true,
+    current = {chapter = chapter_33, xhtml = "<p>unsaved text</p>"},
+    on_complete = function(ok, reason) completion_ok, completion_path = ok, reason end}
+downloader._active_job = storage_job
+downloader:_finishChapter(storage_job)
+eq(completion_ok, false, "failed staging reported failure")
+eq(completion_path, "download_cache_unavailable", "failed staging returned a storage error")
+eq(failed_workspace.cleaned, true, "failed staging cleaned its workspace")
+eq(downloader._active_job, nil, "failed staging released the download job")
+eq(packaged_text[33], "<p>33</p>", "failed staging did not attempt to replace a cached EPUB")
+eq(#info_messages, failures_before + 1, "failed staging showed a storage error")
+table.remove(info_messages)
 
 local incomplete_full_completion_count = 0
 local incomplete_full_completion_ok

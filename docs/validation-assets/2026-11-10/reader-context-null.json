@@ -1,0 +1,89 @@
+{
+  "result": "PASS",
+  "accepted_scope": "nullable_download_reader_context",
+  "synthetic_only": true,
+  "production_account_used": false,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_parent_commit": "e2e73773446aceb770d7d8868d7f32f6066d4996",
+  "production_manifest_sha256": "d43b93d11afe689507a55a4081dc0c2cf1a7b3b5e0cb1f3d14f7b4fb3566ce8f",
+  "baseline_null_optional_session_failure_reproduced": true,
+  "actual_stock_json_decoder_before_after_verified": true,
+  "lua_reader_context_checks": 56,
+  "new_lua_checks": 18,
+  "python_reader_context_tests": 14,
+  "new_python_tests": 3,
+  "profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "result": {
+        "stale_url_repaired": true,
+        "selected_chapter_preserved": true,
+        "sharing_fields_removed": true,
+        "catalog_referer_canonical": true,
+        "real_wrong_book_http_rejected": true,
+        "no_chapter_fetch_after_mismatch": true,
+        "cached_epub_unchanged": true,
+        "pending_upload_preserved": true,
+        "old_session_cleared": true,
+        "http_failure_clean": true,
+        "catalog_failure_preserves_cache": true,
+        "conflicting_alias_no_http": true,
+        "fixed_native_guidance": true,
+        "reading_writes": 0,
+        "null_optional_sessions_clean": true,
+        "synthetic_only": true,
+        "null_required_session_rejected": true,
+        "null_optional_positions_clean": true,
+        "result": "PASS"
+      },
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "f454fe7282e580e7c09625abc5dfa73e1af48d23f5a54628aab74a6d5c387113",
+      "native_repaint_errors": 0
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "result": {
+        "real_wrong_book_http_rejected": true,
+        "no_chapter_fetch_after_mismatch": true,
+        "cached_epub_unchanged": true,
+        "pending_upload_preserved": true,
+        "old_session_cleared": true,
+        "http_failure_clean": true,
+        "catalog_failure_preserves_cache": true,
+        "conflicting_alias_no_http": true,
+        "fixed_native_guidance": true,
+        "reading_writes": 0,
+        "null_optional_sessions_clean": true,
+        "null_optional_positions_clean": true,
+        "null_required_session_rejected": true,
+        "synthetic_only": true,
+        "result": "PASS",
+        "stale_url_repaired": true,
+        "selected_chapter_preserved": true,
+        "sharing_fields_removed": true,
+        "catalog_referer_canonical": true
+      },
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "9c7f3721c86d26b1434480f72e2e13428673149c138933b8381fb1b3a49bb5d4",
+      "native_repaint_errors": 0
+    }
+  ],
+  "pending": [
+    "owner_full_book_acceptance",
+    "authorized_cloud_write_readback",
+    "multi_device",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ],
+  "fixture_sha256": "96893f9bd8cd0c1cda0cf8be77742a82d2978076370b9643ab5dc5193d6414a1"
+}

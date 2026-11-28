@@ -1,0 +1,205 @@
+package.path='./?.lua;'..package.path
+package.preload.util=function() return {htmlEntitiesToUtf8=function(value)
+    return value:gsub('&amp;','&'):gsub('&lt;','<'):gsub('&gt;','>'):gsub('&quot;','"')
+end} end
+local Search=require('weread.lib.cached_book_search')
+local Target=require('weread.lib.cached_search_target')
+local Source=require('weread.lib.position_source')
+local Identity=require('weread.lib.book_file_identity')
+local Crypto=require('weread.lib.crypto')
+local checks=0
+local function expect(value,label) checks=checks+1;if not value then error(label) end end
+local function fixture(book,uid,raw,rendered)
+    local b={book_id=book,bookVersion=7};local chapter={chapterUid=uid}
+    local capture=assert(Source.capture(b,chapter,raw,'web_xhtml'))
+    rendered=rendered or raw
+    local root=Identity.encode(b,{chapter},Identity.capture(b),Crypto.sha256_hex(rendered))
+    local identity=assert(Identity.decode(root));local render='OEBPS/text/chapter.xhtml'
+    local metadata=assert(Source.bind(capture,identity,render,Crypto.sha256_hex(rendered)))
+    local members={[Identity.PATH]=root,[Source.meta_path(uid)]=metadata,[Source.path_meta_path(render)]=metadata,
+        [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[render]=rendered}
+    return members
+end
+local paragraphs={}
+for i=1,37 do paragraphs[#paragraphs+1]=string.format('<p>distinct context %03d needle distinct trailing %03d</p>',i,i) end
+local raw='<html><body>'..table.concat(paragraphs)..'</body></html>'
+local files={['/cached.epub']=fixture('CB_Synthetic','2',raw)}
+local function archive(file,wanted)
+    local items=files[file];if not items then return nil end
+    local out={};for name,limit in pairs(wanted) do
+        if not items[name] or #items[name]>limit then return nil end
+        out[name]=items[name]
+    end
+    return out
+end
+local input={book='CB_Synthetic',chapter='2',paths={'/missing.epub','/cached.epub'},keyword='needle',from=1}
+local first=Search.scan(input,archive)
+expect(type(first.hits)=='table' and #first.hits==30 and type(first.next_byte)=='number' and not first.complete,
+    'first batch did not retain a continuation')
+input.from,input.capture_id=first.next_byte,first.capture_id
+local second=Search.scan(input,archive)
+expect(#second.hits==7 and second.complete and second.unresolved==0,'continuation lost or repeated hits')
+expect(first.hits[1].offset~=second.hits[1].offset,'continuation repeated the first hit')
+local changed_raw=raw:gsub('<body>','<body><p>New source before the earlier matches.</p>')
+files['/changed.epub']=fixture(input.book,'2',changed_raw)
+files['/repacked.epub']=fixture(input.book,'2',raw,raw:gsub('<p>','<p class="rebuilt">'))
+local continued={book=input.book,chapter='2',paths={'/changed.epub'},keyword='needle',from=first.next_byte}
+expect(Search.scan(continued,archive).error=='invalid','unbound continuation was accepted')
+continued.capture_id=first.capture_id
+local changed=Search.scan(continued,archive)
+expect(changed.missing and changed.source_changed and #changed.hits==0,'changed source used the earlier text cursor')
+local Archive=require('weread.lib.source_archive')
+local original_read=Archive.read;Archive.read=archive
+local changed_without_index=Search.scan(continued,function(file,wanted)
+    if wanted[Identity.PATH] then return archive(file,wanted) end
+end)
+Archive.read=original_read
+expect(changed_without_index.source_changed,'stale archive index hid a changed chapter source')
+continued.paths[2]='/repacked.epub'
+local equivalent=Search.scan(continued,archive)
+expect(equivalent.complete and #equivalent.hits==7 and equivalent.capture_id==first.capture_id
+    and equivalent.hits[1].offset==second.hits[1].offset and equivalent.hits[1].file_id~=second.hits[1].file_id,
+    'same original text could not continue through a repacked EPUB')
+continued.from,continued.capture_id=1,nil
+expect(#Search.scan(continued,archive).hits==30,'a new search excluded the changed source')
+files['/exact.epub']=fixture(input.book,'2','<html><body>'..table.concat(paragraphs,'',1,30)..'</body></html>')
+local exact=Search.scan({book=input.book,chapter='2',paths={'/exact.epub'},keyword='needle',from=1},archive)
+expect(#exact.hits==30 and exact.complete and not exact.next_byte,'exact worker limit falsely offered a continuation')
+local folded_input={book=input.book,chapter=input.chapter,paths={'/cached.epub'},keyword='NEeDLE',from=1,
+    ignore_ascii_case=true}
+local folded=Search.scan(folded_input,archive)
+expect(#folded.hits==30 and folded.hits[1].offset==first.hits[1].offset
+    and folded.hits[1].context:find('needle',1,true),'folded search lost the original location or context')
+folded_input.from,folded_input.capture_id=folded.next_byte,folded.capture_id
+local folded_next=Search.scan(folded_input,archive)
+expect(#folded_next.hits==7 and folded_next.complete and folded_next.hits[1].offset==second.hits[1].offset,
+    'folded continuation lost or repeated matches')
+folded_input.from,folded_input.capture_id=1,nil;folded_input.ignore_ascii_case=false
+expect(#Search.scan(folded_input,archive).hits==0,'case-sensitive search ignored case')
+folded_input.ignore_ascii_case='yes'
+expect(Search.scan(folded_input,archive).error=='invalid','non-boolean case setting accepted')
+local unicode_raw='<html><body><p>中文 Élan Needle 结束</p></body></html>'
+files['/unicode.epub']=fixture(input.book,'2',unicode_raw)
+local unicode_input={book=input.book,chapter='2',paths={'/unicode.epub'},keyword='中文 Élan nEEDLE',from=1,
+    ignore_ascii_case=true}
+local unicode=Search.scan(unicode_input,archive)
+expect(#unicode.hits==1 and unicode.hits[1].context:find('中文 Élan Needle',1,true),
+    'mixed UTF-8 and English match did not retain original text')
+unicode_input.keyword='中文 élan needle'
+expect(#Search.scan(unicode_input,archive).hits==0,'non-ASCII characters were unexpectedly case-folded')
+local unicode_row=assert(Target.row(input.book,'中文 Élan nEEDLE',unicode.hits[1]))
+expect(Target.bind_file('/unicode.epub',input.book,unicode_row,12,archive).position,
+    'folded UTF-8 match did not bind to the original source')
+local row=assert(Target.row(input.book,input.keyword,first.hits[1]))
+local bound=Target.bind_file('/cached.epub',input.book,row,9,archive)
+expect(bound.position and bound.position.book_id==input.book and bound.position.upload_verified==false,
+    'local result did not bind to a non-uploadable source target')
+expect(bound.position.chapter_offset==first.hits[1].offset and bound.request_id==9,'bound target changed location')
+local found=Target.resolve({book_id=input.book,cached_chapters={['2']='/cached.epub'}},'/missing.epub',row,10,archive)
+expect(found.position and found.file=='/cached.epub','resolution did not use the downloaded chapter')
+found=Target.resolve({book_id=input.book,cached_chapters={[2]='/cached.epub'}},'/missing.epub',row,10,archive)
+expect(found.position and found.file=='/cached.epub','numeric chapter map keys did not resolve')
+local original=files['/cached.epub'];files['/cached.epub']=fixture(input.book,'2',raw:gsub('needle','changed'))
+expect(not Target.bind_file('/cached.epub',input.book,row,11,archive).position,'changed source was accepted')
+files['/cached.epub']=original
+expect(not Target.bind_file('/cached.epub','CB_Other',row,11,archive).position,'another book was accepted')
+local meta=original[Source.meta_path('2')];original[Source.meta_path('2')]='invalid'
+expect(Search.scan({book=input.book,chapter='2',paths={'/cached.epub'},keyword='needle',from=1},archive).missing,
+    'invalid source metadata was treated as a searchable chapter')
+original[Source.meta_path('2')]=meta
+do
+    local request={book=input.book,chapter='2',paths={'/cached.epub'},keyword='absent term',from=1}
+    local digest,decode=Crypto.sha256_hex,Source.decode_metadata
+    local metadata_digests,metadata_decodes=0,0
+    function Crypto.sha256_hex(value)
+        if value==meta then metadata_digests=metadata_digests+1 end
+        return digest(value)
+    end
+    function Source.decode_metadata(value) metadata_decodes=metadata_decodes+1;return decode(value) end
+    local no_match=Search.scan(request,archive)
+    expect(no_match.complete and #no_match.hits==0 and metadata_digests==0 and metadata_decodes==1,
+        'search without hits still repeated metadata work')
+    request.keyword='needle'
+    local hit=assert(Search.scan(request,archive).hits[1])
+    expect(hit.metadata_hash==digest(meta) and metadata_digests==1 and metadata_decodes==2,
+        'search did not retain a single exact digest for its matches')
+    Crypto.sha256_hex,Source.decode_metadata=digest,decode
+    local alias=Source.path_meta_path('OEBPS/text/chapter.xhtml')
+    original[alias]='different bytes'
+    expect(Search.scan(request,archive).missing, 'search accepted inconsistent UID and render aliases')
+    original[alias]=meta
+end
+expect(Search.scan({book='CB_bad/path',chapter='2',paths={'/cached.epub'},keyword='x',from=1},archive).error=='invalid',
+    'unsafe book identity was accepted')
+expect(Search.scan({book=input.book,chapter='2',paths={'/cached.epub'},keyword='   ',from=1},archive).error=='invalid',
+    'blank normalized query was accepted')
+local full_book={book_id=input.book,bookVersion=7}
+local chapters={{chapterUid='2'},{chapterUid='3'}}
+local full_identity_text=Identity.encode(full_book,chapters,Identity.capture(full_book),Crypto.sha256_hex(raw))
+local full_identity=assert(Identity.decode(full_identity_text))
+local full_members={[Identity.PATH]=full_identity_text};local metadata={}
+for index,chapter in ipairs(chapters) do
+    local source=assert(Source.capture(full_book,chapter,raw,'web_xhtml'))
+    local rendered=string.format('OEBPS/text/chapter-%03d.xhtml',index)
+    local value=assert(Source.bind(source,full_identity,rendered,Crypto.sha256_hex(raw)))
+    local name=Source.meta_path(chapter.chapterUid)
+    full_members[name],full_members[Source.path_meta_path(rendered)]=value,value
+    full_members[Source.raw_path(source.raw_sha256)],full_members[rendered]=raw,raw
+    metadata[index]={name=name,metadata=value}
+end
+files['/full.epub']=full_members
+local function list() return metadata end
+local discovered=Search.discover({book=input.book,file='/full.epub'},archive,list)
+expect(#discovered.entries==2 and discovered.entries[1].uid=='2' and discovered.entries[2].uid=='3'
+    and not discovered.incomplete,'full-book index did not preserve chapter order')
+expect(Search.scan({book=input.book,chapter='3',paths={'/full.epub'},keyword='needle',from=1},archive).hits[1],
+    'discovered chapter did not pass independent source verification')
+local partial=Search.discover({book=input.book,file='/full.epub'},archive,function() return {metadata[1]} end)
+expect(#partial.entries==1 and partial.incomplete,'missing chapter metadata was not disclosed')
+expect(Search.discover({book='CB_Other',file='/full.epub'},archive,list).error=='unavailable',
+    'another book\'s full archive was accepted')
+expect(Search.discover({book=input.book,file='/full.epub'},archive,function() return {metadata[1],metadata[1]} end).error=='ambiguous',
+    'duplicate chapter metadata was accepted')
+local tampered={{name=metadata[1].name,metadata=metadata[2].metadata}}
+expect(Search.discover({book=input.book,file='/full.epub'},archive,function() return tampered end).incomplete,
+    'mismatched metadata name was accepted')
+-- Chapter IDs are identifiers, not arithmetic values. Keep large adjacent
+-- decimal IDs distinct through search, archive binding and cache lookup.
+local Access=require('weread.lib.read_access')
+for _i,uid in ipairs({'2147483648','9007199254740992','9007199254740993','18446744073709551615'}) do
+    local file='/large-'..uid..'.epub';files[file]=fixture(input.book,uid,raw)
+    local hit=assert(Search.scan({book=input.book,chapter=uid,paths={file},keyword='needle',from=1},archive).hits[1])
+    local large_row=assert(Target.row(input.book,'needle',hit))
+    expect(large_row.chapterUid==uid and Target.can_locate(large_row),'large chapter ID lost its exact digits')
+    local target=Target.resolve({book_id=input.book,cached_chapters={[uid]=file}},nil,large_row,19,archive)
+    expect(target.position and target.position.chapter_uid==uid and target.position.upload_verified==false,
+        'large chapter could not be located in its own cached file')
+end
+expect(Access.cached_chapter({[9007199254740992]='/wrong.epub'},'9007199254740993')==nil,
+    'rounded numeric key aliased an adjacent chapter')
+expect(Access.cached_chapter({[2147483648]='/legacy.epub'},'2147483648')=='/legacy.epub',
+    'exact legacy numeric chapter key stopped working')
+expect(Access.cached_chapter({['4']='/current.epub',[4]='/legacy.epub'},'4')=='/current.epub',
+    'numeric fallback displaced the exact stored string key')
+expect(Access.cached_chapter({legacy='/legacy.epub'},'legacy')=='/legacy.epub',
+    'exact nonnumeric legacy cache key stopped working')
+expect(not Target.can_locate({type=1,bookId=input.book,chapterUid=9007199254740992,markText='x',range='1',
+    abstract=string.rep('a',64),bookmarkId=string.rep('b',64),reviewId=string.rep('c',64)}),
+    'imprecise numeric chapter identity was accepted')
+local large_chapters={{chapterUid='9007199254740992'},{chapterUid='9007199254740993'}}
+local large_identity_text=Identity.encode(full_book,large_chapters,Identity.capture(full_book),Crypto.sha256_hex(raw))
+local large_identity=assert(Identity.decode(large_identity_text));local large_members={[Identity.PATH]=large_identity_text};local large_meta={}
+for index,chapter in ipairs(large_chapters) do
+    local source=assert(Source.capture(full_book,chapter,raw,'web_xhtml'))
+    local rendered=string.format('OEBPS/text/chapter-%03d.xhtml',index)
+    local value=assert(Source.bind(source,large_identity,rendered,Crypto.sha256_hex(raw)))
+    local name=Source.meta_path(chapter.chapterUid)
+    large_members[name],large_members[Source.path_meta_path(rendered)]=value,value
+    large_members[Source.raw_path(source.raw_sha256)],large_members[rendered]=raw,raw
+    large_meta[index]={name=name,metadata=value}
+end
+files['/large-full.epub']=large_members
+local indexed=Search.discover({book=input.book,file='/large-full.epub'},archive,function() return large_meta end)
+expect(not indexed.incomplete and #indexed.entries==2 and indexed.entries[1].uid=='9007199254740992'
+    and indexed.entries[2].uid=='9007199254740993','large adjacent chapter IDs collapsed during discovery')
+print(('cached_book_search_spec: %d checks'):format(checks))

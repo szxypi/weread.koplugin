@@ -1,0 +1,38 @@
+{
+  "scope": "a third distinct existing numeric-ID EPUB, initially without a chapter or reading time on either channel",
+  "read_only_preparation": {
+    "account_data_posts": 0,
+    "earlier_one_shot_records_unchanged": true,
+    "native_and_web_source_verified": true,
+    "both_channels_no_chapter_and_matching_counters": true
+  },
+  "installed_plugin_ui": {
+    "resolution": "1264x1680",
+    "device": "KOReader emulator in an isolated Linux environment",
+    "dry_run_account_data_posts": 0,
+    "dry_run_dispatch_blocked": true,
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "actual_locally_captured_reading_seconds": 6,
+    "explicit_acknowledgement": true,
+    "native_and_web_no_chapter_preserved": true,
+    "native_and_web_counters_and_statistics_verified": true,
+    "shelves_and_source_unchanged": true,
+    "profile_removed": true,
+    "one_shot_record_retained": true
+  },
+  "fresh_process_readback": {
+    "account_data_posts": 0,
+    "independent_readbacks": 2,
+    "both_channels_no_chapter_preserved": true,
+    "time_statistics_shelves_source_and_prior_records_verified": true
+  },
+  "synthetic_ui_coverage": {
+    "resolutions": ["600x800", "1264x1680"],
+    "preexisting_time_seconds": 20,
+    "dry_run_success_and_lost_ack": true,
+    "lost_ack_not_replayed": true
+  },
+  "known_scope_limits": ["single real account and one existing EPUB", "physical Kindle not tested"],
+  "credentials_remain_in_keychain": true
+}

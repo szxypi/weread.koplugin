@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-24",
+  "feature": "home and shelf rotation",
+  "packaged_koreader_synthetic": {
+    "dimensions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "offline_synthetic_account": true,
+    "four_home_directions": true,
+    "no_op_current_direction": true,
+    "external_home_shelf_store_events": true,
+    "paged_visible_anchor": true,
+    "unpaged_scroll_offset": true,
+    "popup_deferred": true,
+    "rapid_events": true,
+    "closed_view_not_reopened": true,
+    "installed_bytes_match": true,
+    "profile_removed": true
+  },
+  "limitations": [
+    "Physical Kindle Oasis 2 accelerometer and page buttons have not been verified.",
+    "Other foreground windows are not force-closed or reflowed by this feature."
+  ]
+}

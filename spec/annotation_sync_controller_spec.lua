@@ -23,8 +23,9 @@ package.preload["weread.ui.download_dialog"] = function()
                 progress = dialog.current_progress,
             }
         end
-        args.reportProgress = function(dialog, progress)
+        args.reportProgress = function(dialog, progress, title)
             dialog.current_progress = progress
+            if title ~= nil then dialog:setTitle(title) end
         end
         return args
     end }
@@ -672,6 +673,53 @@ do
     drain()
     assert(spawned > killed and prevented == allowed)
     WorkerSettings.capture = capture
+end
+do
+    local captured, args = {}, nil
+    host.client.capture_annotation_access = function() return captured end
+    host.requireLogin = function(_self, cookie, api) args = { cookie, api }; return true end
+    assert(host:_requireAnnotationAccess() and args[1] == true and args[2] == false,
+        "native annotation access still requested a Skill key")
+    captured = nil
+    assert(host:_requireAnnotationAccess() and args[1] == true and args[2] == true,
+        "missing native and gateway access bypassed login gate")
+    cache.auto_prefetch_next_chapter, cache.prefetch_annotations = true, true
+    host.settings = { get = function() return cache end }
+    host.isNetworkConnected = function() return true end
+    assert(not host:canPrefetchAnnotations(), "prefetch started without an annotation read channel")
+    captured = {}
+    assert(host:canPrefetchAnnotations(), "native-only authorization blocked annotation prefetch")
+end
+do
+    local path = "/cache/ready-chapter.epub"
+    local id = "900733"
+    local chapters = {{chapterUid="2",title="Recorded chapter"}}
+    local selected_book = {book_id=id,title="Cached book",cached_chapters={["2"]=path},
+        annotation_documents={[path]={clean=true,chapters=chapters}}}
+    local reads, refreshed = 0, 0
+    local opening = setmetatable({
+        ui={document={file=path,getToc=function() return {{title=chapters[1].title,xpointer="/body/chapter"}} end}},
+        settings={
+            get_book=function(_, requested, legacy)
+                assert(requested==id and legacy)
+                reads=reads+1
+                return selected_book
+            end,
+            get=function(_, key, default)
+                assert(key~="books")
+                return key=="cache" and {} or default
+            end,
+        },
+        annotation_store=store,external_annotations_db=store.legacy,
+        detectWeReadBook=function() return id end,
+        _xpointerOverlayPrototypeAvailable=function() return true end,
+        _refreshAnnotationOverlay=function() refreshed=refreshed+1 end,
+    }, {__index=Controller})
+    opening:onUnifiedAnnotationsReady()
+    local prepared=assert(opening._annotation_context)
+    assert(reads==1 and prepared.book==selected_book and opening._unified_annotations_active
+        and prepared.chapters[1]==chapters[1] and refreshed==1,
+        "automatic annotation setup reloaded the book or lost its saved chapter descriptor")
 end
 helper.cleanup()
 print("annotation_sync_controller_spec: consent, completion, cancellation, sessions and prefetch passed")

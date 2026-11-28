@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_reader": true,
+  "actual_subprocess_and_sqlite": true,
+  "controlled_elapsed_seconds": 76,
+  "parent_and_worker_deadline_seconds": 130,
+  "long_worker_returned_without_dispatch": true,
+  "lost_ack_never_replayed": true,
+  "previous_metadata_preserved": true,
+  "initial_runs": "stopped at stale test assertion after the skip button was added; no real account requests",
+  "retest": "PASS after selecting actions by name",
+  "physical_kindle_verified": false
+}

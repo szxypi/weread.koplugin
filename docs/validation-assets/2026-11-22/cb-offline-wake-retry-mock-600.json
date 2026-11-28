@@ -1,0 +1,1 @@
+{"result": "PASS", "fixture_only": true, "offline_page_move": true, "reconnect_choice": true, "dry_run_writes": 0, "synthetic_data_posts": 2, "independent_offset_readback": true, "fresh_offline_process": true, "real_account_data_posts": 0, "profile_removed": true, "wake_reconnect": false, "wake_retry": true, "sleep_disconnect_preserved": false}

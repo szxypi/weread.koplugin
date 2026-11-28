@@ -1,0 +1,16 @@
+{
+  "result": "CB_NATIVE_TXT_START_BOOKMARK_VERIFIED",
+  "sample": "new self-authored short imported TXT, first visible position",
+  "screen": "1264x1680@300",
+  "dry_run_blocked": true,
+  "native_bookmark_create_navigate_delete": true,
+  "native_bookmark_writes": 2,
+  "independent_readbacks": 2,
+  "offline_reopen_after_deletion": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "original_observed_state_restored": true,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "private_values_in_report": false,
+  "limitations": ["one self-authored TXT at its start", "no real bookmark point after a non-BMP character", "official saved-bookmark display not checked", "physical Kindle not tested"]
+}

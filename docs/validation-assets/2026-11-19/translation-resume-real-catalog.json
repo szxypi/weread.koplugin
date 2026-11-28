@@ -1,0 +1,19 @@
+{
+  "result": "READ_ONLY_CHECKED",
+  "source": "saved_web_account_shelf",
+  "selection": "first_three_distinct_numeric_books",
+  "books_checked": 3,
+  "chapters_checked": 111,
+  "catalogue_reads_per_book": 2,
+  "stable_catalogs": 3,
+  "unstable_catalogs": 0,
+  "native_store_verified": true,
+  "native_store_contains_synthetic_ids_and_text": true,
+  "temporary_database_removed": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authorization_posts": 0,
+  "private_catalog_saved": false,
+  "real_full_book_download_verified": false,
+  "physical_kindle_verified": false
+}

@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "baseline_commit": "038dfacf",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "badge_repaints": 20,
+  "scenarios": [
+    {"width": 600, "height": 800, "dpi": 167, "badge_size": 24, "paint_calls_before": 6040, "paint_calls_after": 720, "pixels_equal": true},
+    {"width": 1264, "height": 1680, "dpi": 300, "badge_size": 51, "paint_calls_before": 26320, "paint_calls_after": 1440, "pixels_equal": true}
+  ],
+  "corner_geometry_pixel_cases": 1080,
+  "guard_limit": 1500,
+  "guard_rejects_baseline": true,
+  "guard_accepts_optimized": true,
+  "shelf_badge_coexistence_two_sizes": true,
+  "lua_spec_groups_passed": 470,
+  "physical_device_tested": false,
+  "limitations": [
+    "Desktop emulator operation counts, not physical Kindle speed, memory, battery or ghosting.",
+    "The initial badge construction still computes its clipped geometry.",
+    "No real account data was used."
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "result": "READY",
+  "screens": ["600x800", "1264x1680"],
+  "synthetic_first_sync_previews": 2,
+  "synthetic_first_sync_writes": 2,
+  "synthetic_manual_previews": 2,
+  "synthetic_manual_writes": 4,
+  "synthetic_dual_readbacks": 4,
+  "synthetic_offline_reopens": 2,
+  "non_bmp_scalar_utf16_units": 2,
+  "surrogate_midpoint_rejected": true,
+  "real_account_read_only_preview": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "real_unicode_boundary_verified": false,
+  "physical_kindle_verified": false
+}

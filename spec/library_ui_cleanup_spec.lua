@@ -51,8 +51,12 @@ end
 
 local detail_view = { id = "detail" }
 local chapter_view = { id = "chapters" }
+local detail_data, detail_callbacks
 package.preload["weread.ui.book_detail_view"] = function()
-    return { show = function() return detail_view end }
+    return { show = function(data, callbacks)
+        detail_data, detail_callbacks = data, callbacks
+        return detail_view
+    end }
 end
 package.preload["weread.ui.chapter_list_view"] = function()
     return { show = function() return chapter_view end }
@@ -60,13 +64,16 @@ end
 
 local Library = require("weread.ui.library")
 local books = {}
-local opened
+local opened, similar_book
+local discovery_cancels = 0
 local host = {
+    cancelDiscoveryRequest = function() discovery_cancels = discovery_cancels + 1 end,
     settings = {
         get = function(_self, key, default)
             if key == "books" then return books end
             return default
         end,
+        get_book = function(_self, id) return books[id] end,
     },
     ui = {
         openFile = function(_self, path) opened = path end,
@@ -75,6 +82,7 @@ local host = {
     bookRecordHasDownload = function() return false end,
     safeCallback = function(_self, _label, callback) return callback end,
     showInfo = function() end,
+    showSimilarBooks = function(_self, book) similar_book = book end,
     loadChapters = function(_self, _book, callback)
         callback({ { chapterUid = 1, title = "One", wordCount = 10 } })
     end,
@@ -87,6 +95,22 @@ local book = { book_id = "book", title = "Book", chapters = {} }
 host:showBookMenu(book)
 expect(host._book_detail_view == detail_view,
     "book detail view was not tracked")
+expect(detail_data.actions[1].text == "Similar books", "detail omitted similar books action")
+detail_data.actions[1].callback()
+expect(similar_book == book, "similar books action used a different seed")
+local old_epoch = host.discovery_epoch or 0
+local resumed=false
+host.shelf_view={_prepare_detail_return=function()
+    expect(host._book_detail_view==nil and (host.discovery_epoch or 0)==old_epoch,'parent return prepared outside original context')
+    return function() resumed=host.discovery_epoch==old_epoch+1 end
+end}
+detail_callbacks.on_close()
+expect(host._book_detail_view == nil and host.discovery_epoch == old_epoch + 1,
+    "detail close did not invalidate pending discovery requests")
+expect(discovery_cancels == 1, "closing details did not cancel running similar-book requests")
+expect(resumed,'parent callbacks were not recreated after detail invalidation')
+host.shelf_view=nil
+host:showBookMenu(book)
 
 host:showChapterList(book)
 expect(host._chapter_list_view == chapter_view,
@@ -111,5 +135,22 @@ host.shelf_view = shelf_view
 host:openFile(nil)
 expect(#closed == 0 and host.shelf_view == shelf_view,
     "invalid open request unexpectedly closed the bookshelf")
+local picker = { id = "discovery-menu" }
+host._discovery_menu = picker
+host:closeWeReadUI()
+expect(closed[1] == picker and closed[2] == shelf_view and host._discovery_menu == nil,
+    "closing WeRead retained the category picker over the reader")
+
+local events={}
+local search_host=setmetatable({
+    closeWeReadUI=function(self) events[#events+1]='close';self.shelf_view=nil end,
+    showBookstore=function(self) events[#events+1]='store';self.shelf_view={} end,
+    showDiscoverySearch=function() events[#events+1]='input' end,
+    requireLogin=function() error('quick search required a legacy API key') end,
+}, {__index=Library})
+search_host:showSearch()
+expect(table.concat(events,',')=='store,input','reader search cancelled active work or bypassed bookstore')
+events={};search_host:showSearch()
+expect(table.concat(events,',')=='close,store,input','previous bookstore view was not replaced before search')
 
 print(("library_ui_cleanup_spec: %d checks"):format(checks))

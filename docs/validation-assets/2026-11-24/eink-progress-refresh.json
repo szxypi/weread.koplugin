@@ -1,0 +1,33 @@
+{
+  "result": "PASS",
+  "baseline_commit": "f6203ec6542798c4e2ea427e3390c8fab6a60ca2",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "100 rapid synthetic progress and title updates in two bursts",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "forced_repaint_calls": {
+    "600x800_before": 102,
+    "600x800_after": 3,
+    "1264x1680_before": 102,
+    "1264x1680_after": 3
+  },
+  "progress_and_title_pixels_identical": true,
+  "rounded_corner_pixels_changed": {
+    "600x800_middle": 24,
+    "600x800_complete": 24,
+    "1264x1680_middle": 68,
+    "1264x1680_complete": 60
+  },
+  "scheduled_flush_tested_in_real_event_loop": true,
+  "close_and_stale_callback_do_not_repaint": true,
+  "synthetic_notebook_image_bulk_both_sizes": true,
+  "synthetic_notebook_bulk_both_sizes": true,
+  "synthetic_download_rate_limit_and_resume_both_sizes": true,
+  "synthetic_full_plugin_annotation_smoke_ko2": true,
+  "local_unit_specs": 476,
+  "physical_device_tested": false,
+  "limitations": [
+    "The repaint calls are measured for two deliberately rapid synthetic bursts; actual tasks have different timing and real device refreshes need not match these counts.",
+    "Repeated old repaints darken a few antialiased corner pixels; content pixels match, but screenshots are not wholly identical.",
+    "Desktop emulation does not measure physical screen latency, ghosting, power or Kindle battery life."
+  ]
+}

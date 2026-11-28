@@ -1,0 +1,19 @@
+{
+  "feature": "native_direct_local_position_check",
+  "installed_koreader_synthetic": {
+    "screen_sizes": ["600x800", "1264x1680"],
+    "matching_source_and_independent_offset": "PASS",
+    "changed_web_source_rejected": "PASS",
+    "page_changed_during_request_rejected": "PASS",
+    "progress_write_requests": 0
+  },
+  "owner_readonly": {
+    "sampled_chapters": 3,
+    "native_and_web_source_byte_matches": 3,
+    "reader_position": "UNVERIFIED: web catalog service returned an application error",
+    "account_data_writes": 0,
+    "native_authorization_renewals_after_confirmed_expiration": 1
+  },
+  "cloud_progress_upload_enabled": false,
+  "physical_kindle_tested": false
+}

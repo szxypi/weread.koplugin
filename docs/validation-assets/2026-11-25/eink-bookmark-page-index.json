@@ -1,0 +1,32 @@
+{
+  "scope": "cloud_bookmark_page_prefilter",
+  "baseline": "ba83ea7e",
+  "synthetic_reader": {
+    "runtime": "KOReader Linux ARM64 desktop emulator",
+    "screen_sizes": [[600, 800, 167], [1264, 1680, 300]],
+    "synthetic_bookmark_positions": 255,
+    "pages_before_reflow": 52,
+    "pages_after_reflow": 70,
+    "full_scan_visibility_checks": 31110,
+    "indexed_visibility_checks": 1520,
+    "index_page_mapping_checks": 624,
+    "visibility_order_and_draw_commands_match": true,
+    "account_data_writes": 0,
+    "note": "Counts exclude other reader work and do not establish physical Kindle performance."
+  },
+  "owner_reader": {
+    "screen_sizes": [[600, 800, 167], [1264, 1680, 300]],
+    "book_type": "EPUB",
+    "book_samples": 1,
+    "bookmark_inputs": "synthetic positions generated from the opened real document",
+    "native_all_pages_and_font_reflow_comparison": "PASS",
+    "native_read_and_offline_reopen": "PASS",
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "real_screenshots": 0,
+    "tmpfs_profile_removed": true
+  },
+  "fallback_unit_cases": ["unavailable hash", "unknown point", "multi-page", "non-linear flow", "invalid page mapping", "record change", "incomplete loading"],
+  "kindle_oasis_2": "NOT_TESTED"
+}

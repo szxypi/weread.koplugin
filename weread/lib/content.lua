@@ -1,13 +1,30 @@
 local Crypto = require("weread.lib.crypto")
+local ChapterDecode = require("weread.lib.chapter_decode")
+local FileIdentity = require("weread.lib.book_file_identity")
+local PositionSource = require("weread.lib.position_source")
 local ReaderState = require("weread.lib.reader_state")
+local ReaderContext = require("weread.lib.reader_context")
 local WeRead = require("weread.lib.protocol")
 local logger = require("weread.lib.logger")
 
 local Content = {}
-local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 -- Forward declarations used by the resumable-download checkpoint helpers.
 local xml_escape
 local body_fragment
+
+local function position_error(saving)
+    local tr = require("weread.lib.i18n").tr
+    error(tr(saving and "Could not save the original chapter data. Check storage and try again."
+        or "Could not verify the downloaded chapter data. Please download again."), 0)
+end
+
+function Content.store_position_source(workspace, book, chapter, source)
+    if not source then return nil end
+    local receipt = PositionSource.store(workspace, source, book.book_id or book.bookId,
+        chapter.chapterUid or chapter.chapterId)
+    if not receipt then position_error(true) end
+    return receipt
+end
 
 local function basename_safe(value)
     value = tostring(value or ""):gsub("[^%w%._-]", "_")
@@ -64,16 +81,10 @@ function Content.catalog_cache_path(settings, book)
     return Content.book_resolved_dir(settings, book_id, book) .. "/catalog.json"
 end
 
-function Content.save_catalog_cache(client, settings, book, chapters)
+function Content.encode_catalog_cache(client, chapters)
     if type(chapters) ~= "table" then
         return false, "chapter list is not a table"
     end
-    local path = Content.catalog_cache_path(settings, book)
-    if not path then
-        return false, "missing book id"
-    end
-    local dir = path:match("^(.*)/[^/]+$")
-    os.execute("mkdir -p " .. string.format("%q", dir))
     local ok, encoded = pcall(function()
         return client:json_encode({
             version = 1,
@@ -84,16 +95,37 @@ function Content.save_catalog_cache(client, settings, book, chapters)
     if not ok then
         return false, encoded
     end
+    if type(encoded) ~= "string" then
+        return false, "could not encode chapter list"
+    end
+    return encoded
+end
+
+function Content.save_catalog_cache(client, settings, book, chapters, encoded)
+    if type(chapters) ~= "table" then
+        return false, "chapter list is not a table"
+    end
+    local path = Content.catalog_cache_path(settings, book)
+    if not path then
+        return false, "missing book id"
+    end
+    local dir = path:match("^(.*)/[^/]+$")
+    os.execute("mkdir -p " .. string.format("%q", dir))
+    if type(encoded) ~= "string" then
+        local err
+        encoded, err = Content.encode_catalog_cache(client, chapters)
+        if not encoded then return false, err end
+    end
     local tmp_path = path .. ".tmp"
     local file, err = io.open(tmp_path, "wb")
     if not file then
         return false, err
     end
     local write_ok, write_err = file:write(encoded)
-    file:close()
-    if not write_ok then
+    local close_ok, close_err = file:close()
+    if not write_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err
+        return false, write_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then
@@ -138,6 +170,12 @@ local function filename_safe(value)
         value = "weread"
     end
     return value
+end
+
+function Content.book_epub_path(settings, book, suffix)
+    local book_id = book.book_id or book.bookId
+    local dir = Content.book_resolved_dir(settings, book_id, book)
+    return dir .. "/" .. filename_safe((book.title or "WeRead") .. " - " .. (suffix or "book")) .. ".epub"
 end
 
 local function item_id(prefix, value)
@@ -218,15 +256,6 @@ local function unique_asset_name(used, name, ext)
     return candidate
 end
 
-local function write_file(path, data)
-    local file, err = io.open(path, "wb")
-    if not file then
-        error(err)
-    end
-    file:write(data)
-    file:close()
-end
-
 local function make_path(path)
     local ok, util = pcall(require, "util")
     if ok and util and util.makePath then
@@ -240,12 +269,37 @@ local function make_path(path)
     end
 end
 
+local atomic_write
+
+local function remove_selection_tree(path)
+    local lfs = require("libs/libkoreader-lfs")
+    local mode = lfs.symlinkattributes(path, "mode")
+    if not mode then return true end
+    if mode == "directory" then
+        for name in lfs.dir(path) do
+            if name ~= "." and name ~= ".." then
+                local ok, err = remove_selection_tree(path .. "/" .. name)
+                if not ok then return nil, err end
+            end
+        end
+    end
+    return os.remove(path)
+end
+
 local function remove_tree(path)
     if type(path) ~= "string"
         or (not path:match("/%.weread%-download%-%d+%-%d+$")
             and not path:match("/%.weread%-download%-resume%-full$")
-            and not path:match("/%.weread%-download%-resume%-full/rendered%-text$")) then
+            and not path:match("/%.weread%-download%-resume%-full/rendered%-text$")
+            and not path:match("/%.weread%-download%-resume%-full/package%-images$")
+            and not path:match("/%.weread%-download%-resume%-selected$")
+            and not path:match("/%.weread%-download%-resume%-selected/rendered%-text$")) then
         return nil, "refusing to remove an invalid download workspace"
+    end
+    if path:match("/%.weread%-download%-resume%-selected") then
+        local called, removed, err = pcall(remove_selection_tree, path)
+        if not called then return nil, removed end
+        return removed, err
     end
     local ok, ffiutil = pcall(require, "ffi/util")
     if not ok or not ffiutil or not ffiutil.purgeDir then
@@ -257,26 +311,78 @@ local function remove_tree(path)
     return true
 end
 
--- A full-book job is the only one that can run long enough to make a restart
--- meaningful. Keep its working files under a stable, book-local directory so
--- a failed transfer (or an OOM kill) can be resumed without putting book text
--- in the plugin settings file.
-function Content.open_full_download_workspace(settings, book)
+-- Keep working files outside the settings database for restart recovery.
+function Content.open_full_download_workspace(settings, book, selection, reset_selection, existing_only)
     local book_id = book.book_id or book.bookId
     local book_dir = Content.book_resolved_dir(settings, book_id, book)
-    make_path(book_dir)
-    book.cache_dir = book_dir
-    local workspace = book_dir .. "/.weread-download-resume-full"
+    local workspace = book_dir .. (selection and "/.weread-download-resume-selected" or "/.weread-download-resume-full")
+    local lfs
+    if existing_only then
+        lfs = require("libs/libkoreader-lfs")
+        if lfs.symlinkattributes(book_dir, "mode") ~= "directory"
+            or lfs.symlinkattributes(workspace, "mode") ~= "directory" then return end
+    else
+        make_path(book_dir)
+    end
+    if selection then
+        lfs = lfs or require("libs/libkoreader-lfs")
+        local marker = workspace .. "/selection"
+        local file = lfs.symlinkattributes(workspace, "mode") == "directory"
+            and lfs.symlinkattributes(marker, "mode") == "file" and io.open(marker, "rb")
+        local previous = file and file:read(65)
+        if file then file:close() end
+        if existing_only and previous ~= selection then return end
+        -- The caller claims the plan before opening its workspace. The scope
+        -- binds the shared stylesheet and chapter indexes to this account.
+        if reset_selection or previous ~= selection then
+            local ok, err = remove_tree(workspace)
+            if not ok then error(err or "could not reset selected chapter workspace", 0) end
+            make_path(workspace)
+            ok, err = atomic_write(marker, selection)
+            if not ok then error(err or "could not identify selected chapter workspace", 0) end
+        end
+    end
     local incoming_dir = workspace .. "/incoming"
     local asset_dir = workspace .. "/images"
     local text_dir = workspace .. "/text"
     local checkpoint_dir = workspace .. "/checkpoints"
     local rendered_text_dir = workspace .. "/rendered-text"
-    make_path(incoming_dir)
-    make_path(asset_dir)
-    make_path(text_dir)
-    make_path(checkpoint_dir)
-    make_path(rendered_text_dir)
+    local style_dir = workspace .. "/styles"
+    local asset_receipt_dir = workspace .. "/native-asset-receipts"
+    local web_asset_receipt_dir = workspace .. "/web-asset-receipts"
+    for _, directory in ipairs({incoming_dir, asset_dir, text_dir, checkpoint_dir, rendered_text_dir,
+        style_dir, asset_receipt_dir, web_asset_receipt_dir}) do
+        if existing_only then
+            local mode = lfs.symlinkattributes(directory, "mode")
+            if mode ~= "directory" and (mode or directory ~= rendered_text_dir) then return end
+        else
+            make_path(directory)
+        end
+    end
+    book.cache_dir = book_dir
+    -- A killed worker can leave a native image's temporary file. The full
+    -- workspace is book-locked before opening; remove only our well-formed
+    -- regular partials so they cannot be swept into the streamed EPUB.
+    local has_lfs,fs=pcall(require,'libs/libkoreader-lfs')
+    if not has_lfs then has_lfs,fs=pcall(require,'lfs') end
+    if has_lfs and fs.symlinkattributes then
+        if fs.symlinkattributes(asset_dir,'mode')~='directory' then error('invalid download image directory',0) end
+        for name in fs.dir(asset_dir) do
+            local digest,extension=name:match('^eink%-([0-9a-f]+)%.([a-z]+)%.part$')
+            if digest and #digest==64 and ({png=true,jpg=true,gif=true,webp=true})[extension] then
+                local path=asset_dir..'/'..name
+                if fs.symlinkattributes(path,'mode')~='file' or not os.remove(path) then
+                    error('invalid partial download image',0)
+                end
+            end
+        end
+    end
+    local scope=settings.get_auth_scope and settings:get_auth_scope()
+    local native_owner
+    if scope and type(scope.vid)=='string' and scope.vid:match('^[1-9]%d*$') and #scope.vid<=32
+        and settings.auth_scope_matches and settings:auth_scope_matches(scope) then
+        native_owner=Crypto.sha256_hex('weread-native-full-owner-v1\0'..scope.vid)
+    end
     return {
         path = workspace,
         incoming_dir = incoming_dir,
@@ -284,11 +390,16 @@ function Content.open_full_download_workspace(settings, book)
         text_dir = text_dir,
         checkpoint_dir = checkpoint_dir,
         rendered_text_dir = rendered_text_dir,
+        style_dir = style_dir,
+        asset_receipt_dir = asset_receipt_dir,
+        web_asset_receipt_dir = web_asset_receipt_dir,
+        native_owner = native_owner,
+        book_id = tostring(book_id),
         resumable = true,
     }
 end
 
-local function workspace_chapter_name(chapter, chapter_index)
+local function workspace_chapter_name(chapter_index)
     return string.format("chapter-%03d.xhtml", tonumber(chapter_index) or 0)
 end
 
@@ -297,70 +408,279 @@ local function workspace_chapter_marker(chapter)
         .. basename_safe(chapter and chapter.chapterUid or "unknown") .. " -->"
 end
 
-function Content.full_download_chapter_path(workspace, chapter, chapter_index)
+local function workspace_chapter_path(workspace, chapter_index)
     if not workspace or not workspace.text_dir then return nil end
-    return workspace.text_dir .. "/" .. workspace_chapter_name(chapter, chapter_index)
+    return workspace.text_dir .. "/" .. workspace_chapter_name(chapter_index)
 end
 
-function Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
+function Content.full_download_chapter_path(workspace, _chapter, chapter_index)
+    return workspace_chapter_path(workspace, chapter_index)
+end
+
+function Content.full_download_checkpoint_path(workspace, _chapter, chapter_index)
     if not workspace or not workspace.checkpoint_dir then return nil end
-    return workspace.checkpoint_dir .. "/" .. workspace_chapter_name(chapter, chapter_index) .. ".meta"
+    return workspace.checkpoint_dir .. "/" .. workspace_chapter_name(chapter_index) .. ".meta"
 end
 
-function Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
+function Content.full_download_rendered_chapter_path(workspace, _chapter, chapter_index)
     if not workspace or not workspace.rendered_text_dir then return nil end
-    return workspace.rendered_text_dir .. "/" .. workspace_chapter_name(chapter, chapter_index)
+    return workspace.rendered_text_dir .. "/" .. workspace_chapter_name(chapter_index)
+end
+
+local read_full_download_checkpoint
+local MAX_FULL_STYLE_BYTES=16*1024*1024
+local NATIVE_IMAGE_MIME={png='image/png',jpg='image/jpeg',gif='image/gif',webp='image/webp'}
+local function full_style_path(workspace, digest)
+    if type(digest)~='string' or #digest~=64 or not digest:match('^[0-9a-f]+$')
+        or not workspace or type(workspace.style_dir)~='string' then return nil end
+    return workspace.style_dir..'/eink-'..digest..'.css'
+end
+local function resource_digest(path, maximum)
+    local file=io.open(path,'rb')
+    if not file then return end
+    local data,read_error=file:read(maximum+1)
+    local closed=file:close()
+    data=data or ''
+    if closed and not read_error and #data<=maximum then return #data,Crypto.sha256_hex(data) end
+end
+
+local function stylesheet_digest(path)
+    return resource_digest(path,MAX_FULL_STYLE_BYTES)
+end
+
+local function image_digest(path)
+    return resource_digest(path,8*1024*1024)
+end
+
+local function full_style_valid(workspace,digest,checks)
+    local path=full_style_path(workspace,digest)
+    if not path then return false end
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if ok and lfs.symlinkattributes and (lfs.symlinkattributes(workspace.style_dir,'mode')~='directory'
+        or lfs.symlinkattributes(path,'mode')~='file') then return false end
+    local _,actual=(checks and checks.style or stylesheet_digest)(path)
+    return actual==digest
+end
+local function full_style_href(digest)
+    return '../eink-style-'..digest..'.css'
+end
+local function full_style_link(digest)
+    return '<link rel="stylesheet" type="text/css" href="'..(digest and full_style_href(digest) or '../style.css')..'"/>'
+end
+local function full_asset_receipt_path(workspace,digest)
+    if type(digest)~='string' or #digest~=64 or not digest:match('^[0-9a-f]+$')
+        or not workspace or type(workspace.asset_receipt_dir)~='string' then return nil end
+    return workspace.asset_receipt_dir..'/assets-'..digest..'.txt'
+end
+local function native_asset_name(name)
+    if type(name)~='string' then return nil end
+    local digest,extension=name:match('^eink%-([0-9a-f]+)%.([a-z]+)$')
+    if not digest or #digest~=64 or not NATIVE_IMAGE_MIME[extension] then return nil end
+    return digest
+end
+local function full_asset_receipt_names(workspace,digest)
+    local path=full_asset_receipt_path(workspace,digest)
+    if not path or type(workspace.asset_dir)~='string' then return false end
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if ok and lfs.symlinkattributes and (lfs.symlinkattributes(workspace.asset_receipt_dir,'mode')~='directory'
+        or lfs.symlinkattributes(workspace.asset_dir,'mode')~='directory'
+        or lfs.symlinkattributes(path,'mode')~='file') then return false end
+    local file=io.open(path,'rb');if not file then return false end
+    local raw,read_error=file:read(200001);local closed=file:close()
+    if read_error then return false end
+    raw=raw or ''
+    if not closed or not raw or #raw>200000 or Crypto.sha256_hex(raw)~=digest then return false end
+    local names,previous={},nil
+    for name in raw:gmatch('([^\n]+)\n') do
+        if not native_asset_name(name) or previous and name<=previous or #names>=2048 then return nil end
+        names[#names+1]=name;previous=name
+    end
+    if raw~=table.concat(names,'\n')..(#names>0 and '\n' or '') then return nil end
+    return names
+end
+local function full_assets_valid(workspace,digest,checks)
+    local names=full_asset_receipt_names(workspace,digest)
+    if not names then return false end
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    local total=0
+    for _,name in ipairs(names) do
+        local expected=native_asset_name(name)
+        local image_path=workspace.asset_dir..'/'..name
+        if ok and lfs.symlinkattributes and lfs.symlinkattributes(image_path,'mode')~='file' then return false end
+        local size,actual=(checks and checks.image or image_digest)(image_path)
+        if not size or size==0 or actual~=expected then return false end
+        total=total+size;if total>64*1024*1024 then return false end
+    end
+    return true,names
+end
+
+local function resource_checks(workspace)
+    local Files=require('weread.lib.download_file_checks')
+    return {style=Files.memoize(stylesheet_digest),image=Files.memoize(image_digest),
+        web=require('weread.lib.web_image_receipt').batch_verifier(workspace)}
+end
+
+local function verify_checkpoint_resources(workspace,checkpoint,checks)
+    if checkpoint[7] then
+        if checkpoint[9]~=workspace.native_owner or not full_style_valid(workspace,checkpoint[7],checks) then
+            return false
+        end
+        return full_assets_valid(workspace,checkpoint[8],checks)
+    end
+    if checkpoint[10] then
+        if checkpoint[11]~=workspace.native_owner then return false end
+        if checks then return checks.web(checkpoint[10]) end
+        return require('weread.lib.web_image_receipt').verify(workspace,checkpoint[10])
+    end
+    return true
+end
+
+local function read_rendered_chapter(workspace, chapter, chapter_index, style, maximum)
+    local path = Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
+    local file = path and io.open(path, "rb")
+    if not file then return end
+    local xhtml,err = file:read(maximum and maximum+1 or "*a")
+    local closed = file:close()
+    if not err and closed and xhtml and (not maximum or #xhtml<=maximum) and xhtml:find(workspace_chapter_marker(chapter),1,true)
+        and xhtml:find(full_style_link(style),1,true) then return xhtml end
 end
 
 function Content.full_download_rendered_chapter_exists(workspace, chapter, chapter_index)
-    local path = Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
-    local file = path and io.open(path, "rb")
-    if not file then return false end
-    local xhtml = file:read("*a") or ""
-    local closed = file:close()
-    return closed and xhtml:find(workspace_chapter_marker(chapter), 1, true) ~= nil
+    local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
+    return checkpoint[1]==basename_safe(chapter and chapter.chapterUid or "unknown")
+        and read_rendered_chapter(workspace,chapter,chapter_index,checkpoint[7])~=nil
+        and verify_checkpoint_resources(workspace,checkpoint)==true
 end
 
-local function read_full_download_checkpoint(path)
+read_full_download_checkpoint = function(path)
     local file = path and io.open(path, "rb")
     if not file then return nil end
-    local data = file:read("*a")
+    local data = file:read(4097)
     local closed = file:close()
-    if not closed then return nil end
+    if not closed or not data or #data > 4096 then return nil end
     local uid = data:match("^uid=([^\n]*)\n")
     local length = tonumber(data:match("\nlength=(%d+)\n"))
     local digest = data:match("\nsha256=([0-9a-f]+)\n")
     if not uid or not length or not digest then return nil end
-    return uid, length, digest
+    local receipt, receipt_count, style, style_count, assets, assets_count, owner, owner_count
+    local web_images,web_count,web_owner,web_owner_count,scope,scope_count
+    receipt_count,style_count,assets_count,owner_count,web_count,web_owner_count,scope_count = 0,0,0,0,0,0,0
+    for line in data:gmatch("([^\n]*)\n") do
+        local value = line:match("^position_receipt=(.*)$")
+        if value then receipt, receipt_count = value, receipt_count + 1 end
+        local style_value=line:match('^style_sha256=(.*)$')
+        if style_value then style,style_count=style_value,style_count+1 end
+        local asset_value=line:match('^assets_sha256=(.*)$')
+        if asset_value then assets,assets_count=asset_value,assets_count+1 end
+        local owner_value=line:match('^native_owner_sha256=(.*)$')
+        if owner_value then owner,owner_count=owner_value,owner_count+1 end
+        local web_value=line:match('^web_images_digest=(.*)$')
+        if web_value then web_images,web_count=web_value,web_count+1 end
+        local web_owner_value=line:match('^web_owner_sha256=(.*)$')
+        if web_owner_value then web_owner,web_owner_count=web_owner_value,web_owner_count+1 end
+        local scope_value=line:match('^download_scope=(.*)$')
+        if scope_value then scope,scope_count=scope_value,scope_count+1 end
+    end
+    if receipt_count > 1 or (data:find("position_receipt", 1, true)
+        and (receipt_count ~= 1 or #receipt ~= 64 or not receipt:match("^[0-9a-f]+$"))) then return nil end
+    if style_count>1 or (data:find('style_sha256',1,true)
+        and (style_count~=1 or #style~=64 or not style:match('^[0-9a-f]+$'))) then return nil end
+    if assets_count>1 or (data:find('assets_sha256',1,true)
+        and (assets_count~=1 or #assets~=64 or not assets:match('^[0-9a-f]+$')))
+        or (style~=nil)~=(assets~=nil) or style and not receipt then return nil end
+    if owner_count>1 or (data:find('native_owner_sha256',1,true)
+        and (owner_count~=1 or #owner~=64 or not owner:match('^[0-9a-f]+$')))
+        or (style~=nil)~=(owner~=nil) then return nil end
+    if web_count>1 or (data:find('web_images_digest',1,true)
+        and (web_count~=1 or #web_images~=64 or not web_images:match('^[0-9a-f]+$')))
+        or web_owner_count>1 or (data:find('web_owner_sha256',1,true)
+        and (web_owner_count~=1 or #web_owner~=64 or not web_owner:match('^[0-9a-f]+$')))
+        or (web_images~=nil)~=(web_owner~=nil) or web_images and style then return nil end
+    if scope_count>1 or scope and (#scope~=64 or not scope:match('^[0-9a-f]+$')) then return nil end
+    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"),
+        receipt, style, assets, owner, web_images, web_owner, scope
 end
 
-function Content.full_download_chapter_exists(workspace, chapter, chapter_index)
+local function verified_download_chapter(workspace, chapter, chapter_index, expected_version, require_web_images, checks)
+    local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
+    local uid,length,digest,version,book_id,receipt,style=unpack(checkpoint,1,7)
+    if uid~=basename_safe(chapter and chapter.chapterUid or "unknown")
+        or book_id and book_id~=workspace.book_id
+        or expected_version and expected_version~=0 and version~=expected_version
+        or workspace.offline_version~=nil and (not workspace.checkpoint_scope or checkpoint[12]~=workspace.checkpoint_scope
+            or book_id~=workspace.book_id or version~=workspace.offline_version)
+        or require_web_images and not (style or checkpoint[10]) then return end
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
-    if not file then return false end
-    local xhtml = file:read("*a") or ""
+    if not file then return end
+    local xhtml,err = file:read("*a")
     local closed = file:close()
-    if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
-        return false
+    if err or not closed or not xhtml or length~=#xhtml or not xhtml:find(workspace_chapter_marker(chapter),1,true)
+        or not xhtml:find(full_style_link(style),1,true) or digest~=Crypto.sha256_hex(xhtml) then return end
+    local source
+    if receipt then
+        source=PositionSource.resolve({workspace=workspace,receipt=receipt},workspace.book_id,chapter.chapterUid or chapter.chapterId)
+        if not source then return end
     end
-    local uid, length, digest = read_full_download_checkpoint(
-        Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
-    return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
-        and length == #xhtml
-        and digest == Crypto.sha256_hex(xhtml)
+    local valid,names=verify_checkpoint_resources(workspace,checkpoint,checks)
+    if valid then return checkpoint,names,source end
+end
+
+function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version, require_web_images)
+    return verified_download_chapter(workspace,chapter,chapter_index,expected_version,require_web_images)~=nil
+end
+
+-- Repair is permitted only for resources named by this chapter's intact,
+-- version-matching native checkpoint and its content-addressed receipt.
+local function full_native_checkpoint(workspace,chapter,chapter_index,expected_version)
+    local uid,length,digest,version,source_book,receipt,style,assets,owner=read_full_download_checkpoint(
+        Content.full_download_checkpoint_path(workspace,chapter,chapter_index))
+    if uid~=basename_safe(chapter and chapter.chapterUid or 'unknown') or not style or not assets
+        or not workspace.native_owner or owner~=workspace.native_owner
+        or source_book~=workspace.book_id or expected_version and expected_version~=0 and version~=expected_version
+        or not receipt or not PositionSource.resolve({workspace=workspace,receipt=receipt},
+            workspace.book_id,chapter.chapterUid or chapter.chapterId) then return nil end
+    local path=Content.full_download_chapter_path(workspace,chapter,chapter_index)
+    local file=path and io.open(path,'rb');if not file then return nil end
+    local xhtml=file:read('*a');local closed=file:close()
+    if not closed or not xhtml or #xhtml~=length or Crypto.sha256_hex(xhtml)~=digest
+        or not xhtml:find(workspace_chapter_marker(chapter),1,true)
+        or not xhtml:find(full_style_link(style),1,true) then return nil end
+    local names=full_asset_receipt_names(workspace,assets)
+    if not names then return nil end
+    return style,names
+end
+
+function Content.full_download_asset_repairable(workspace,chapter,chapter_index,name,expected_version)
+    if not native_asset_name(name) then return false end
+    local style,names=full_native_checkpoint(workspace,chapter,chapter_index,expected_version)
+    if not style then return false end
+    for _,item in ipairs(names) do if item==name then return true end end
+    return false
+end
+
+function Content.full_download_style_repairable(workspace,chapter,chapter_index,digest,expected_version)
+    local style=full_native_checkpoint(workspace,chapter,chapter_index,expected_version)
+    return style~=nil and style==digest
+end
+
+local function read_chapter_text(path)
+    if not path then return nil, "chapter workspace is missing" end
+    local file, err = io.open(path, "rb")
+    if not file then return nil, err end
+    local xhtml, read_err = file:read("*a")
+    file:close()
+    return xhtml, read_err
 end
 
 function Content.load_full_download_chapter(workspace, chapter, chapter_index)
-    local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
-    if not path then return nil, "chapter checkpoint is missing" end
-    local file, err = io.open(path, "rb")
-    if not file then return nil, err or "chapter checkpoint is missing" end
-    local xhtml = file:read("*a")
-    file:close()
-    return xhtml
+    return read_chapter_text(Content.full_download_chapter_path(workspace, chapter, chapter_index))
 end
 
-local function atomic_write(path, data)
+atomic_write = function(path, data)
     local tmp_path = path .. ".part"
     local file, err = io.open(tmp_path, "wb")
     if not file then return nil, err end
@@ -378,7 +698,104 @@ local function atomic_write(path, data)
     return true
 end
 
-local function full_download_chapter_xhtml(chapter, chapter_index, xhtml)
+function Content.stage_download_chapter_text(workspace, chapter_index, xhtml)
+    local path = workspace_chapter_path(workspace, chapter_index)
+    if not path then return nil, "chapter workspace is missing" end
+    if type(xhtml) ~= "string" or xhtml == "" then return nil, "chapter text is missing" end
+    return atomic_write(path, xhtml)
+end
+
+function Content.load_download_chapter_text(workspace, chapter_index)
+    local xhtml, err = read_chapter_text(workspace_chapter_path(workspace, chapter_index))
+    if not xhtml or xhtml == "" then return nil, err or "chapter text is missing" end
+    return xhtml
+end
+
+function Content.stage_full_download_style(workspace,css,repair_style)
+    if type(css)~='string' or #css>MAX_FULL_STYLE_BYTES then error('invalid chapter stylesheet',0) end
+    local style=Crypto.sha256_hex(css)
+    local style_path=full_style_path(workspace,style)
+    if not style_path then error('missing chapter stylesheet directory',0) end
+    local got_lfs,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not got_lfs then got_lfs,lfs=pcall(require,'lfs') end
+    if got_lfs and lfs.symlinkattributes then
+        local parent=lfs.symlinkattributes(workspace.style_dir,'mode')
+        local target=lfs.symlinkattributes(style_path,'mode')
+        local part=lfs.symlinkattributes(style_path..'.part','mode')
+        if parent~='directory' or target and target~='file'
+            or part and (part~='file' or not os.remove(style_path..'.part')) then
+            error('invalid chapter stylesheet path',0)
+        end
+    end
+    local existing=io.open(style_path,'rb')
+    if existing then
+        existing:close()
+        if not full_style_valid(workspace,style) then
+            local checked,allowed=false,false
+            if type(repair_style)=='function' then checked,allowed=pcall(repair_style,style) end
+            if not checked or allowed~=true then error('invalid chapter stylesheet',0) end
+            local saved,save_err=atomic_write(style_path,css)
+            if not saved then error(save_err or 'could not repair stylesheet',0) end
+        end
+    else
+        local saved,save_err=atomic_write(style_path,css)
+        if not saved then error(save_err or 'could not checkpoint stylesheet',0) end
+    end
+    return style
+end
+
+function Content.stage_full_download_assets(workspace,assets)
+    if type(assets)~='table' or #assets>2048 then error('invalid chapter assets',0) end
+    local names,seen={},{}
+    local count=0
+    for key in pairs(assets) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#assets then error('invalid chapter assets',0) end
+        count=count+1
+    end
+    if count~=#assets then error('invalid chapter assets',0) end
+    for _,asset in ipairs(assets) do
+        local name=type(asset)=='table' and type(asset.href)=='string' and asset.href:match('^images/([^/]+)$')
+        local digest=native_asset_name(name)
+        local extension=name and name:match('%.([a-z]+)$')
+        local mime=NATIVE_IMAGE_MIME[extension]
+        if not digest or asset.path~=workspace.asset_dir..'/'..name or asset.media_type~=mime then
+            error('invalid chapter assets',0)
+        end
+        if not seen[name] then seen[name]=true;names[#names+1]=name end
+    end
+    table.sort(names)
+    local raw=table.concat(names,'\n')..(#names>0 and '\n' or '')
+    local digest=Crypto.sha256_hex(raw)
+    local path=full_asset_receipt_path(workspace,digest)
+    if not path then error('missing chapter asset receipt directory',0) end
+    local got_lfs,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not got_lfs then got_lfs,lfs=pcall(require,'lfs') end
+    if got_lfs and lfs.symlinkattributes then
+        local parent=lfs.symlinkattributes(workspace.asset_receipt_dir,'mode')
+        local target=lfs.symlinkattributes(path,'mode')
+        local part=lfs.symlinkattributes(path..'.part','mode')
+        if parent~='directory' or target and target~='file'
+            or part and (part~='file' or not os.remove(path..'.part')) then
+            error('invalid chapter asset receipt path',0)
+        end
+    end
+    local existing=io.open(path,'rb')
+    if existing then
+        local prior,read_error=existing:read(200001);local closed=existing:close()
+        if not closed or read_error then error('invalid chapter asset receipt',0) end
+        if (prior or '')~=raw then
+            local saved,save_err=atomic_write(path,raw)
+            if not saved then error(save_err or 'could not repair chapter asset receipt',0) end
+        end
+    else
+        local saved,save_err=atomic_write(path,raw)
+        if not saved then error(save_err or 'could not checkpoint chapter assets',0) end
+    end
+    if not full_assets_valid(workspace,digest) then error('invalid chapter assets',0) end
+    return digest
+end
+
+local function full_download_chapter_xhtml(chapter, chapter_index, xhtml, style)
     local title = chapter and chapter.title
         or ("Chapter " .. tostring(chapter and chapter.chapterUid or chapter_index))
     return [[<?xml version="1.0" encoding="utf-8"?>
@@ -387,7 +804,7 @@ local function full_download_chapter_xhtml(chapter, chapter_index, xhtml)
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN">
 <head>
 <title>]] .. xml_escape(title) .. [[</title>
-<link rel="stylesheet" type="text/css" href="../style.css"/>
+<link rel="stylesheet" type="text/css" href="]] .. (style and full_style_href(style) or '../style.css') .. [["/>
 </head>
 <body>
 ]] .. body_fragment(xhtml) .. [[
@@ -395,19 +812,31 @@ local function full_download_chapter_xhtml(chapter, chapter_index, xhtml)
 </html>]]
 end
 
-function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml)
+function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml, source_version, position_receipt, style, assets, web_images)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local checkpoint_path = Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
     if not path or not checkpoint_path then return nil, "missing full-book workspace" end
-    local chapter_xhtml = full_download_chapter_xhtml(chapter, chapter_index, xhtml)
+    if position_receipt and (type(position_receipt) ~= "string" or #position_receipt ~= 64
+        or not position_receipt:match("^[0-9a-f]+$")) then position_error(false) end
+    if (style~=nil)~=(assets~=nil) or style and (not workspace.native_owner or not position_receipt or not full_style_valid(workspace,style)
+        or not full_assets_valid(workspace,assets)) then error('invalid chapter resources',0) end
+    if web_images and (style or not workspace.native_owner
+        or not require('weread.lib.web_image_receipt').verify(workspace,web_images)) then error('invalid web chapter images',0) end
+    local chapter_xhtml = full_download_chapter_xhtml(chapter, chapter_index, xhtml, style)
     local ok, err = atomic_write(path, chapter_xhtml)
     if not ok then error(err or "could not checkpoint chapter") end
     local checkpoint = table.concat({
         "uid=" .. basename_safe(chapter and chapter.chapterUid or "unknown"),
         "length=" .. tostring(#chapter_xhtml),
         "sha256=" .. Crypto.sha256_hex(chapter_xhtml),
-        "",
-    }, "\n")
+        "source_version=" .. tostring(FileIdentity.version(source_version)),
+        "source_book=" .. tostring(workspace.book_id or ""),
+    }, "\n") .. "\n" .. (position_receipt and "position_receipt=" .. position_receipt .. "\n" or "")
+        .. (style and 'style_sha256='..style..'\n' or '')
+        .. (assets and 'assets_sha256='..assets..'\n' or '')
+        .. (style and 'native_owner_sha256='..workspace.native_owner..'\n' or '')
+        .. (web_images and 'web_images_digest='..web_images..'\nweb_owner_sha256='..workspace.native_owner..'\n' or '')
+        .. (workspace.checkpoint_scope and 'download_scope='..workspace.checkpoint_scope..'\n' or '')
     ok, err = atomic_write(checkpoint_path, checkpoint)
     if not ok then error(err or "could not checkpoint chapter metadata") end
     return path
@@ -426,50 +855,215 @@ end
 function Content.save_full_download_rendered_chapter(workspace, chapter, chapter_index, xhtml)
     local path = Content.full_download_rendered_chapter_path(workspace, chapter, chapter_index)
     if not path then error("missing full-book rendered workspace") end
-    local ok, err = atomic_write(path, full_download_chapter_xhtml(chapter, chapter_index, xhtml))
+    local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,chapter_index))}
+    local style=checkpoint[7]
+    -- The checkpoint and its resources are verified before rendering and
+    -- again in the packaging worker. Avoid hashing image files on the UI thread.
+    if not checkpoint[1] then position_error(false) end
+    local ok, err = atomic_write(path, full_download_chapter_xhtml(chapter, chapter_index, xhtml, style))
     if not ok then error(err or "could not save rendered chapter") end
     return path
 end
 
+local function file_matches(path, expected)
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if ok and lfs.symlinkattributes and lfs.symlinkattributes(path,'mode')~='file' then return false end
+    local file=io.open(path,"rb")
+    if not file then return false end
+    local bytes,err=file:read(#expected+1)
+    return file:close() and not err and (bytes or "")==expected
+end
+
 function Content.save_full_download_css(workspace, css)
     if not workspace or not workspace.path then return nil end
-    local ok, err = atomic_write(workspace.path .. "/style.css", css or "")
-    if not ok then error(err or "could not checkpoint stylesheet") end
+    css = css or ""
+    if type(css) ~= "string" or #css > MAX_FULL_STYLE_BYTES then error("invalid book stylesheet") end
+    local path=workspace.path.."/style.css"
+    if not file_matches(path,css) then
+        local ok,err=atomic_write(path,css)
+        if not ok then error(err or "could not checkpoint stylesheet") end
+    end
+    local scope = workspace.checkpoint_scope
+    local receipt=Crypto.sha256_hex(css).."\n"..(scope and scope.."\n" or "")
+    local receipt_path=workspace.path.."/style.sha256"
+    if not file_matches(receipt_path,receipt) then
+        local ok,err=atomic_write(receipt_path,receipt)
+        if not ok then error(err or "could not checkpoint stylesheet digest") end
+    end
     return true
 end
 
 function Content.load_full_download_css(workspace)
-    local file = workspace and workspace.path
-        and io.open(workspace.path .. "/style.css", "rb")
+    local path = workspace and workspace.path
+    local receipt = path and io.open(path .. "/style.sha256", "rb")
+    if not receipt then return nil end
+    local record, receipt_err = receipt:read(131)
+    local receipt_closed = receipt:close()
+    if receipt_err or not receipt_closed or not record then return nil end
+    local digest, scope = record:match("^([0-9a-f]+)\n([0-9a-f]+)\n$")
+    digest = digest or record:match("^([0-9a-f]+)\n$")
+    if not digest or #digest ~= 64 or scope and #scope ~= 64
+        or workspace.offline_version ~= nil and (not scope or scope ~= workspace.checkpoint_scope) then return nil end
+    local file = io.open(path .. "/style.css", "rb")
     if not file then return nil end
-    local css = file:read("*a")
-    file:close()
+    local css, read_err = file:read(MAX_FULL_STYLE_BYTES + 1)
+    local closed = file:close()
+    css = css or ""
+    if read_err or not closed or #css > MAX_FULL_STYLE_BYTES
+        or Crypto.sha256_hex(css) ~= digest then return nil end
     return css
 end
 
-function Content.full_download_completed_chapters(workspace, chapters)
+function Content.full_download_completed_chapters(workspace, chapters, expected_version, require_web_images)
     local completed = {}
+    local checks=resource_checks(workspace)
     for chapter_index, chapter in ipairs(chapters or {}) do
-        if Content.full_download_chapter_exists(workspace, chapter, chapter_index) then
+        if verified_download_chapter(workspace,chapter,chapter_index,expected_version,require_web_images,checks) then
             completed[chapter_index] = true
         end
     end
     return completed
 end
 
-function Content.full_download_workspace_assets(workspace)
+function Content.load_selected_download_chapter(workspace, chapter, index)
+    local checkpoint,names
+    if workspace.offline_version~=nil then
+        checkpoint,names=verified_download_chapter(workspace,chapter,index)
+    else
+        checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
+        local valid
+        valid,names=verify_checkpoint_resources(workspace,checkpoint)
+        if not valid then position_error(false) end
+    end
+    if not checkpoint or checkpoint[1]~=basename_safe(chapter and chapter.chapterUid or "unknown") then position_error(false) end
+    local text=read_rendered_chapter(workspace,chapter,index,checkpoint[7])
+    if not text then position_error(false) end
+    local assets = {}
+    if checkpoint[10] then
+        for _, name in ipairs(names) do
+            local path = workspace.asset_dir .. "/" .. name
+            local _, media_type = media_type_for_file(path)
+            if not media_type or not media_type:match("^image/") then position_error(false) end
+            assets[#assets + 1] = { href = "images/" .. name, media_type = media_type, path = path }
+        end
+    end
+    local source = checkpoint[6] and { workspace = workspace, receipt = checkpoint[6] }
+    return text, assets, source, checkpoint[4]
+end
+
+function Content.full_download_workspace_assets(workspace, chapters, css)
     local assets = {}
     if not workspace or not workspace.asset_dir then return assets end
     local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
-    if not ok_lfs or not lfs
-        or lfs.attributes(workspace.asset_dir, "mode") ~= "directory" then
-        return assets
+    if not ok_lfs or not lfs or lfs.attributes(workspace.asset_dir, "mode") ~= "directory" then return assets end
+    local referenced,old_web,web_filter,native_filter
+    if chapters then
+        referenced = {}
+        old_web={}
+        web_filter=true
+        native_filter=true
+        local web=require('weread.lib.web_image_receipt')
+        local receipt_dir=workspace.web_asset_receipt_dir
+        local receipt_mode=receipt_dir and (lfs.symlinkattributes and lfs.symlinkattributes(receipt_dir,'mode')
+            or lfs.attributes(receipt_dir,'mode'))
+        if receipt_mode~='directory' then web_filter=false
+        else
+            local count=0
+            for entry in lfs.dir(receipt_dir) do
+                local digest=entry:match('^images%-([0-9a-f]+)%.txt$')
+                if digest and #digest==64 then
+                    local valid,names=web.names(workspace,digest)
+                    if valid then
+                        for _,name in ipairs(names) do
+                            if not old_web[name] then old_web[name]=true;count=count+1 end
+                        end
+                    end
+                end
+                if count>512 then break end
+            end
+            -- Bound scanning work; preserving old images is preferable to
+            -- guessing when a book has an unusually large resource set.
+            if count>512 then web_filter=false end
+        end
+        local rendered_paths={}
+        for index,chapter in ipairs(chapters) do
+            local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
+            if not checkpoint[1] then position_error(false) end
+            if checkpoint[7] then
+                local names=full_asset_receipt_names(workspace,checkpoint[8])
+                if not names then position_error(false) end
+                for _,name in ipairs(names) do referenced[name]=true end
+            elseif checkpoint[10] then
+                if checkpoint[11]~=workspace.native_owner then position_error(false) end
+                local valid,names=web.names(workspace,checkpoint[10])
+                if not valid then position_error(false) end
+                for _,name in ipairs(names) do referenced[name]=true end
+            else
+                -- Legacy Web checkpoints have no complete image list.
+                web_filter=false
+                native_filter=false
+            end
+            rendered_paths[#rendered_paths+1]=Content.full_download_rendered_chapter_path(workspace,chapter,index)
+        end
+        -- Web image names can happen to look like native content-addressed
+        -- names. Keep referenced resources, including legacy raw links.
+        local function collect_names(value)
+            value=value or ''
+            for name in value:gmatch('eink%-[0-9a-f]+%.[a-z]+') do
+                if native_asset_name(name) then referenced[name]=true end
+            end
+            if not web_filter and not native_filter then return end
+            -- CSS escapes and numeric/unknown entities can spell a path in
+            -- many forms. Retain the old files when their meaning is unclear.
+            local lower=value:lower()
+            if value:find('\\',1,true) or value:find('&#',1,true)
+                or lower:find('@import',1,true) or lower:find('data:',1,true) or lower:find('var(',1,true) then
+                web_filter=false;native_filter=false;return
+            end
+            local entities={amp='&',quot='"',apos="'",lt='<',gt='>'}
+            -- Decode once: an encoded literal such as &amp;quot; must not
+            -- become a quote after two successive substitutions.
+            local decoded=value:gsub('&([%a][%w]*);',function(entity)
+                return entities[entity] or '&'..entity..';'
+            end)
+            if decoded:find('&[%a][%w]*;') then web_filter=false;native_filter=false;return end
+            local unescaped=decoded:gsub('%%(%x%x)',function(hex) return string.char(tonumber(hex,16)) end)
+            for name in unescaped:gmatch('eink%-[0-9a-f]+%.[a-z]+') do
+                if native_asset_name(name) then referenced[name]=true end
+            end
+            if web_filter then
+                for name in pairs(old_web) do
+                    if not referenced[name] and (value:find(name,1,true) or decoded:find(name,1,true)
+                        or unescaped:find(name,1,true)) then referenced[name]=true end
+                end
+            end
+        end
+        collect_names(css)
+        for _,path in ipairs(rendered_paths) do
+            local file=io.open(path,'rb')
+            if not file then position_error(false) end
+            local tail=''
+            while true do
+                local chunk,read_error=file:read(65536)
+                if read_error then file:close();position_error(false) end
+                if not chunk then break end
+                local text=tail..chunk
+                collect_names(text)
+                -- XML entities can expand a 255-byte filename sixfold.
+                tail=text:sub(-2048)
+            end
+            if not file:close() then position_error(false) end
+        end
     end
+    local excluded=false
     for name in lfs.dir(workspace.asset_dir) do
         if name ~= "." and name ~= ".." then
             local path = workspace.asset_dir .. "/" .. name
-            if lfs.attributes(path, "mode") == "file" then
+            if referenced and not referenced[name] and (native_filter and native_asset_name(name) or web_filter and old_web[name]) then
+                excluded=true
+            elseif lfs.attributes(path, "mode") == "file" then
                 local _, media_type = media_type_for_file(path)
                 if media_type and media_type:match("^image/") then
                     table.insert(assets, {
@@ -482,6 +1076,42 @@ function Content.full_download_workspace_assets(workspace)
         end
     end
     table.sort(assets, function(a, b) return a.href < b.href end)
+    if excluded and #assets>0 then
+        -- The archive writer walks a whole directory. Stage only the selected
+        -- images; links avoid copying large books on filesystems that allow it.
+        local stage=workspace.path..'/package-images'
+        local mode=lfs.symlinkattributes and lfs.symlinkattributes(stage,'mode') or lfs.attributes(stage,'mode')
+        if mode then
+            if mode~='directory' then error('invalid package image directory',0) end
+            local removed,err=remove_tree(stage)
+            if not removed then error(err or 'could not reset package image directory',0) end
+        end
+        make_path(stage)
+        for _,asset in ipairs(assets) do
+            local name=basename(asset.href)
+            local target=stage..'/'..name
+            if lfs.symlinkattributes and lfs.symlinkattributes(asset.path,'mode')~='file' then
+                error('invalid package image',0)
+            end
+            local linked=type(lfs.link)=='function' and lfs.link(asset.path,target)
+            if not linked then
+                local source=assert(io.open(asset.path,'rb'))
+                local output=io.open(target,'wb')
+                if not output then source:close();error('could not stage package image',0) end
+                local ok=true
+                while ok do
+                    local chunk,read_error=source:read(65536)
+                    if read_error then ok=false;break end
+                    if not chunk then break end
+                    ok=output:write(chunk)~=nil
+                end
+                local source_closed=source:close()
+                local output_closed=output:close()
+                if not ok or not source_closed or not output_closed then error('could not stage package image',0) end
+            end
+        end
+        assets.__archive_dir=stage
+    end
     return assets
 end
 
@@ -491,10 +1121,19 @@ function Content.full_download_workspace_used_asset_names(workspace)
         local name = basename(asset.href)
         if name ~= "" then used[name] = true end
     end
+    -- Reserve damaged or non-image files too: another source must not reuse
+    -- their names while a resumable native checkpoint may still reference them.
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if ok and workspace and workspace.asset_dir and lfs.attributes(workspace.asset_dir,'mode')=='directory' then
+        for name in lfs.dir(workspace.asset_dir) do
+            if name~='.' and name~='..' then used[name]=true end
+        end
+    end
     return used
 end
 
-function Content.create_download_workspace(settings, book)
+function Content.create_download_workspace(settings, book, stage_chapter_text)
     local book_id = book.book_id or book.bookId
     local book_dir = Content.book_resolved_dir(settings, book_id, book)
     make_path(book_dir)
@@ -505,10 +1144,13 @@ function Content.create_download_workspace(settings, book)
     local asset_dir = workspace .. "/images"
     make_path(incoming_dir)
     make_path(asset_dir)
+    local text_dir = stage_chapter_text and workspace .. "/text" or nil
+    if text_dir then make_path(text_dir) end
     return {
         path = workspace,
         incoming_dir = incoming_dir,
         asset_dir = asset_dir,
+        text_dir = text_dir,
     }
 end
 
@@ -527,7 +1169,8 @@ function Content.cleanup_stale_downloads(settings)
     if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
     if not ok_lfs or not lfs then return 0 end
     local dirs = {}
-    for book_id, book in pairs(settings:get("books", {}) or {}) do
+    local indexes = type(settings.get_book_indexes) == "function" and settings:get_book_indexes()
+    for book_id, book in pairs(indexes or settings:get("books", {}) or {}) do
         local dir = Content.book_resolved_dir(settings, book_id, book)
         dirs[dir] = true
     end
@@ -576,7 +1219,27 @@ local function commit_file(part_path, path)
     return true
 end
 
-local function write_epub(path, entries)
+local function write_epub(path, entries, output, before_commit)
+    if output then
+        -- KOReader's optional hash-based sidecars sample the beginning of the
+        -- EPUB. Give each independently published translation copy its own
+        -- nonce inside that sample, even if the text itself did not change.
+        local random=io.open('/dev/urandom','rb')
+        local nonce=random and random:read(16)
+        if random then random:close() end
+        if not nonce or #nonce~=16 then error('translation_fetch/package_failed',0) end
+        table.insert(entries,2,{name='META-INF/weread-translation-copy-id.txt',data=Crypto.sha256_hex(nonce),store=true})
+        local writer=require('weread.lib.epub_export_writer').new(output.fd)
+        local ok=pcall(function()
+            for _,entry in ipairs(entries) do
+                if entry.path or type(entry.data)~='string' then error('translation_fetch/package_failed',0) end
+                writer:add(entry.name,entry.data,#entry.data,entry.name=='mimetype' or entry.store==true)
+            end
+        end)
+        local closed=writer:close()
+        if not ok or not closed or not output:sync() then error('translation_fetch/package_failed',0) end
+        return
+    end
     local Archiver = require("ffi/archiver")
     local archive = Archiver.Writer:new{}
     local part_path = path .. ".part"
@@ -619,6 +1282,13 @@ local function write_epub(path, entries)
         pcall(os.remove, part_path)
         error(err, 0)
     end
+    if before_commit then
+        local allowed,reason=pcall(before_commit,path)
+        if not allowed or reason~=true then
+            pcall(os.remove,part_path)
+            error(allowed and 'chapter_prefetch/session_changed' or reason,0)
+        end
+    end
     local committed, commit_err = commit_file(part_path, path)
     if not committed then
         pcall(os.remove, part_path)
@@ -653,7 +1323,7 @@ local function append_asset_entries(entries, assets)
         -- into the EPUB with one reader lifecycle.
         table.insert(entries, {
             name = "OEBPS/images",
-            path = disk_dir,
+            path = assets.__archive_dir or disk_dir,
             recursive = true,
         })
     end
@@ -716,106 +1386,13 @@ local function checked_body(response_text)
     return body
 end
 
-local function base64_decode(data)
-    data = data:gsub("-", "+"):gsub("_", "/")
-    local pad = #data % 4
-    if pad > 0 then
-        data = data .. string.rep("=", 4 - pad)
-    end
-    data = data:gsub("[^" .. b64chars .. "=]", "")
-    return (data:gsub(".", function(char)
-        if char == "=" then
-            return ""
-        end
-        local bits = ""
-        local index = b64chars:find(char, 1, true) - 1
-        for bit = 6, 1, -1 do
-            bits = bits .. (index % 2 ^ bit - index % 2 ^ (bit - 1) > 0 and "1" or "0")
-        end
-        return bits
-    end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(bits)
-        if #bits ~= 8 then
-            return ""
-        end
-        local byte = 0
-        for i = 1, 8 do
-            if bits:sub(i, i) == "1" then
-                byte = byte + 2 ^ (8 - i)
-            end
-        end
-        return string.char(byte)
-    end))
-end
-
-local function swap_positions(encoded)
-    local length = #encoded
-    if length < 4 then
-        return {}
-    end
-    if length < 11 then
-        return {0, 2}
-    end
-
-    local n = math.min(4, math.floor((length + 9) / 10))
-    local tmp = {}
-    for i = length, length - n + 1, -1 do
-        local byte = encoded:byte(i)
-        local bin = {}
-        repeat
-            table.insert(bin, 1, tostring(byte % 2))
-            byte = math.floor(byte / 2)
-        until byte == 0
-        local value = tonumber(table.concat(bin), 4) or 0
-        table.insert(tmp, tostring(value))
-    end
-    tmp = table.concat(tmp)
-
-    local result = {}
-    local m = length - n - 2
-    local step = #tostring(m)
-    local i = 1
-    while #result < 10 and i + step - 1 < #tmp do
-        table.insert(result, (tonumber(tmp:sub(i, i + step - 1)) or 0) % m)
-        local end2 = math.min(i + step, #tmp)
-        if i + 1 <= #tmp then
-            table.insert(result, (tonumber(tmp:sub(i + 1, end2)) or 0) % m)
-        end
-        i = i + step
-    end
-    return result
-end
-
-local function reverse_swaps(encoded, positions)
-    local chars = {}
-    for i = 1, #encoded do
-        chars[i] = encoded:sub(i, i)
-    end
-    for i = #positions, 1, -2 do
-        for k = 1, 0, -1 do
-            local left = positions[i] + k + 1
-            local right = positions[i - 1] + k + 1
-            chars[left], chars[right] = chars[right], chars[left]
-        end
-    end
-    return table.concat(chars)
-end
-
-local function decode_encoded_body(body)
-    if #body == 0 then
-        return ""
-    end
-    local encoded = body:sub(2)
-    local restored = reverse_swaps(encoded, swap_positions(encoded))
-    return base64_decode(restored)
-end
-
 function Content.decode_content_shards(e0, e1, e3)
     local body = checked_body(e0) .. checked_body(e1) .. checked_body(e3)
-    return decode_encoded_body(body)
+    return ChapterDecode.decode_payload(body)
 end
 
 function Content.decode_content_shard(e0)
-    return decode_encoded_body(checked_body(e0))
+    return ChapterDecode.decode_payload(checked_body(e0))
 end
 
 function Content.extract_reader_state(html, json_decode)
@@ -932,20 +1509,33 @@ local function build_ncx_points(chapters, filename_for)
     return render(tree), play_order
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
-    local book_id = book.book_id or book.bookId
-    local dir = Content.book_resolved_dir(settings, book_id, book)
-    os.execute("mkdir -p " .. string.format("%q", dir))
-    book.cache_dir = dir
-    local book_title = book.title or "WeRead"
-    local path = dir .. "/" .. filename_safe(book_title .. " - " .. (chapter.title or tostring(chapter.chapterUid or "chapter"))) .. ".epub"
-    local title = chapter.title or book.title or "WeRead"
-    local author = book.author or "WeRead"
-    local manifest_assets = {}
-    for asset_index, asset in ipairs(assets or {}) do
-        table.insert(manifest_assets, [[<item id="asset_]] .. tostring(asset_index) .. [[" href="]] .. xml_escape(asset.href) .. [[" media-type="]] .. xml_escape(asset.media_type) .. [["/>]])
+local function resolve_position_source(reference, book, chapter)
+    if not reference then return nil end
+    local source = PositionSource.resolve(reference, book.book_id or book.bookId, chapter.chapterUid or chapter.chapterId)
+    if not source then position_error(false) end
+    return source
+end
+
+local function append_position_entries(entries, manifest, source, identity, path, digest, seen)
+    local meta = PositionSource.bind(source, identity, path, digest)
+    if not meta then position_error(false) end
+    for _, name in ipairs({ PositionSource.meta_path(source.chapter_uid), PositionSource.path_meta_path(path) }) do
+        entries[#entries + 1] = { name = name, data = meta }
+        manifest[#manifest + 1] = '<item id="position-' .. Crypto.sha256_hex(name) .. '" href="'
+            .. xml_escape(name:sub(7)) .. '" media-type="text/plain"/>'
     end
-    local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
+    if not seen[source.raw_sha256] then
+        seen[source.raw_sha256] = true
+        local name = PositionSource.raw_path(source.raw_sha256)
+        entries[#entries + 1] = { name = name, path = source.path, data = source.data }
+        manifest[#manifest + 1] = '<item id="position-raw-' .. source.raw_sha256 .. '" href="'
+            .. xml_escape(name:sub(7)) .. '" media-type="text/plain"/>'
+    end
+end
+
+function Content.single_chapter_xhtml(book,chapter,xhtml)
+    local title = chapter.title or book.title or "WeRead"
+    return [[<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN">
 <head>
@@ -956,14 +1546,42 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
 ]] .. body_fragment(xhtml) .. [[
 </body>
 </html>]]
+end
+
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output, before_commit, stage_copy)
+    local book_id = book.book_id or book.bookId
+    local dir = Content.book_resolved_dir(settings, book_id, book)
+    os.execute("mkdir -p " .. string.format("%q", dir))
+    book.cache_dir = dir
+    local book_title = book.title or "WeRead"
+    local plan=not output and require('weread.lib.chapter_cache_path').plan(book,chapter,dir,stage_copy)
+    local path = output and output.path or plan.path
+    local chapter_uid=chapter.chapterUid or chapter.chapterId
+    local title = chapter.title or book.title or "WeRead"
+    local author = book.author or "WeRead"
+    local manifest_assets = {}
+    for asset_index, asset in ipairs(assets or {}) do
+        table.insert(manifest_assets, [[<item id="asset_]] .. tostring(asset_index) .. [[" href="]] .. xml_escape(asset.href) .. [[" media-type="]] .. xml_escape(asset.media_type) .. [["/>]])
+    end
+    local chapter_xhtml = Content.single_chapter_xhtml(book,chapter,xhtml)
+    local position_entries = {}
+    local source = resolve_position_source(position_reference, book, chapter)
+    local digest = Crypto.sha256_hex(xhtml)
+    local rendered_digest = source and Crypto.sha256_hex(chapter_xhtml)
+    if source then digest = Crypto.sha256_hex(digest .. ":" .. source.capture_id .. ":" .. rendered_digest) end
+    local identity_text = FileIdentity.encode(book, { chapter }, source_identity, digest)
+    if source then
+        append_position_entries(position_entries, manifest_assets, source, FileIdentity.decode(identity_text),
+            "OEBPS/text/chapter.xhtml", rendered_digest, {})
+    end
     local opf = [[<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0" prefix="dcterms: http://purl.org/dc/terms/">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:identifier id="bookid">weread-]] .. xml_escape(book_id) .. [[-]] .. xml_escape(chapter.chapterUid or "chapter") .. [[</dc:identifier>
+<dc:identifier id="bookid">weread-]] .. xml_escape(book_id) .. [[-]] .. xml_escape(chapter_uid or "chapter") .. [[</dc:identifier>
 <dc:title>]] .. xml_escape(book_title) .. [[</dc:title>
 <dc:creator>]] .. xml_escape(author) .. [[</dc:creator>
 <dc:publisher>WeRead</dc:publisher>
-<dc:source>]] .. xml_escape(WeRead.reader_url(book_id, chapter.chapterUid)) .. [[</dc:source>
+<dc:source>]] .. xml_escape(WeRead.reader_url(book_id, chapter_uid)) .. [[</dc:source>
 <dc:language>zh-CN</dc:language>
 <meta property="dcterms:modified">]] .. utc_modified() .. [[</meta>
 </metadata>
@@ -971,6 +1589,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="style" href="style.css" media-type="text/css"/>
 <item id="chapter" href="text/chapter.xhtml" media-type="application/xhtml+xml"/>
+<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>
 ]] .. table.concat(manifest_assets, "\n") .. [[
 </manifest>
 <spine>
@@ -993,21 +1612,36 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
         { name = "OEBPS/content.opf", data = opf },
         { name = "OEBPS/nav.xhtml", data = nav },
         { name = "OEBPS/style.css", data = css },
+        { name = FileIdentity.PATH, data = identity_text },
         { name = "OEBPS/text/chapter.xhtml", data = chapter_xhtml },
     }
+    for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
-    write_epub(path, entries)
+    if plan and plan.nonce then
+        -- Hash-based KOReader sidecars sample the beginning of the EPUB.
+        table.insert(entries,2,{name='META-INF/weread-chapter-copy-id.txt',data=plan.nonce})
+    end
+    local guard=before_commit
+    if plan then
+        guard=function(target)
+            if not require('weread.lib.chapter_cache_path').current(plan) then error('chapter_cache/conflict',0) end
+            if before_commit then return before_commit(target) end
+            return true
+        end
+    end
+    write_epub(path, entries, output, guard)
+    if plan and plan.target then return plan.target,require('weread.lib.chapter_cache_path').ready_copy(plan) end
     Content.register_annotation_document(book, path, { chapter })
     return path
 end
 
-function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data)
+function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data, source_identity, position_sources, output, before_commit)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local path = dir .. "/" .. filename_safe(book_title .. " - " .. (suffix or "book")) .. ".epub"
+    local path = output and output.path or Content.book_epub_path(settings, book, suffix)
     local author = book.author or "WeRead"
     local description_meta = ""
     local description = xml_escape(book.intro)
@@ -1018,6 +1652,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
         [[<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>]],
         [[<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>]],
         [[<item id="style" href="style.css" media-type="text/css"/>]],
+        [[<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>]],
     }
     local spine_items = {}
     -- Resumable full-book jobs checkpoint ready-to-package XHTML files.  The
@@ -1025,6 +1660,10 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
     -- string table for the entire book at the final packaging step.
     local workspace_text_dir = type(chapter_bodies) == "table"
         and chapter_bodies.__workspace_text_dir or nil
+    local workspace=workspace_text_dir and chapter_bodies.__source_workspace
+    if workspace_text_dir and (not workspace or workspace.rendered_text_dir~=workspace_text_dir
+        or workspace.book_id~=tostring(book_id)) then position_error(false) end
+    local checks=workspace and resource_checks(workspace)
     local entries = {
         { name = "mimetype", data = "application/epub+zip" },
         { name = "META-INF/container.xml", data = [[<?xml version="1.0" encoding="utf-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>]] },
@@ -1050,16 +1689,62 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
         cover_meta = '\n<meta name="cover" content="cover-image"/>'
     end
 
+    local declared_assets={}
     for asset_index, asset in ipairs(assets or {}) do
+        if declared_assets[asset.href]~=nil then declared_assets[asset.href]=false
+        else declared_assets[asset.href]=asset end
         table.insert(manifest_items, [[<item id="asset_]] .. tostring(asset_index) .. [[" href="]] .. xml_escape(asset.href) .. [[" media-type="]] .. xml_escape(asset.media_type) .. [["/>]])
     end
     append_asset_entries(entries, assets)
 
+    local source_hashes, checkpoint_version, position_bundles = {}, nil, {}
+    local seen_styles = {}
+    local position_uids = {}
     for chapter_index, chapter in ipairs(chapters or {}) do
         local uid = tostring(chapter.chapterUid or chapter_index)
         local filename = string.format("text/chapter-%03d.xhtml", chapter_index)
         local id = item_id("chapter_", uid)
         local title = chapter.title or ("Chapter " .. uid)
+        local source,rendered_digest
+        if workspace_text_dir then
+            local checkpoint,names,verified_source=verified_download_chapter(workspace,chapter,chapter_index,nil,nil,checks)
+            if not checkpoint then position_error(false) end
+            source=verified_source
+            local digest, version = checkpoint[3], checkpoint[4]
+            local style=checkpoint[7]
+            local rendered=read_rendered_chapter(workspace,chapter,chapter_index,style,
+                source and PositionSource.MAX_RENDERED_BYTES)
+            if not rendered then error("missing rendered chapter "..tostring(chapter_index),0) end
+            if source then rendered_digest=Crypto.sha256_hex(rendered) end
+            if names then
+                for _,name in ipairs(names) do
+                    local asset=declared_assets['images/'..name]
+                    if not asset or asset.path~=workspace.asset_dir..'/'..name
+                        or style and asset.media_type~=NATIVE_IMAGE_MIME[name:match('%.([a-z]+)$')] then
+                        position_error(false)
+                    end
+                end
+            end
+            if style and not seen_styles[style] then
+                seen_styles[style]=true
+                local href='eink-style-'..style..'.css'
+                manifest_items[#manifest_items+1]='<item id="eink-style-'..style..'" href="'..href..'" media-type="text/css"/>'
+                entries[#entries+1]={name='OEBPS/'..href,path=full_style_path(workspace,style)}
+            end
+            if checkpoint[5] ~= tostring(book_id) then version = 0 end
+            source_hashes[#source_hashes + 1] = uid .. ":" .. tostring(digest or "unknown")
+            version = FileIdentity.version(version)
+            if checkpoint_version == nil then checkpoint_version = version
+            elseif checkpoint_version ~= version then checkpoint_version = 0 end
+        else
+            local reference
+            source_hashes[#source_hashes + 1] = uid .. ":" .. Crypto.sha256_hex(chapter_bodies[uid] or "")
+            if position_sources and position_sources.receipts then
+                local receipt = position_sources.receipts[uid]
+                if receipt then reference = { workspace = position_sources.workspace, receipt = receipt } end
+            elseif position_sources then reference = position_sources[uid] end
+            source=resolve_position_source(reference,book,chapter)
+        end
         if not workspace_text_dir then
             local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -1073,9 +1758,24 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </body>
 </html>]]
             table.insert(entries, { name = "OEBPS/" .. filename, data = chapter_xhtml })
+            if source then rendered_digest = Crypto.sha256_hex(chapter_xhtml) end
+        end
+        if source then
+            if position_uids[uid] then position_error(false) end
+            position_uids[uid] = true
+            source_hashes[#source_hashes] = source_hashes[#source_hashes] .. ":" .. source.capture_id .. ":" .. rendered_digest
+            position_bundles[#position_bundles + 1] = { source = source, path = "OEBPS/" .. filename, digest = rendered_digest }
         end
         table.insert(manifest_items, [[<item id="]] .. id .. [[" href="]] .. filename .. [[" media-type="application/xhtml+xml"/>]])
         table.insert(spine_items, [[<itemref idref="]] .. id .. [["/>]])
+    end
+
+    local identity_text = FileIdentity.encode(book, chapters, source_identity,
+        Crypto.sha256_hex(table.concat(source_hashes, "\n")), checkpoint_version)
+    local seen_raw = {}
+    for _, bundle in ipairs(position_bundles) do
+        append_position_entries(entries, manifest_items, bundle.source, FileIdentity.decode(identity_text),
+            bundle.path, bundle.digest, seen_raw)
     end
 
     local opf = [[<?xml version="1.0" encoding="utf-8"?>
@@ -1126,6 +1826,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </body>
 </html>]]
     css = css or [[body { line-height: 1.7; margin: 5%; } img { max-width: 100%; }]]
+    table.insert(entries, { name = FileIdentity.PATH, data = identity_text })
     table.insert(entries, { name = "OEBPS/content.opf", data = opf })
     table.insert(entries, { name = "OEBPS/nav.xhtml", data = nav })
     table.insert(entries, { name = "OEBPS/toc.ncx", data = ncx })
@@ -1137,7 +1838,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
             recursive = true,
         })
     end
-    write_epub(path, entries)
+    write_epub(path, entries, output, before_commit)
     Content.register_annotation_document(book, path, chapters)
     return path
 end
@@ -1258,15 +1959,46 @@ end
 local MAX_TAR_ENTRY_BYTES = 512 * 1024 * 1024
 local FILE_COPY_CHUNK_BYTES = 64 * 1024
 
+-- Write extracted images outside the directory streamed into the EPUB. A
+-- failed close or interrupted worker must not leave a truncated final image.
+local function resource_image_temp(incoming_dir)
+    local path=incoming_dir..'/resource-image.part'
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if not ok or not lfs then error('resource file inspection unavailable',0) end
+    local mode=lfs.symlinkattributes and lfs.symlinkattributes(path,'mode') or lfs.attributes(path,'mode')
+    local removed=os.remove(path)
+    if mode and not removed then error('could not clear temporary resource image',0) end
+    return assert(io.open(path,'wb')),path
+end
+
+local function publish_resource_image(temp, path, created)
+    local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+    if not ok then ok,lfs=pcall(require,'lfs') end
+    if not ok or not lfs then error('resource file inspection unavailable',0) end
+    if lfs.symlinkattributes and lfs.symlinkattributes(path,'mode') or lfs.attributes(path,'mode') then
+        error('resource image already exists',0)
+    end
+    local renamed,err=os.rename(temp,path)
+    if not renamed then error(err or 'could not publish resource image',0) end
+    created[#created+1]=path
+end
+
+local function discard_resource_images(created,temp)
+    if temp then pcall(os.remove,temp) end
+    for _,path in ipairs(created) do pcall(os.remove,path) end
+end
+
 -- WeRead's catalog field is named `tar`, but cloud-converted documents may
 -- point it at a ZIP archive instead. KOReader already ships libarchive, so use
 -- its format auto-detection for those resources while keeping the small TAR
 -- reader below for the common streaming path.
-local function extract_zip_images(archive_path, asset_dir, used_names)
+local function extract_zip_images(archive_path, asset_dir, used_names, incoming_dir)
     local Archiver = require("ffi/archiver")
     local archive = Archiver.Reader:new()
     local assets = {}
     local src_map = {}
+    local created,allocated,output,temp={},{},nil,nil
     local ok, err = xpcall(function()
         if not archive:open(archive_path) then
             error(archive.err or "could not open chapter resource archive")
@@ -1284,12 +2016,15 @@ local function extract_zip_images(archive_path, asset_dir, used_names)
                 if media_type:match("^image/") then
                     local stem = basename(entry.path)
                     local filename = unique_asset_name(used_names, stem, ext)
+                    allocated[#allocated+1]=filename
                     local href = "images/" .. filename
                     local asset = { href = href, media_type = media_type }
                     if asset_dir then
-                        local output = assert(io.open(asset_dir .. "/" .. filename, "wb"))
+                        output,temp=resource_image_temp(incoming_dir)
                         assert(output:write(data))
-                        output:close()
+                        local closed,close_err=output:close();output=nil
+                        if not closed then error(close_err or 'could not finish resource image',0) end
+                        publish_resource_image(temp,asset_dir..'/'..filename,created);temp=nil
                         asset.path = asset_dir .. "/" .. filename
                         asset.size = #data
                         asset.store = true
@@ -1304,17 +2039,23 @@ local function extract_zip_images(archive_path, asset_dir, used_names)
             end
         end
     end, debug.traceback)
+    if output then pcall(output.close,output) end
     archive:close()
-    if not ok then error(err, 0) end
+    if not ok then
+        discard_resource_images(created,temp)
+        for _,name in ipairs(allocated) do used_names[name]=nil end
+        error(err, 0)
+    end
     return assets, src_map
 end
 
-local function extract_tar_images(tar_path, asset_dir, used_names)
+local function extract_tar_images(tar_path, asset_dir, used_names, incoming_dir)
     local input, open_err = io.open(tar_path, "rb")
     if not input then error(open_err or "could not open chapter resource archive") end
     local assets = {}
     local src_map = {}
-    local output
+    local output,temp
+    local created,allocated={},{}
     local ok, err = xpcall(function()
         while true do
             local header = input:read(512)
@@ -1340,8 +2081,9 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
             if is_file and media_type:match("^image/") then
                 local stem = basename(name)
                 filename = unique_asset_name(used_names, stem, ext)
+                allocated[#allocated+1]=filename
                 output_path = asset_dir .. "/" .. filename
-                output = assert(io.open(output_path, "wb"))
+                output,temp=resource_image_temp(incoming_dir)
                 assert(output:write(first))
             end
             while remaining > 0 do
@@ -1351,8 +2093,9 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
                 if output then assert(output:write(chunk)) end
             end
             if output then
-                output:close()
-                output = nil
+                local closed,close_err=output:close();output=nil
+                if not closed then error(close_err or 'could not finish resource image',0) end
+                publish_resource_image(temp,output_path,created);temp=nil
                 local href = "images/" .. filename
                 table.insert(assets, {
                     href = href,
@@ -1373,9 +2116,13 @@ local function extract_tar_images(tar_path, asset_dir, used_names)
             end
         end
     end, debug.traceback)
-    if output then output:close() end
+    if output then pcall(output.close,output) end
     input:close()
-    if not ok then error(err, 0) end
+    if not ok then
+        discard_resource_images(created,temp)
+        for _,name in ipairs(allocated) do used_names[name]=nil end
+        error(err, 0)
+    end
     return assets, src_map
 end
 
@@ -1402,7 +2149,7 @@ function Content.download_chapter_assets_to_files(client, book, chapter, used_na
     local extractor = signature:sub(1, 2) == "PK"
         and extract_zip_images or extract_tar_images
     local ok, assets, src_map = pcall(
-        extractor, tar_path, workspace.asset_dir, used_names)
+        extractor, tar_path, workspace.asset_dir, used_names, workspace.incoming_dir)
     pcall(os.remove, tar_path)
     if not ok then error(assets, 0) end
     return assets, src_map
@@ -1429,7 +2176,17 @@ function Content.download_remote_images_to_files(client, xhtml, used_names, work
         index = index + 1
         if progress then progress(index, img_total) end
         local cached_href = remote_image_hrefs[url]
-        if cached_href then return "src=" .. quote .. "../" .. cached_href .. quote end
+        if cached_href then
+            local name=cached_href:match('^images/([^/]+)$')
+            local path=name and workspace.asset_dir..'/'..name
+            local mt
+            if path then local _;_,mt=media_type_for_file(path) end
+            if mt and mt:match('^image/') then
+                assets[#assets+1]={href=cached_href,media_type=mt,path=path,store=true}
+                return "src=" .. quote .. "../" .. cached_href .. quote
+            end
+            remote_image_hrefs[url]=nil
+        end
         local incoming = string.format("%s/remote-%06d.bin", workspace.incoming_dir, index)
         local ok = pcall(function()
             client:download_to_file(url, incoming, {
@@ -1472,52 +2229,64 @@ function Content.download_remote_images_to_files(client, xhtml, used_names, work
     return body, assets
 end
 
+local function reader_context_error(loading)
+    local tr = require("weread.lib.i18n").tr
+    error(tr(loading and "Could not load this book’s reading page. Check your connection and login, then try again."
+        or "The reading page could not be verified for this book. Refresh the book details and try again."), 0)
+end
+
+local function verified_reader_url(book, chapter_uid)
+    local valid, url = pcall(ReaderContext.url, book, chapter_uid)
+    if not valid then reader_context_error() end
+    return url
+end
+
 function Content.ensure_reader_state(client, book)
-    local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local reader_html = client:get_text(reader_url, { referer = reader_url })
-    local state = Content.extract_reader_state(reader_html, function(encoded)
+    local reader_url = verified_reader_url(book)
+    -- A rejected response cannot leave a previously usable download session.
+    book.psvts, book.pclts, book.token = nil, nil, nil
+    local loaded, reader_html = pcall(client.get_text, client, reader_url, { referer = reader_url,
+        sensitive = true, diagnostic_api = "reader_context", rate_limit_signal = true })
+    if not loaded then
+        if reader_html == "download_read/rate_limited"
+            or client.book_reading_auth_classification and reader_html == "book_reading/web_expired" then
+            error(reader_html, 0)
+        end
+        reader_context_error(true)
+    end
+    local valid, state = pcall(ReaderContext.project, book, reader_html, function(encoded)
         return client:json_decode(encoded)
     end)
-    book.book_id = book.book_id or state.book_id or book.bookId
+    if not valid then reader_context_error() end
+    book.book_id = state.book_id
     book.title = book.title or state.title
     book.author = book.author or state.author
-    -- These values belong to one Web Reader session. Never retain a cached
-    -- value when the freshly opened reader omits it (notably pclts).
-    book.psvts = state.psvts
-    book.pclts = state.pclts
-    book.token = state.token
+    book.psvts, book.pclts, book.token = state.psvts, state.pclts, state.token
     book.reader_url = reader_url
-
     ReaderState.apply_to_book(book, state)
-
-    if not book.psvts then
-        error("reader.psvts not found")
-    end
     return state
 end
 
---- Refresh psvts before downloading a chapter (matches per-chapter reader page fetch).
+--- Refresh the same-book context before each chapter download.
 function Content.refresh_reader_state(client, book, chapter)
-    book.psvts = nil
-    local book_id = book.book_id or book.bookId
-    if chapter and chapter.chapterUid then
-        book.reader_url = WeRead.reader_url(book_id, chapter.chapterUid)
-    else
-        book.reader_url = book.reader_url or WeRead.reader_url(book_id)
-    end
-    Content.ensure_reader_state(client, book)
+    book.reader_url = verified_reader_url(book, chapter and chapter.chapterUid)
+    return Content.ensure_reader_state(client, book)
 end
 
 function Content.fetch_catalog(client, book)
     local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local catalog = client:post_json("https://weread.qq.com/web/book/chapterInfos", {
+    local reader_url = verified_reader_url(book)
+    local loaded, catalog = pcall(client.post_json, client, "https://weread.qq.com/web/book/chapterInfos", {
         bookIds = { tostring(book_id) },
-    }, { referer = reader_url })
+    }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog", rate_limit_signal = true })
+    if not loaded then
+        if catalog == "download_read/rate_limited"
+            or client.book_reading_auth_classification and catalog == "book_reading/web_expired" then error(catalog, 0) end
+        error(require("weread.lib.i18n").tr("Could not load this book’s chapter list. Check your connection and login, then try again."), 0)
+    end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))
     book.chapters = chapters
-    return chapters
+    return chapters,require('weread.lib.catalog_source_version').read(catalog,tostring(book_id))
 end
 
 function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
@@ -1545,36 +2314,80 @@ function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
         },
         body = client:json_encode(params),
     })
+    if code == 429 then error("download_read/rate_limited", 0) end
     if not code or code < 200 or code >= 300 then
         error(endpoint .. " failed: HTTP " .. tostring(code or "unknown"))
     end
     if text == "{}" then
+        -- TXT's second shard may be explicitly empty. A failed request is
+        -- different: it must not be silently treated as an empty shard.
+        if endpoint == "/web/book/chapter/t_1" then return "" end
         error(endpoint .. " returned empty object")
     end
     return text
 end
 
-function Content.txt_to_xhtml(text)
+Content.TXT_STYLE = '.wr-txt-line { white-space: pre-wrap; }'
+local TXT_PREFIX = '<?xml version="1.0" encoding="utf-8"?>\n'
+    .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title>'
+    .. '<style type="text/css">' .. Content.TXT_STYLE .. '</style></head>\n<body>\n'
+local TXT_SUFFIX = '\n</body></html>'
+local TXT_PARAGRAPH = '<p class="wr-txt-line">'
+
+function Content.txt_to_xhtml(text, max_bytes)
+    local remaining = max_bytes and max_bytes - #TXT_PREFIX - #TXT_SUFFIX or math.huge
+    if remaining < 0 then return nil end
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
     local parts = {}
-    for line in (text .. "\n"):gmatch("(.-)\n") do
-        line = line:match("^(.-)%s*$") or ""
-        if line ~= "" then
-            table.insert(parts, "<p>" .. xml_escape(line) .. "</p>")
+    -- Preserve leading/trailing whitespace and empty lines; HTML's default
+    -- whitespace collapsing otherwise loses indentation and paragraph gaps.
+    -- A non-breaking space keeps a blank paragraph visible in CRE.
+    if text ~= "" then
+        if text:sub(-1) ~= "\n" then text = text .. "\n" end
+        for line in text:gmatch("(.-)\n") do
+            remaining = remaining - #TXT_PARAGRAPH - #'</p>' - (#parts > 0 and 1 or 0)
+            if #line > remaining then return nil end
+            -- CRE's HTML parser collapses whitespace before applying CSS.
+            -- Encode indentation and repeated spaces explicitly, keeping a
+            -- regular break opportunity within long runs and between words.
+            local body = xml_escape(line:gsub("\t", "    "))
+            local blank = line:match("^%s*$") and "&#160;" or ""
+            remaining = remaining - #body - #blank
+            if remaining < 0 then return nil end
+            body = body:gsub("()( +)", function(at, spaces)
+                local leading = at == 1 or at == 4 and body:sub(1, 3) == "\239\187\191"
+                local trailing = at + #spaces - 1 == #body
+                if #spaces == 1 and not leading and not trailing then return spaces end
+                local groups, rest = math.floor(#spaces / 8), #spaces % 8
+                local keep_break = rest > 0 and not leading and not trailing
+                local entities = groups * 7 + rest - (keep_break and 1 or 0)
+                remaining = remaining - entities * (#'&#160;' - 1)
+                if remaining < 0 then return nil end
+                local encoded = (string.rep("&#160;", 7) .. " "):rep(groups)
+                if keep_break then
+                    return encoded .. string.rep("&#160;", rest - 1) .. " "
+                end
+                return encoded .. string.rep("&#160;", rest)
+            end)
+            if remaining < 0 then return nil end
+            table.insert(parts, TXT_PARAGRAPH .. body .. blank .. '</p>')
         end
     end
-    return '<?xml version="1.0" encoding="utf-8"?>\n'
-        .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title></head>\n'
-        .. '<body>\n' .. table.concat(parts, "\n") .. '\n</body></html>'
+    return TXT_PREFIX .. table.concat(parts, "\n") .. TXT_SUFFIX
 end
 
 function Content.fetch_txt_as_xhtml(client, settings, book, chapter)
     local t0 = Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/t_0")
-    local ok_t1, t1 = pcall(Content.fetch_chapter_shard, client, settings, book, chapter, "/web/book/chapter/t_1")
-    if not ok_t1 then t1 = "" end
+    if type(t0) ~= "string" or #t0 <= 32 then error("Invalid TXT first shard") end
+    local t1 = Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/t_1")
+    if type(t1) ~= "string" or #t1 > 0 and (#t1 < 32
+        or #t1 == 32 and t1 ~= Crypto.md5_hex(""):upper()) then
+        error("Invalid TXT second shard")
+    end
     local plain = Content.decode_content_shards(t0, t1, "")
     Content.cache_annotation_source(settings, book, chapter, plain, true)
-    return Content.txt_to_xhtml(plain)
+    local source = PositionSource.capture(book, chapter, plain, "web_txt")
+    return Content.txt_to_xhtml(plain), source
 end
 
 function Content.fetch_chapter_xhtml(client, settings, book, chapter)
@@ -1592,15 +2405,17 @@ function Content.fetch_chapter_xhtml(client, settings, book, chapter)
     end
 
     if not ok then
-        error(e0)
+        error(e0, 0)
     end
 
     book._content_format = "epub"
-    return Content.decode_content_shards(
+    local raw = Content.decode_content_shards(
         e0,
         Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_1"),
         Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_3")
     )
+    local source = PositionSource.capture(book, chapter, raw, "web_xhtml")
+    return raw, source
 end
 
 -- True when the text following the literal "0" of a font-size declaration
@@ -1699,6 +2514,8 @@ function Content.fetch_chapter_css(client, settings, book, chapter)
     local ok, css = pcall(function()
         return Content.decode_content_shard(Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_2"))
     end)
+    if not ok and (css == "download_read/rate_limited"
+        or client.book_reading_auth_classification and css == "book_reading/web_expired") then error(css, 0) end
     if ok then
         local sanitized, removed = Content.sanitize_book_css(css)
         if removed > 0 then
@@ -1740,7 +2557,8 @@ end
 
 function Content.fetch_chapter_epub(client, settings, book, chapter)
     local book_id = book.book_id or book.bookId
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local source_identity = FileIdentity.capture(book)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     local css = Content.fetch_chapter_css(client, settings, book, chapter)
     xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
@@ -1757,7 +2575,7 @@ function Content.fetch_chapter_epub(client, settings, book, chapter)
             table.insert(assets, a)
         end
     end
-    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
+    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, source)
     book.cached_chapters = book.cached_chapters or {}
     book.cached_chapters[tostring(chapter.chapterUid)] = path
     book.cached_file = path
@@ -1769,7 +2587,7 @@ end
 
 function Content.fetch_single_chapter_content(client, settings, book, chapter, state)
     state = state or {}
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     if not state.css then
         state.css = Content.fetch_chapter_css(client, settings, book, chapter)
@@ -1790,19 +2608,19 @@ function Content.fetch_single_chapter_content(client, settings, book, chapter, s
             table.insert(chapter_assets, a)
         end
     end
-    return xhtml, chapter_assets
+    return xhtml, chapter_assets, source
 end
 
 -- Split chapter downloading around annotation fetching so the UI can request
 -- thought batches cooperatively instead of blocking inside Thoughts.apply().
 function Content.fetch_single_chapter_source(client, settings, book, chapter, state)
     state = state or {}
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     if not state.css then
         state.css = Content.fetch_chapter_css(client, settings, book, chapter)
     end
-    return xhtml
+    return xhtml, source
 end
 
 function Content.finalize_single_chapter_content(client, settings, book, chapter, xhtml, state)
@@ -1842,45 +2660,55 @@ end
 
 function Content.fetch_chapters_epub(client, settings, book, chapters, options)
     options = options or {}
+    local source_identity = FileIdentity.capture(book)
     local selected = {}
     local bodies = {}
     local assets = {}
     local used_asset_names = {}
     local cache = settings:get("cache", {})
     local css
-    for chapter_index, chapter in ipairs(chapters or {}) do
-        if options.progress then
-            options.progress(chapter_index, #chapters, chapter, "text")
-        end
-        local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
-    Content.cache_annotation_source(settings, book, chapter, xhtml)
-        if not css then
-            css = Content.fetch_chapter_css(client, settings, book, chapter)
-        end
-        xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
-        if cache.download_book_images then
+    local workspace = Content.create_download_workspace(settings, book)
+    local receipts = {}
+    local ok, path = pcall(function()
+        for chapter_index, chapter in ipairs(chapters or {}) do
             if options.progress then
-                options.progress(chapter_index, #chapters, chapter, "images")
+                options.progress(chapter_index, #chapters, chapter, "text")
             end
-            local chapter_assets, src_map = Content.download_chapter_assets(client, book, chapter, used_asset_names)
-            for _, asset in ipairs(chapter_assets) do
-                table.insert(assets, asset)
+            local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+            local uid = tostring(chapter.chapterUid or chapter_index)
+            receipts[uid] = Content.store_position_source(workspace, book, chapter, source)
+            FileIdentity.check(source_identity, book)
+            Content.cache_annotation_source(settings, book, chapter, xhtml)
+            if not css then
+                css = Content.fetch_chapter_css(client, settings, book, chapter)
             end
-            xhtml = Content.rewrite_image_sources(xhtml, src_map)
-            local inline_xhtml, inline_assets = Content.download_remote_images(client, xhtml, used_asset_names)
-            xhtml = inline_xhtml
-            for _, a in ipairs(inline_assets) do
-                table.insert(assets, a)
+            xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
+            if cache.download_book_images then
+                if options.progress then
+                    options.progress(chapter_index, #chapters, chapter, "images")
+                end
+                local chapter_assets, src_map = Content.download_chapter_assets(client, book, chapter, used_asset_names)
+                for _, asset in ipairs(chapter_assets) do
+                    table.insert(assets, asset)
+                end
+                xhtml = Content.rewrite_image_sources(xhtml, src_map)
+                local inline_xhtml, inline_assets = Content.download_remote_images(client, xhtml, used_asset_names)
+                xhtml = inline_xhtml
+                for _, a in ipairs(inline_assets) do
+                    table.insert(assets, a)
+                end
             end
+            table.insert(selected, chapter)
+            bodies[uid] = xhtml
         end
-        local uid = tostring(chapter.chapterUid or chapter_index)
-        table.insert(selected, chapter)
-        bodies[uid] = xhtml
-    end
-    if #selected == 0 then
-        error("No readable chapter found")
-    end
-    local path = Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css)
+        if #selected == 0 then
+            error("No readable chapter found")
+        end
+        return Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css, nil, source_identity,
+            { workspace = workspace, receipts = receipts })
+    end)
+    Content.cleanup_download_workspace(workspace)
+    if not ok then error(path, 0) end
     book.cached_chapters = book.cached_chapters or {}
     for chapter_index, chapter in ipairs(selected) do
         book.cached_chapters[tostring(chapter.chapterUid or chapter_index)] = path
@@ -2084,8 +2912,27 @@ end
 function Content.mp_article_path(settings, book, article)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local key=Identity.key(book,article)
+    local path=key and Identity.path(dir,key)
+    if not path then error(require('weread.lib.plugin_util').tr('This article has no stable identifier. Refresh the article list before downloading.'),0) end
+    return path
+end
+
+function Content.mp_article_legacy_path(settings,book,article)
+    local dir=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
     local title = filename_safe(article.title or "article")
     return dir .. "/" .. title .. ".html"
+end
+
+local function prepare_mp_article_cache(settings,book,article)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    if not key or not Identity.prepare(root,key) then
+        error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0)
+    end
+    return root,key
 end
 
 -- MP articles are kept as standalone HTML files, so embedding every image as a
@@ -2114,8 +2961,12 @@ local function mp_article_asset_name(book, article)
     return ".weread-mp-" .. basename_safe(key) .. "-assets"
 end
 
+-- Older title-based HTML refers to this directory beside its original file.
+Content.mp_article_asset_name = mp_article_asset_name
+
 function Content.download_mp_images_to_files(
         client, settings, book, article, body_html, progress)
+    prepare_mp_article_cache(settings,book,article)
     body_html = tostring(body_html or "")
     local html_path = Content.mp_article_path(settings, book, article)
     local article_dir = html_path:match("^(.*)/[^/]+$")
@@ -2209,36 +3060,58 @@ function Content.download_mp_images_to_files(
 end
 
 function Content.mp_article_cached_path(settings, book, article)
-    local html_path = Content.mp_article_path(settings, book, article)
-    local f = io.open(html_path, "r")
-    if f then
-        f:close()
-        return html_path
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    if key then
+        local current,reason=require('weread.lib.mp_cache_versions').resolve(root,key)
+        if current then return current,'identity' end
+        if reason=='invalid' then return nil,'identity_mismatch' end
     end
-    local epub_path = html_path:gsub("%.html$", ".epub")
-    f = io.open(epub_path, "r")
-    if f then
-        f:close()
-        return epub_path
+    local path=key and Identity.path(root,key)
+    if path then
+        local lfs=require('libs/libkoreader-lfs')
+        if lfs.symlinkattributes(path) then
+            if Identity.valid(root,key) then return path,'identity' end
+            return nil,'identity_mismatch'
+        end
     end
-    return nil
+    local html_path=Content.mp_article_legacy_path(settings,book,article)
+    local legacy_path
+    for _i,legacy in ipairs({html_path,(html_path:gsub('%.html$','.epub'))}) do
+        if require('libs/libkoreader-lfs').symlinkattributes(legacy,'mode')=='file' then
+            local file=io.open(legacy,'rb')
+            if file then file:close();legacy_path=legacy;break end
+        end
+    end
+    if not legacy_path then return nil end
+    local catalog=book.mp_articles
+    if type(catalog)~='table' and type(settings.get)=='function' then
+        local record=settings:get('books',{})[book.book_id or book.bookId]
+        catalog=type(record)=='table' and record.mp_articles or nil
+    end
+    local allowed,reason=Identity.legacy_allowed(book,article,catalog,function(row) return filename_safe(row.title or 'article') end)
+    if not allowed then return nil,reason end
+    return legacy_path,'legacy'
 end
 
-function Content.save_mp_article_html(settings, book, article, body_html)
-    local book_id = book.book_id or book.bookId
-    local dir = Content.book_resolved_dir(settings, book_id, book)
-    -- Pin the real directory on the record so later lookups, moves and cleanup
-    -- can find these files after the download directory changes.
-    book.cache_dir = dir
-    os.execute("mkdir -p " .. string.format("%q", dir))
+function Content.render_mp_article_html(article, body_html, key, revision)
     local title = article.title or "Article"
-    local path = Content.mp_article_path(settings, book, article)
+    local revision_marker = ""
+    if revision ~= nil then
+        assert(type(revision) == "string" and #revision == 16 and revision:match("^[a-f0-9]+$"),
+            "invalid MP cache revision")
+        -- KOReader's hash metadata uses sampled bytes. Put the immutable
+        -- attempt identity in the first sample, including for image-free bodies.
+        revision_marker = '<meta name="weread-mp-cache-revision" content="' .. revision .. '"/>\n'
+    end
     body_html = strip_mp_reader_font_styles(body_html)
     body_html = strip_blank_mp_blocks(body_html)
 
     local html = [[<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+]] .. require('weread.lib.mp_cache_identity').marker(key) .. revision_marker .. [[
 <meta charset="utf-8"/>
 <title>]] .. xml_escape(title) .. [[</title>
 <style>
@@ -2287,12 +3160,22 @@ p {
 </body>
 </html>]]
 
-    write_file(path, html)
+    return html
+end
+
+function Content.save_mp_article_html(settings, book, article, body_html)
+    local dir,key=prepare_mp_article_cache(settings,book,article)
+    book.cache_dir = dir
+    local html=Content.render_mp_article_html(article,body_html,key)
+    local path=Content.mp_article_path(settings,book,article)
+    local saved=require('weread.lib.mp_cache_identity').write(dir,key,html)
+    if not saved then error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0) end
     return path
 end
 
 function Content.fetch_mp_article_html(client, settings, book, article, opts)
     opts = opts or {}
+    Content.mp_article_path(settings,book,article) -- Validate the local binding before any request.
     local book_id = article.bookId
     if not book_id or book_id == "" then
         book_id = book.book_id or book.bookId

@@ -1,0 +1,94 @@
+import contextlib
+import io
+import json
+import unittest
+from unittest.mock import patch
+
+import verify_ordinary_reconnect_rpc_preview as task
+
+
+class PreviewTests(unittest.TestCase):
+    def test_default_is_offline_and_does_not_load_credentials(self):
+        with patch.object(task, 'SessionStore') as session, patch.object(task, 'NativeSessionStore') as native, \
+             patch.object(task, 'manual_command') as command, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(task.main([]), 0)
+        self.assertEqual(json.loads(out.getvalue())['result'], 'OFFLINE_ONLY')
+        session.assert_not_called(); native.assert_not_called(); command.assert_not_called()
+
+    def test_write_modes_require_saved_session_and_invalid_dimensions_fail(self):
+        for options in (['--apply'], ['--prepare'], ['--retry'], ['--third'], ['--fourth'], ['--saved-session','--retry'],
+                        ['--saved-session','--third'], ['--saved-session','--prepare','--retry','--third'],
+                        ['--saved-session','--fourth'], ['--saved-session','--prepare','--third','--fourth'],
+                        ['--saved-session','--prepare','--apply'], ['--width', '0']):
+            with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                task.main(options)
+
+    def test_missing_or_consumed_intent_stops_before_credentials_and_runner(self):
+        for options,state in ((['--saved-session','--apply'],None),(['--saved-session','--prepare'],{'phase':'retired'})):
+            with self.subTest(options=options), patch.object(task,'OrdinaryReconnectStore') as journal, \
+                 patch.object(task,'SessionStore') as session, patch.object(task,'manual_command') as runner, \
+                 contextlib.redirect_stdout(io.StringIO()) as out:
+                journal.return_value.read.return_value=(state,None)
+                self.assertEqual(task.main(options),1)
+            session.assert_not_called();runner.assert_not_called()
+            result=json.loads(out.getvalue())
+            self.assertEqual(result['result'],'UNVERIFIED');self.assertEqual(result['account_data_posts'],0)
+
+    def test_retry_without_prepared_scope_stops_before_credentials(self):
+        with patch.object(task,'OrdinaryReconnectRetryStore') as journal,patch.object(task,'SessionStore') as session, \
+             patch.object(task,'manual_command') as runner,contextlib.redirect_stdout(io.StringIO()) as out:
+            journal.return_value.read.return_value=(None,None)
+            self.assertEqual(task.main(['--saved-session','--retry','--apply']),1)
+        session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
+
+    def test_third_without_prepared_scope_stops_before_credentials(self):
+        with patch.object(task,'OrdinaryReconnectThirdStore') as journal,patch.object(task,'SessionStore') as session, \
+             patch.object(task,'manual_command') as runner,contextlib.redirect_stdout(io.StringIO()) as out:
+            journal.return_value.read.return_value=(None,None)
+            self.assertEqual(task.main(['--saved-session','--third','--apply']),1)
+        session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
+
+    def test_fourth_without_prepared_scope_stops_before_credentials(self):
+        with patch.object(task,'OrdinaryReconnectFourthStore') as journal,patch.object(task,'SessionStore') as session, \
+             patch.object(task,'manual_command') as runner,contextlib.redirect_stdout(io.StringIO()) as out:
+            journal.return_value.read.return_value=(None,None)
+            self.assertEqual(task.main(['--saved-session','--fourth','--apply']),1)
+        session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
+
+    def test_rejected_read_reports_status_without_response_data(self):
+        class Rejected:
+            def __init__(self):
+                self.report={'stages':[{'stage':'account','status':429,'body':'private response'}]}
+                self.authenticated=False;self.shards={}
+            def set_cookie(self,*args): pass
+            def verify_account(self): raise RuntimeError('private response')
+            def close(self): pass
+        with patch.object(task,'manual_command',return_value=['/source/scripts/run_cb_fixture_manual_ui.py']), \
+             patch.object(task,'SessionStore') as session, patch.object(task,'NativeSessionStore') as native, \
+             patch.object(task,'RestorablePreflight',Rejected),contextlib.redirect_stdout(io.StringIO()) as out:
+            session.return_value.load.return_value={'vid':'1','cookies':{}}
+            native.return_value.load.return_value={}
+            self.assertEqual(task.main(['--saved-session']),1)
+        result=json.loads(out.getvalue())
+        self.assertEqual(result['web_stages'],[{'stage':'account','status':429}])
+        self.assertNotIn('private response',out.getvalue())
+        self.assertEqual(result['account_data_posts'],0)
+
+    def test_difference_paths_hide_user_data(self):
+        first={'books':[{'bookId':'private-id','private-title':'old','updateTime':1}],'synckey':1}
+        later={'books':[{'bookId':'another-id','private-title':'new','updateTime':2}],'synckey':2}
+        paths=task.shelf_difference_paths(first,later)
+        self.assertIn('/synckey',paths);self.assertIn('/books/*/updateTime',paths)
+        self.assertNotIn('private',str(paths));self.assertNotIn('another',str(paths))
+
+    def test_shelf_comparison_ignores_only_nondecreasing_bounded_lecture_cursor(self):
+        before={'books':[{'bookId':'1','title':'same'}],'lectureSynckey':100}
+        self.assertTrue(task.same_shelf(before,{'books':[{'bookId':'1','title':'same'}],'lectureSynckey':101}))
+        for other in ({'books':[{'bookId':'1','title':'different'}],'lectureSynckey':101},
+                      {'books':[{'bookId':'1','title':'same'}],'lectureSynckey':99},
+                      {'books':[{'bookId':'1','title':'same'}],'lectureSynckey':True},
+                      {'books':[{'bookId':'1','title':'same'}]}):
+            with self.subTest(other=other):self.assertFalse(task.same_shelf(before,other))
+
+
+if __name__ == '__main__': unittest.main()

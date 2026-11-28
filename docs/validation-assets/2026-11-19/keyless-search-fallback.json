@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "official KOReader 2026.07.1 Linux ARM64, Xvfb",
+  "screens": [
+    {"width": 600, "height": 800, "dpi": 167},
+    {"width": 1264, "height": 1680, "dpi": 300}
+  ],
+  "native_401_before_and_after_single_renewal": true,
+  "public_first_and_next_batches": [20, 6],
+  "http_429_no_renewal_or_public_fallback": true,
+  "uncertain_renewal_and_session_change": "component tests",
+  "physical_device_tested": false,
+  "natural_expiration_on_real_account_tested": false
+}

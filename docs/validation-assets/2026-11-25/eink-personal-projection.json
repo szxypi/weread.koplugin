@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader Linux ARM64, SQLite, tmpfs",
+  "runs": 3,
+  "method": "Prior reader path validates then writes; new reader path validates during the write and returns the sanitized snapshot. Three warm-up writes precede ten measured writes.",
+  "measurements": [
+    {"variant":"marks","notes":50,"iterations":10,"old_cpu_ms_median":4.1,"new_cpu_ms_median":3.0,"old_validation_calls":20,"new_validation_calls":10},
+    {"variant":"marks","notes":500,"iterations":10,"old_cpu_ms_median":19.6,"new_cpu_ms_median":14.7,"old_validation_calls":20,"new_validation_calls":10},
+    {"variant":"marks","notes":2000,"iterations":10,"old_cpu_ms_median":79.5,"new_cpu_ms_median":58.6,"old_validation_calls":20,"new_validation_calls":10},
+    {"variant":"thoughts","notes":50,"iterations":10,"old_cpu_ms_median":4.6,"new_cpu_ms_median":2.7,"old_validation_calls":20,"new_validation_calls":10},
+    {"variant":"thoughts","notes":500,"iterations":10,"old_cpu_ms_median":26.5,"new_cpu_ms_median":19.2,"old_validation_calls":20,"new_validation_calls":10},
+    {"variant":"thoughts","notes":2000,"iterations":10,"old_cpu_ms_median":106.3,"new_cpu_ms_median":78.2,"old_validation_calls":20,"new_validation_calls":10}
+  ],
+  "limitations": "CPU time includes validation and SQLite persistence for ten repeated synthetic snapshots. It does not measure Kindle latency, overall UI response, network time, storage wear or energy."
+}

@@ -11,6 +11,7 @@ testing can be exercised by the standalone Lua specs.
 
 local Overlay = {}
 Overlay.__index = Overlay
+local PAGE_CACHE_LIMIT = 4
 
 local function inside(rect, pos, padding)
     if not rect or not pos then return false end
@@ -27,8 +28,11 @@ function Overlay:new(opts)
         records = opts.records or {},
         records_ordered = opts.records_ordered == true,
         style = opts.style,
+        painter = opts.painter,
+        prepare_painter = opts.prepare_painter,
         enabled = opts.enabled ~= false,
         cache = {},
+        cache_order = {},
         visible = {},
         generation = 1,
         clock = opts.clock or os.clock,
@@ -42,10 +46,21 @@ function Overlay:new(opts)
     }, self)
 end
 
-function Overlay:setRecords(records, ordered)
+-- changed_from is an optional trusted insertion boundary for the same table:
+-- all records before it must still be identical and in the same order.
+function Overlay:setRecords(records, ordered, changed_from)
+    local previous, prefix = self.records, self._ordered_prefix_ends
+    local can_reuse = type(records) == "table" and records == previous and ordered == true
+        and self.records_ordered and prefix and type(changed_from) == "number"
+        and changed_from % 1 == 0 and changed_from >= 1 and changed_from <= #records + 1
+    if can_reuse then
+        for index = #prefix, changed_from, -1 do prefix[index] = nil end
+    else
+        self._ordered_prefix_ends = nil
+        self._ordered_prefix_document = nil
+    end
     self.records = type(records) == "table" and records or {}
     self.records_ordered = ordered == true
-    self._ordered_prefix_ends = nil
     self:invalidate()
 end
 
@@ -57,11 +72,26 @@ end
 function Overlay:invalidate()
     self.generation = self.generation + 1
     self.cache = {}
+    self.cache_order = {}
+    self.cache_count = 0
     self.visible = {}
+end
+
+local function touch_page(self, key)
+    local order = self.cache_order
+    for i, value in ipairs(order) do
+        if value == key then table.remove(order, i);break end
+    end
+    table.insert(order, 1, key)
+    if #order > PAGE_CACHE_LIMIT then
+        self.cache[table.remove(order)] = nil
+    end
+    self.cache_count = #order
 end
 
 function Overlay:resetLayout()
     self._ordered_prefix_ends = nil
+    self._ordered_prefix_document = nil
     self:invalidate()
 end
 
@@ -69,11 +99,14 @@ function Overlay:_orderedStart(document, page_start)
     if not self.records_ordered or not page_start
         or type(document.compareXPointers) ~= "function" then return 1 end
     local prefix = self._ordered_prefix_ends
-    if not prefix then
-        prefix = {}
-        local latest
-        for index, record in ipairs(self.records) do
+    if self._ordered_prefix_document ~= document then prefix = nil end
+    if not prefix or #prefix < #self.records then
+        prefix = prefix or {}
+        local latest = prefix[#prefix]
+        for index = #prefix + 1, #self.records do
+            local record = self.records[index]
             if type(record) ~= "table" or not record.pos0 or not record.pos1 then
+                self._ordered_prefix_ends, self._ordered_prefix_document = nil, nil
                 return 1
             end
             if not latest then
@@ -81,12 +114,13 @@ function Overlay:_orderedStart(document, page_start)
             else
                 local ok, before = pcall(document.compareXPointers,
                     document, latest, record.pos1)
-                if not ok then return 1 end
+                if not ok then self._ordered_prefix_ends, self._ordered_prefix_document = nil, nil;return 1 end
                 if before == 1 then latest = record.pos1 end
             end
             prefix[index] = latest
         end
         self._ordered_prefix_ends = prefix
+        self._ordered_prefix_document = document
     end
     local low, high = 1, #prefix + 1
     while low < high do
@@ -234,26 +268,32 @@ function Overlay:paintTo(bb, x, y)
     local can_cache = self.view and self.view.view_mode == "page"
     local cache_key = tostring(self.generation) .. ":" .. tostring(page)
     local cached = can_cache and self.cache[cache_key] or nil
-    local boxes, candidates, lines
+    local boxes, candidates, lines, prepared
     if cached then
+        touch_page(self, cache_key)
         boxes = cached.boxes
         candidates = cached.candidates
         lines = cached.lines
+        prepared = cached.prepared
     else
         boxes, candidates = self:_computeVisible()
-        lines = merge_lines(boxes)
+        if self.painter then
+            if self.prepare_painter then prepared = self.prepare_painter(boxes) end
+        else
+            lines = merge_lines(boxes)
+        end
         if can_cache then
-            self.cache_count = (self.cache_count or 0) + 1
-            if self.cache_count > 4 then self.cache, self.cache_count = {}, 1 end
             self.cache[cache_key] = {
                 boxes = boxes,
                 candidates = candidates,
                 lines = lines,
+                prepared = prepared,
             }
+            touch_page(self, cache_key)
         end
     end
     self.visible = boxes
-    draw_lines(self, bb, lines)
+    if self.painter then self.painter(bb,boxes,self.style,prepared) else draw_lines(self, bb, lines) end
     self.last_metrics = {
         candidates = candidates,
         boxes = #boxes,
@@ -269,6 +309,20 @@ function Overlay:hitTest(pos)
             return entry.record
         end
     end
+end
+
+-- Several personal notes may refer to the same passage. Return each record
+-- once even when a multi-line selection yields several overlapping boxes.
+function Overlay:hitTestAll(pos)
+    local records,seen={},{}
+    for index = #self.visible, 1, -1 do
+        local entry = self.visible[index]
+        if not seen[entry.record] and inside(entry.rect, pos, self.hit_padding) then
+            seen[entry.record] = true
+            records[#records + 1] = entry.record
+        end
+    end
+    return records
 end
 
 return Overlay

@@ -1,0 +1,16 @@
+{
+  "scope": "display fresh shelf after local snapshot save failure",
+  "synthetic_native_runtime": {
+    "resolutions": [[600, 800], [1264, 1680]],
+    "host": "PluginLoader and FileManager",
+    "cases_per_process": ["home header refresh save failure", "home shortcut refresh save failure", "bookshelf refresh save failure", "home refresh save success"],
+    "old_snapshot_preserved_on_failure": true,
+    "fresh_data_visible": true,
+    "failure_notice_checked": true,
+    "fresh_process_repeated": true,
+    "shelf_response": "in-memory synthetic fixture",
+    "http_requests": 0
+  },
+  "physical_kindle_verified": false,
+  "result": "PASS"
+}

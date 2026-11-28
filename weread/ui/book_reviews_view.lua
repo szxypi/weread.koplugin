@@ -1,6 +1,7 @@
 -- Full-screen, e-ink-friendly book review list with Recommended / Latest tabs.
 -- This is a presentation-only widget; network loading is handled by main.lua.
 
+local BD = require("ui/bidi")
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local Device = require("device")
@@ -8,6 +9,7 @@ local FocusManager = require("ui/widget/focusmanager")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
@@ -23,6 +25,75 @@ local T = require("ffi/util").template
 
 local BookReviews = require("weread.lib.book_reviews")
 local I18n = require("weread.lib.i18n")
+local ListPaint = require("weread.lib.shelf_list_paint")
+local ListEvents = require("weread.lib.shelf_list_events")
+
+local ReviewListGroup = VerticalGroup:extend{}
+function ReviewListGroup:paintTo(bb, x, y)
+    self._painted_rows = ListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
+end
+
+-- Fixed-size rows retain their input geometry but build the native Button's
+-- text and frame only when painted. Keep the same Geom object for the focus
+-- layout and gesture ranges when the underlying Button is rebuilt.
+local ReviewRow = Button:extend{}
+local function review_row_gestures(self)
+    self.ges_events = {
+        TapSelectButton = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        HoldSelectButton = { GestureRange:new{ ges = "hold", range = self.dimen } },
+        HoldReleaseSelectButton = { GestureRange:new{ ges = "hold_release", range = self.dimen } },
+    }
+end
+function ReviewRow:init()
+    self.dimen = Geom:new{ w = self.width,
+        h = self.height + 2 * (self.padding_v or self.padding) + 2 * self.margin + 2 * self.bordersize }
+    review_row_gestures(self)
+end
+function ReviewRow:_ensureButton()
+    if self.frame then return end
+    local geometry = self.dimen
+    if not self.text then self.text = self.show_parent:reviewText(self.review) end
+    Button.init(self)
+    local measured = self.dimen
+    -- Geometry is fixed by the configured width and reference height. Keep
+    -- the original object referenced by focus navigation and gesture ranges.
+    assert(measured.w == geometry.w and measured.h == geometry.h, "review row geometry changed")
+    self.dimen = geometry
+    review_row_gestures(self)
+    if not self.frame.dimen then self.frame.dimen = geometry:copy()
+    else self.frame.dimen.x, self.frame.dimen.y = geometry.x, geometry.y end
+    self.frame.invert = self._review_focused or false
+end
+function ReviewRow:paintTo(bb, x, y)
+    self:_ensureButton()
+    return Button.paintTo(self, bb, x, y)
+end
+function ReviewRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    if self.frame then
+        self.frame:free()
+        self.frame, self[1], self.label_widget, self.label_container = nil, nil, nil, nil
+    end
+end
+function ReviewRow:onFocus()
+    self._review_focused = true
+    if self.frame then self.frame.invert = true end
+    return true
+end
+function ReviewRow:onUnfocus()
+    self._review_focused = false
+    if self.frame then self.frame.invert = false end
+    return true
+end
+function ReviewRow:onTapSelectButton(...)
+    self:_ensureButton()
+    return Button.onTapSelectButton(self, ...)
+end
+function ReviewListGroup:propagateEvent(event)
+    local routed, consumed = ListEvents.dispatchPainted(self._painted_rows, event)
+    if routed then return consumed end
+    return VerticalGroup.propagateEvent(self, event)
+end
 
 local function _(text)
     return I18n.tr(text)
@@ -32,6 +103,10 @@ local TABS = {
     { mode = "recommended", text = "Recommended reviews" },
     { mode = "latest", text = "Latest reviews" },
 }
+local NATIVE_TABS = {
+    TABS[2],
+    { mode = "five_stars", text = "Five-star reviews" },
+}
 
 local BookReviewsView = FocusManager:extend{
     book_title = nil,
@@ -39,18 +114,30 @@ local BookReviewsView = FocusManager:extend{
     result = nil,
     on_switch = nil,
     on_select = nil,
+    on_load_more = nil,
+    on_close = nil,
+    latest_only = false,
+    native_filters = false,
+    scroll_offset = nil,
+    focus_row = nil,
+    title_text = nil,
+    tab_text = nil,
+    empty_text = nil,
+    incomplete_text = nil,
+    limited_text = nil,
 }
 
 function BookReviewsView:buildTabBar()
-    local first_width = math.floor(self.screen_w / #TABS)
+    local tabs = self.native_filters and NATIVE_TABS or self.latest_only and { TABS[2] } or TABS
+    local first_width = math.floor(self.screen_w / #tabs)
     local row = HorizontalGroup:new{}
     self._tab_buttons = {}
-    for index, tab in ipairs(TABS) do
+    for index, tab in ipairs(tabs) do
         local active = tab.mode == self.mode
         local button = Button:new{
-            text = _(tab.text),
-            width = index == #TABS
-                and self.screen_w - first_width * (#TABS - 1)
+            text = _(tab.mode == 'latest' and self.latest_only and self.tab_text or tab.text),
+            width = index == #tabs
+                and self.screen_w - first_width * (#tabs - 1)
                 or first_width,
             radius = 0,
             margin = 0,
@@ -89,7 +176,7 @@ function BookReviewsView:reviewText(review)
         review.author ~= "" and review.author or _("Anonymous"),
     }
     if review.rating > 0 then
-        metadata[#metadata + 1] = T(_("Score %1"), BookReviews.format_rating(review.rating))
+        metadata[#metadata + 1] = T(_("Score %1 / 5"), BookReviews.format_rating(review.rating))
     end
     local review_date = BookReviews.format_date(review.create_time)
     if review_date ~= "" then
@@ -102,25 +189,30 @@ function BookReviewsView:reviewText(review)
 end
 
 function BookReviewsView:buildContent()
-    local content = VerticalGroup:new{
+    local content = ReviewListGroup:new{
         align = "left",
         HorizontalSpan:new{ width = self.content_width },
     }
     self._review_buttons = {}
+    if self.incomplete_text and not self.latest_only then
+        table.insert(content, TextWidget:new{
+            text = self.incomplete_text, face = Font:getFace("cfont", 16), max_width = self.content_width,
+        })
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+    end
     local items = self.result and self.result.items or {}
     if #items == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
-            text = _("No reviews."),
+            text = _(self.empty_text or "No reviews."),
             face = Font:getFace("cfont", 18),
             max_width = self.content_width,
         })
-        return content
     end
 
     for _i, review in ipairs(items) do
-        local button = Button:new{
-            text = self:reviewText(review),
+        local button = ReviewRow:new{
+            review = review,
             width = self.content_width,
             height = Screen:scaleBySize(66),
             align = "left",
@@ -139,10 +231,44 @@ function BookReviewsView:buildContent()
                 end
             end,
         }
+        button._shelf_list_row = true
         self._review_buttons[#self._review_buttons + 1] = button
         table.insert(content, button)
         table.insert(content, VerticalSpan:new{ width = Size.padding.small })
     end
+    if self.result and self.result.has_more and self.on_load_more then
+        local button = Button:new{
+            text = _("Load more results"),
+            width = self.content_width,
+            show_parent = self,
+            callback = self.on_load_more,
+        }
+        button._shelf_list_row = true
+        self._review_buttons[#self._review_buttons + 1] = button
+        table.insert(content, button)
+    end
+    if self.latest_only then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = self.result and self.result.limited
+                and _(self.limited_text or "Review limit reached; more reviews may be available.")
+                or _(self.incomplete_text or "Some reviews may be unavailable."),
+            face = Font:getFace("cfont", 16),
+            max_width = self.content_width,
+        })
+    elseif self.result and self.result.limited then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = _("Review limit reached; more reviews may be available."),
+            face = Font:getFace("cfont", 16), max_width = self.content_width,
+        })
+    end
+    -- Use the native layout's offsets, including any warning above the rows.
+    content:getSize()
+    for index, child in ipairs(content) do
+        if child._shelf_list_row then child._focus_content_top = self.outer_margin + content._offsets[index].y end
+    end
+    self._review_content = content
     return content
 end
 
@@ -161,7 +287,7 @@ function BookReviewsView:init()
 
     self.title_bar = TitleBar:new{
         width = self.screen_w,
-        title = T("%1 · %2", _("Book reviews"), self.book_title or _("Untitled")),
+        title = T("%1 · %2", _(self.title_text or "Book reviews"), self.book_title or _("Untitled")),
         title_multilines = true,
         align = "center",
         with_bottom_line = true,
@@ -184,15 +310,21 @@ function BookReviewsView:init()
             },
         },
     }
+    self._review_scroll = scroll
+    if self.scroll_offset then
+        scroll:initState()
+        scroll:setScrolledOffset(self.scroll_offset)
+        scroll:_scrollBy(0, 0)
+    end
     local rows = { self._tab_buttons }
     for _i, review_button in ipairs(self._review_buttons) do
         rows[#rows + 1] = { review_button }
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._tab_buttons) do outside_scroll[button] = true end
-    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
+    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll, windowed = true })
     -- Reviews follow the tab row.
-    FocusNav.initialFocus(self, 1, #rows > 1 and 2 or 1)
+    FocusNav.initialFocus(self, 1, math.min(#rows, self.focus_row or (#rows > 1 and 2 or 1)))
 
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
@@ -210,6 +342,8 @@ function BookReviewsView:onShow()
 end
 
 function BookReviewsView:onCloseWidget()
+    self._review_closed = true
+    if self.on_close then self.on_close() end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -228,6 +362,17 @@ function M.show(data, callbacks)
         result = data.result,
         on_switch = callbacks.on_switch,
         on_select = callbacks.on_select,
+        on_load_more = callbacks.on_load_more,
+        on_close = callbacks.on_close,
+        latest_only = data.latest_only == true,
+        native_filters = data.native_filters == true,
+        scroll_offset = data.scroll_offset,
+        focus_row = data.focus_row,
+        title_text = data.title_text,
+        tab_text = data.tab_text,
+        empty_text = data.empty_text,
+        incomplete_text = data.incomplete_text,
+        limited_text = data.limited_text,
     }
     UIManager:show(view)
     return view

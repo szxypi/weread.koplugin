@@ -64,10 +64,14 @@ package.preload["libs/libkoreader-lfs"] = function()
 end
 
 local saved_books = {}
+local loaded_book_keys = {}
 local minimal_index_checked = false
+local minimal_index, legacy_catalog = false, false
+local retired_catalog_id
 package.preload["weread.lib.book_store"] = function()
     return {
         load = function(_settings, book_id, index)
+            loaded_book_keys[#loaded_book_keys + 1] = book_id
             return {
                 book_id = book_id,
                 cache_dir = index.cache_dir,
@@ -78,9 +82,25 @@ package.preload["weread.lib.book_store"] = function()
             saved_books[book_id] = book
             return true, { cache_dir = "/saved/" .. book_id }
         end,
+        patch_reading = function(_settings, book_id, index, patch)
+            expect(book_id=='7' and index==values.books['7'] and patch.progress==38,'reading patch did not use one indexed book')
+            return true
+        end,
         is_minimal_index = function(books)
             minimal_index_checked = books == values.books
-            return false
+            return minimal_index
+        end,
+        has_legacy_catalog = function(_settings, id, index)
+            expect(id == "7" and index == values.books["7"], "legacy catalog check did not use the stored book directory")
+            return legacy_catalog
+        end,
+        clear_legacy_catalog = function(_settings, id)
+            retired_catalog_id = id
+            return true
+        end,
+        record_download = function(_settings, id, index, _book, _change)
+            return true, { cache_dir = index and index.cache_dir or "/saved/"..id },
+                not index and {cache_dir="/saved/"..id} or nil
         end,
     }
 end
@@ -103,8 +123,8 @@ expect(thought_popup.height_ratio == 0.70
     and thought_popup.contrast == 9
     and thought_popup.tap_to_page == false,
     "thought popup preferences should use the defaults")
-expect(settings:get("shelf").view_mode == "list",
-    "bookshelf should default to the low-overhead list view")
+expect(settings:get("shelf").view_mode == "cover",
+    "bookshelf should default to the e-ink cover view")
 expect(created_dirs[1] == "/data/weread"
     and created_dirs[2] == "/data/weread/cache",
     "settings directories were not initialized")
@@ -132,6 +152,9 @@ expect(flush_count == 2,
 local books = settings:get("books")
 expect(books["42"].loaded and books["42"].book_id == "42",
     "book indexes were not hydrated through BookStore")
+expect(settings:get_book("42").book_id=="42" and settings:get_book("42").loaded,
+    "one indexed book was not hydrated")
+expect(settings:get_book("missing")==nil,"unknown book read an unindexed cache")
 settings:set("books", {
     ["7"] = { title = "Seven" },
 })
@@ -139,6 +162,9 @@ expect(saved_books["7"].title == "Seven",
     "book was not persisted through BookStore")
 expect(values.books["7"].cache_dir == "/saved/7",
     "settings did not store the minimal book index")
+local patch_flushes=flush_count
+expect(settings:patch_reading_state('7',{progress=38}) and flush_count==patch_flushes,
+    'late reading patch flushed an older global settings snapshot')
 values.large_runtime_data = { "temporary" }
 settings:delete("large_runtime_data")
 expect(values.large_runtime_data == nil,
@@ -146,6 +172,44 @@ expect(values.large_runtime_data == nil,
 expect(settings:has_legacy_book_records(),
     "legacy book record check was not delegated")
 expect(minimal_index_checked, "book index was not passed to BookStore")
+minimal_index = true
+expect(not settings:has_legacy_book_records(), "a modern catalog forced a full book migration")
+legacy_catalog = true
+expect(settings:has_legacy_book_records(), "a legacy metadata catalog was missed in a modern index")
+legacy_catalog = false
+local stored_books = values.books
+values.books = false
+expect(not settings:has_legacy_book_records(), "an empty legacy book index forced migration")
+values.books = stored_books
+
+do
+    local before_flush = flush_count
+    local other = stored_books["7"]
+    expect(settings:remember_catalog_book("42", {book_id="42",title="First catalog"})
+        and saved_books["42"].title=="First catalog" and values.books["42"].cache_dir=="/saved/42"
+        and values.books["7"]==other and not stored_books["42"] and flush_count==before_flush+1,
+        "first catalog registration changed another book or reused the old index snapshot")
+    values.books[53]={cache_dir="/old/53",chapters={{chapterUid=1}},cached_file="/old/53/chapter.epub"}
+    local older_index=values.books
+    expect(settings:remember_catalog_book("53", {book_id="53"})
+        and retired_catalog_id=="53" and not saved_books["53"] and not values.books["53"]
+        and not values.books[53].chapters and values.books[53].cached_file=="/old/53/chapter.epub"
+        and older_index[53].chapters and flush_count==before_flush+2,
+        "legacy retirement rewrote book state or lost the original numeric index")
+    values.books["53"]={cache_dir="/conflict"}
+    retired_catalog_id=nil
+    expect(not settings:remember_catalog_book("53", {book_id="53"}) and not retired_catalog_id
+        and flush_count==before_flush+2, "ambiguous catalog target was updated")
+    values.books["53"]=nil
+    local indexed=values.books[53]
+    local recorded, record=settings:record_download("53",{book_id="53"},{})
+    expect(recorded and record.cache_dir=="/old/53" and values.books["53"]==indexed and not values.books[53]
+        and flush_count==before_flush+3, "download did not retain and canonicalize the legacy index")
+    local current_indexes=values.books
+    expect(settings:record_download("53",{book_id="53"},{}) and values.books==current_indexes
+        and flush_count==before_flush+3, "existing download unnecessarily rewrote the global index")
+    values.books=stored_books
+end
 
 settings:update_auth({
     cookies = { wr_gid = "12345" },
@@ -210,5 +274,85 @@ local ok = pcall(function() settings:get_device_fingerprint() end)
 expect(not ok and values.device_fingerprint == "invalid; cookie=value",
     "failed entropy reads must not save a partial or shared fallback fingerprint")
 setfenv(Settings.get_device_fingerprint, original_environment)
+
+local scope_path = os.tmpname()
+local original_path = settings.settings_file
+settings.settings_file = scope_path
+local function persist_scope()
+    local file = assert(io.open(scope_path, "w"))
+    file:write(string.format("return { account={user_vid=%q}, cookies={wr_vid=%q}, auth_epoch=%d }",
+        tostring(values.account.user_vid or ""), tostring(values.cookies.wr_vid or ""), values.auth_epoch))
+    file:close()
+end
+settings:update_auth({ account = { user_vid = "123", login_time = 10 }, cookies = { wr_vid = "123" } })
+persist_scope()
+local scope = settings:get_auth_scope()
+expect(scope and settings:auth_scope_matches(scope), "matching primary-file Web session was rejected")
+settings:merge_set_cookie("wr_skey=mocknew; Path=/")
+expect(settings:get_auth_scope().epoch == scope.epoch, "Cookie renewal must preserve native authorization owner")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(not settings:auth_scope_matches(scope) and settings:get_auth_scope().epoch > scope.epoch,
+    "same account re-login in the same second must invalidate old native grants")
+persist_scope()
+scope = settings:get_auth_scope()
+values.cookies.wr_vid = "456"
+expect(settings:get_auth_scope() == nil, "inconsistent cookie VID cannot authorize native access")
+values.cookies.wr_vid = "123"
+local file = assert(io.open(scope_path, "w"))
+file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=999}") file:close()
+expect(not settings:auth_scope_matches(scope), "stale Settings instance cannot authorize another on-disk login")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(values.auth_epoch == 1000, "new Web login advances beyond disk session generation")
+settings:reset_account()
+expect(settings:get_auth_scope() == nil, "logout invalidates native account scope")
+persist_scope()
+local old_flush = store.flush
+local source_failure = false
+store.flush = function()
+    if source_failure then error("synthetic write failure") end
+    local source_file = assert(io.open(scope_path, "w"))
+    source_file:write(string.format("return {shelf={source=%q}}", values.shelf.source))
+    source_file:close()
+end
+expect(settings:set_shelf_source("native") and settings:get("shelf").source == "native",
+    "source preference did not survive primary-file readback")
+source_failure = true
+expect(not settings:set_shelf_source("gateway") and settings:get("shelf").source == "native",
+    "failed source preference write must restore prior selection")
+source_failure = false
+expect(not settings:set_shelf_source("invalid"), "unknown source preference accepted")
+local source_file = assert(io.open(scope_path, "w"))
+source_file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=2000}") source_file:close()
+expect(not settings:set_shelf_source("gateway"), "stale source picker overwrote a new on-disk account")
+store.flush = old_flush
+os.remove(scope_path)
+settings.settings_file = original_path
+
+local old_books = values.books
+values.books = { [42] = { cache_dir = "/legacy/42" }, [9007199254740992] = { cache_dir = "/rounded" } }
+expect(settings:get_book("42") == nil and settings:get_book("42", true).cache_dir == "/legacy/42",
+    "optional numeric lookup changed ordinary settings lookup or lost a legacy book")
+expect(settings:get_book("9007199254740993", true) == nil, "legacy numeric lookup rounded a large book ID")
+local Access = require("weread.lib.read_access")
+local load_count = #loaded_book_keys
+local lookup = Access.book_lookup(settings)
+expect(#loaded_book_keys == load_count, "creating a view lookup loaded stored books eagerly")
+local legacy_book = Access.cached_book(lookup, "42")
+expect(legacy_book and legacy_book.cache_dir == "/legacy/42" and loaded_book_keys[load_count + 1] == 42,
+    "view lookup did not use the original legacy key")
+expect(Access.cached_book(lookup, 42) == legacy_book and #loaded_book_keys == load_count + 1,
+    "view lookup loaded the same book twice")
+expect(Access.cached_book(lookup, "9007199254740993") == nil and Access.cached_book(lookup, "43") == nil
+    and #loaded_book_keys == load_count + 1, "view lookup loaded an unrelated record")
+values.books["42"] = { cache_dir = "/exact/42" }
+expect(settings:get_book("42", true).cache_dir == "/exact/42", "exact saved key must precede a legacy numeric key")
+local fresh = Access.cached_book(Access.book_lookup(settings), "42")
+expect(fresh and fresh.cache_dir == "/exact/42" and loaded_book_keys[#loaded_book_keys] == "42",
+    "a subsequent view must load the exact key and see the update")
+local conflict, reason = Access.cached_book(function() return { book_id = "43" } end, "42")
+expect(conflict == nil and reason == "identity_conflict", "view lookup accepted a conflicting book identity")
+local _, write_reason = Access.cached_book_for_update(lookup, "42")
+expect(write_reason == "invalid_identity", "a read-only book lookup was accepted for an update")
+values.books = old_books
 
 print(("settings_spec: %d checks"):format(checks))

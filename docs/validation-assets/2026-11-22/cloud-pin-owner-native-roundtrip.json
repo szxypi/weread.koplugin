@@ -1,0 +1,412 @@
+{
+  "result": "OWNER_NATIVE_PIN_ROUNDTRIP_VERIFIED",
+  "account_data_posts_attempted": 4,
+  "authentication_posts": 0,
+  "gateway_read_posts": 18,
+  "credentials_written_to_files": false,
+  "no_automatic_replay": true,
+  "host_data_posts": 2,
+  "native_data_posts": 2,
+  "independent_steps": 2,
+  "original_shelf_and_reading_fields_verified": true,
+  "book_update_time_unchanged": false,
+  "progress_projection": "exclude_server_clock_and_book_update_time",
+  "dry_run": {
+    "result": "PASS",
+    "profile_removed": true,
+    "installed": {
+      "files": 439,
+      "bytes_match": true
+    },
+    "stage": {
+      "cancel_no_post": true,
+      "local_state_preserved": true,
+      "cache_verified": false,
+      "journal_before_posts": false,
+      "anonymous_credentials": true,
+      "guard_selftest": true,
+      "native_detail": true,
+      "result": "PASS",
+      "second_preview": false,
+      "phase": "complete",
+      "permit_writes": false,
+      "native_gets": 5,
+      "native_posts": 0,
+      "denied": 0,
+      "screenshots": 0,
+      "failed_line": 0,
+      "shelf_books": 141,
+      "profile_files_audited": 9,
+      "credential_audit": true,
+      "workers_reaped": true,
+      "first_preview": true,
+      "native_confirmations": true,
+      "worker_heartbeat": true
+    }
+  },
+  "native_ui": {
+    "result": "PASS",
+    "profile_removed": true,
+    "installed": {
+      "files": 439,
+      "bytes_match": true
+    },
+    "stage": {
+      "phase": "complete",
+      "permit_writes": true,
+      "native_gets": 15,
+      "native_posts": 2,
+      "denied": 0,
+      "screenshots": 0,
+      "failed_line": 0,
+      "shelf_books": 141,
+      "profile_files_audited": 9,
+      "anonymous_credentials": true,
+      "guard_selftest": true,
+      "native_detail": true,
+      "first_preview": true,
+      "second_preview": true,
+      "native_confirmations": true,
+      "worker_heartbeat": true,
+      "cancel_no_post": true,
+      "local_state_preserved": true,
+      "cache_verified": true,
+      "journal_before_posts": true,
+      "workers_reaped": true,
+      "credential_audit": true,
+      "result": "PASS"
+    }
+  },
+  "outer_intent_state": "restored",
+  "inner_intent_state": "retired",
+  "host_data_posts_attempted": 2,
+  "host_write_receipts": [
+    {
+      "stage": "add",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    },
+    {
+      "stage": "remove",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    }
+  ],
+  "native_data_posts_attempted": 2,
+  "native_stages": [
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "search",
+      "status": 200
+    },
+    {
+      "stage": "discovery_metadata",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "native_pin_host_add",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "native_pin_host_remove",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    }
+  ],
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

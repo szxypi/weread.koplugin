@@ -1,0 +1,42 @@
+{
+  "result": "PASS",
+  "profile_removed": true,
+  "installed_bytes_match": true,
+  "stages": [
+    {
+      "mode": "live",
+      "result": "PASS",
+      "phase": "complete",
+      "checks": 47,
+      "requests": 67,
+      "posts": 7,
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true
+    },
+    {
+      "posts": 12,
+      "forbidden": 0,
+      "screenshots": 2,
+      "workers_reaped": true,
+      "mode": "reopen",
+      "result": "PASS",
+      "phase": "complete",
+      "offline_shot": true,
+      "checks": 43,
+      "requests": 106
+    },
+    {
+      "checks": 12,
+      "requests": 108,
+      "posts": 12,
+      "forbidden": 0,
+      "screenshots": 0,
+      "workers_reaped": true,
+      "mode": "offline_reopen",
+      "result": "PASS",
+      "phase": "complete"
+    }
+  ],
+  "queue_store_verified": true
+}

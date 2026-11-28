@@ -1,0 +1,126 @@
+{
+  "result": "READER_LINK_NATIVE_RUNTIME_VERIFIED",
+  "checked_at": "2026-11-08T20:37:40.696206+00:00",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "cases": [
+    {
+      "suite": "core",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "9d357d57067f0abbf258d834a1c21dc415be7937c4a1abce2bc10dc9930118db",
+      "packaged_files": 142,
+      "production_files_match_worktree": true,
+      "checks": {
+        "synthetic_only": true,
+        "native_input": true,
+        "background_http": true,
+        "same_link_identity": true,
+        "filtered_metadata": true,
+        "offline_reopen": true,
+        "sqlite_reopen": true,
+        "account_isolated": true,
+        "pagination": true,
+        "existing_local_state_preserved": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "cookie_change_rejected": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "corrupt_row_skipped": true,
+        "cache_row_identity_checked": true,
+        "stale_remove_confirmation_rejected": true,
+        "local_remove_only": true,
+        "reading_writes": 0,
+        "result": "PASS"
+      }
+    },
+    {
+      "suite": "core",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "0c86c1ea00f823cccb61a07911f60237b6921dd10dba7fb9a80d1a54ecf71409",
+      "packaged_files": 142,
+      "production_files_match_worktree": true,
+      "checks": {
+        "synthetic_only": true,
+        "result": "PASS",
+        "background_http": true,
+        "same_link_identity": true,
+        "filtered_metadata": true,
+        "offline_reopen": true,
+        "sqlite_reopen": true,
+        "account_isolated": true,
+        "pagination": true,
+        "existing_local_state_preserved": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "cookie_change_rejected": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "corrupt_row_skipped": true,
+        "cache_row_identity_checked": true,
+        "stale_remove_confirmation_rejected": true,
+        "local_remove_only": true,
+        "reading_writes": 0,
+        "native_input": true
+      }
+    },
+    {
+      "suite": "cloud-source",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "afc942da3efb7ec1832d691809bbfc7b8944a5baf62c7ebcb70b6a214cf0a0ad",
+      "packaged_files": 142,
+      "production_files_match_worktree": true,
+      "checks": {
+        "cached_chapter_handoff": true,
+        "startup_pull_superseded": true,
+        "download_declined": true,
+        "owned_download_cancelled": true,
+        "download_reverified": true,
+        "downloaded_source_target_visible": true,
+        "changed_source_no_guess": true,
+        "reading_writes": 0,
+        "result": "PASS",
+        "upload_verified": false,
+        "synthetic_only": true,
+        "source_target_visible": true,
+        "cross_chapter_full_book": true,
+        "background_http": true,
+        "independent_archive": true,
+        "retained_original_offset": true,
+        "offline_no_request": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "navigator_cancelled": true,
+        "reader_reopen_cancelled": true,
+        "old_queued_upload_cancelled": true,
+        "report_gate_not_granted": true,
+        "cached_full_handoff": true
+      }
+    }
+  ],
+  "limitations": [
+    "Standard book Reader links only",
+    "No physical KO2 validation",
+    "No cloud shelf or annotation writes; other migration features remain pending"
+  ]
+}

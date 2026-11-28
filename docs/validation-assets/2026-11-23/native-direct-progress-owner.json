@@ -1,0 +1,16 @@
+{
+  "result": "NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "books": 1,
+  "chapters_opened_per_run": 1,
+  "installed_plugin_full_ui": true,
+  "independent_catalog_weight_estimate_matches": true,
+  "offline_new_process_resume_and_page_restoration": true,
+  "offline_network_guard": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_comparison": 0,
+  "credentials_written_to_files": false,
+  "temporary_profiles_removed": true,
+  "physical_kindle_tested": false
+}

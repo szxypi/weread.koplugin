@@ -1,0 +1,199 @@
+{
+  "result": "PASS_STANDALONE_LINK_BACKEND_PREPARATION",
+  "synthetic_only": true,
+  "real_account_data_posts": 0,
+  "real_authentication_posts": 0,
+  "navigation_connected": false,
+  "download_connected": false,
+  "cross_file_return_connected": false,
+  "full_goal_complete": false,
+  "runtime": "official KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "worker_checks": 73,
+  "lua_specs": 231,
+  "static_files": 648,
+  "static_warnings": 0,
+  "static_errors": 0,
+  "python_package_tests": 15,
+  "native": [
+    {
+      "fixture": "chapter-links-preflight-final-600",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "candidate_sha256": "4c570b3541b3636c07246bff31d6f6787f0f121496df56733bbb57d84dc06997",
+      "source_candidate_installed_files_match": 261,
+      "report": {
+        "relative_uri_recovery": true,
+        "source_replacement_rejected": true,
+        "literal_percent_anchor_not_double_decoded": true,
+        "original_archives_restored": true,
+        "unicode_percent_filename": true,
+        "navigation_or_download": false,
+        "uncached_plan_not_anchor_proof": true,
+        "account_data_posts": 0,
+        "reader_position_exact": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "version_conflict_rejected": true,
+        "old_reader_identity_not_rebound": true,
+        "cached": true,
+        "duplicate_anchor_rejected": true,
+        "independent_native_archive_worker": true
+      },
+      "native_uri_examples": [
+        {
+          "xpointer": "OEBPS/text/notes.xhtml#中",
+          "from_xpointer": "/body/DocFragment/body/p/a[1].0",
+          "uri": "OEBPS/text/notes.xhtml#中"
+        },
+        {
+          "xpointer": "OEBPS/Text/notes.xhtml#中",
+          "from_xpointer": "/body/DocFragment/body/p/a[2].0",
+          "uri": "OEBPS/Text/notes.xhtml#中"
+        },
+        {
+          "xpointer": "OEBPS/text/notes.xhtml#literal%2A",
+          "from_xpointer": "/body/DocFragment/body/p/a[3].0",
+          "uri": "OEBPS/text/notes.xhtml#literal%2A"
+        },
+        {
+          "xpointer": "OEBPS/text/资料 100%.xhtml#资料",
+          "from_xpointer": "/body/DocFragment/body/p/a[4].0",
+          "uri": "OEBPS/text/资料 100%.xhtml#资料"
+        }
+      ]
+    },
+    {
+      "fixture": "chapter-links-preflight-final-1264",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "candidate_sha256": "993eafa3d56f78e978cb7cc6a249fd1d67c33f8460e6fb2cbcc7dba45e8ba17f",
+      "source_candidate_installed_files_match": 261,
+      "report": {
+        "account_data_posts": 0,
+        "source_replacement_rejected": true,
+        "old_reader_identity_not_rebound": true,
+        "original_archives_restored": true,
+        "result": "PASS",
+        "navigation_or_download": false,
+        "uncached_plan_not_anchor_proof": true,
+        "reader_position_exact": true,
+        "synthetic_only": true,
+        "cached": true,
+        "independent_native_archive_worker": true,
+        "relative_uri_recovery": true,
+        "version_conflict_rejected": true,
+        "literal_percent_anchor_not_double_decoded": true,
+        "duplicate_anchor_rejected": true,
+        "unicode_percent_filename": true
+      },
+      "native_uri_examples": [
+        {
+          "from_xpointer": "/body/DocFragment/body/p/a[1].0",
+          "uri": "OEBPS/text/notes.xhtml#中",
+          "xpointer": "OEBPS/text/notes.xhtml#中"
+        },
+        {
+          "from_xpointer": "/body/DocFragment/body/p/a[2].0",
+          "uri": "OEBPS/Text/notes.xhtml#中",
+          "xpointer": "OEBPS/Text/notes.xhtml#中"
+        },
+        {
+          "from_xpointer": "/body/DocFragment/body/p/a[3].0",
+          "uri": "OEBPS/text/notes.xhtml#literal%2A",
+          "xpointer": "OEBPS/text/notes.xhtml#literal%2A"
+        },
+        {
+          "from_xpointer": "/body/DocFragment/body/p/a[4].0",
+          "uri": "OEBPS/text/资料 100%.xhtml#资料",
+          "xpointer": "OEBPS/text/资料 100%.xhtml#资料"
+        }
+      ]
+    },
+    {
+      "fixture": "chapter-links-rich-final-600",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "candidate_sha256": "637b72144fe2fd7081d7988a750fe55ed16b6f4ae6cf17adaad0be7c180b8142",
+      "source_candidate_installed_files_match": 261,
+      "report": {
+        "result": "PASS",
+        "second_hop_return_exact": true,
+        "synthetic_only": true,
+        "original_media_notes": 4,
+        "exact_returns": 4,
+        "citation_followed": true,
+        "plain_native_popup": true,
+        "cross_chapter_rich_original": true,
+        "cross_chapter_exact_return": true,
+        "cross_chapter_citation": true,
+        "unicode_encoded_anchor": true,
+        "typed_backlink_exact": true,
+        "implicit_backlink_exact": true
+      }
+    },
+    {
+      "fixture": "chapter-links-rich-final-1264",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "candidate_sha256": "c25b043ca8df44641fcad453633a085aae05e0e9822885b1d1e3dab3ae204cf5",
+      "source_candidate_installed_files_match": 261,
+      "report": {
+        "typed_backlink_exact": true,
+        "implicit_backlink_exact": true,
+        "second_hop_return_exact": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "original_media_notes": 4,
+        "exact_returns": 4,
+        "citation_followed": true,
+        "plain_native_popup": true,
+        "cross_chapter_rich_original": true,
+        "cross_chapter_exact_return": true,
+        "cross_chapter_citation": true,
+        "unicode_encoded_anchor": true
+      }
+    },
+    {
+      "fixture": "chapter-links-core-final-600",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "candidate_sha256": "1da3303e2f3ca7c01f233745141b2684f50ff297e2905e791a88267afa285224",
+      "source_candidate_installed_files_match": 261,
+      "core_reading_regression": "PASS"
+    },
+    {
+      "fixture": "chapter-links-core-final-1264",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "candidate_sha256": "1d5ea81eac31333aee406c6780cb8565dd8347ac16c34b6dd15a32bdf2fcc8d0",
+      "source_candidate_installed_files_match": 261,
+      "core_reading_regression": "PASS"
+    }
+  ],
+  "screenshots": {
+    "chapter-link-preflight-600.png": "bbfa4a0ec892e9d807391bbb0fc7007122a0fb5174301be4feadbcb56e324372",
+    "chapter-link-preflight-1264.png": "164bd5d412bc9f4ace7cefe2d203a725a35a24d379c9170ae12b8a259c8deef6"
+  },
+  "source_sha256": {
+    "weread/lib/chapter_link_worker.lua": "cbefe5622f141e453439fc15c6782875f95d2377dc050bdee0565ce5598f1435",
+    "weread/lib/book_link_paths.lua": "1e2a4e59338d46bc37440ceb87b63d55c9d4b5bc619658e862f30062540c42f8",
+    "weread/lib/footnotes.lua": "df3864088ae52b297f32bca4ccd8d1d9677180a11f848d6e0d358c2fd91e6882",
+    "spec/chapter_link_worker_spec.lua": "15a2bbdba2cd637dcade37d528f49be7fb52effce865be468c43d0cdf60b4702",
+    "spec/koreader/chapter_link_preflight.lua": "8f38c09c1dd2222c10f94224b6bc8d4b0a00c03a54f77df0c7a81f26a8729920",
+    "scripts/test_discovery_runtime.py": "485220c94a855b5c3cbc429f6daca9fbcf8284ff297462e8787e439b2bdcd865"
+  },
+  "pending": [
+    "account/auth/document/view/catalog ownership and cancellation in the UI consumer",
+    "existing downloader integration and revalidation after completion",
+    "fresh ReaderUI identity/DOM verification before applying an anchor",
+    "source checkpoint and exact cross-file Back/Forward history",
+    "more real book formats and physical Kindle Oasis 2",
+    "historical reading-time verification and the rest of the full goal"
+  ]
+}

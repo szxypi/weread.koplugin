@@ -8,6 +8,7 @@ local logger = require("weread.lib.logger")
 local UIManager = require("ui/uimanager")
 local ThoughtPopup = require("weread.ui.thought_popup")
 local WeRead = require("weread.lib.protocol")
+local ProgressInterval = require("weread.lib.progress_interval")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -30,6 +31,10 @@ function M:onDispatcherRegisterActions()
         event = "ShowWeReadQuickMenu",
         title = _("WeRead · Quick menu"),
         reader = true,
+    })
+    Dispatcher:registerAction('weread_delayed_screenshot', {
+        category = 'none', event = 'ShowWeReadDelayedScreenshot',
+        title = _('WeRead · Delayed screenshot'), general = true,
     })
     Dispatcher:registerAction("weread_sync_progress", {
         category = "none",
@@ -70,7 +75,7 @@ function M:onDispatcherRegisterActions()
     Dispatcher:registerAction("weread_toggle_annotations", {
         category = "none",
         event = "ToggleWeReadAnnotations",
-        title = _("WeRead · Toggle underlines and thoughts"),
+        title = _("WeRead · Toggle underlines, thoughts and bookmarks"),
         reader = true,
     })
     Dispatcher:registerAction("weread_continue_annotation_matching", {
@@ -117,9 +122,47 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("E-Ink authorization"),
+            keep_menu_open = true,
+            callback = self:safeCallback(_("E-Ink authorization"), function(touchmenu_instance)
+                self._login_menu_instance = touchmenu_instance
+                self.native_authorization:showMenu()
+            end),
+        },
+        {
+            text = _("WeRead home"),
+            callback = self:safeCallback(_("WeRead home"), function() self:showHome() end),
+        },
+        {
+            text = _("Bookstore"),
+            callback = self:safeCallback(_("Bookstore"), function() self:openBookstore() end),
+        },
+        {
             text = _("Bookshelf"),
             callback = self:safeCallback(_("Bookshelf"), function()
                 self:showBookshelf()
+            end),
+        },
+        {
+            text = _('Offline changes'),
+            callback = self:safeCallback(_('Offline changes'), function() require('weread.ui.offline_changes').show(self) end),
+        },
+        {
+            text = _("Imported books"),
+            callback = self:safeCallback(_("Imported books"), function()
+                self:showImportedBooks()
+            end),
+        },
+        {
+            text = _("My notebooks"),
+            callback = self:safeCallback(_("My notebooks"), function()
+                require('weread.ui.notebook_catalog').show(self)
+            end),
+        },
+        {
+            text = _("Upload local book"),
+            callback = self:safeCallback(_("Upload local book"), function()
+                require('weread.ui.personal_upload').open(self)
             end),
         },
         {
@@ -127,6 +170,10 @@ function M:getMainMenuItems()
             callback = self:safeCallback(_("WeRead favorites"), function()
                 self:showWereadCollection()
             end),
+        },
+        {
+            text = _("My WeRead"),
+            callback = self:safeCallback(_("My WeRead"), function() self:showProfile() end),
         },
         {
             text = _("Search"),
@@ -161,9 +208,97 @@ function M:getMainMenuItems()
 
     if self.ui.document then
         local book_id = self:detectWeReadBook()
-        local reader_items = {}
+        local reader_items = {{
+            text = _("Export local notes"),
+            callback = self:safeCallback(_("Export local notes"), function()
+                self:showLocalNotesExport()
+            end),
+        }}
+        if require('weread.lib.native_direct_path').contains(self.settings,self.ui.document.file) then
+            local document,session=self.ui.document,self._reader_session_gen
+            table.insert(reader_items,1,{text=_('WeRead · Quick menu'),callback=self:safeCallback(_('WeRead · Quick menu'),function()
+                if self.ui.document==document and self._reader_session_gen==session then self:onShowWeReadQuickMenu() end
+            end)})
+            if book_id==nil then
+                local account=self.library_db and self.library_db:accountKey()
+                local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+                local function same_direct_reader()
+                    local current_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+                    return self.ui and self.ui.document==document and self._reader_session_gen==session
+                        and account==(self.library_db and self.library_db:accountKey())
+                        and require('weread.lib.native_direct_path').contains(self.settings,document.file)
+                        and (scope and self.settings:auth_scope_matches(scope) or not scope and not current_scope)
+                end
+                reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
+                    if account~=nil and same_direct_reader() then
+                        require('weread.ui.selection_thought').open_bookmark(self)
+                    end
+                end)}
+                for _i,choice in ipairs({{'My cloud highlights','marks'},{'My cloud bookmarks','bookmarks'},{'My cloud thoughts','thoughts'}}) do
+                    local label,variant=choice[1],choice[2]
+                    reader_items[#reader_items+1]={text=_(label),callback=self:safeCallback(_(label),function()
+                        if same_direct_reader() then require('weread.ui.native_direct_navigation').open_notes(self,variant) end
+                    end)}
+                end
+            end
+        end
         if book_id ~= nil then
+            if WeRead.is_mp_book(book_id) then
+                reader_items[#reader_items + 1] = {
+                    text = _("Export article to EPUB"),
+                    callback = self:safeCallback(_("Export article to EPUB"), function() self:showCurrentMPArticleExport() end),
+                }
+            end
+            if require('weread.lib.my_cloud_marks').display_id(book_id) then
+                local session,document=self._reader_session_gen,self.ui.document
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudMarks(book_id,{})
+                    end
+                end)}
+                reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        require('weread.ui.selection_thought').open_bookmark(self)
+                    end
+                end)}
+                reader_items[#reader_items+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudBookmarks(book_id,{})
+                    end
+                end)}
+            end
+            if require('weread.lib.my_cloud_marks').display_id(book_id) then
+                local session,document=self._reader_session_gen,self.ui.document
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudThoughts(book_id,{})
+                    end
+                end)}
+            end
             if not WeRead.is_mp_book(book_id) then
+                reader_items[#reader_items + 1] = {
+                    text = _("Reading language"),
+                    callback = self:safeCallback(_("Reading language"), function() self:showReadingLanguage() end),
+                }
+                reader_items[#reader_items + 1] = {
+                    text = _("Check reading position"),
+                    keep_menu_open = true,
+                    callback = self:safeCallback(_("Check reading position"), function()
+                        self:showReadingPosition()
+                    end),
+                }
+                reader_items[#reader_items + 1] = {
+                    text = _(tostring(book_id):sub(1,3)=='CB_' and 'Try opening cloud position (read-only)' or 'Open cloud reading position precisely'),
+                    callback = self:safeCallback(_("Open cloud reading position precisely"), function()
+                        self:showCloudSourcePosition()
+                    end),
+                }
                 reader_items[#reader_items + 1] = {
                     text = _("Sync progress now"),
                     keep_menu_open = true,
@@ -181,7 +316,7 @@ function M:getMainMenuItems()
             }
         end
         reader_items[#reader_items + 1] = {
-            text = _("Show underlines and thoughts"),
+            text = _("Show underlines, thoughts and bookmarks"),
             checked_func = function()
                 -- The checkbox reflects the user's display preference.  Annotation
                 -- data may still be downloading (or may be unavailable for this
@@ -191,7 +326,7 @@ function M:getMainMenuItems()
             end,
             keep_menu_open = true,
             check_callback_updates_menu = true,
-            callback = self:safeCallback(_("Show underlines and thoughts"), function(touchmenu_instance)
+            callback = self:safeCallback(_("Show underlines, thoughts and bookmarks"), function(touchmenu_instance)
                 self:toggleAnnotationVisibility()
                 if touchmenu_instance then touchmenu_instance:updateItems() end
             end),
@@ -213,6 +348,25 @@ function M:getMainMenuItems()
     end
 
     return items
+end
+
+function M:setChapterPrefetchEnabled(enabled, touchmenu_instance)
+    enabled = enabled == true
+    local cache = self.settings:get("cache")
+    cache.auto_prefetch_next_chapter = enabled
+    self.settings:set("cache", cache)
+    self.settings:flush()
+    if not enabled then
+        require('weread.ui.prefetch_auth_recovery').cancel(self)
+        self:cancelAnnotationPrefetch()
+        self.downloader:cancelPrefetch("setting_disabled")
+    elseif self._current_weread_book_id then
+        local book_id = self._current_weread_book_id
+        UIManager:scheduleIn(0.1, function()
+            if self._current_weread_book_id == book_id then self:maybePrefetchNextChapter(book_id) end
+        end)
+    end
+    if touchmenu_instance then touchmenu_instance:updateItems() end
 end
 
 function M:getSettingsMenuItems()
@@ -286,8 +440,37 @@ function M:getSettingsMenuItems()
                             }
                         end,
                     },
+                    {
+                        text = _("Tap to read on bookshelf"),
+                        checked_func = function()
+                            return self.settings:get("shelf").tap_to_read == true
+                        end,
+                        keep_menu_open = true,
+                        callback = self:safeCallback(_("Tap to read on bookshelf"), function(touchmenu_instance)
+                            local shelf = self.settings:get("shelf")
+                            shelf.tap_to_read = shelf.tap_to_read ~= true
+                            self.settings:set("shelf", shelf)
+                            self.settings:flush()
+                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                        end),
+                    },
                 }
             end,
+        },
+        {
+            text = _("Home layout"),
+            callback = self:safeCallback(_("Home layout"), function() self:showHomeLayoutSettings() end),
+        },
+        {
+            text = _("Prefer reading E-Ink chapters"),
+            help_text = _("Use E-Ink chapters when opening a book without a local reading position or usable copy. E-Ink authorization is required."),
+            keep_menu_open = true,
+            checked_func = function() return self.settings:get('prefer_eink_chapters') == true end,
+            callback = self:safeCallback(_("Prefer reading E-Ink chapters"), function(touchmenu_instance)
+                self.settings:set('prefer_eink_chapters', self.settings:get('prefer_eink_chapters') ~= true)
+                self.settings:flush()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end),
         },
         {
             text = _("Cache management"),
@@ -344,6 +527,7 @@ function M:getSettingsMenuItems()
                      },
                     {
                         text = _("Upload progress on close"),
+                        help_text = _("After checking the cloud, upload changed progress when closing. For E-Ink chapters, sync once in the current reading session first."),
                         keep_menu_open = true,
                         check_callback_updates_menu = true,
                         checked_func = function()
@@ -356,10 +540,22 @@ function M:getSettingsMenuItems()
                                     not (sync.upload_on_close == true)
                                 self.settings:set("sync", sync)
                                 self.settings:flush()
+                                if not sync.upload_on_close then
+                                    local direct_close=package.loaded['weread.lib.native_direct_close']
+                                    if direct_close then direct_close.cancel(self) end
+                                end
                                 if touchmenu_instance then
                                     touchmenu_instance:updateItems()
                                 end
                             end),
+                    },
+                    {
+                        text_func = function()
+                            local minutes=ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)
+                            return T(_("Timed progress sync: %1"),minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes))
+                        end,
+                        help_text = _("Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. For E-Ink chapters, sync once in each reading session. Reading time is controlled separately."),
+                        sub_item_table_func = function() return self:getProgressIntervalMenuItems() end,
                     },
                 }
             end,
@@ -384,6 +580,32 @@ function M:getSettingsMenuItems()
                                 "target=book",
                                 "enabled=", tostring(cache.download_book_images)
                             )
+                        end),
+                    },
+                    {
+                        text = _('Experimental E-Ink resources for single chapters'),
+                        keep_menu_open = true,
+                        checked_func = function()
+                            return self.settings:get('cache').native_chapter_resources == true
+                        end,
+                        callback = self:safeCallback(_('Experimental E-Ink resources for single chapters'), function()
+                            local cache = self.settings:get('cache')
+                            cache.native_chapter_resources = not cache.native_chapter_resources
+                            self.settings:set('cache', cache)
+                            self.settings:flush()
+                        end),
+                    },
+                    {
+                        text = _('Experimental E-Ink resources for full books'),
+                        keep_menu_open = true,
+                        checked_func = function()
+                            return self.settings:get('cache').native_full_book_resources == true
+                        end,
+                        callback = self:safeCallback(_('Experimental E-Ink resources for full books'), function()
+                            local cache = self.settings:get('cache')
+                            cache.native_full_book_resources = not cache.native_full_book_resources
+                            self.settings:set('cache', cache)
+                            self.settings:flush()
                         end),
                     },
                     {
@@ -428,24 +650,7 @@ function M:getSettingsMenuItems()
                                         function(touchmenu_instance)
                                             local cache = self.settings:get("cache")
                                             local function apply(enabled)
-                                                cache.auto_prefetch_next_chapter = enabled
-                                                self.settings:set("cache", cache)
-                                                self.settings:flush()
-                                                if not enabled then
-                                                    self:cancelAnnotationPrefetch()
-                                                    self.downloader:cancelPrefetch(
-                                                        "setting_disabled")
-                                                elseif self._current_weread_book_id then
-                                                    local book_id = self._current_weread_book_id
-                                                    UIManager:scheduleIn(0.1, function()
-                                                        if self._current_weread_book_id == book_id then
-                                                            self:maybePrefetchNextChapter(book_id)
-                                                        end
-                                                    end)
-                                                end
-                                                if touchmenu_instance then
-                                                    touchmenu_instance:updateItems()
-                                                end
+                                                self:setChapterPrefetchEnabled(enabled, touchmenu_instance)
                                             end
 
                                             if cache.auto_prefetch_next_chapter == true then
@@ -682,6 +887,7 @@ function M:getSettingsMenuItems()
             text = _("Advanced options"),
             sub_item_table_func = function()
                 return {
+                    require('weread.ui.startup_patch').entry(self),
                     {
                         text = _("Mock service"),
                         sub_item_table_func = function() return self:getMockMenuItems() end,
@@ -821,46 +1027,8 @@ end
 
 function M:showAbout()
     UIManager:show(InfoMessage:new{
-        text = T(_("WeRead Plugin v%1\n\nDisclaimer: This project is for personal learning and technical research only, not for commercial use. All consequences arising from the use of this project (including but not limited to account bans, data loss, etc.) are borne by the user. The project author assumes no responsibility. Please comply with WeRead's user agreement and applicable laws and regulations.\n\nhttps://github.com/finlater/weread.koplugin"), self.version),
+        text = T(_("WeRead for KOReader v%1\n\nAn unofficial plugin for reading WeRead books in KOReader.\n\nProject: https://github.com/szxypi/weread.koplugin\nOriginal project: https://github.com/finlater/weread.koplugin\nLicense: AGPL-3.0"), self.version),
     })
-end
-
-function M:showWeReaderInfo()
-    local Screen = require("device").screen
-    local TextViewer = require("ui/widget/textviewer")
-    local viewer
-    viewer = TextViewer:new{
-        title = _("WeReader closed-source edition"),
-        text = _("More features, smoother reading") .. "\n\n"
-            .. _("An interface inspired by the WeRead e-ink app, making reading, syncing, and interaction easier.") .. "\n\n"
-            .. _("• Bookstore recommendations and precise reading progress sync\n• Offline reading, with reading time uploaded when back online\n• Highlights, thoughts, comments, and likes") .. "\n\n"
-            .. _("Watch demo videos on Xiaohongshu, or buy the author a coffee to support continued development.") .. "\n\n"
-            .. T(_("Xiaohongshu/Xianyu nickname: %1"), "finlater"),
-        width = math.floor(Screen:getWidth() * 0.9),
-        height = math.floor(Screen:getHeight() * 0.8),
-        text_type = "general",
-        show_menu = false,
-        add_default_buttons = false,
-        buttons_table = {
-            {{
-                text = _("Xiaohongshu QR code"),
-                callback = function()
-                    local QRMessage = require("ui/widget/qrmessage")
-                    local side = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.9)
-                    UIManager:show(QRMessage:new{
-                        text = "http://xhslink.com/m/8aP668RQREF",
-                        width = side,
-                        height = side,
-                    })
-                end,
-            }},
-            {{
-                text = _("Back to About"),
-                callback = function() viewer:onClose() end,
-            }},
-        },
-    }
-    UIManager:show(viewer)
 end
 
 function M:getAboutMenuItems()
@@ -873,19 +1041,12 @@ function M:getAboutMenuItems()
             end,
         },
         {
-            text = T(_("Author: %1"), "finlater"),
+            text = T(_("Original author: %1"), "finlater"),
             keep_menu_open = true,
             callback = function()
                 UIManager:show(InfoMessage:new{
                     text = "finlater\n\nhttps://github.com/finlater",
                 })
-            end,
-        },
-        {
-            text = _("Discover WeReader closed-source edition"),
-            keep_menu_open = true,
-            callback = function()
-                self:showWeReaderInfo()
             end,
         },
     }
@@ -1219,6 +1380,27 @@ function M:showEdgeTapRatioPicker(touchmenu_instance)
         buttons = buttons,
     }
     UIManager:show(self._edge_ratio_dialog)
+end
+
+function M:getProgressIntervalMenuItems()
+    local items={}
+    for _i,minutes in ipairs({0,1,5,10,15,30,60}) do
+        local label=minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes)
+        items[#items+1]={text=label,keep_menu_open=true,check_callback_updates_menu=true,
+            checked_func=function()
+                return ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)==minutes
+            end,
+            callback=self:safeCallback(label,function(menu)
+                local config=self.settings:get("sync")
+                if ProgressInterval.minutes(config.upload_interval_minutes)==minutes then return end
+                config.upload_interval_minutes=minutes
+                self.settings:set("sync",config);self.settings:flush()
+                if self.progress_sync then self.progress_sync.interval:reschedule() end
+                local direct=package.loaded['weread.lib.native_direct_interval'];if direct then direct.on_settings_changed(self) end
+                if menu then menu:updateItems() end
+            end)}
+    end
+    return items
 end
 
 return M

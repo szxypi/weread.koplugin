@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-23",
+  "scope": "one real account, one off-shelf search result and one readable native chapter",
+  "screens": ["600x800", "1264x1680"],
+  "native_store_search_and_details": true,
+  "both_shelves_initially_absent": true,
+  "native_chapter_selected_and_opened": true,
+  "source_independently_matched": true,
+  "original_inline_stylesheet_present_in_epub": true,
+  "native_page_advanced": true,
+  "fresh_process_offline_home_resume": true,
+  "same_page_restored": true,
+  "offline_network_blocked": true,
+  "native_and_web_shelves_observed_state_unchanged": true,
+  "web_progress_observation_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_during_read_checks": 0,
+  "separate_native_session_renewal_posts": 1,
+  "credential_file_audit_passed": true,
+  "installed_bytes_match": true,
+  "temporary_profiles_removed": true,
+  "limitations": ["one account, one search result and one chapter", "cover and personal marks disabled in this test", "physical Kindle untested"]
+}

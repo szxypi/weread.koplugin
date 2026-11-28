@@ -1,0 +1,31 @@
+{
+  "result": "NATIVE_DIRECT_HOME_OWNER_READONLY_VERIFIED",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "books": 1,
+  "chapters_opened_per_run": 1,
+  "installed_plugin_full_ui": true,
+  "real_koreader_statistics": true,
+  "minimum_seconds_per_run": 5,
+  "separate_capture_and_reopen_processes": true,
+  "full_ledger_snapshot_rechecked": true,
+  "source_identity_rechecked": true,
+  "offline_network_guard": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "shelf_unchanged": true,
+  "web_position_unchanged": true,
+  "temporary_profiles_removed": true,
+  "real_time_upload_tested": false,
+  "physical_kindle_tested": false,
+  "beijing_timezone": true,
+  "today_queue_selected": true,
+  "native_time_menu_prepared": true,
+  "selected_batch_and_source_match": true,
+  "ui_network_simulated": true,
+  "transfer_service_intercepted": true,
+  "ledger_preserved_after_intercept": true
+}

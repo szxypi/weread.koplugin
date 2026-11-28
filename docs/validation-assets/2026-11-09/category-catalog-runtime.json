@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "rate_limit_not_retried": true,
+      "failed_refresh_kept_cache": true,
+      "cache_failure_kept_current_menu": true,
+      "dismiss_close_suspend_account_cancelled": true,
+      "late_results_discarded": true,
+      "corrupt_and_oversized_cache_rejected": true,
+      "credentials_attached": false,
+      "account_data_writes": 0,
+      "result": "PASS",
+      "synthetic_only": true,
+      "public_get_in_child": true,
+      "ui_heartbeat": true,
+      "sqlite_reopened": true,
+      "guest_offline_reopen": true,
+      "rank_and_subcategory_preserved": true,
+      "stale_menu_rejected": true,
+      "cached_age_label": true,
+      "replacement_menu_callbacks_current": true,
+      "clock_rollback_kept_cached_labels": true
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "account_data_writes": 0,
+      "credentials_attached": false,
+      "corrupt_and_oversized_cache_rejected": true,
+      "synthetic_only": true,
+      "public_get_in_child": true,
+      "ui_heartbeat": true,
+      "sqlite_reopened": true,
+      "guest_offline_reopen": true,
+      "rank_and_subcategory_preserved": true,
+      "stale_menu_rejected": true,
+      "cached_age_label": true,
+      "late_results_discarded": true,
+      "clock_rollback_kept_cached_labels": true,
+      "rate_limit_not_retried": true,
+      "failed_refresh_kept_cache": true,
+      "cache_failure_kept_current_menu": true,
+      "dismiss_close_suspend_account_cancelled": true,
+      "replacement_menu_callbacks_current": true
+    }
+  ],
+  "candidate_verification": [
+    {
+      "case": "category-catalog600-final",
+      "result": "PASS",
+      "installed_files": 151,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "category-catalogko2-final",
+      "result": "PASS",
+      "installed_files": 151,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "category-catalog-core600-final",
+      "result": "PASS",
+      "installed_files": 151,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "category-catalog-translationko2-final",
+      "result": "PASS",
+      "installed_files": 151,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ]
+}

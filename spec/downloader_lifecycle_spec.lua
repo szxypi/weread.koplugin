@@ -182,8 +182,64 @@ scheduled[#scheduled]()
 expect(retry_download.index == 2 and retry_download.failed[1] == "30",
     "chapter was not skipped after exhausting two retries")
 
--- Preparation must already be painted while DNS/session/cache work blocks.
+-- A service rate limit stops the whole batch at once. Completed full-book
+-- checkpoints survive and a single-chapter job is cleaned instead.
 local Content = require("weread.lib.content")
+local original_fetch = Content.fetch_single_chapter_source
+Content.fetch_single_chapter_source = function() error("download_read/rate_limited", 0) end
+for _, resumable in ipairs({true, false}) do
+    local count, notified, released, cleaned = #scheduled, 0, 0, 0
+    local old_cleanup = downloader._cleanupWorkspace
+    downloader._cleanupWorkspace = function(self, job)
+        cleaned = cleaned + 1;job.workspace = nil
+    end
+    local limited = {
+        book = {book_id="book"}, chapters={{chapterUid=30},{chapterUid=31}}, index=1, total=2,
+        failed={}, selected={}, completed={}, resumable=resumable, workspace={sentinel=true}, state={}, standby_guard=true,
+        operation_lease={release=function() released=released+1 end},
+        progress_dialog={setTitle=function() end,reportProgress=function() end,close=function() end},
+        on_complete=function(ok,reason) notified=notified+1;expect(not ok and reason=="rate_limited", "wrong rate-limit result") end,
+    }
+    downloader._active_job=limited;downloader:_beginStandby();downloader:_step(limited)
+    expect(#scheduled==count and limited.index==1 and #limited.failed==0, "rate-limited batch retried or skipped ahead")
+    expect(notified==1 and released==1 and downloader._active_job==nil and downloader._standby_ref==0,
+        "rate-limit cleanup or completion failed")
+    expect(resumable and limited.workspace and cleaned==0 or not resumable and not limited.workspace and cleaned==1,
+        "rate-limit cleanup discarded or retained the wrong workspace")
+    expect(messages[#messages]:find("limiting requests",1,true), "rate-limit message missing")
+    downloader._cleanupWorkspace=old_cleanup
+end
+Content.fetch_single_chapter_source=original_fetch
+
+Content.fetch_single_chapter_source=function() error('book_reading/web_expired',0) end
+for _, resumable in ipairs({true,false}) do
+    local count, notified, released, cleaned = #scheduled, 0, 0, 0
+    local old_cleanup = downloader._cleanupWorkspace
+    downloader._cleanupWorkspace = function(_, job) cleaned=cleaned+1;job.workspace=nil end
+    local expired={book={book_id='book'},chapters={{chapterUid=30},{chapterUid=31}},index=1,total=2,
+        failed={},selected={},completed={},resumable=resumable,workspace={sentinel=true},state={},
+        detect_expired_login=true,standby_guard=true,operation_lease={release=function() released=released+1 end},
+        progress_dialog={setTitle=function() end,reportProgress=function() end,close=function() end},
+        on_complete=function(ok,reason) notified=notified+1;expect(not ok and reason=='web_expired','wrong expiry result') end}
+    downloader._active_job=expired;downloader:_beginStandby();downloader:_step(expired)
+    expect(#scheduled==count and expired.index==1 and #expired.failed==0,'expired batch retried or skipped ahead')
+    expect(notified==1 and released==1 and not downloader._active_job and downloader._standby_ref==0,
+        'expired download failed to release resources')
+    expect(resumable and expired.workspace and cleaned==0 or not resumable and not expired.workspace and cleaned==1,
+        'expired download retained the wrong workspace')
+    expect(messages[#messages]:find('login expired',1,true),'expiry notice missing')
+    downloader._cleanupWorkspace=old_cleanup
+end
+local auth_count,auth_notice=#scheduled,0
+local auth_limited={book={book_id='book'},chapters={{chapterUid=30}},index=1,total=1,
+    failed={},selected={},state={},reading_auth_recovery=true,standby_guard=true,
+    on_complete=function(ok,reason) auth_notice=auth_notice+1;expect(not ok and reason=='web_expired','wrong download auth result') end}
+downloader._active_job=auth_limited;downloader:_beginStandby();downloader:_step(auth_limited)
+expect(auth_notice==1 and #scheduled==auth_count and downloader._active_job==nil and downloader._standby_ref==0,
+    'expired single-chapter download retried or leaked its job')
+Content.fetch_single_chapter_source=original_fetch
+
+-- Preparation must already be painted while DNS/session/cache work blocks.
 local pending_init, painted, reader_calls = nil, false, 0
 downloader.refresh_ui = function()
     expect(dialog.visible, "preparation dialog was not shown before repaint")
@@ -213,7 +269,7 @@ end
 local chapters = { { chapterUid = 1 }, { chapterUid = 2 } }
 local function start_selected()
     painted = false
-    return downloader:start({ title = "Book" }, chapters, "chapters", {
+    return downloader:start({ book_id = "900001", title = "Book" }, chapters, "chapters", {
         separate_chapters = true,
     })
 end
@@ -235,12 +291,73 @@ pending_init()
 expect(reader_calls == 1 and not dialog.visible and downloader._active_job == nil,
     "cancel before initialization still fetched or reopened the dialog")
 
+local prepared_reader = {
+    url = "https://reader/900001",
+    fingerprint = require("weread.lib.worker_settings").fingerprint(downloader.settings),
+    title = "Remote title",
+    author = "Remote author",
+    current_chapter = { chapterUid = 2, chapterOffset = 19 },
+    progress = { progress = 42 },
+}
+for _, case in ipairs({
+    { id = "900001", recovery = true, reuse = true },
+    { id = "900002", recovery = true },
+    { id = "900001", recovery = true, rotate = true },
+    { id = "900001", recovery = false },
+}) do
+    painted = false
+    local saved_get = downloader.settings.get
+    local book = { book_id = case.id, title = "Local title", chapter_idx = 7, bookVersion = 3 }
+    local before = reader_calls
+    expect(downloader:start(book, { chapters[2] }, "chapter", {
+        single_chapter = true, reading_auth_recovery = case.recovery, prepared_reader = prepared_reader,
+    }), "prepared chapter did not start")
+    if case.rotate then
+        downloader.settings.get = function(self, key, fallback)
+            if key == "wr_ticket" then return "changed" end
+            return saved_get(self, key, fallback)
+        end
+    end
+    pending_init()
+    downloader.settings.get = saved_get
+    expect(reader_calls - before == (case.reuse and 0 or 1), "reader preparation crossed its book or authorization")
+    if case.reuse then
+        expect(book.title == "Local title" and book.author == "Remote author" and book.chapter_offset == 19
+            and book.chapter_uid == 2 and book.chapter_idx == 7 and book.progress == 42
+            and downloader._active_job.source_identity.book_version == 3,
+            "prepared reader lost local fields or source identity")
+    end
+    dialog.options.buttons[1][1].callback()
+    downloader:_step(downloader._active_job)
+end
+
 Content.ensure_reader_state = function() error("injected reader failure") end
 expect(start_selected(), "reader failure setup failed")
 pending_init()
 expect(not dialog.visible and downloader._active_job == nil,
     "failed initialization left the preparation dialog or job active")
 expect(downloader._standby_ref == 0, "preparation failure leaked standby guard")
+
+Content.ensure_reader_state = function() error("download_read/rate_limited",0) end
+local init_reason
+painted=false
+expect(downloader:start({book_id="900001",title="Book"},chapters,"full",{on_complete=function(ok,reason)
+    expect(not ok, "rate-limited initialization was reported as successful");init_reason=reason
+end}), "rate-limit initialization did not start")
+pending_init()
+expect(init_reason=="rate_limited" and not dialog.visible and downloader._active_job==nil
+    and downloader._standby_ref==0 and messages[#messages]:find("limiting requests",1,true),
+    "rate-limited initialization leaked its job or exposed an internal error")
+
+Content.ensure_reader_state = function() error('book_reading/web_expired',0) end
+init_reason=nil;painted=false
+expect(downloader:start({book_id='900001',title='Book'},chapters,'full',{on_complete=function(ok,reason)
+    expect(not ok,'expired initialization was reported as successful');init_reason=reason
+end}),'expired initialization did not start')
+pending_init()
+expect(init_reason=='web_expired' and not dialog.visible and not downloader._active_job
+    and downloader._standby_ref==0 and messages[#messages]:find('login expired',1,true),
+    'expired initialization leaked its job or exposed an internal error')
 
 downloader.run_online_task = function()
     expect(painted and dialog.visible, "offline check ran before repaint")
@@ -279,10 +396,14 @@ package.preload["ui/trapper"] = function() return trapper end
 downloader.run_online_task = function(_label, callback) callback(); return true end
 local cleanup_calls, completion_calls = 0, 0
 Content.cleanup_download_workspace = function() cleanup_calls = cleanup_calls + 1 end
-local function cancel_job(dl, expected_cleanup)
+local function cancel_job(dl, expected_cleanup, use_api)
     local before_killed = killed
     expect(child_pending and dialog.visible, "network request did not yield to the UI")
-    dialog.options.buttons[1][1].callback()
+    expect(not downloader:cancelJob({}) and not downloader:cancelJob({prefetch=true}),
+        "foreign cancellation affected foreground job")
+    if use_api then expect(downloader:cancelJob(dl), "owned cancel API rejected foreground job")
+    else dialog.options.buttons[1][1].callback() end
+    expect(not downloader:cancelJob(dl), "completed cancellation was reusable")
     expect(killed == before_killed + 1 and child_pending == nil,
         "cancel did not interrupt the in-flight child")
     expect(dl.cancelled and dl.completion_notified and downloader._active_job == nil,
@@ -293,7 +414,7 @@ local function cancel_job(dl, expected_cleanup)
 end
 
 expect(start_selected(), "interruptible preparation did not start")
-cancel_job(downloader._active_job, 0)
+cancel_job(downloader._active_job, 0, true)
 
 for _, stage in ipairs({ "source", "images", "cover" }) do
     local dl = {
@@ -358,4 +479,137 @@ local worker_ok, worker_err = pcall(downloader._runInterruptible, downloader, dl
 expect(not worker_ok and tostring(worker_err):find("could not start download worker", 1, true)
     and not dl.cancelled, "worker launch failure was mistaken for user cancellation")
 
+local owned, other = function() end, function() end
+downloader._active_job = { on_complete = other }
+downloader._pending_start = { options = { on_complete = owned } }
+expect(downloader:cancelRequest(owned) and not downloader._pending_start
+    and not downloader._active_job.cancelled, "queued reading cancellation touched another job")
+downloader._scheduled_start = { pending = { options = { on_complete = owned } } }
+expect(downloader:cancelRequest(owned) and not downloader._scheduled_start, "scheduled reading survived cancellation")
+local owned_job = { on_complete = owned }
+downloader._active_job = owned_job
+expect(downloader:cancelRequest(owned) and owned_job.cancelled, "active reading survived cancellation")
+expect(not downloader:cancelRequest(other), "unknown request cancelled another job")
+local ReadClient = require('weread.lib.download_read_client')
+local original_wrap, wrapped, wraps = ReadClient.wrap, {}, 0
+ReadClient.wrap = function(client)
+    expect(client == downloader.client, 'batch worker received an unrelated transport')
+    wraps = wraps + 1
+    return wrapped
+end
+local worker = { dismissableRunInSubprocess = function(_self, callback) return true, callback() end }
+local before_client = downloader.client
+local value = downloader:_runInterruptible({ trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'batch source task bypassed pacing')
+    return 'batch result'
+end)
+expect(value == 'batch result' and wraps == 1 and downloader.client == before_client, 'batch worker changed the shared UI client')
+downloader:_runInterruptible({ trapper = worker, total = 1 }, function(client)
+    expect(client == before_client and wraps == 1, 'single-chapter task was unnecessarily paced')
+end)
+downloader:_runInterruptible({ total = 2 }, function(client)
+    expect(client == before_client and wraps == 1, 'legacy foreground fallback acquired a sleeping client')
+end)
+expect(not pcall(downloader._runInterruptible, downloader, { trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'failed batch task bypassed pacing')
+    error('synthetic batch failure', 0)
+end), 'batch worker failure was hidden')
+expect(downloader.client == before_client, 'failed worker changed the UI transport')
+ReadClient.wrap = original_wrap
+local lease_releases,lock_completions=0,0
+local cache_guarded=Downloader:new{
+    settings={},client={},require_login=function() return true end,
+    run_online_task=function() return false end,show_info=function() end,show_transient=function() end,refresh_ui=function() end,
+    operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end,
+}
+expect(not cache_guarded:start({book_id='900001'}, {},'book'), 'offline cache_guarded download started')
+expect(lease_releases==1 and not cache_guarded._active_job,'offline exit leaked book gate')
+cache_guarded.operation_lock=function() return nil,'busy' end
+cache_guarded:start({book_id='900001'},{},'book',{on_complete=function(ok,reason)
+    expect(not ok and reason=='cache_busy','gate rejection changed completion result');lock_completions=lock_completions+1
+end})
+expect(lock_completions==1 and not cache_guarded._active_job and lease_releases==1,'busy cache started or released someone else’s gate')
+cache_guarded.operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end
+scheduled={}
+expect(cache_guarded:start({book_id='900001'},{{chapterUid=1}},'chapter',{prefetch=true}),'cache_guarded prefetch did not start')
+expect(lease_releases==1 and cache_guarded._active_job.operation_lease,'scheduled prefetch did not retain gate')
+cache_guarded:cancelPrefetch('synthetic_cancel')
+expect(lease_releases==1,'prefetch cancellation released the gate before completion')
+table.remove(scheduled,1)()
+expect(lease_releases==2 and not cache_guarded._active_job,'cancelled scheduled prefetch leaked its gate')
+-- Failed scoped reads cannot persist child cookie rotations; successful reads
+-- report the accepted change to the owner for subsequent recovery checks.
+local auth_values={cookies={wr_vid='900000',wr_skey='original'}}
+local auth_settings={get=function(_,key,default) return auth_values[key] or default end,
+    update_auth=function(_,fields) auth_values.cookies=fields.cookies end}
+local auth_downloader=Downloader:new{settings=auth_settings,client={}}
+local child_result,changed
+local auth_job={reading_auth_recovery=true,book={book_id='900001'},chapters={{chapterUid=1}},
+    trapper={dismissableRunInSubprocess=function() return true,child_result end},
+    on_reading_auth_updated=function(before,after) changed={before,after} end}
+child_result={ok=false,value='book_reading/web_expired',auth={cookies={wr_vid='900000',wr_skey='untrusted'}}}
+local ok_auth,reason_auth=pcall(auth_downloader._runInterruptible,auth_downloader,auth_job,function() end)
+expect(not ok_auth and reason_auth=='book_reading/web_expired' and auth_values.cookies.wr_skey=='original' and not changed,
+    'failed worker overwrote login credentials')
+child_result={ok=true,value='done',auth={cookies={wr_vid='900000',wr_skey='verified-read'}}}
+local auth_value=auth_downloader:_runInterruptible(auth_job,function() end)
+expect(auth_value=='done' and auth_values.cookies.wr_skey=='verified-read' and changed and changed[1]~=changed[2],
+    'successful worker cookie rotation did not update the owner')
+local native_failures=0
+local native_downloader=Downloader:new{}
+native_downloader._failChapter=function(_,job,err)
+    native_failures=native_failures+1
+    expect(job.native_failure=='auth_expired' and err:find('native_candidate/auth_expired',1,true),
+        'native failure classification was lost')
+end
+local native_job={chapters={{chapterUid=1}},index=1}
+expect(native_downloader:_retryChapterSource(native_job,'native_candidate/auth_expired\ntrace')==false
+    and native_failures==1 and not native_job.chapter_source_retries,
+    'expired native authorization was retried')
+
+local same_account, selected_lease_releases, pause_notifications = true,0,0
+local gated=Downloader:new{settings={auth_scope_matches=function() return same_account end},
+    refresh_ui=function() end,show_transient=function() end}
+local function paused_selection(failed)
+    local chosen={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
+    local job={book={book_id='900001',bookVersion=7},source_identity={book_id='900001',book_version=7},
+        state={},workspace={},separate_chapters=true,detect_expired_login=true,auth_scope={vid='900000'},
+        index=3,total=3,chapters=chosen,selected={chosen[2]},selected_indices={2},completed={[2]=true},
+        completed_count=1,failed=failed,operation_lease={
+            release=function() selected_lease_releases=selected_lease_releases+1 end},
+        on_complete=function(ok,reason)
+            expect(not ok and reason=='download_cancelled','paused selection returned the wrong outcome')
+            pause_notifications=pause_notifications+1
+        end,
+        on_selected_expired=function(candidate) return candidate==gated._active_job end}
+    gated._active_job=job
+    gated:_beginStandby();job.standby_guard=true
+    gated:_ensureProgressDialog(job)
+    gated:_retryChapterSource(job,'book_reading/web_expired')
+    expect(job.awaiting_renewal and not dialog.visible and not job.standby_guard
+        and gated._active_job==job and job.workspace and job.operation_lease,
+        'paused selection did not preserve its private workspace or release standby')
+    return job
+end
+local paused=paused_selection({1})
+same_account=false
+expect(not gated:resumePausedSelection(paused,7),'foreign account adopted the workspace')
+same_account=true
+expect(not gated:resumePausedSelection(paused,8),'changed version adopted the workspace')
+expect(gated:resumePausedSelection(paused,7) and paused.index==1 and #paused.failed==0
+    and #paused.selected==0 and paused.standby_guard and paused.completed[2],
+    'resume did not reopen the earlier failed chapter while preserving completed text')
+paused.index,paused.selected,paused.selected_indices=2,{paused.chapters[1]},{1}
+expect(gated:_skipCompletedChapterBatch(paused) and paused.index==3
+    and paused.selected[2]==paused.chapters[2] and paused.selected_indices[2]==2,
+    'resumed order did not combine the retried and staged chapters')
+gated:cancelJob(paused,'download_cancelled')
+gated:_step(paused)
+local cancelled_pause=paused_selection({})
+expect(gated:cancelRequest(cancelled_pause.on_complete,'download_cancelled') and not gated._active_job
+    and not cancelled_pause.workspace and not cancelled_pause.operation_lease
+    and selected_lease_releases==2 and pause_notifications==2,
+    'cancelling a paused selection left resources or missed its only completion')
+expect(not gated:resumePausedSelection(cancelled_pause,7),
+    'a stale verified version resumed an already cancelled selection')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

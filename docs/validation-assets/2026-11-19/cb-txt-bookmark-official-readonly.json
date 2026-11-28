@@ -1,0 +1,16 @@
+{
+  "result": "OFFICIAL_TXT_BOOKMARK_READ_ONLY",
+  "scope": "previously removed self-authored TXT fixture bound to its restored journal and receipt",
+  "official_normal_reader_source_visible": true,
+  "official_empty_bookmark_list": true,
+  "source_and_position_unchanged": true,
+  "bookmark_list_gets": 1,
+  "source_read_posts": 2,
+  "blocked_other_posts": 9,
+  "account_data_writes": 0,
+  "authentication_posts_during_probe": 0,
+  "prior_native_authorization_maintenance_posts": 1,
+  "private_values_in_report": false,
+  "official_saved_bookmark_display_verified": false,
+  "limitations": ["fixture bookmark was already deleted", "no visible saved-bookmark position comparison", "physical Kindle not tested"]
+}

@@ -1,0 +1,121 @@
+{
+  "result": "RESTORED_FULL",
+  "phase": "restored",
+  "existing_book_writes": 0,
+  "pin_posts_attempted": 0,
+  "fixture_notify_posts": 1,
+  "fixture_cleanup_posts": 1,
+  "authentication_posts": 0,
+  "no_automatic_replay": true,
+  "upload_result": "EPUB_IMPORT_AND_SOURCE_VERIFIED",
+  "fixture_source_verified": true,
+  "precleanup_full_shelf_matches": true,
+  "two_stable_readbacks": true,
+  "fixture_absent_both_channels": true,
+  "native_web_members_and_groups_match": true,
+  "comparisons": {
+    "native": {
+      "full": true,
+      "components": {
+        "members": true,
+        "flags": true,
+        "groups": true,
+        "albums": true
+      },
+      "group_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      },
+      "album_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      }
+    },
+    "web": {
+      "full": true,
+      "components": {
+        "members": true,
+        "flags": true,
+        "groups": true,
+        "albums": true
+      },
+      "group_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      },
+      "album_fields": {
+        "archiveId": true,
+        "albumId": true,
+        "bookIds": true,
+        "albumIds": true,
+        "name": true,
+        "title": true,
+        "isTop": true,
+        "updateTime": true,
+        "createTime": true,
+        "sort": true,
+        "sortTime": true,
+        "readUpdateTime": true,
+        "bookCount": true,
+        "albumCount": true,
+        "seq": true,
+        "other": true
+      }
+    }
+  },
+  "native_original_core_matches": {
+    "count": true,
+    "members_sha256": true,
+    "flags_sha256": true,
+    "groups_sha256": true
+  },
+  "native_web_core_matches": {
+    "count": true,
+    "members_sha256": true,
+    "flags_sha256": true,
+    "groups_sha256": true
+  },
+  "web_session_saved": false
+}

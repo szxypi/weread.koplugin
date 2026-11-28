@@ -1,0 +1,50 @@
+{
+  "result": "PASS",
+  "scope": "synthetic packaged KOReader and loopback service",
+  "real_account_writes": 0,
+  "authentication_posts": 0,
+  "cases": {
+    "normal": {
+      "result": "PASS",
+      "synthetic_posts": 2,
+      "trial_result": "PASS",
+      "phase": "restored",
+      "independent_steps": 2
+    },
+    "lost-first": {
+      "result": "PASS",
+      "synthetic_posts": 1,
+      "trial_result": "UNVERIFIED",
+      "phase": "pin_claimed",
+      "independent_steps": 0
+    },
+    "changed-progress": {
+      "result": "PASS",
+      "synthetic_posts": 1,
+      "trial_result": "UNVERIFIED",
+      "phase": "pin_claimed",
+      "independent_steps": 0
+    },
+    "lost-second": {
+      "result": "PASS",
+      "synthetic_posts": 2,
+      "trial_result": "UNVERIFIED",
+      "phase": "restore_claimed",
+      "independent_steps": 1
+    },
+    "host-loss": {
+      "result": "PASS",
+      "synthetic_posts": 1,
+      "trial_result": "UNVERIFIED",
+      "phase": "pin_claimed",
+      "independent_steps": 0
+    },
+    "dry-failure": {
+      "result": "PASS",
+      "synthetic_posts": 0,
+      "trial_result": "UNVERIFIED",
+      "phase": "dry_run",
+      "independent_steps": 0
+    }
+  }
+}

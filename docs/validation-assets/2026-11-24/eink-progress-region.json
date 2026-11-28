@@ -1,0 +1,25 @@
+{
+  "result": "PASS",
+  "baseline_commit": "2cd81fe69b371c502bb655c2de5ed5a62f07024e",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "synthetic progress dialog with description and cancel button, five title and progress changes",
+  "requested_refresh_region": {
+    "600x800_before": [0, 0, 600, 800],
+    "600x800_after": [28, 327, 544, 146],
+    "1264x1680_before": [0, 0, 1264, 1680],
+    "1264x1680_after": [58, 682, 1147, 316]
+  },
+  "screen_pairs_pixel_identical": 14,
+  "all_changed_pixels_within_requested_region": true,
+  "actual_simulated_rotation_falls_back_to_full_screen": true,
+  "missing_resized_offscreen_or_oversized_frame_falls_back_to_full_screen": true,
+  "cancel_callback_verified": true,
+  "synthetic_notebook_image_bulk_both_sizes": true,
+  "synthetic_full_plugin_smoke_ko2": true,
+  "local_unit_specs": 476,
+  "physical_device_tested": false,
+  "limitations": [
+    "These are requested KOReader refresh rectangles for one synthetic dialog; hardware drivers may align, enlarge or merge them with other updates.",
+    "Identical simulated framebuffer images do not establish physical Kindle refresh latency, ghosting, power or battery life."
+  ]
+}

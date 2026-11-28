@@ -1,0 +1,30 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "physical_kindle_tested": false,
+  "web_401": [
+    "single verified renewal",
+    "retry same Web metadata",
+    "preserve reading state",
+    "second 401 stops",
+    "429 does not renew"
+  ],
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "metadata_recovery_fixture_runs": 1,
+      "package_sha256": "1947dc181bfba6fd4664e202cebefd3af5ff169df60b06f0cb6c345159f6d5f5",
+      "full_mock_smoke": "PASS"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "metadata_recovery_fixture_runs": 1,
+      "package_sha256": "6108bc959f4c60f392e8db18819be4a0055bbfffb2f9091df348c218cc513dbb",
+      "full_mock_smoke": "PASS"
+    }
+  ],
+  "earlier_attempts": "v1 used an unencoded reader URL for request counting; v2 and v3 exposed stale or leaking state in unrelated shared smoke fixtures; v4 used a superseded bootstrap account snapshot in its final prefetch probe. All failed runs were retained outside the repository."
+}

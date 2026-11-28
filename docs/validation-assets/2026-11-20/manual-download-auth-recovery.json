@@ -1,0 +1,86 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "single",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "0fa19c2160ce67997297f98601dd0a2f7e6799c46ea01aeeaad2a89e0577ff83"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "single",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "5cf46ecfe0675ae946b178576ec5ae2bfb0c7c5cf14dad886fc5a9c7824fde89"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "selected",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "5227cd0d24ba0d21c25cb865c9880a6bf8866dc571d3b11b42dcf889a4d1271e"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "selected",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "a2f7e2fa1563900822943a412d91b5b8ac668856ae3f5ad255605e528145d873"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "single-repeat",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "145e9ac6e0a46e3a7420a8cdd90ea26254fca512c509ffa9307a14be239218f7"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "single-reader",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "caf9df44f4ecc2de806d50cdb26a9798319282e92090bd50d2c6de19dbd6119c"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "stage": "selected",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "9e5608bd67999af8cd4074570809d72d44e616bc2f738a50fa4613c7a01c2410"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "txt",
+      "stage": "single",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "572913a9cde04942615998744452787f51608a3c83b9654cd604a62443d1a377"
+    }
+  ],
+  "selected_batch_restarts_incomplete_work": true,
+  "existing_cache_preserved": true,
+  "normal_full_download_and_rate_limit_regressions": true,
+  "normal_reading_and_source_upload_regressions": true,
+  "legacy_navigation_regression": {
+    "result": "PARTIAL",
+    "screens": [
+      "600x800",
+      "1264x1680"
+    ],
+    "injected_expiry": false,
+    "scope": "legacy position mapping only; current source-position callback intentionally disabled",
+    "initial_failure": "fixture used the current source-position callback instead of its legacy mapping path"
+  },
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,36 @@
+{
+  "result": "PASS",
+  "baseline_commit": "e6fc3d11dac801a534e6ec9d35e248ac8a8f47c0",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "fixture": "synthetic Chinese chapter with 500 paragraphs and distinct anchor targets",
+  "source_bytes": 472526,
+  "anchors_per_run": 20,
+  "runs_each": 3,
+  "anchor_cpu_ms_median_before": 657.813,
+  "anchor_cpu_ms_median_after": 55.322,
+  "token_checks_before": 3215680,
+  "token_checks_after": 40800,
+  "build_cpu_ms_median_before": 54.178,
+  "build_cpu_ms_median_after": 54.232,
+  "differential_anchor_checks": 5578,
+  "differential_cases": "XHTML, concatenated documents and TXT, overlapping source intervals, multibyte scalars, multi-character entities, long whitespace, block boundaries and malformed input",
+  "synthetic_native_search_and_position_both_sizes": true,
+  "owner_readonly": {
+    "result": "PASS",
+    "screen": "1264x1680",
+    "chapters": 2,
+    "source_matches": true,
+    "offline_search_verified": true,
+    "neighbor_offline_roundtrip": true,
+    "shelf_and_web_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "Synthetic desktop CPU times cover twenty anchor lookups, not full search latency or real Kindle speed.",
+    "The sparse index adds memory; Lua heap measurements are not process peak memory or device-wide usage."
+  ]
+}

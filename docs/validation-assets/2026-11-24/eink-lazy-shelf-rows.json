@@ -1,0 +1,82 @@
+{
+  "result": "PASS",
+  "baseline_commit": "5e8bfe7d",
+  "synthetic_comparisons": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "books": 1500,
+      "runs_each": 3,
+      "before": {
+        "initial_materialized_rows": 1500,
+        "max_materialized_rows": 1500,
+        "initialization_ms": 40,
+        "lua_kib": 13236
+      },
+      "after": {
+        "initial_materialized_rows": 14,
+        "max_materialized_rows": 16,
+        "initialization_ms": 34,
+        "lua_kib": 9606
+      },
+      "geometry_checksums_equal": true,
+      "overflow_geometry_verified": true,
+      "focus_reentry_verified": true
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "books": 1500,
+      "runs_each": 3,
+      "before": {
+        "initial_materialized_rows": 1500,
+        "max_materialized_rows": 1500,
+        "initialization_ms": 44,
+        "lua_kib": 13279
+      },
+      "after": {
+        "initial_materialized_rows": 14,
+        "max_materialized_rows": 16,
+        "initialization_ms": 40,
+        "lua_kib": 9672
+      },
+      "geometry_checksums_equal": true,
+      "overflow_geometry_verified": true,
+      "focus_reentry_verified": true
+    }
+  ],
+  "pixel_comparisons": 24,
+  "unshaped_text_geometry_checked_both_sizes": true,
+  "mirrored_layout_checked": true,
+  "initial_unshaped_overflow_issue_fixed": true,
+  "owner_ui": [
+    {
+      "width": 600,
+      "height": 800,
+      "shelf_entries": 140,
+      "online_and_offline_interactions": "PASS",
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "authentication_posts": 0,
+      "profile_removed": true
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "shelf_entries": 140,
+      "online_and_offline_interactions": "PASS",
+      "offline_requests": 0,
+      "account_data_writes": 0,
+      "authentication_posts": 0,
+      "profile_removed": true
+    }
+  ],
+  "limitations": [
+    "Desktop KOReader emulator, not a physical Kindle.",
+    "Lua heap after garbage collection is not total process memory.",
+    "A lightweight row object is still created for every book.",
+    "Real shelf was used only for functional verification, not performance measurement."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-23",
+  "scope": "one account, current native shelf and first returned notebook page (up to 100 books)",
+  "books_with_bookmarks": 3,
+  "bookmarks_with_preview": 4,
+  "eligible_cross_chapter_candidates": 0,
+  "eligibility": "EPUB, marked chapter and a different chapter both free or owned with nonzero word count, bookmark preview at least 12 characters",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "limitations": ["bounded notebook page", "candidate availability may change", "does not validate real bookmark navigation"]
+}

@@ -1,0 +1,16 @@
+{
+  "result": "INITIAL_STATES_READ",
+  "books_checked": 6,
+  "reads_per_book_per_channel": 2,
+  "both_no_chapter": 1,
+  "lua_projection_matches": true,
+  "comparison_scope": "web_no_chapter_and_field_presence",
+  "shelf_projection_unchanged": true,
+  "observed_progress_stable": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_responses_saved": false,
+  "grants_write_authority": false,
+  "native_ui_first_sync_verified": false,
+  "physical_device_verified": false
+}

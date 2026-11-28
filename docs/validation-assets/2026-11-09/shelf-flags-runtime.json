@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "synthetic_only": true,
+      "account_snapshot_read": true,
+      "detail_flags_did_not_override": true,
+      "binary_false_preserved": true,
+      "missing_and_invalid_stay_unknown": true,
+      "finished_metadata_independent": true,
+      "native_refresh_worker_and_heartbeat": true,
+      "refresh_dismiss_suspend_cancelled": true,
+      "cache_failure_did_not_show_stale_refresh": true,
+      "closed_menu_callback_ignored": true,
+      "account_cache_isolated": true,
+      "cover_pin_private_finished_progress_coexist": true,
+      "list_flags_visible": true,
+      "pinned_partition_stable": true,
+      "original_shelf_order_unchanged": true,
+      "explicit_reading_filters": true,
+      "local_reader_state_unchanged": true,
+      "reading_data_writes": 0,
+      "pin_private_finish_writes": 0
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "native_refresh_worker_and_heartbeat": true,
+      "refresh_dismiss_suspend_cancelled": true,
+      "cache_failure_did_not_show_stale_refresh": true,
+      "closed_menu_callback_ignored": true,
+      "account_cache_isolated": true,
+      "cover_pin_private_finished_progress_coexist": true,
+      "list_flags_visible": true,
+      "pinned_partition_stable": true,
+      "original_shelf_order_unchanged": true,
+      "explicit_reading_filters": true,
+      "result": "PASS",
+      "reading_data_writes": 0,
+      "pin_private_finish_writes": 0,
+      "local_reader_state_unchanged": true,
+      "synthetic_only": true,
+      "account_snapshot_read": true,
+      "detail_flags_did_not_override": true,
+      "binary_false_preserved": true,
+      "missing_and_invalid_stay_unknown": true,
+      "finished_metadata_independent": true
+    }
+  ],
+  "candidate_verification": [
+    {
+      "case": "shelf-flags600-final",
+      "result": "PASS",
+      "installed_files": 153,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "shelf-flagsko2-final",
+      "result": "PASS",
+      "installed_files": 153,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "shelf-flags-discoveryko2-final",
+      "result": "PASS",
+      "installed_files": 153,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "shelf-flags-translationko2-final",
+      "result": "PASS",
+      "installed_files": 153,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ]
+}

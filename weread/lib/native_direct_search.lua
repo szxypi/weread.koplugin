@@ -1,0 +1,105 @@
+-- Worker-only search of verified, account-bound native chapter EPUBs. The
+-- generated XHTML has no Web position authority: anchors are local-only.
+local Cache=require('weread.lib.native_direct_cache')
+local Coordinates=require('weread.lib.source_coordinates')
+local Dom=require('weread.lib.source_dom')
+local Protocol=require('weread.lib.protocol')
+local NativeProtocol=require('weread.lib.native_position_protocol')
+local Unicode=require('weread.lib.unicode_search')
+local M={MAX_HITS=30,MAX_EXAMINED=100}
+
+local function fold_ascii(value)
+    return (value:gsub('[A-Z]',function(char) return string.char(char:byte()+32) end))
+end
+local function live(current)
+    local ok,value=pcall(current)
+    return ok and value==true
+end
+
+-- `from` is an original normalized UTF-8 byte offset, never a folded offset.
+-- The caller must pin account, reader, and document through `current`.
+local function scan(settings,account,entry,keyword,from,ignore_case,current,options,expected_file_id)
+    local max_hits=options and options.max_hits
+    if max_hits==nil then max_hits=M.MAX_HITS end
+    if type(current)~='function' or type(account)~='string' or NativeProtocol.id(account)~=account
+        or type(entry)~='table' or type(entry.book_id)~='string'
+        or not Cache.valid_entry(entry,entry.book_id,account)
+        or type(keyword)~='string' or #keyword<1 or #keyword>160
+        or type(from)~='number' or from~=from or from%1~=0 or from<1 or from>Coordinates.MAX_BYTES*4+1
+        or not NativeProtocol.integer(max_hits,1,M.MAX_HITS)
+        or ignore_case~=nil and type(ignore_case)~='boolean' or not live(current) then return {error='invalid'} end
+    local cache=options and options.cache or Cache
+    local ok,result=pcall(function()
+        local wanted=Dom.normalize(keyword)
+        if type(wanted)~='string' or wanted=='' then return {error='invalid'} end
+        local saved,raw,recheck=cache.open_search(settings,account,entry,current)
+        if not saved or type(saved.file_id)~='string' or #saved.file_id~=64
+            or not saved.file_id:match('^[a-f0-9]+$') or not live(current) then return {error='unavailable'} end
+        if expected_file_id and saved.file_id~=expected_file_id then return {error='changed'} end
+        local function finish(value)
+            if not live(current) then return {error='cancelled'} end
+            if recheck()~=true or not live(current) then return {error='unavailable'} end
+            return value
+        end
+        local map=raw and Coordinates.build(raw,{format='web_xhtml'})
+        if not map then return {error='unavailable'} end
+        map:_index()
+        if not live(current) then return {error='cancelled'} end
+        local haystack,needle,at,resume=map.flat,wanted,from,from
+        local unicode
+        if ignore_case then
+            if Unicode.available() and (haystack:find('[\128-\255]') or needle:find('[\128-\255]')) then
+                local why
+                unicode,why=Unicode.build(haystack,from,needle)
+                if not unicode then return {error=why or 'unavailable'} end
+                haystack,needle,at=unicode.text,unicode.needle,1
+            else haystack,needle=fold_ascii(haystack),fold_ascii(needle) end
+        end
+        local hits,examined,unresolved={},0,0
+        while #hits<max_hits and examined<M.MAX_EXAMINED do
+            if not live(current) then return {error='cancelled'} end
+            local first=haystack:find(needle,at,true)
+            if not first then
+                if expected_file_id then return {error='changed'} end
+                return finish({hits=hits,complete=true,unresolved=unresolved})
+            end
+            examined=examined+1
+            local source_first,exact=first,true
+            if unicode then
+                local size,starts
+                source_first,size,starts=unicode.locate(first)
+                local ending,_,_,ending_byte=unicode.locate(first+#needle-1)
+                exact=source_first~=nil and size>0 and ending~=nil and starts and ending_byte==first+#needle-1
+                resume=source_first and source_first+1 or resume
+            else resume=first+1 end
+            at=first+1
+            if exact then
+                if expected_file_id and source_first~=from then return {error='changed'} end
+                local found,co=pcall(map._point,map,source_first)
+                local anchor=found and (map:anchor(co,{segment_only=true}) or map:anchor(co))
+                if anchor then
+                    local hit={anchor=anchor,chapter_uid=entry.chapter_uid,file_id=saved.file_id,byte=source_first}
+                    if expected_file_id then return finish({path=saved.path,hit=hit}) end
+                    hit.context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)
+                    hits[#hits+1]=hit
+                else unresolved=unresolved+1 end
+            else unresolved=unresolved+1 end
+        end
+        if not live(current) then return {error='cancelled'} end
+        if expected_file_id then return {error='changed'} end
+        local next_byte=haystack:find(needle,at,true) and resume or nil
+        return finish({hits=hits,next_byte=next_byte,complete=next_byte==nil,unresolved=unresolved})
+    end)
+    return ok and result or {error='unavailable'}
+end
+function M.scan(settings,account,entry,keyword,from,ignore_case,current,options)
+    return scan(settings,account,entry,keyword,from,ignore_case,current,options)
+end
+
+-- Recompute one selected match from its saved file and original byte offset.
+function M.find_hit(settings,account,entry,keyword,selected,ignore_case,current,dependencies)
+    if type(selected)~='table' or type(selected.file_id)~='string' or #selected.file_id~=64
+        or not selected.file_id:match('^[a-f0-9]+$') then return {error='invalid'} end
+    return scan(settings,account,entry,keyword,selected.byte,ignore_case,current,dependencies,selected.file_id)
+end
+return M

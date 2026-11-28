@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-23",
+  "scope": "one existing authorized EPUB chapter in an isolated KOReader ReaderUI host",
+  "screen": "1264x1680",
+  "dry_run": {"production_submit_boundary_blocked": true, "account_data_posts": 0},
+  "roundtrip": {
+    "native_account_data_posts": 2, "independent_steps": 2,
+    "operations": ["create_new_highlight", "delete_new_highlight"],
+    "original_records_restored": true, "derived_chapter_metadata_changed": false,
+    "shelf_and_reading_position_unchanged": true, "temporary_profile_removed": true,
+    "credential_file_audit_passed": true, "installed_bytes_match": true, "intent_cleared": true,
+    "authentication_posts": 0
+  },
+  "synthetic_screens": ["600x800", "1264x1680"],
+  "synthetic_cases": ["blocked dry run", "create and delete", "lost acknowledgement", "no effect and replay blocked"],
+  "limitations": ["one account and chapter", "isolated ReaderUI host", "physical Kindle untested", "full plugin instance tested with synthetic service only"]
+}

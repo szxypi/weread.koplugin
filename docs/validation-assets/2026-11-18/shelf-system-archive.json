@@ -1,0 +1,22 @@
+{
+  "result": "SYNTHETIC_BEHAVIOR_AND_REAL_ABSENCE_VERIFIED",
+  "system_archive_rule": "unique archive ID 1 and label 归档; selectable and ignored as an assignment for ungrouped projection",
+  "synthetic": {
+    "runtime": "KOReader 2026.07 Linux ARM64",
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "native_selection_and_overlap": true,
+    "ordinary_same_name_id_only_and_duplicate_id": "component tests",
+    "network": false
+  },
+  "real_account": {
+    "native_and_web_system_id_1_present": false,
+    "native_web_membership_matches": true,
+    "two_stable_readbacks": true,
+    "python_lua_regular_projection_matches": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "private_values_saved": false,
+    "system_archive_semantics_verified": false
+  },
+  "physical_device_verified": false
+}

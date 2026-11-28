@@ -1,0 +1,16 @@
+{
+  "scope": "one real account, one book, two readable adjacent chapters",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "source_matches_independent_read": true,
+  "incomplete_copy": "deliberately constructed in disposable profile from real chapter",
+  "offline_native_copy_selection": true,
+  "installed_reader_independent_page_positions": true,
+  "web_position_unchanged": true,
+  "native_shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "temporary_profiles_removed": true,
+  "natural_multiple_copies_tested": false,
+  "physical_kindle_tested": false
+}

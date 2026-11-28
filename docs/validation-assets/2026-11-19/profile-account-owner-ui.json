@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_filemanager_and_profile_button": true,
+  "real_account_nickname_reads": 2,
+  "independent_preflight_and_readback_gets": 4,
+  "fresh_offline_processes": 2,
+  "offline_http_requests": 0,
+  "separate_statistics_refresh": "disabled to isolate nickname behavior",
+  "synthetic_concurrent_nickname_and_statistics_refresh": true,
+  "account_database_isolation": true,
+  "name_visible_and_font_checked": true,
+  "credentials_on_disk": false,
+  "tmpfs_profiles_removed": true,
+  "private_screenshots": 0,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "credential_rotation_saved": false,
+  "mock_first_runs": "offline glyph check ran before initial paint and stopped; corrected and both simulated sizes passed",
+  "initial_ci_scan": "a source-code comparison matched the cookie detector; spacing corrected, no credential value present",
+  "real_account_full_statistics_concurrency_verified": false,
+  "physical_kindle_verified": false
+}

@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-24",
+  "scope": "independent readback of one previously created synthetic EPUB fixture",
+  "result": "READ_ONLY_RESTORED",
+  "fixture_absent_both_channels": true,
+  "two_stable_readbacks": true,
+  "native_web_members_and_groups_match": true,
+  "original_native_shelf_snapshot_matches": true,
+  "original_web_shelf_snapshot_matches": true,
+  "pin_and_restore_receipts_verified": true,
+  "account_data_writes_during_readback": 0,
+  "authentication_renewals_before_readback": 1,
+  "same_account_same_device_audit_binding": true,
+  "limitations": [
+    "Prior existing-book trial remains independently unconfirmed.",
+    "The owner-account native UI write flow and physical Kindle were not tested in this readback.",
+    "Unobserved server-side history is not covered."
+  ]
+}

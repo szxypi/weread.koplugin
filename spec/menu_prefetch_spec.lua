@@ -4,7 +4,6 @@ package.path = "./?.lua;" .. package.path
 
 local registered = {}
 local shown_widget
-local closed_widget
 package.preload["dispatcher"] = function()
     return {
         registerAction = function(_self, name, action)
@@ -23,10 +22,7 @@ for _, name in ipairs({
     "ui/widget/qrmessage",
 }) do
     package.preload[name] = function()
-        return { new = function(_self, options)
-            options.onClose = function(widget) closed_widget = widget end
-            return options
-        end }
+        return { new = function(_self, options) return options end }
     end
 end
 package.preload["device"] = function()
@@ -97,6 +93,7 @@ local available_version
 local annotations_visible = false
 local annotation_menu_updates = 0
 local prefetch_cancellations = 0
+local prefer_eink_chapters
 local host = {
     ui = {},
     _xpointerOverlayPrototypeAvailable = function() return true end,
@@ -107,10 +104,12 @@ local host = {
             if key == "cache" then return cache end
             if key == "shelf" then return shelf end
             if key == "thought_popup" then return thought_popup end
+            if key == "prefer_eink_chapters" then return prefer_eink_chapters end
             return default
         end,
         set = function(_self, key, value)
             if key == "shelf" then shelf = value end
+            if key == "prefer_eink_chapters" then prefer_eink_chapters = value end
         end,
         flush = function() flush_count = flush_count + 1 end,
     },
@@ -134,6 +133,10 @@ for key, value in pairs(Menu) do host[key] = value end
 host:onDispatcherRegisterActions()
 expect(registered.weread_show == nil,
     "generic WeRead shortcut action is no longer registered")
+local screenshot_action = registered.weread_delayed_screenshot
+expect(screenshot_action and screenshot_action.event == 'ShowWeReadDelayedScreenshot'
+        and screenshot_action.general == true,
+    'delayed screenshot is available as a general gesture action')
 local sync_action = registered.weread_sync_progress
 expect(sync_action and sync_action.event == "WeReadSyncProgress"
         and sync_action.title == "WeRead · Sync progress now"
@@ -162,7 +165,7 @@ expect(toggle_action and toggle_action.reader == true
         and toggle_action.general ~= true,
     "annotation visibility action is reader-only")
 expect(toggle_action
-        and toggle_action.title == "WeRead · Toggle underlines and thoughts",
+        and toggle_action.title == "WeRead · Toggle underlines, thoughts and bookmarks",
     "annotation visibility action has a gesture-friendly title")
 local continue_action = registered.weread_continue_annotation_matching
 expect(continue_action
@@ -253,46 +256,34 @@ local last_settings_item = settings_items[#settings_items]
 expect(last_settings_item and last_settings_item.text == "About",
     "about is the last settings menu item")
 local about_items = last_settings_item and last_settings_item.sub_item_table_func()
-expect(about_items and #about_items == 6,
-    "about contains version, author, WeReader, and three update settings")
+expect(about_items and #about_items == 5,
+    "about contains version, original author, and three update settings")
 for index, item in ipairs(about_items or {}) do
     expect(item.keep_menu_open == true,
         "about item " .. index .. " keeps the menu open")
 end
 expect(about_items[1] and about_items[1].text == "Version %1",
     "version is the first about item")
-expect(about_items[2] and about_items[2].text == "Author: %1",
-    "author is the second about item")
-expect(about_items[3] and about_items[3].text == "Discover WeReader closed-source edition",
-    "WeReader entry follows the author")
-expect(about_items[4] and about_items[4].text == "Check for updates"
-        and about_items[5].text == "Automatically check once an hour"
-        and about_items[6].text == "Prefer proxy for updates",
-    "update settings follow the WeReader entry at the same level")
+expect(about_items[2] and about_items[2].text == "Original author: %1",
+    "original author is the second about item")
+expect(about_items[3] and about_items[3].text == "Check for updates"
+        and about_items[4].text == "Automatically check once an hour"
+        and about_items[5].text == "Prefer proxy for updates",
+    "update settings follow the attribution at the same level")
 available_version = "0.7.0"
 local update_available_items = last_settings_item.sub_item_table_func()
-expect(#update_available_items == 6
-        and update_available_items[4].text == "Update to v%1",
+expect(#update_available_items == 5
+        and update_available_items[3].text == "Update to v%1",
     "available update replaces the check item without adding another item")
 available_version = nil
 about_items[1].callback()
-expect(shown_widget and shown_widget.text:find("Disclaimer", 1, true),
-    "version item preserves the previous about dialog behavior")
-about_items[3].callback()
-local recommendation = shown_widget
-expect(recommendation.title == "WeReader closed-source edition"
-        and recommendation.text:find("Xiaohongshu/Xianyu nickname", 1, true),
-    "recommendation includes both account names")
-expect(#recommendation.buttons_table == 2
-        and recommendation.buttons_table[1][1].text == "Xiaohongshu QR code",
-    "recommendation offers only Xiaohongshu QR and a return button")
-recommendation.buttons_table[1][1].callback()
-expect(shown_widget.text == "http://xhslink.com/m/8aP668RQREF"
-        and shown_widget.width == 540 and shown_widget.height == 540
-        and shown_widget.timeout == nil and closed_widget == nil,
-    "native QR uses the decoded profile URL without closing the introduction or timing out")
-recommendation.buttons_table[2][1].callback()
-expect(closed_widget == recommendation, "return closes the recommendation")
+expect(shown_widget and shown_widget.text:find("https://github.com/szxypi/weread.koplugin", 1, true)
+        and shown_widget.text:find("https://github.com/finlater/weread.koplugin", 1, true)
+        and shown_widget.text:find("AGPL-3.0", 1, true),
+    "about identifies the maintained repository, original project, and license")
+about_items[2].callback()
+expect(shown_widget and shown_widget.text:find("https://github.com/finlater", 1, true),
+    "original author attribution remains available")
 local main_items = host:getMainMenuItems()
 expect(main_items[#main_items] and main_items[#main_items].text == "Settings",
     "about is no longer present in the outer menu")
@@ -321,6 +312,36 @@ expect(not menu_has(local_reader_items, "Sync progress now")
         and menu_has(local_reader_items, "Underlines and thoughts management"),
     "local document menu retained WeRead-only book actions")
 
+host.settings.data_dir='/data/weread'
+host.ui.document={file='/data/weread/native-reader-v1/fixture/book.epub'}
+host._reader_session_gen=7
+local direct_account='owner';local direct_scope={vid='123'};local direct_calls={}
+host.library_db={accountKey=function() return direct_account end}
+host.settings.get_auth_scope=function() return direct_scope end
+host.settings.auth_scope_matches=function(_,scope) return scope==direct_scope end
+package.loaded['weread.ui.native_direct_navigation']={open_notes=function(_,variant) direct_calls[#direct_calls+1]=variant end}
+local direct_quick_calls=0
+host.onShowWeReadQuickMenu=function() direct_quick_calls=direct_quick_calls+1 end
+local direct_items=host:getMainMenuItems()
+local direct_quick
+for _,item in ipairs(direct_items) do if item.text=='WeRead · Quick menu' then direct_quick=item end end
+expect(direct_quick and not menu_has(direct_items,'Sync progress now'),
+    'native-only document did not expose the quick menu safely')
+for label,variant in pairs({['My cloud highlights']='marks',['My cloud bookmarks']='bookmarks',['My cloud thoughts']='thoughts'}) do
+    local action;for _,item in ipairs(direct_items) do if item.text==label then action=item.callback end end
+    expect(action~=nil,'native-only menu missing '..label)
+    if action then action();expect(direct_calls[#direct_calls]==variant,'native-only menu selected wrong notes') end
+end
+local stale_notes
+for _,item in ipairs(direct_items) do if item.text=='My cloud bookmarks' then stale_notes=item.callback end end
+local count=#direct_calls;direct_scope={vid='123'};stale_notes()
+expect(#direct_calls==count,'old native menu survived a login change')
+if direct_quick then
+    direct_quick.callback();host._reader_session_gen=8;direct_quick.callback()
+    expect(direct_quick_calls==1,'stale native-only menu opened in a new reader session')
+end
+host.ui.document={file='/books/local.epub'}
+
 host.detectWeReadBook = function() return "book-1" end
 local weread_reader_items = host:getMainMenuItems()
 expect(menu_has(weread_reader_items, "Sync progress now")
@@ -329,7 +350,7 @@ expect(menu_has(weread_reader_items, "Sync progress now")
     "WeRead book menu retained the local-book annotation submenu")
 local visibility_item
 for _, item in ipairs(weread_reader_items) do
-    if item.text == "Show underlines and thoughts" then visibility_item = item end
+    if item.text == "Show underlines, thoughts and bookmarks" then visibility_item = item end
 end
 expect(visibility_item and not visibility_item.checked_func(),
     "hidden annotation preference should show an unchecked item")
@@ -343,17 +364,40 @@ expect(cache.show_annotations == false and annotation_menu_updates == 1
         and visibility_item.check_callback_updates_menu == true,
     "annotation toggle did not refresh the kept-open main menu")
 
+host.detectWeReadBook = function() return "CB_SyntheticNotes" end
+local imported_reader_items = host:getMainMenuItems()
+expect(menu_has(imported_reader_items, "My cloud highlights")
+        and menu_has(imported_reader_items, "My cloud thoughts")
+        and menu_has(imported_reader_items, "My cloud bookmarks")
+        and menu_has(imported_reader_items, "Save cloud bookmark"),
+    "imported book did not expose its validated personal-note and bookmark entries")
+
 host.detectWeReadBook = function() return "mp-book" end
 local mp_reader_items = host:getMainMenuItems()
+expect(menu_has(mp_reader_items,"Export article to EPUB") and not menu_has(weread_reader_items,"Export article to EPUB")
+        and not menu_has(local_reader_items,"Export article to EPUB"),"MP export reader menu scope incorrect")
 expect(not menu_has(mp_reader_items, "Sync progress now")
         and menu_has(mp_reader_items, "Book details")
         and menu_has(mp_reader_items, "Underlines and thoughts management"),
     "public-account menu exposed unsupported progress or local-book actions")
 local download_settings
 local cache_management
+local eink_preference
 for _, item in ipairs(settings_items) do
     if item.text == "Download settings" then download_settings = item end
     if item.text == "Cache management" then cache_management = item end
+    if item.text == "Prefer reading E-Ink chapters" then eink_preference = item end
+end
+expect(eink_preference and not eink_preference.checked_func(), "legacy settings opted into E-Ink chapters")
+do
+    local before=flush_count
+    local updates=0
+    local touchmenu={updateItems=function() updates=updates+1 end}
+    eink_preference.callback(touchmenu)
+    expect(eink_preference.checked_func() and prefer_eink_chapters==true,"E-Ink preference did not turn on")
+    eink_preference.callback(touchmenu)
+    expect(not eink_preference.checked_func() and prefer_eink_chapters==false and flush_count==before+2 and updates==2,
+        "E-Ink preference did not persist both states and update the menu")
 end
 local cache_items = cache_management and cache_management.sub_item_table_func() or {}
 expect(cache_items[1] and cache_items[1].keep_menu_open == true

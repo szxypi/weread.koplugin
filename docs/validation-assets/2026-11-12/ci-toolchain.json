@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "date": "2026-11-12",
+  "result": "PASS",
+  "code_head": "dce14b60a6c6cc2a015f5f043a7c2e89783a93e9",
+  "cloud": {
+    "result": "PASS",
+    "head": "dce14b60a6c6cc2a015f5f043a7c2e89783a93e9",
+    "run_id": 43066084846,
+    "url": "https://github.com/szxypi/weread.koplugin/actions/runs/43066084846",
+    "runner": "Ubuntu 24.04 x86_64",
+    "all_steps_passed": true,
+    "python_test_files": 93,
+    "python_tests": 1131,
+    "python_skips": 0,
+    "luajit": "2.1.1794386141",
+    "luacheck": "1.2.0",
+    "argparse": "0.7.2",
+    "luafilesystem": "1.9.0",
+    "ripgrep": "15.2.0",
+    "pcre2": "10.45",
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "local": {
+    "result": "PASS",
+    "platform": "Ubuntu 24.04 ARM64",
+    "bootstrap": "Debian bookworm ARM64 offline source build",
+    "workflow_sha256": "30d53c2b3c39b83e6f314cb0c7ec4bf0a2608cdfacf3e355c32c216014735faf",
+    "checks": [
+      {
+        "name": "CI toolchain bootstrap checks",
+        "result": "PASS",
+        "seconds": 0.09
+      },
+      {
+        "name": "Lua namespace policy",
+        "result": "PASS",
+        "seconds": 0.03
+      },
+      {
+        "name": "Lua static analysis",
+        "result": "PASS",
+        "seconds": 5.53
+      },
+      {
+        "name": "Lua syntax check",
+        "result": "PASS",
+        "seconds": 0.4
+      },
+      {
+        "name": "Lua unit and component specs",
+        "result": "PASS",
+        "seconds": 2.8
+      },
+      {
+        "name": "Reading calendar time zones",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "name": "Python syntax check",
+        "result": "PASS",
+        "seconds": 0.32
+      },
+      {
+        "name": "Offline mock service checks",
+        "result": "PASS",
+        "seconds": 1.2
+      },
+      {
+        "name": "Native authorization prototype checks",
+        "result": "PASS",
+        "seconds": 1.08
+      },
+      {
+        "name": "Native renewal prototype checks",
+        "result": "PASS",
+        "seconds": 0.05
+      },
+      {
+        "name": "Native shelf-write prototype checks",
+        "result": "PASS",
+        "seconds": 0.35
+      },
+      {
+        "name": "Offline-time read-only preflight checks",
+        "result": "PASS",
+        "seconds": 0.24
+      },
+      {
+        "name": "Source coordinate prototype checks",
+        "result": "PASS",
+        "seconds": 0.89
+      },
+      {
+        "name": "Web source-position read-only preflight checks",
+        "result": "PASS",
+        "seconds": 0.44
+      },
+      {
+        "name": "Saved Web session boundary checks",
+        "result": "PASS",
+        "seconds": 0.35
+      },
+      {
+        "name": "Saved native session boundary checks",
+        "result": "PASS",
+        "seconds": 0.14
+      },
+      {
+        "name": "Native statistics prototype checks",
+        "result": "PASS",
+        "seconds": 0.16
+      },
+      {
+        "name": "Native bookstore prototype checks",
+        "result": "PASS",
+        "seconds": 0.22
+      },
+      {
+        "name": "Native MP catalog prototype checks",
+        "result": "PASS",
+        "seconds": 0.06
+      },
+      {
+        "name": "Web shelf prototype checks",
+        "result": "PASS",
+        "seconds": 0.17
+      },
+      {
+        "name": "Display progress prototype checks",
+        "result": "PASS",
+        "seconds": 0.12
+      },
+      {
+        "name": "Book metadata prototype checks",
+        "result": "PASS",
+        "seconds": 0.38
+      },
+      {
+        "name": "Native metadata prototype checks",
+        "result": "PASS",
+        "seconds": 3.04
+      },
+      {
+        "name": "Bundled TLS trust store integrity",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "name": "Private source parser isolation checks",
+        "result": "PASS",
+        "seconds": 0.05
+      },
+      {
+        "name": "Release package smoke test",
+        "result": "PASS",
+        "seconds": 0.09
+      },
+      {
+        "name": "Release changelog check",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "name": "Sensitive information scan",
+        "result": "PASS",
+        "seconds": 0.11
+      }
+    ],
+    "all_existing_checks_preserved": true,
+    "account_data_posts": 0,
+    "python_test_files": 93,
+    "python_tests": 1131,
+    "skips": 0,
+    "lua_specs": 222,
+    "lint_files": 623,
+    "lua_syntax_files": 625,
+    "python_syntax_files": 288,
+    "time_zones": 4
+  },
+  "workflow_preservation": {
+    "result": "PASS",
+    "existing_steps": 29,
+    "additional_steps": [
+      "CI toolchain bootstrap checks"
+    ],
+    "changed_steps": [
+      "Install Lua tooling",
+      "Sensitive information scan"
+    ],
+    "removed_steps": [],
+    "production_diff_from_21857db": []
+  },
+  "lock_sha256": "f860c386eec8c91d4cd3de9cecd64959a39449185f6ac1bdecd312cacbe7c6ec",
+  "offline_builds": 2,
+  "upstream_license_tools": 5,
+  "upstream_license_files": 7,
+  "tests_before_fix": {
+    "namespace_search_exit_2": "false pass reproduced",
+    "sensitive_search_exit_2": "false pass reproduced"
+  },
+  "tests_after_fix": {
+    "namespace_search_exit_2": "fails as required",
+    "sensitive_search_exit_2": "fails as required",
+    "new_boundary_tests": 13
+  },
+  "production_files_changed": 0,
+  "protected_files_changed": 0,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "weread_api_requests": 0,
+  "privacy": {
+    "python_bookmark_intent_absent": true,
+    "native_bookmark_intent_absent": true,
+    "result": "PASS",
+    "files": 1509,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "test_intents_absent": true,
+    "python_style_intent_absent": true,
+    "native_style_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 139
+  },
+  "physical_ko2_acceptance": false,
+  "performance_phase_started": false,
+  "goal_complete": false
+}

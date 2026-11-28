@@ -1,0 +1,21 @@
+package.path='./?.lua;'..package.path
+local A=require('weread.lib.thought_attachments')
+local url='https://weread-picture-1258476243.file.myqcloud.com/a.png'
+local function present(v) return v~=nil end
+assert(A.allowed(url)==url and not A.allowed('http://weread-picture-1258476243.file.myqcloud.com/a'))
+assert(not A.allowed('https://weread-picture-1258476243.file.myqcloud.com.evil/a'))
+assert(not A.allowed('https://weread-picture-1258476243.file.myqcloud.com@evil.test/a'))
+assert(not A.allowed(url..'#fragment') and not A.allowed(url..'\n'))
+local result=A.project({pictures={{url=url},{url=url}},pencilNote={imageUrl=url}},present)
+assert(result.state=='available' and result.urls==url and #assert(A.decode(result.urls))==1)
+result=A.project({pictures={{url=url},{url='https://evil.test/image'}}},present)
+assert(result.state=='partial' and result.urls==url)
+result=A.project({pencilNote={imageUrl=url,andDrawingUrl=url..'?overlay=1'}},present)
+assert(result.state=='partial' and result.urls==url)
+result=A.project({pencilNote={drawingData='unknown'}},present)
+assert(result.state=='partial' and result.urls=='')
+result=A.project({htmlContent='<p><IMG src="x"></p>'},present)
+assert(result.state=='partial' and result.urls=='')
+assert(not A.project({pictures={}},present) and not A.decode(url..'\n') and not A.decode(url..'\n'..url))
+assert(not pcall(A.cached,{attachment_state='available',attachment_urls=''}) and not pcall(A.cached,{attachment_state='bad',attachment_urls=url}))
+print('PASS: thought attachment projection, URL confinement and cache validation')

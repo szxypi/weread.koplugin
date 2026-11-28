@@ -1,0 +1,26 @@
+{
+  "scope": "one existing XHTML chapter in an isolated KOReader ReaderUI host",
+  "screens": [
+    "600x800",
+    "1264x1680"
+  ],
+  "production_selection_menu": true,
+  "actual_reader_selection": true,
+  "native_and_web_source_bytes_match": true,
+  "quote_range_independently_checked": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "visible_shelf_unchanged": true,
+  "credential_file_audit_passed": true,
+  "temporary_profile_removed": true,
+  "initial_failure": "null synthetic endpoint was treated as configured; corrected in the private test runner and repeated",
+  "limitations": [
+    "one account and chapter",
+    "isolated ReaderUI host",
+    "read-only selection and creation preflight only",
+    "existing cloud annotations and reading position were not independently compared",
+    "physical Kindle untested"
+  ],
+  "highlight_creation_preflight": true,
+  "private_thought_creation_preflight": true
+}

@@ -19,6 +19,7 @@ local cleanup_count = 0
 local fail_next_save = false
 local rendered_chapters_complete = true
 local save_book_calls = 0
+local resume_css = nil
 
 package.preload["ui/widget/confirmbox"] = function()
     return { new = function(_self, options) return options end }
@@ -102,7 +103,7 @@ package.preload["weread.lib.content"] = function()
     return {
         ensure_reader_state = function() end,
         open_full_download_workspace = function() return workspace end,
-        load_full_download_css = function() return "body{}" end,
+        load_full_download_css = function() return resume_css end,
         full_download_workspace_used_asset_names = function() return {} end,
         full_download_completed_chapters = function()
             checkpoint_checks = checkpoint_checks + 1
@@ -112,8 +113,9 @@ package.preload["weread.lib.content"] = function()
             end
             return completed
         end,
-        fetch_single_chapter_source = function(_client, _settings, _book, chapter)
+        fetch_single_chapter_source = function(_client, _settings, _book, chapter, state)
             fetched[#fetched + 1] = chapter.chapterUid
+            if state and not state.css then state.css = "body{}" end
             return "<p>chapter " .. tostring(chapter.chapterUid) .. "</p>"
         end,
         finalize_single_chapter_content = function(_client, _settings, _book, _chapter, xhtml)
@@ -128,14 +130,12 @@ package.preload["weread.lib.content"] = function()
         end,
         reset_full_download_rendered_text = function() end,
         save_full_download_rendered_chapter = function() end,
-        full_download_rendered_chapter_exists = function()
-            return rendered_chapters_complete
-        end,
         load_full_download_chapter = function(_workspace, chapter)
             return "<p>checkpoint " .. tostring(chapter.chapterUid) .. "</p>"
         end,
         full_download_workspace_assets = function() return {} end,
         save_book_epub = function(_settings, _book, chapters, bodies)
+            if not rendered_chapters_complete then error("missing rendered chapter") end
             save_book_calls = save_book_calls + 1
             if fail_next_save then error("injected package failure") end
             saved_chapters = chapters
@@ -150,11 +150,16 @@ local Downloader = require("weread.lib.downloader")
 local books = {}
 local settings = {
     get = function(_self, key, default)
-        if key == "books" then return books end
+        assert(key ~= "books", "download completion read the entire library")
         if key == "cache" then return { download_book_images = false } end
         return default
     end,
-    set = function(_self, key, value) if key == "books" then books = value end end,
+    record_download = function(_self, id, book, change)
+        local record = books[id] or {book_id=book.book_id}
+        require("weread.lib.book_store").apply_download(record, change)
+        books[id] = record
+        return true, record
+    end,
     flush = function() end,
 }
 local downloader = Downloader:new{
@@ -182,7 +187,7 @@ while #scheduled > 0 do
 end
 
 expect(#fetched == 1 and fetched[1] == 2,
-    "resume should fetch only the unfinished chapter")
+    "resume with an unverified stylesheet should fetch only the unfinished chapter")
 expect(#checkpointed >= 1 and checkpointed[1].uid == 2
     and checkpointed[1].index == 2,
     "newly downloaded chapter was not checkpointed at its catalog index")
@@ -192,6 +197,19 @@ expect(type(streamed_bodies) == "table"
     "final EPUB did not stream rendered chapter files")
 expect(checkpoint_checks >= 2,
     "full-book checkpoints were not verified again before packaging")
+
+resume_css = nil
+fetched = {}
+expect(downloader:start({ book_id = "book", title = "Book" }, chapters, "full", {
+    silent_completion = true,
+}), "download with an unverified stylesheet did not start")
+while #scheduled > 0 do
+    local callback = table.remove(scheduled, 1)
+    callback()
+end
+expect(#fetched == 1 and fetched[1] == 1,
+    "fully checkpointed book did not refresh exactly one chapter for its stylesheet")
+resume_css = "body{}"
 
 local cleanup_before_failure = cleanup_count
 fail_next_save = true
@@ -262,5 +280,16 @@ expect(batch_dl.index == 26,
     "resume batch should yield after 25 completed chapters")
 expect(#scheduled == 1,
     "resume batch should schedule one continuation instead of one per chapter")
+
+local changed_result
+settings.auth_scope_matches=function() return false end
+local stale_job={resumable=true,full_auth_scope={vid='12345678',epoch=1},
+    workspace={path='/cache/book/.weread-download-resume-full'},
+    on_complete=function(ok,reason) expect(not ok,'changed account unexpectedly completed');changed_result=reason end}
+downloader._active_job=stale_job
+local cleanup_before_switch=cleanup_count
+downloader:_step(stale_job)
+expect(changed_result=='account_changed' and not downloader._active_job and cleanup_count==cleanup_before_switch,
+    'account change did not stop and preserve the resumable full download')
 
 print(("downloader_resume_spec: %d checks"):format(checks))

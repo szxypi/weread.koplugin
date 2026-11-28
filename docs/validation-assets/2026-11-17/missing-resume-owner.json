@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "actual_owner_book_and_source": true,
+  "synthetic_fallback_in_disposable_profile": true,
+  "detail_target_download_and_native_reading": true,
+  "fresh_process_offline_reopen": true,
+  "cloud_position_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_screenshots": 0,
+  "temporary_profiles_removed": true,
+  "prior_unverified_runs": 2,
+  "prior_runs_reason": "read-only shelf-progress request blocked by acceptance guard",
+  "prior_runs_cloud_position_unchanged": true,
+  "physical_kindle_tested": false,
+  "real_home_and_manual_cached_action_tested": false
+}

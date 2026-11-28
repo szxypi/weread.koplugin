@@ -1,0 +1,26 @@
+{
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "scope": "isolated book detail host, real KOReader detail button, chapter menu and background worker",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "first_synthetic_attempt": "timeout because the test host had no visible window",
+  "retest_with_visible_window": "PASS",
+  "real_account_samples": [
+    {"chapters": 1, "screen_sizes": ["1264x1680"], "missing_images": 0, "native_requests_per_run": 6},
+    {"chapters": 1, "screen_sizes": ["600x800", "1264x1680"], "missing_images": 2, "native_requests_per_run": 7}
+  ],
+  "real_book_detail_button_tested": true,
+  "full_plugin_reader_handoff_tested": false,
+  "independent_source_match": true,
+  "offline_reopen_with_network_guard": true,
+  "web_coordinates": false,
+  "manual_time_reporting_blocked": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "shelf_unchanged": true,
+  "credentials_written_to_test_files": false,
+  "temporary_profiles_removed": true,
+  "plugin_offline_chapter_selection": false,
+  "cross_chapter_navigation": false,
+  "cloud_progress_mapping_verified": false,
+  "physical_kindle_tested": false
+}

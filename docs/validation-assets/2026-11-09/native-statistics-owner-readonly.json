@@ -1,0 +1,394 @@
+{
+  "result": "NATIVE_STATISTICS_CONTRACT_VERIFIED",
+  "checked_at": "2026-11-08T18:34:32.276852+00:00",
+  "account_writes_attempted": 0,
+  "private_statistics_saved": false,
+  "credentials_written_to_files": false,
+  "responses": [
+    {
+      "mode": "weekly",
+      "historical": false,
+      "field_names": [
+        "baseTime",
+        "compare",
+        "dayAverageReadTime",
+        "preferBooks",
+        "rank",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readRecordsWord",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ],
+      "readTimes": {
+        "type": "dict",
+        "count": 0,
+        "value_types": [],
+        "key_format": "unix"
+      },
+      "dailyReadTimes": {
+        "type": "missing"
+      },
+      "period_verified": true,
+      "total_matches_buckets": true,
+      "projected_field_names": [
+        "baseTime",
+        "compare",
+        "dayAverageReadTime",
+        "rank",
+        "readDays",
+        "readTimes",
+        "totalReadTime"
+      ],
+      "days_match_positive_daily_buckets": true
+    },
+    {
+      "mode": "monthly",
+      "historical": false,
+      "field_names": [
+        "baseTime",
+        "dayAverageReadTime",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ],
+      "readTimes": {
+        "type": "dict",
+        "count": 6,
+        "value_types": [
+          "int"
+        ],
+        "key_format": "unix"
+      },
+      "dailyReadTimes": {
+        "type": "missing"
+      },
+      "period_verified": true,
+      "total_matches_buckets": true,
+      "projected_field_names": [
+        "baseTime",
+        "dayAverageReadTime",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readLongest",
+        "readStat",
+        "readTimes",
+        "totalReadTime"
+      ],
+      "days_match_positive_daily_buckets": true
+    },
+    {
+      "mode": "annually",
+      "historical": false,
+      "field_names": [
+        "baseTime",
+        "compare",
+        "dailyReadTimes",
+        "dayAverageReadTime",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRate",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime",
+        "wrListenTime",
+        "wrReadTime"
+      ],
+      "readTimes": {
+        "type": "dict",
+        "count": 12,
+        "value_types": [
+          "int"
+        ],
+        "key_format": "unix"
+      },
+      "dailyReadTimes": {
+        "type": "dict",
+        "count": 365,
+        "value_types": [
+          "int"
+        ],
+        "key_format": "unix"
+      },
+      "period_verified": true,
+      "total_matches_buckets": true,
+      "projected_field_names": [
+        "baseTime",
+        "compare",
+        "dayAverageReadTime",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readLongest",
+        "readRate",
+        "readStat",
+        "readTimes",
+        "totalReadTime"
+      ]
+    },
+    {
+      "mode": "overall",
+      "historical": false,
+      "field_names": [
+        "authorCount",
+        "baseTime",
+        "medals",
+        "preferAuthor",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "preferCp",
+        "preferPublisher",
+        "preferTime",
+        "preferTimeWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRate",
+        "readRecords",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime",
+        "wrListenTime",
+        "wrReadTime",
+        "yearReport"
+      ],
+      "readTimes": {
+        "type": "dict",
+        "count": 9,
+        "value_types": [
+          "int"
+        ],
+        "key_format": "unix"
+      },
+      "dailyReadTimes": {
+        "type": "missing"
+      },
+      "period_verified": true,
+      "total_matches_buckets": false,
+      "projected_field_names": [
+        "baseTime",
+        "preferAuthor",
+        "preferCategory",
+        "preferCategoryWord",
+        "preferPublisher",
+        "preferTimeWord",
+        "readDays",
+        "readLongest",
+        "readRate",
+        "readStat",
+        "readTimes",
+        "totalReadTime"
+      ]
+    },
+    {
+      "mode": "monthly",
+      "historical": true,
+      "field_names": [
+        "baseTime",
+        "dayAverageReadTime",
+        "preferBooks",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ],
+      "readTimes": {
+        "type": "dict",
+        "count": 6,
+        "value_types": [
+          "int"
+        ],
+        "key_format": "unix"
+      },
+      "dailyReadTimes": {
+        "type": "missing"
+      },
+      "period_verified": true,
+      "total_matches_buckets": true,
+      "projected_field_names": [
+        "baseTime",
+        "dayAverageReadTime",
+        "readDays",
+        "readStat",
+        "readTimes",
+        "totalReadTime"
+      ],
+      "days_match_positive_daily_buckets": false
+    }
+  ],
+  "lua_projection_matches": true,
+  "json_numeric_absolute_tolerance": 1e-09,
+  "native_https_projection_matches": true,
+  "native_read_requests": 5,
+  "same_owner_verified": true,
+  "stages": [
+    {
+      "stage": "statistics_weekly",
+      "status": 200,
+      "keys": [
+        "baseTime",
+        "compare",
+        "dayAverageReadTime",
+        "preferBooks",
+        "rank",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readRecordsWord",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ]
+    },
+    {
+      "stage": "statistics_monthly",
+      "status": 200,
+      "keys": [
+        "baseTime",
+        "dayAverageReadTime",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ]
+    },
+    {
+      "stage": "statistics_annually",
+      "status": 200,
+      "keys": [
+        "baseTime",
+        "compare",
+        "dailyReadTimes",
+        "dayAverageReadTime",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRate",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime",
+        "wrListenTime",
+        "wrReadTime"
+      ]
+    },
+    {
+      "stage": "statistics_overall",
+      "status": 200,
+      "keys": [
+        "authorCount",
+        "baseTime",
+        "medals",
+        "preferAuthor",
+        "preferBooks",
+        "preferCategory",
+        "preferCategoryWord",
+        "preferCp",
+        "preferPublisher",
+        "preferTime",
+        "preferTimeWord",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readLongest",
+        "readRate",
+        "readRecords",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime",
+        "wrListenTime",
+        "wrReadTime",
+        "yearReport"
+      ]
+    },
+    {
+      "stage": "statistics_monthly",
+      "status": 200,
+      "keys": [
+        "baseTime",
+        "dayAverageReadTime",
+        "preferBooks",
+        "readDays",
+        "readDistributionCnt",
+        "readDistributionWord",
+        "readRecordsWord",
+        "readStat",
+        "readTimeGears",
+        "readTimes",
+        "registTime",
+        "shareInfo",
+        "styleType",
+        "totalReadTime"
+      ]
+    }
+  ]
+}

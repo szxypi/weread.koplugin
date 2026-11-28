@@ -5,7 +5,7 @@ local WorkerSettings = require("weread.lib.worker_settings")
 
 local M = {}
 
-function M.run(settings, client, context, chapters, worker_context)
+function M.run(settings, client, context, chapters, worker_context, annotation_access)
     local auth_result = WorkerSettings.capture(settings)
     -- WAL connections can briefly contend when another process closes its
     -- last reader. Let SQLite retry in this child, never in the UI thread.
@@ -19,6 +19,7 @@ function M.run(settings, client, context, chapters, worker_context)
     local job = Sync:new {
         store = context.store,
         client = client,
+        annotation_access = annotation_access,
         book_id = context.book_id,
         chapters = chapters or context.chapters,
         ranges = context.ranges,

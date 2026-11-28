@@ -1,0 +1,83 @@
+{
+  "result": "PASS",
+  "mode": "dry-run",
+  "native_ui": {
+    "result": "PASS",
+    "profile_removed": true,
+    "installed": {
+      "files": 364,
+      "bytes_match": true
+    },
+    "stage": {
+      "anonymous_credentials": true,
+      "guard_selftest": true,
+      "native_detail": true,
+      "first_preview": true,
+      "second_preview": false,
+      "native_confirmations": true,
+      "worker_heartbeat": true,
+      "cancel_no_post": true,
+      "local_state_preserved": true,
+      "cache_verified": false,
+      "journal_before_posts": false,
+      "workers_reaped": true,
+      "credential_audit": true,
+      "result": "PASS",
+      "phase": "complete",
+      "offline_queue": true,
+      "permit_writes": false,
+      "native_gets": 3,
+      "native_posts": 0,
+      "denied": 0,
+      "screenshots": 0,
+      "failed_line": 0,
+      "shelf_books": 140,
+      "profile_files_audited": 7
+    }
+  },
+  "independent_steps": 0,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "reserved_posts": 0,
+  "original_flags_groups_and_exact_position_restored": true,
+  "intent_state": "absent",
+  "no_automatic_replay": true,
+  "host_stages": [
+    {
+      "stage": "finish_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_position",
+      "status": 200
+    },
+    {
+      "stage": "finish_metadata",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_position",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_position",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_shelf",
+      "status": 200
+    },
+    {
+      "stage": "finish_independent_position",
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-18",
+  "fixture": "isolated synthetic TXT book",
+  "runtime": "stock KOReader Linux ARM64",
+  "first_attempt": "UNVERIFIED: synthetic verifier request limit",
+  "injected_http_503_per_screen": 3,
+  "screens": [
+    {"width": 600, "height": 800, "dpi": 167, "result": "PASS"},
+    {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS"}
+  ],
+  "failure_message_verified": true,
+  "partial_book_opened_or_cached": false,
+  "manual_retry_reading_verified": true,
+  "offline_reopen_verified": true,
+  "real_account_writes": 0,
+  "physical_device_tested": false
+}

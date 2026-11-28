@@ -1,0 +1,182 @@
+{
+  "date": "2026-11-18",
+  "capture": {
+    "result": "CB_NATIVE_WINDOW_CAPTURED",
+    "phase": "complete",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "private_data_on_regular_disk": false,
+    "seconds": 6,
+    "rows": 1,
+    "source_and_positions_unchanged": true,
+    "independent_snapshot": true,
+    "sqlite_evidence_saved": true,
+    "profile_removed": true,
+    "not_before_utc": "2026-11-18T16:00:01Z"
+  },
+  "same_day_inspection": {
+    "result": "SAME_DAY_DEFERRED",
+    "seconds": 6,
+    "exact_rows": true,
+    "archive_verified": true,
+    "coverage_verified": true,
+    "pending_unchanged": true,
+    "profile_removed": true,
+    "saved_capture_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "historical_dispatch_performed": false,
+  "physical_kindle_tested": false,
+  "independent_currentness": {
+    "result": "CB_CAPTURE_CURRENT",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "source_version_positions_counts_and_shelves_unchanged": true,
+    "saved_capture_unchanged": true
+  },
+  "early_dispatch_gate": {
+    "result": "EARLY_RESERVATION_REFUSED",
+    "gate_unchanged": true,
+    "capture_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "post_expiry_renewal": {
+    "native_401_independently_verified": true,
+    "authentication_posts": 1,
+    "account_data_posts": 0,
+    "same_owner_verified": true,
+    "renewed_credential_readback": true
+  },
+  "post_renewal_currentness": {
+    "result": "CB_CAPTURE_CURRENT",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "source_version_positions_counts_and_shelves_unchanged": true,
+    "saved_capture_unchanged": true,
+    "chapter_index_verified": true
+  },
+  "synthetic_native_ui": {
+    "600x800": {
+      "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+      "synthetic_only": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "profile_removed": true,
+      "scenarios": 19,
+      "native_menu": true,
+      "background_service": true,
+      "original_summary_preserved": true,
+      "baseline_sealed_before_claim": true,
+      "unknown_not_replayed": true
+    },
+    "1264x1680": {
+      "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+      "synthetic_only": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "profile_removed": true,
+      "scenarios": 19,
+      "native_menu": true,
+      "background_service": true,
+      "original_summary_preserved": true,
+      "baseline_sealed_before_claim": true,
+      "unknown_not_replayed": true
+    },
+    "physical_kindle_tested": false
+  },
+  "early_preflight": {
+    "result": "EARLY_PREFLIGHT_DEFERRED",
+    "capture_unchanged": true,
+    "dispatch_and_audit_empty": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "early_preflight_cli": {
+    "result": "NOT_YET_HISTORICAL",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false
+  },
+  "synthetic_preflight": {
+    "result": "SYNTHETIC_CB_PREFLIGHT_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "two_stable_snapshots": true,
+    "two_stable_statistics": true,
+    "gate_and_audit_unchanged": true
+  },
+  "early_readback": {
+    "result": "NOT_READY",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "real_accounting_verified": false,
+    "saved_capture_unchanged": true,
+    "dispatch_and_audit_empty": true
+  },
+  "synthetic_readback": {
+    "result": "SYNTHETIC_CB_READBACK_VERIFIED",
+    "independent_samples": 3,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "synthetic_remote_archive": {
+    "result": "SYNTHETIC_CB_REMOTE_PIPE_VERIFIED",
+    "process_pipe_scenarios": 3,
+    "native_ui_scenarios_per_size": 19,
+    "screen_sizes": 2,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "changed_archive_blocked": true,
+    "unknown_not_replayed": true,
+    "profile_removed": true,
+    "real_dispatch_connected": false
+  },
+  "synthetic_native_broker": {
+    "result": "SYNTHETIC_CB_BROKER_UI_VERIFIED",
+    "screen_sizes": 2,
+    "scenarios_per_size": 2,
+    "native_menu": true,
+    "background_service": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "profile_removed": true,
+    "real_dispatch_connected": false,
+    "physical_kindle_tested": false
+  },
+  "synthetic_broker_faults": {
+    "result": "SYNTHETIC_CB_BROKER_VERIFIED",
+    "scenarios": 7,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "ambiguous_claims_not_replayed": true
+  },
+  "synthetic_guarded_native_task": {
+    "result": "SYNTHETIC_CB_GUARDED_TASK_VERIFIED",
+    "scenarios": 7,
+    "real_account_posts": 0,
+    "synthetic_posts": 2,
+    "source_reads_guarded": true,
+    "independent_readbacks": 3,
+    "no_automatic_replay": true,
+    "real_dispatch_connected": false,
+    "physical_kindle_tested": false,
+    "dry_approval_override_blocked": true,
+    "full_host_preflight_signing_and_dry_run": true
+  },
+  "early_native_dry_run": {
+    "result": "NOT_YET_HISTORICAL",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "dispatch_may_have_occurred": false,
+    "real_accounting_verified": false,
+    "private_data_in_report": false,
+    "capture_unchanged": true,
+    "dispatch_and_audit_empty": true,
+    "session_unopened": true
+  }
+}

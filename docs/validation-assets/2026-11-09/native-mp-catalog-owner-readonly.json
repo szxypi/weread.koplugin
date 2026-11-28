@@ -1,0 +1,58 @@
+{
+  "result": "NATIVE_MP_CATALOG_UNVERIFIED",
+  "evidence_kind": "sanitized_observed_tool_outputs",
+  "last_observed_at": "2026-11-09T08:57:30.699482+00:00",
+  "native_grant_retained_in_keychain": true,
+  "web_grant_retained_in_keychain": true,
+  "credentials_written_to_files": false,
+  "private_catalog_saved": false,
+  "account_data_writes": 0,
+  "total_get_requests": 9,
+  "authentication_posts": 1,
+  "runs": [
+    {
+      "checked_at": "2026-11-09T08:55:01.931465+00:00",
+      "get_requests": 2,
+      "web_account_status": 200,
+      "native_shelf_status": 401,
+      "catalog_requested": false
+    },
+    {
+      "checked_at": "2026-11-09T08:55:16.746656+00:00",
+      "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+      "authentication_posts": 1,
+      "get_requests": 1,
+      "same_owner_verified": true,
+      "shelf_book_count": 139,
+      "keychain_readback_verified": true,
+      "access_token_changed": true,
+      "refresh_token_returned": false,
+      "existing_refresh_token_preserved": true
+    },
+    {
+      "checked_at": "2026-11-09T08:55:22.878642+00:00",
+      "get_requests": 3,
+      "web_account_status": 200,
+      "native_shelf_status": 200,
+      "catalog_http_status": 499,
+      "catalog_error_body_observed": false,
+      "second_page_requested": false
+    },
+    {
+      "checked_at": "2026-11-09T08:57:30.699482+00:00",
+      "get_requests": 3,
+      "web_account_status": 200,
+      "native_shelf_status": 200,
+      "catalog_http_status": 499,
+      "catalog_error_code": -2041,
+      "catalog_error_response_bytes": 53,
+      "catalog_error_response_bounded": true,
+      "catalog_error_json_object": true,
+      "second_page_requested": false
+    }
+  ],
+  "final_script_live_rerun": false,
+  "catalog_success_response_verified": false,
+  "pagination_verified_on_real_data": false,
+  "product_lua_endpoint_added": false
+}

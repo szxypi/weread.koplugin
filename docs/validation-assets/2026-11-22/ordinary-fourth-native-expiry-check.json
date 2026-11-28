@@ -1,0 +1,14 @@
+{
+  "result": "UNVERIFIED",
+  "checked_at": "2026-11-22T11:04:42.127572+00:00",
+  "account_data_writes_attempted": 0,
+  "authentication_posts_attempted": 0,
+  "credentials_written_to_files": false,
+  "reason": "saved_shelf: HTTP 401",
+  "stages": [
+    {
+      "stage": "saved_shelf",
+      "status": 401
+    }
+  ]
+}

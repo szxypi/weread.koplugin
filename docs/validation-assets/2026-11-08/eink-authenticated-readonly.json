@@ -1,0 +1,132 @@
+{
+  "checked_at": "2026-11-08T04:57:04.891571+00:00",
+  "stages": [
+    {
+      "stage": "qr_ticket",
+      "status": 200,
+      "keys": [
+        "expires_in",
+        "signature",
+        "timeStamp"
+      ]
+    },
+    {
+      "stage": "qr_connect",
+      "status": 200,
+      "keys": [
+        "appname",
+        "errcode",
+        "qrcode",
+        "uuid"
+      ]
+    },
+    {
+      "stage": "login",
+      "status": 200,
+      "keys": [
+        "accessToken",
+        "config",
+        "firstLogin",
+        "openId",
+        "pf",
+        "refreshToken",
+        "skey",
+        "user",
+        "userAgreement",
+        "vid",
+        "wxAccessToken"
+      ]
+    },
+    {
+      "stage": "shelf_verify",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "time_config",
+      "status": 200,
+      "keys": [
+        "timestamp",
+        "token"
+      ]
+    },
+    {
+      "stage": "time_feature",
+      "status": 200,
+      "keys": [
+        "feature",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "time_position",
+      "status": 200,
+      "keys": [
+        "book",
+        "bookId",
+        "canFreeRead",
+        "timestamp"
+      ]
+    }
+  ],
+  "probe": "native_offline_time_read_only",
+  "authenticated": true,
+  "time_uploads_attempted": 0,
+  "shelf_book_count": 139,
+  "config_token_present": true,
+  "feature_contract_present": true,
+  "signature_token_source": "client_default",
+  "pending": [
+    "time_only_payload_and_write_readback",
+    "web_offline_overlap_coordination",
+    "file_bound_book_version_validation",
+    "device_ledger_preview"
+  ],
+  "position_contract_present": true,
+  "reading_seconds_present": true,
+  "read_only_preflight_complete": true,
+  "result": "PARTIAL",
+  "validation": {
+    "native_authorization_verified": true,
+    "shelf_verified": true,
+    "book_fields": {
+      "bookId": "str",
+      "title": "str",
+      "author": "str",
+      "cover": "str",
+      "version": "int",
+      "finishReading": "int",
+      "finished": "int",
+      "secret": "int",
+      "format": "str"
+    },
+    "progress_types": {
+      "bookId": "str",
+      "chapterUid": "int",
+      "chapterIdx": "int",
+      "chapterOffset": "int",
+      "progress": "int",
+      "readingTime": "int",
+      "updateTime": "int"
+    },
+    "progress_percent_in_0_100": true,
+    "archive_book_ids_are_lists": true,
+    "qr_file_deleted": true
+  },
+  "qr_poll_count": 7
+}

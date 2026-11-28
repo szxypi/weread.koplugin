@@ -1,0 +1,24 @@
+{
+  "result": "PASS_WITH_SCOPE_LIMITS",
+  "scope": "native-only chapter preparation and isolated cache, not a user-facing reading mode",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_checks": ["offline reopen", "verified cache reuse", "damaged file and receipt retained", "account switch", "stale catalog", "explicit missing-image fallback", "manual time reporting blocked"],
+  "real_account_samples": [
+    {"chapters": 1, "screen_sizes": ["1264x1680"], "missing_images": 0, "native_requests_per_run": 6},
+    {"chapters": 1, "screen_sizes": ["600x800", "1264x1680"], "missing_images": 2, "native_requests_per_run": 7}
+  ],
+  "independent_source_match": true,
+  "offline_network_guard": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_in_chapter_tests": 0,
+  "separate_authentication_renewal_posts": 1,
+  "expired_authentication_independently_confirmed": true,
+  "initial_second_sample_inline_style_rejected": true,
+  "missing_image_warning_verified": true,
+  "credentials_written_to_test_files": false,
+  "temporary_profiles_removed": true,
+  "user_facing_entry": false,
+  "cloud_progress_mapping_verified": false,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,20 @@
+{
+  "source_format": "raw imported TXT",
+  "positive_consistent_version_required": true,
+  "typed_source_proof": true,
+  "both_catalog_versions_checked": true,
+  "synthetic_source_and_network": true,
+  "koreader_archive_library_tested": true,
+  "koreader_sqlite_task_tested": true,
+  "synthetic_confirmed_time_posts": 1,
+  "synthetic_no_ack_not_replayed": true,
+  "synthetic_source_change_stops": true,
+  "synthetic_version_mismatch_blocks_send": true,
+  "real_account_read_only_books_sampled": 6,
+  "real_account_txt_books_found": 0,
+  "real_account_data_posts": 0,
+  "real_authentication_posts": 0,
+  "real_txt_historical_accounting_verified": false,
+  "zero_version_supported": false,
+  "physical_device_tested": false
+}

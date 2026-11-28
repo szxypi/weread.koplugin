@@ -1,0 +1,66 @@
+{
+  "dispatch": {
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "server_acknowledged": true,
+    "durable_gate_phase": "acknowledged",
+    "automatic_retry_allowed": false
+  },
+  "strict_readback": {
+    "result": "UNVERIFIED",
+    "reason": "native full shelf projection changed",
+    "native_full_shelf_matches": false,
+    "web_full_shelf_matches": true,
+    "two_shelf_samples_stable": true,
+    "account_data_posts": 0
+  },
+  "later_accounting_diagnostic": {
+    "seconds_since_claim": 197,
+    "samples": 2,
+    "samples_stable": true,
+    "per_book_reading_time_delta_seconds": 6,
+    "historical_date_statistics_exact": true,
+    "native_and_web_positions_unchanged": true,
+    "other_counters_unchanged": true,
+    "native_shelf_members_flags_and_core_groups_unchanged": true,
+    "account_data_posts": 0
+  },
+  "later_source_diagnostic": {
+    "seconds_since_claim": 242,
+    "samples": 2,
+    "samples_stable": true,
+    "source_catalog_version_positions_counters_and_core_native_shelf_exact": true,
+    "web_full_shelf_exact": true,
+    "capture_and_experiment_records_unchanged": true,
+    "account_data_posts": 0
+  },
+  "later_shelf_structure_diagnostic": {
+    "preflight_native_and_web_full_projections_equal": false,
+    "current_native_and_web_full_projections_equal": true,
+    "current_projection_matches_preflight_web": true,
+    "current_native_core_matches_captured_baseline": true,
+    "consecutive_samples_stable": true,
+    "bounded_hypotheses_tested": 2282,
+    "empty_field_presence_combinations_tested": 2097152,
+    "empty_field_presence_combination_matched": false,
+    "preflight_native_projection_reconstructed": false,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "component_fingerprint_readonly_check": {
+    "result": "PASS",
+    "samples_per_channel": 2,
+    "both_channels_supported": true,
+    "samples_stable": true,
+    "legacy_record_had_components": false,
+    "initial_format_attempt_stopped": true,
+    "initial_failure": "non-ASCII projection serialization mismatch",
+    "unicode_regression_added": true,
+    "legacy_record_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "full_native_shelf_difference_explained": false,
+  "strict_accounting_verified": false,
+  "physical_kindle_tested": false
+}

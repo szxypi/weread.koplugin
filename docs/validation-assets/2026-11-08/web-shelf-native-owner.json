@@ -1,0 +1,26 @@
+{
+  "result": "WEB_SHELF_CONTRACT_VERIFIED",
+  "checked_at": "2026-11-08T15:01:32.294329+00:00",
+  "account_writes_attempted": 0,
+  "credentials_written_to_files": false,
+  "owner_verified": true,
+  "book_count": 139,
+  "archive_count": 5,
+  "observed_version_count": 139,
+  "book_version_exported": false,
+  "lua_projection_matches": true,
+  "native_https_login_verified": true,
+  "native_https_shelf_matches": true,
+  "official_key_available": false,
+  "native_read_requests": 3,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "result": "REAL_READER_NATIVE_POSITION_ROUNDTRIP_VERIFIED",
+  "protocol": "native-reader-literal-raw-30-zero-time-v1",
+  "mock_readers": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "synthetic_posts": 2,
+      "independent_steps": 2,
+      "manual_production_path": true,
+      "exact_service_restore": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "synthetic_posts": 2,
+      "independent_steps": 2,
+      "manual_production_path": true,
+      "exact_service_restore": true,
+      "profile_removed": true
+    }
+  ],
+  "real_reader_dimensions": [
+    600,
+    800,
+    167
+  ],
+  "real_preparation_posts": 0,
+  "real_preparation_blocked_body_checks": 1,
+  "actual_native_posts": 2,
+  "explicit_success_receipts": 2,
+  "independent_steps": 2,
+  "web_write_posts": 0,
+  "authentication_posts": 0,
+  "historical_time_rows": 0,
+  "first_write_path": "SourceUpload / ProgressSync manual local choice",
+  "restore_path": "NativePositionService exact saved original",
+  "original_full_point_and_summary_restored": true,
+  "time_counters_preserved": true,
+  "visible_shelf_flags_and_groups_preserved": true,
+  "final_source_catalog_native_metadata_and_original_rechecked": true,
+  "local_commit_before_receipt_retirement": true,
+  "parent_only_native_document": true,
+  "workers_reaped": true,
+  "credential_file_audit": true,
+  "screenshots": 0,
+  "tmpfs_profile_removed": true,
+  "trial_phase": "retired",
+  "claimed_posts": 2,
+  "consumed_marker_retained": true,
+  "prior_trials_replayed": false,
+  "credentials_retained": true,
+  "package": {
+    "files": 278,
+    "source_bytes_match": true,
+    "sha256": "5d8615678facb568e662346d59403696f3063e12c2ac08fd446b98f26bb6b471"
+  },
+  "physical_ko2_verified": false,
+  "close_detached_upload_verified": false,
+  "release_published": false
+}

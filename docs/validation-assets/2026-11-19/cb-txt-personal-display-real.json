@@ -1,0 +1,17 @@
+{
+  "result": "CB_TXT_PERSONAL_DISPLAY_VERIFIED",
+  "sample": "new self-authored imported TXT with a non-BMP character before the quote",
+  "range_unit": "UTF-16 excluding leading BOM",
+  "server_highlight": "one new record independently read back and then removed",
+  "annotation_posts": 2,
+  "existing_book_writes": 0,
+  "authentication_posts": 0,
+  "native_ui": [
+    {"width": 600, "height": 800, "dpi": 167, "located": 1, "personal_display_verified": true, "offline_reopen": true, "plugin_http_requests": 0},
+    {"width": 1264, "height": 1680, "dpi": 300, "located": 1, "personal_display_verified": true, "offline_reopen": true, "plugin_http_requests": 0}
+  ],
+  "source_and_original_observed_state_restored": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "private_values_in_report": false,
+  "limitations": ["one self-authored TXT and highlight", "official saved-highlight display not verified", "physical Kindle not tested"]
+}

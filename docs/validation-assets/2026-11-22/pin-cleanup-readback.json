@@ -1,0 +1,11 @@
+{
+  "result": "READBACK_VERIFIED",
+  "account_data_writes": 0,
+  "credentials_written_to_files": false,
+  "original_shelf_restored": true,
+  "progress_matches_before_add": false,
+  "current_progress_stable": true,
+  "readback_rounds": 2,
+  "channels_per_round": 3,
+  "intent_state": "add_cleanup_pending"
+}

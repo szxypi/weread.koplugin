@@ -1,0 +1,147 @@
+-- Native chapter reads are independent from Web position provenance. This
+-- adapter neither writes account data nor persists packages or credentials.
+local Access=require('weread.lib.native_read_access')
+local Auth=require('weread.lib.native_authorization')
+local Catalog=require('weread.lib.native_book_catalog')
+local Protocol=require('weread.lib.native_position_protocol')
+local Url=require('weread.lib.protocol')
+local Archive=require('weread.lib.native_chapter_archive')
+local M={MAX_BYTES=32*1024*1024}
+local BASE='https://i.weread.qq.com'
+local HEADERS={baseapi='30',appver='2.1.2.10245900',basever='2.1.2.10245900',osver='11',channelId='900',
+    Accept='application/json', ['User-Agent']='WeRead/2.1.2 WRBrand/Onyx wr_eink Dalvik/2.1.0 (Linux; U; Android 11; BOOX Build/onyx)'}
+local TRANSPORT_ERRORS={
+    ['native_auth/chapter_info/transport']=true,
+    ['native_auth/chapter_info/timeout']=true,
+    ['native_auth/chapter_catalog/transport']=true,
+    ['native_auth/chapter_catalog/timeout']=true,
+    ['native_chapter/transport']=true,
+    ['sensitive_request_failed']=true,
+}
+local function valid_access(selected)
+    return selected and not selected.renewal_pending and selected.scope and Protocol.credentials(selected.credentials)
+        and selected.scope.vid==selected.credentials.vid
+end
+local function header(headers,name)
+    if type(headers)~='table' then return nil end
+    local found
+    for key,value in pairs(headers) do
+        if type(key)=='string' and key:lower()==name then
+            if found~=nil then return nil end
+            found=value
+        end
+    end
+    return found
+end
+local function chapter(model,uid)
+    local found
+    for _,row in ipairs(model.chapters) do
+        if string.format('%.0f',row.uid)==uid then
+            if found then return nil end
+            found=row
+        end
+    end
+    if not found or found.free_or_owned~=true then return nil end
+    return found
+end
+local function url(book_id,uid,model)
+    local txt=model.format=='txt'
+    local values={
+        {'bookId',book_id},{'chapters',txt and uid or '0,'..uid},{'bookType',model.format},
+        {'bookVersion',txt and 0 or model.version},
+        {'pf','wechat_wx-2001-android-100-weread'},{'pfkey','pfKey'},{'zoneId',1},{'quote',''},
+        {'release',1},{'stopAutoPayWhenBNE',1},{'preload',2},{'preview',0},{'offline',1},
+    }
+    local parts={}
+    for _,pair in ipairs(values) do parts[#parts+1]=pair[1]..'='..Url.urlencode(tostring(pair[2])) end
+    return BASE..'/book/chapterdownload?'..table.concat(parts,'&')
+end
+function M.fetch(client,settings,selected,book_id,uid,options)
+    options=options or {}
+    if type(options)~='table' or type(book_id)~='string' or Protocol.id(book_id)~=book_id
+        or type(uid)~='string' or Protocol.id(uid)~=uid or #uid>16 or tonumber(uid)>9007199254740991 then
+        return nil,'invalid'
+    end
+    if not valid_access(selected) then return nil,'session_changed' end
+    local current=Access.guard(settings,options.is_current,selected)
+    if not current or not current() then return nil,'session_changed' end
+    local function owns() return valid_access(selected) and current() end
+    local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
+    local ok,value=pcall(function()
+        local model=Catalog.read(auth,selected.credentials,book_id,'chapter')
+        local expected=options.expected_catalog
+        if expected and (model.version~=expected.book_version or model.reading_digest~=expected.reading_catalog_sha256) then
+            error('native_chapter/catalog_changed',0)
+        end
+        assert(chapter(model,uid),'native_chapter/not_entitled')
+        assert(owns(),'native_chapter/session_changed')
+        local headers={}
+        for key,item in pairs(HEADERS) do headers[key]=item end
+        headers.vid,headers.accessToken=selected.credentials.vid,selected.credentials.accessToken
+        local chunks,size={},0
+        local raw_body,code,response_headers=client:request{
+            url=url(book_id,uid,model),method='GET',headers=headers,skip_cookie=true,
+            persist_response_cookies=false,sensitive=true,diagnostic_api='native_chapter_download',timeout={5,22},
+            sink=function(chunk)
+                if chunk then
+                    size=size+#chunk
+                    if size>M.MAX_BYTES then return nil,'response_limit' end
+                    chunks[#chunks+1]=chunk
+                end
+                return 1
+            end,
+        }
+        assert(owns(),'native_chapter/session_changed')
+        code=tonumber(code)
+        if code==429 then error('native_chapter/rate_limited',0) end
+        if code==401 then error('native_chapter/auth_expired',0) end
+        if not code and size<=M.MAX_BYTES and (type(raw_body)~='string' or #raw_body<=M.MAX_BYTES) then
+            error('native_chapter/transport',0)
+        end
+        assert(code==200 and size<=M.MAX_BYTES,'native_chapter/http')
+        local data=type(raw_body)=='string' and raw_body or table.concat(chunks)
+        assert(#data>0 and #data<=M.MAX_BYTES,'native_chapter/size')
+        local envelope=header(response_headers,'encryptkey')
+        if not envelope and #data<=8192 and data:match('^%s*{') then
+            local decoded,payload=pcall(client.json_decode,client,data)
+            local err=decoded and type(payload)=='table' and (payload.errcode or payload.errCode)
+            if err==-2014 or err==-10102 then error('native_chapter/rate_limited',0) end
+            if err==-2012 then error('native_chapter/auth_expired',0) end
+            if err~=nil and err~=0 then error('native_chapter/service_rejected',0) end
+        end
+        local result
+        local media=header(response_headers,'content-type')
+        if model.format=='txt' and not envelope and type(media)=='string'
+            and media:lower():match('^%s*([^;%s]+)')=='application/x-tar' then
+            result=Archive.read_plain_tar(data,book_id,uid)
+        else
+            assert(type(envelope)=='string' and #envelope>0 and #envelope<=1024,'native_chapter/envelope')
+            result=Archive.read(data,envelope,selected.credentials.vid,{chapter_uid=uid})
+        end
+        if model.format=='txt' and result.is_text~=true then error('native_chapter/unsupported_format',0) end
+        assert(owns(),'native_chapter/session_changed')
+        return {book_id=book_id,chapter_uid=uid,book_version=model.version,catalog_sha256=model.digest,
+            reading_catalog_sha256=model.reading_digest,
+            body=result.body,is_text=result.is_text,css=result.css,assets=result.assets,
+            body_parts=result.body_parts,style_parts=result.style_parts,
+            image_signatures_recognized=result.image_signatures_recognized,unusable_resources=result.unusable_resources,
+            coordinate_source_authoritative=false,source_channel='eink'}
+    end)
+    auth:cancel()
+    if not ok then
+        if not owns() then return nil,'session_changed' end
+        if TRANSPORT_ERRORS[value] then return nil,'transport' end
+        if value=='native_chapter/unsupported_format' then return nil,'unsupported_format' end
+        if value=='native_chapter/catalog_changed' then return nil,'catalog_changed' end
+        if value=='native_chapter/rate_limited' or value=='native_auth/chapter_info/http_429'
+            or value=='native_auth/chapter_catalog/http_429' then return nil,'rate_limited' end
+        if value=='native_chapter/auth_expired' or value=='native_auth/chapter_info/http_401'
+            or value=='native_auth/chapter_catalog/http_401' then return nil,'auth_expired' end
+        if value=='native_chapter/service_rejected' or value=='native_auth/chapter_info/rejected'
+            or value=='native_auth/chapter_catalog/rejected' then return nil,'service_rejected' end
+        if tostring(value):find('native_chapter/not_entitled',1,true) then return nil,'not_entitled' end
+        return nil,'unavailable'
+    end
+    return value
+end
+return M

@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "scope": "read-only native shelf metadata and chapter catalogs",
+  "numeric_shelf_offsets": [40, 132],
+  "books_checked": 93,
+  "criteria": "EPUB with known version, 2-40 positive-id chapters, all explicitly free or owned",
+  "candidate_count": 0,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_identifiers_or_catalogs_saved": false
+}

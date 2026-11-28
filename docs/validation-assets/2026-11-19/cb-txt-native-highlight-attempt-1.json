@@ -1,0 +1,12 @@
+{
+  "result": "UNVERIFIED",
+  "sample": "new self-authored imported TXT",
+  "metadata_book_version_zero": true,
+  "stopped_at": "preflight version check before native annotation writes",
+  "native_writes_allocated": 0,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "fixture_removed_and_independently_confirmed": true,
+  "shelf_restored": true,
+  "private_values_in_report": false
+}

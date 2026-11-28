@@ -1,0 +1,25 @@
+{
+  "packaged_koreader_synthetic": [
+    {"width": 600, "height": 800, "result": "PASS", "screenshots": 5, "account_data_writes": 0},
+    {"width": 1264, "height": 1680, "result": "PASS", "screenshots": 5, "account_data_writes": 0}
+  ],
+  "owner_read_only": {
+    "ordinary_books": 5,
+    "imported_books": 5,
+    "lua_projection_matches": true,
+    "native_https_readback_matches": true,
+    "account_data_writes": 0,
+    "shelf_unchanged": true,
+    "refreshed_web_session_saved": true
+  },
+  "owner_isolated_plugin_ui": {
+    "entry": "direct_shelf_status_menu",
+    "ordinary_book_both_sizes": true,
+    "imported_book_both_sizes": true,
+    "profile_credentials_audited_and_removed": true,
+    "account_data_writes": 0,
+    "shelf_unchanged": true
+  },
+  "owner_shelf_navigation_verified": false,
+  "physical_device_verified": false
+}

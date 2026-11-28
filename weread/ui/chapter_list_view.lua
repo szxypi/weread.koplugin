@@ -1,5 +1,6 @@
 -- Chapter catalog styled consistently with the book detail page.
 
+local BD = require("ui/bidi")
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local Device = require("device")
@@ -21,8 +22,20 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local ListPaint = require("weread.lib.shelf_list_paint")
+local ListEvents = require("weread.lib.shelf_list_events")
 
 local function _(text) return I18n.tr(text) end
+
+local ChapterGroup = VerticalGroup:extend{}
+function ChapterGroup:paintTo(bb, x, y)
+    self._painted_rows = ListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
+end
+function ChapterGroup:propagateEvent(event)
+    local routed, consumed = ListEvents.dispatchPainted(self._painted_rows, event)
+    if routed then return consumed end
+    return VerticalGroup.propagateEvent(self, event)
+end
 
 local ChapterRow = InputContainer:extend{
     text = "",
@@ -32,7 +45,7 @@ local ChapterRow = InputContainer:extend{
     show_parent = nil,
 }
 
-function ChapterRow:init()
+local function chapter_frame(self)
     local padding = Size.padding.large
     local inner_width = self.width - 2 * padding
     local face = Font:getFace("cfont", 20)
@@ -45,7 +58,7 @@ function ChapterRow:init()
         max_width = math.max(1, inner_width - right_width - gap),
     }
     gap = math.max(gap, inner_width - left:getSize().w - right_width)
-    self.frame = FrameContainer:new{
+    return FrameContainer:new{
         bordersize = 0, radius = 0, margin = 0,
         padding_left = padding, padding_right = padding,
         padding_top = Size.padding.large,
@@ -59,19 +72,51 @@ function ChapterRow:init()
             right,
         },
     }
+end
+
+function ChapterRow:_ensureFrame()
+    if self.frame then return end
+    self.frame = chapter_frame(self)
+    self.frame.invert = self._chapter_focused or false
     self[1] = self.frame
-    self.dimen = self.frame:getSize()
+end
+
+function ChapterRow:init()
+    if not self.dimen then
+        self:_ensureFrame()
+        self.dimen = self.frame:getSize()
+    end
     self.ges_events = {
         TapChapterRow = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }
 end
 
+function ChapterRow:paintTo(bb, x, y)
+    self:_ensureFrame()
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function ChapterRow:dropFrame()
+    if self.frame then
+        self.frame:free()
+        self.frame, self[1] = nil, nil
+    end
+end
+
+function ChapterRow:setOffscreenGeometry(x, y)
+    self.dimen.x, self.dimen.y = x, y
+    self:dropFrame()
+end
+
 function ChapterRow:onTapChapterRow()
     if not self.callback then return true end
+    self:_ensureFrame()
+    if not self.frame.dimen then self.frame.dimen = self.dimen:copy() end
     self.frame.invert = true
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:forceRePaint()
     self.frame.invert = false
+    self._chapter_focused = false
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
     UIManager:setDirty(nil, "fast", self.frame.dimen)
     self.callback()
@@ -79,79 +124,173 @@ function ChapterRow:onTapChapterRow()
 end
 
 function ChapterRow:onFocus()
-    self.frame.invert = true
+    self._chapter_focused = true
+    if self.frame then self.frame.invert = true end
     return true
 end
 
 function ChapterRow:onUnfocus()
-    self.frame.invert = false
+    self._chapter_focused = false
+    if self.frame then self.frame.invert = false end
     return true
 end
 
 local ChapterListView = FocusManager:extend{
     title = nil,
     chapters = nil,
+    subtitle = nil,
+    empty_text = nil,
     on_refresh = nil,
     on_select_download = nil,
+    on_search = nil,
     on_select = nil,
     on_close = nil,
 }
 
 function ChapterListView:toolbar()
-    local half = math.floor(self.screen_w / 2)
-    local refresh_button = Button:new{
-        text = _("↻ Refresh chapter list"),
-        width = half,
-        radius = 0, margin = 0,
-        bordersize = Size.border.thin,
-        text_font_size = 19,
-        text_font_bold = false,
-        show_parent = self,
-        callback = function() if self.on_refresh then self.on_refresh() end end,
-    }
-    local select_button = Button:new{
-        text = _("✓ Select chapters to download"),
-        width = self.screen_w - half,
-        radius = 0, margin = 0,
-        bordersize = Size.border.thin,
-        text_font_size = 19,
-        text_font_bold = false,
-        show_parent = self,
-        callback = function()
-            if self.on_select_download then self.on_select_download() end
-        end,
-    }
-    self._toolbar_buttons = { refresh_button, select_button }
-    return HorizontalGroup:new{ refresh_button, select_button }
+    local width = math.floor(self.screen_w / (self.on_search and 3 or 2))
+    local function button(label, size, action)
+        return Button:new{
+            text = _(label), width = size,
+            radius = 0, margin = 0, bordersize = Size.border.thin,
+            text_font_size = 19, text_font_bold = false, show_parent = self,
+            callback = function() if action and not self._catalog_closed then action() end end,
+        }
+    end
+    local refresh = button(self.on_search and "Refresh" or "↻ Refresh chapter list", width, self.on_refresh)
+    local select_width = self.on_search and width or self.screen_w - width
+    local select = button(self.on_search and "Select download…" or "✓ Select chapters to download",
+        select_width, self.on_select_download)
+    local buttons = { refresh, select }
+    if self.on_search then
+        buttons[3] = button("Find chapter", self.screen_w - width - select_width, self.on_search)
+    end
+    self._toolbar_buttons = buttons
+    return HorizontalGroup:new{ unpack(buttons) }
+end
+
+local function row_width(title_meter, title, list_width, padding, status_width)
+    title_meter:setText(title or "")
+    title_meter:setMaxWidth(math.max(1, list_width - 3 * padding - status_width))
+    return math.max(list_width, title_meter:getWidth() + status_width + 3 * padding)
 end
 
 function ChapterListView:content()
-    local group = VerticalGroup:new{
+    local group = ChapterGroup:new{
         align = "left",
         HorizontalSpan:new{ width = self.list_width },
     }
     self._chapter_rows = {}
+    if self.empty_text then
+        group[#group + 1] = FrameContainer:new{
+            bordersize = 0, padding = Size.padding.large,
+            TextWidget:new{
+                text = self.empty_text, face = Font:getFace("cfont", 20),
+                max_width = self.list_width - 2 * Size.padding.large,
+            },
+        }
+        return group
+    end
+    local probe = ChapterRow:new{ text = "", status = "", width = self.list_width }
+    local height = probe:getSize().h
+    probe:free()
+    local padding = Size.padding.large
+    local face = Font:getFace("cfont", 20)
+    local title_meter = TextWidget:new{ text = "", face = face }
+    local status_meter = TextWidget:new{ text = "", face = face }
+    local status_widths = {}
+    -- The divider has no per-row state. The group's offsets position each copy.
+    local divider = HorizontalGroup:new{
+        HorizontalSpan:new{ width = padding },
+        LineWidget:new{
+            dimen = Geom:new{ w = self.list_width - 2 * padding, h = 1 },
+            background = Blitbuffer.COLOR_GRAY,
+        },
+    }
+    local row_top = 0
+    local row_stride = height + divider:getSize().h
     for _i, chapter in ipairs(self.chapters or {}) do
+        local status = chapter.status or ""
+        local status_width = status_widths[status]
+        if status_width == nil then
+            status_meter:setText(status)
+            status_width = status_meter:getWidth()
+            status_widths[status] = status_width
+        end
+        -- Keep exact row widths, including when a long status leaves little room
+        -- for the title. Only painted rows need to retain their own text widgets.
+        local width = row_width(title_meter, chapter.title, self.list_width, padding, status_width)
         local row = ChapterRow:new{
             text = chapter.title,
             status = chapter.status,
             width = self.list_width,
+            dimen = Geom:new{ w = width, h = height },
+            _shelf_list_row = true,
+            _focus_content_top = row_top,
             show_parent = self,
             callback = function()
                 if self.on_select then self.on_select(chapter.source) end
             end,
         }
         self._chapter_rows[#self._chapter_rows + 1] = row
-        table.insert(group, row)
-        table.insert(group, HorizontalGroup:new{
-            HorizontalSpan:new{ width = Size.padding.large },
-            LineWidget:new{
-                dimen = Geom:new{ w = self.list_width - 2 * Size.padding.large, h = 1 },
-                background = Blitbuffer.COLOR_GRAY,
-            },
-        })
+        group[#group + 1] = row
+        group[#group + 1] = divider
+        row_top = row_top + row_stride
     end
+    title_meter:free()
+    status_meter:free()
     return group
+end
+
+function ChapterListView:markChaptersCached(changed)
+    local cached = _("Cached")
+    local indices = {}
+    for index, chapter in ipairs(self.chapters or {}) do
+        if changed[chapter.source] and chapter.status ~= cached then indices[#indices + 1] = index end
+    end
+    if #indices == 0 then return true end
+
+    local face = Font:getFace("cfont", 20)
+    local status_meter = TextWidget:new{ text = cached, face = face }
+    local status_width = status_meter:getWidth()
+    status_meter:free()
+    local title_meter = TextWidget:new{ text = "", face = face }
+    -- A change to the measured width can affect the scrollbars and mirrored
+    -- alignment. Let the catalog rebuild its layout in that case.
+    for _, index in ipairs(indices) do
+        local row = self._chapter_rows[index]
+        if row_width(title_meter, row.text, self.list_width, Size.padding.large, status_width) ~= row.dimen.w then
+            title_meter:free()
+            return false
+        end
+    end
+    title_meter:free()
+
+    local scroll = self._nav_scroll
+    local area = scroll._is_scrollable and scroll:getCropRegion() or scroll.dimen
+    local offset = scroll:getScrolledOffset().y
+    local dirty
+    for _, index in ipairs(indices) do
+        local row = self._chapter_rows[index]
+        self.chapters[index].status = cached
+        row.status = cached
+        row:dropFrame()
+        local y = area.y + row._focus_content_top - offset
+        local top = math.max(area.y, y)
+        local bottom = math.min(area.y + area.h, y + row.dimen.h)
+        if bottom > top then
+            local region = Geom:new{ x = area.x, y = top, w = area.w, h = bottom - top }
+            dirty = dirty and dirty:combine(region) or region
+        end
+    end
+    if dirty then UIManager:setDirty(self, "ui", dirty) end
+    return true
+end
+
+function ChapterListView:browsingPosition()
+    local item = self:getFocusItem()
+    return { offset = self._nav_scroll:getScrolledOffset(), x = self.selected.x, y = self.selected.y,
+        focused = item and (item._chapter_focused or item.frame and item.frame.invert) }
 end
 
 function ChapterListView:init()
@@ -164,6 +303,7 @@ function ChapterListView:init()
     self.title_bar = TitleBar:new{
         width = self.screen_w,
         title = self.title or _("Chapter list"),
+        subtitle = self.subtitle,
         title_face = Font:getFace("tfont", 28),
         title_multilines = true,
         align = "center",
@@ -186,7 +326,7 @@ function ChapterListView:init()
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._toolbar_buttons) do outside_scroll[button] = true end
-    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
+    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll, windowed = true })
     -- Chapters follow the toolbar row.
     FocusNav.initialFocus(self, 1, #rows > 1 and 2 or 1)
     self[1] = FrameContainer:new{
@@ -220,11 +360,26 @@ function M.show(data, callbacks)
     local view = ChapterListView:new{
         title = data.title,
         chapters = data.chapters,
+        subtitle = data.subtitle,
+        empty_text = data.empty_text,
         on_refresh = callbacks.on_refresh,
         on_select_download = callbacks.on_select_download,
+        on_search = callbacks.on_search,
         on_select = callbacks.on_select,
         on_close = callbacks.on_close,
     }
+    local position = data.browsing_position
+    if position then
+        local scroll = view._nav_scroll
+        scroll:initState()
+        scroll:setScrolledOffset{
+            x = math.min(position.offset.x, scroll._max_scroll_offset_x),
+            y = math.min(position.offset.y, scroll._max_scroll_offset_y),
+        }
+        scroll:_updateScrollBars()
+        if position.focused then view:moveFocusTo(position.x, position.y, FocusManager.FORCED_FOCUS)
+        else FocusNav.initialFocus(view, position.x, position.y) end
+    end
     UIManager:show(view)
     return view
 end

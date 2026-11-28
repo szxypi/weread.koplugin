@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "data": "synthetic",
+  "runtime": "packaged plugin in KOReader 2026.07 Linux ARM64",
+  "screens": [
+    {"width": 600, "height": 800, "dpi": 167},
+    {"width": 1264, "height": 1680, "dpi": 300}
+  ],
+  "checks": [
+    "single ungrouped selection remains selected and empty when its final book is grouped",
+    "single ungrouped selection shows books again when ungrouped books return",
+    "multi-group selection and fresh offline process regression"
+  ],
+  "account_data_writes": 0,
+  "http_requests": 0,
+  "physical_device_verified": false
+}

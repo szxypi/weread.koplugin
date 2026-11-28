@@ -1,0 +1,147 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "production_entry_enabled": true,
+  "real_account_data_posts": 0,
+  "authentication_posts": 0,
+  "native_live_entry_verified": false,
+  "previous_python_live_protocol_proof_retained": true,
+  "explicit_manual_choice": true,
+  "automatic_initialization_enabled": false,
+  "zero_native_counts_only": true,
+  "positive_point_contract_unchanged": true,
+  "old_positive_binding_and_observation_hashes_preserved": true,
+  "typed_absence_presence_preserved": true,
+  "pending_noack_not_promoted_by_readback": true,
+  "ack_saved_before_readback": true,
+  "verified_receipt_retained_on_local_save_failure": true,
+  "unknown_absent_cloud_state_reviewed": true,
+  "unknown_phase_preserved_on_archive": true,
+  "source_summary_not_in_reading_checkpoints": true,
+  "cases": [
+    {
+      "dimension": "600",
+      "mode": "accepted",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "600",
+      "mode": "delayed",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "600",
+      "mode": "noack",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "600",
+      "mode": "rejected",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "600",
+      "mode": "changed_counts",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "600",
+      "mode": "local_save_failed",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "accepted",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "delayed",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "noack",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "rejected",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "changed_counts",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    },
+    {
+      "dimension": "ko2",
+      "mode": "local_save_failed",
+      "result": "PASS",
+      "simulated_data_posts": 1,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "installed_bytes_match": true
+    }
+  ],
+  "python_modules": 127,
+  "python_tests": 1630,
+  "python_skips": 0,
+  "lua_spec_groups": 257,
+  "lua_syntax_files": 733,
+  "luacheck_files": 731,
+  "luacheck_warnings": 0,
+  "package_files": 287,
+  "package_sha256": "27da8f459345f32956bcea1c70e886c3ad484d413c167221aa508975c99c9182",
+  "physical_ko2_verified": false,
+  "old_manual_timer_unknown_reader_both_dimensions": true,
+  "unstarted_cancel_and_offline_without_native_grant_both_dimensions": true,
+  "privacy_scanned_files": 1871,
+  "document_links_checked": 305,
+  "credentials_retained": true,
+  "all_old_consumed_scopes_retained": true
+}

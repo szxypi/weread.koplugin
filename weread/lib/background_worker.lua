@@ -12,6 +12,7 @@ if not ok_json then Json = require("rapidjson") end
 
 local Worker = {}
 Worker.__index = Worker
+local instance_sequence = 0
 
 local DEFAULT_MIN_AVAILABLE_KB = 64 * 1024
 local DEFAULT_TIMEOUT_SECONDS = 180
@@ -85,7 +86,11 @@ end
 
 function Worker:new(options)
     options = options or {}
+    instance_sequence = instance_sequence + 1
+    local pid_ok, pid = pcall(function() return require("ffi").C.getpid() end)
     local obj = setmetatable({
+        instance_id = instance_sequence,
+        process_id = pid_ok and tonumber(pid) or 0,
         scheduler = options.scheduler or UIManager,
         runner = options.runner or default_runner(),
         temp_dir = assert(options.temp_dir, "worker temp_dir required"),
@@ -121,6 +126,7 @@ end
 function Worker:_token()
     self.sequence = self.sequence + 1
     return table.concat({ tostring(self.now()), tostring(self.sequence),
+        tostring(self.process_id), tostring(self.instance_id),
         tostring(math.random(100000, 999999)) }, "-")
 end
 

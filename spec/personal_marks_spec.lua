@@ -1,0 +1,231 @@
+package.path='./?.lua;'..package.path
+local Fixture=require('spec.helpers.thought_edit_fixture')
+local codec=Fixture.codec();local Contract=require('weread.lib.mark_edit_contract')
+local timers,jobs={},{}
+local in_worker,network_checks,verify_calls=false,0,0
+local UI={setDirty=function() end,close=function(_,menu) menu.closed=true end,scheduleIn=function(_self,_delay,task) timers[#timers+1]=task end,
+    unschedule=function(_self,task) for i=#timers,1,-1 do if timers[i]==task then table.remove(timers,i) end end end}
+package.preload['ui/uimanager']=function() return UI end
+package.preload.device=function() return {screen={scaleBySize=function(_self,n) return n end}} end
+package.preload['ffi/blitbuffer']=function() return {Color8=function(n) return n end} end
+local store={writes=0,writeProjected=function(self,value,book)
+    local ok,projected=pcall(require('weread.lib.my_cloud_marks').validate,codec,value,book)
+    if not ok then return nil,false end
+    self.writes=self.writes+1;return projected,not self.fail
+end}
+package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return store end} end
+package.preload['weread.lib.native_read_access']=function() return {capture=function()
+    assert(in_worker,'authorization read blocked the reader UI');return {fingerprint='synthetic-grant'}
+end} end
+package.preload['weread.lib.memory_worker']=function() return {new=function(_self,options)
+    assert(options.max_bytes<=8*1024*1024)
+    return {cancel=function() end,start=function(_worker,task,callback)
+        in_worker=true;local result=task();in_worker=false
+        local job={value=result,callback=callback};jobs[#jobs+1]=job;return true
+    end}
+end} end
+local chapter='7';local meta='metadata-1';local viewport='native-point'
+package.preload['weread.lib.position_source']=function() return {document_metadata=function()
+    return {metadata=meta,chapter_uid=chapter,record={format='web_xhtml'}}
+end} end
+package.preload['weread.lib.source_dom']=function() return {member=function() return {render_path='OEBPS/text/c.xhtml'} end,
+    open_prepared=function(_doc,_book,_metadata,options)
+        return {locate_span=function(_self,first,last)
+            if not options.is_current() then return end
+            return {pos0=first.point,pos1=last.point,text='verified'}
+        end,locate_anchor=function(_self,anchor)
+            if not options.is_current() or anchor.invalid then return end
+            return {xpointer=anchor.co,co=anchor.co}
+        end}
+    end}
+end
+local snapshot,loads
+local function value(id)
+    local result={schema=1,book_id='900001',fetched_at=1000,updated=codec:json_decode('[]'),chapters=codec:json_decode('[]')}
+    result.updated[1]={bookmarkId=id,type=1,chapterUid=7,markText='A unique verified quotation.',range='12-39'}
+    return result
+end
+snapshot=value('first');loads=0
+package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_NATIVE_BYTES=1024,
+    load=function(_client,_library,_book,_access,online) loads=loads+1;return {snapshot=snapshot,refreshed=online} end,
+    prepare=function(_file,_book,metadata,rows)
+        local result={metadata=metadata,rows={}}
+        for i,row in ipairs(rows) do
+            result.rows[i]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+                bookmark=row.type==0 or nil,anchor=row.type==0 and {co=i} or nil,first_anchor={point=i},last_anchor={point=i+1}}
+        end
+        return result
+    end,
+    verify=function(rows) verify_calls=verify_calls+1;local ids={};for i,row in ipairs(rows) do ids[i]=row.bookmarkId end;return ids end,
+} end
+for _i,name in ipairs({'weread.lib.position_source','weread.lib.source_dom','weread.lib.personal_mark_task',
+    'weread.lib.my_cloud_marks_store','weread.lib.native_read_access','weread.lib.memory_worker'}) do package.loaded[name]=nil end
+local Display=require('weread.ui.personal_marks')
+local state={account='owner-a',valid=true,show=true,book='900001'}
+local scope={vid='owner-a',epoch=1}
+local notes={{text='native note'}}
+local host={client=codec,_reader_session_gen=1,ui={highlight={},annotation={annotations=notes},
+    document={file='/cached.epub',info={},getXPointer=function() return viewport end,
+        compareXPointers=function(_self,a,b) return a<b and 1 or a>b and -1 or 0 end},
+    view={view_modules={},registerViewModule=function(self,key,view) self.view_modules[key]=view end}},
+    settings={get=function() return {show_annotations=state.show} end,get_auth_scope=function() return scope end,
+        auth_scope_matches=function() return state.valid end},
+    library_db={accountKey=function() return state.account end},detectWeReadBook=function() return state.book end,
+    isNetworkOnline=function() assert(in_worker,'network check blocked the reader UI');network_checks=network_checks+1;return true end}
+local checks=0
+local function expect(v,m) checks=checks+1;assert(v,m or ('check '..checks)) end
+local function tick()
+    if #timers>0 then table.remove(timers,1)();return true end
+    if #jobs>0 then local j=table.remove(jobs,1);j.callback(j.value);return true end
+end
+local function drain() local n=0;while tick() do n=n+1;assert(n<200,'controller did not settle') end end
+expect(Display.attach(host));drain()
+expect(host._personal_marks.complete and #host._personal_marks.records==1,'cached/cloud highlight never completed')
+expect(network_checks==1,'cached note batches performed extra network checks')
+expect(host._personal_marks.records[1].bookmarkId=='first' and Display.available(host))
+expect(host.ui.annotation.annotations==notes and notes[1].text=='native note','native annotation array changed')
+Display.detach(host);snapshot=value('stale');expect(Display.attach(host));expect(tick() and #jobs==1)
+local stale=table.remove(jobs,1);local writes=store.writes
+Display.pause(host);Display.changed(host,value('new'));stale.callback(stale.value);drain()
+expect(store.writes==writes,'cancelled remote read overwrote confirmed mark cache')
+expect(host._personal_marks.records[1].bookmarkId=='new','stale remote read replaced confirmed mark')
+state.show=false;Display.update(host)
+expect(not host._personal_marks.overlay.enabled,'hide did not disable own layer')
+state.show=true;Display.update(host);drain()
+expect(host._personal_marks.overlay.enabled and #host._personal_marks.records==1,'show failed to restore layer')
+host._translation_mode='translated';Display.update(host)
+expect(not host._personal_marks.overlay.enabled and not Display.available(host),'translated document exposed original ranges')
+host._translation_mode='original';Display.update(host);drain()
+expect(#host._personal_marks.records==1 and host._personal_marks.overlay.enabled)
+host.ui.highlight.selected_text={};Display.changed(host,value('deferred'));expect(tick())
+expect(#host._personal_marks.records==0 and #jobs==0,'DOM work ran over a live native selection')
+host.ui.highlight.selected_text=nil;drain();expect(host._personal_marks.records[1].bookmarkId=='deferred')
+Display.suspend(host);expect(not host._personal_marks.overlay.enabled)
+Display.wake(host);drain();expect(host._personal_marks.overlay.enabled and #host._personal_marks.records==1)
+chapter='8';meta='metadata-2';Display.update(host);drain()
+expect(host._personal_marks.complete and #host._personal_marks.records==0 and not Display.available(host),'other chapter retained personal range')
+chapter='7';meta='metadata-1';Display.update(host);expect(tick() and #jobs==1)
+local other=table.remove(jobs,1);state.account='owner-b';Display.update(host);other.callback(other.value);drain()
+expect(not Display.available(host) and not host._personal_marks.overlay.enabled,'old account range survived scope change')
+state.account='owner-a';Display.detach(host)
+expect(host._personal_marks==nil and host.ui.view.view_modules[Display.KEY]==nil,'close retained registered view')
+expect(host.ui.annotation.annotations==notes and #notes==1 and loads==2,'unexpected reload or local note mutation')
+store.fail=true;snapshot=value('fallback');expect(Display.attach(host));drain()
+expect(loads==4 and host._personal_marks.records[1].bookmarkId=='fallback','failed fresh cache save lost offline display')
+Display.detach(host)
+store.fail=false
+snapshot=value('foreign');snapshot.book_id='900002';local writes_before_foreign=store.writes
+expect(Display.attach(host));drain()
+expect(store.writes==writes_before_foreign and #host._personal_marks.records==0,
+    'foreign online snapshot was saved or displayed')
+Display.detach(host)
+snapshot=value('synthetic-highlight')
+snapshot.updated[2]={bookmarkId='synthetic-point',type=0,chapterUid=7,range='15'}
+expect(Display.attach(host));drain()
+local s=host._personal_marks
+expect(#s.records==1 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point','point mixed into underline records')
+expect(s.bookmarks[1].pos0==2 and s.bookmarks[1].pos1==nil,'point was changed into a native highlight')
+expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==s.indicator and Display.available(host))
+local points_only=Fixture.clone(snapshot);points_only.updated=codec:json_decode('[]')
+points_only.updated[1]=Fixture.clone(snapshot.updated[2])
+local before_verify=verify_calls
+local overlay_updates=0;local original_overlay_set=s.overlay.setRecords
+s.overlay.setRecords=function(self,...) overlay_updates=overlay_updates+1;return original_overlay_set(self,...) end
+Display.changed(host,points_only);local after_clear=overlay_updates;drain()
+expect(#s.records==0 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point'
+    and verify_calls==before_verify,'bookmark-only batch launched empty text verification or lost its point')
+expect(overlay_updates==after_clear,'bookmark-only batch invalidated unchanged highlight data')
+s.overlay.setRecords=original_overlay_set
+Display.changed(host,snapshot);drain()
+expect(#s.records==1 and #s.bookmarks==1 and verify_calls>before_verify,'mixed batch skipped highlight verification')
+local indicator_updates=0;local original_indicator_set=s.indicator.setRecords
+s.indicator.setRecords=function(self,...) indicator_updates=indicator_updates+1;return original_indicator_set(self,...) end
+local highlight_only=Fixture.clone(snapshot);highlight_only.updated=codec:json_decode('[]')
+highlight_only.updated[1]=Fixture.clone(snapshot.updated[1])
+Display.changed(host,highlight_only);after_clear=indicator_updates;drain()
+expect(indicator_updates==after_clear,'highlight-only batch invalidated unchanged bookmarks')
+s.indicator.setRecords=original_indicator_set
+Display.changed(host,snapshot);drain()
+local mixed_batches=Fixture.clone(snapshot);mixed_batches.updated=codec:json_decode('[]')
+for i=1,8 do
+    local mark=Fixture.clone(snapshot.updated[1]);mark.bookmarkId=('a%02d'):format(i)
+    local point=Fixture.clone(snapshot.updated[2]);point.bookmarkId=('z%02d'):format(i)
+    mixed_batches.updated[#mixed_batches.updated+1]=mark;mixed_batches.updated[#mixed_batches.updated+1]=point
+end
+overlay_updates,indicator_updates=0,0
+s.overlay.setRecords=function(self,...) overlay_updates=overlay_updates+1;return original_overlay_set(self,...) end
+s.indicator.setRecords=function(self,...) indicator_updates=indicator_updates+1;return original_indicator_set(self,...) end
+Display.changed(host,mixed_batches)
+local overlays_after_clear,indicators_after_clear=overlay_updates,indicator_updates
+drain()
+expect(#s.records==8 and #s.bookmarks==8,'separate mark and bookmark batches were not both displayed')
+expect(overlay_updates==overlays_after_clear+1 and indicator_updates==indicators_after_clear+1,
+    'separate batches invalidated an unchanged layer')
+s.overlay.setRecords=original_overlay_set;s.indicator.setRecords=original_indicator_set
+Display.changed(host,snapshot);drain()
+local clicked=false
+s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
+local pending_open
+host.showMyCloudBookmarks=function(_self,book,options)
+    expect(book==state.book and options.source==s and options.current())
+    pending_open=function()
+        if options.current() then
+            options.on_open{menu={item_table={{my_note_id='synthetic-point',callback=function() clicked=true end}}}}
+        end
+    end
+    return true
+end
+expect(Display.tap(host,{pos={x=1,y=1}}) and not clicked,'corner tap did not queue the bookmark')
+viewport='another-page';pending_open()
+expect(not clicked,'the queued bookmark opened after a page turn')
+viewport='native-point';expect(Display.tap(host,{pos={x=1,y=1}}));pending_open()
+expect(clicked,'corner did not open the matching bookmark')
+local two=Fixture.clone(snapshot)
+two.updated[2].markText='First page preview'
+two.updated[3]={bookmarkId='second-point',type=0,chapterUid=7,range='20',markText='Second page preview'}
+Display.changed(host,two);drain();expect(#s.bookmarks==2,'second same-page bookmark missing')
+s.indicator.hitTestAll=function() return s.bookmarks end
+host.showList=function(_,_,items) return {item_table=items} end
+host.showMyCloudBookmarks=function(_,_,options)
+    local items={}
+    for _,item in ipairs(s.bookmarks) do items[#items+1]={
+        my_note_id=item.bookmarkId,callback=function() clicked=item.bookmarkId end} end
+    options.on_open{menu={item_table=items}}
+    return true
+end
+local saved=s.snapshot
+s.snapshot=setmetatable({},{__index=function() error('opening a bookmark picker traversed the full snapshot') end})
+expect(Display.tap(host,{pos={x=1,y=1}},true));local picker=s.picker
+s.snapshot=saved
+local choice
+for _,item in ipairs(picker and picker.item_table or {}) do if item.my_note_id=='second-point' then choice=item end end
+expect(picker and #picker.item_table==2 and choice and choice.my_note_kind=='bookmark'
+    and choice.text:find('Second page preview',1,true),'same-page bookmark choice missing preview')
+choice.callback();expect(clicked=='second-point' and picker.closed,'second bookmark could not be opened')
+expect(Display.tap(host,{pos={x=1,y=1}},true));picker=s.picker;choice=nil
+for _,item in ipairs(picker.item_table) do if item.my_note_id=='second-point' then choice=item end end
+s.indicator.hitTestAll=function() return {} end
+clicked=false;choice.callback();expect(not clicked and picker.closed,'scrolled-away bookmark remained selectable')
+Display.changed(host,snapshot);drain();s.indicator.hitTestAll=function() return {s.bookmarks[1]} end
+state.show=false;Display.update(host);expect(not s.indicator.enabled)
+state.show=true;Display.update(host);drain();expect(s.indicator.enabled and #s.bookmarks==1)
+host._translation_mode='translated';Display.update(host);expect(not s.indicator.enabled)
+host._translation_mode='original';Display.update(host);drain();expect(s.indicator.enabled and #s.bookmarks==1)
+Display.suspend(host);expect(not s.indicator.enabled);Display.wake(host);drain();expect(s.indicator.enabled)
+chapter='8';meta='bookmark-changed';Display.update(host);drain();expect(#s.bookmarks==0 and #s.records==0)
+chapter='7';meta='metadata-1';Display.update(host);expect(tick() and #jobs==1)
+local old=table.remove(jobs,1);Display.pause(host)
+local empty=value('only-highlight');Display.changed(host,empty);old.callback(old.value);drain()
+expect(#s.bookmarks==0,'cancelled point preparation repainted a removed bookmark')
+state.account='owner-b';Display.update(host);expect(not s.indicator.enabled)
+clicked=false;expect(not Display.tap(host,{pos={x=1,y=1}}) and not clicked,'old account corner remained actionable')
+state.account='owner-a';Display.detach(host)
+expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==nil and #s.indicator.visible==0,'detach retained corner layer')
+state.book='CB_Synthetic';snapshot=value('imported');snapshot.book_id=state.book
+expect(Display.attach(host),'imported book did not attach personal marks')
+drain();expect(host._personal_marks.records[1].bookmarkId=='imported','imported verified highlight was not displayed')
+state.account='owner-b';Display.update(host)
+expect(not Display.available(host) and not host._personal_marks.overlay.enabled,'imported marks crossed accounts')
+state.account='owner-a';Display.detach(host)
+state.book='MP_WXS_synthetic';expect(not Display.attach(host),'unsupported publication attached personal marks')
+print('personal_marks_spec: '..checks..' checks passed')

@@ -1,0 +1,39 @@
+{
+  "result": "PASS",
+  "baseline_commit": "c8a9d63c5b05341f3a4c2ee1f2cd8f140b917e2f",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "synthetic_quote_comparisons": 24000,
+  "runs_per_case": 3,
+  "ranges_per_case": 200,
+  "plain": {
+    "bytes": 600007,
+    "median_cpu_seconds_before": 0.282019,
+    "median_cpu_seconds_after": 0.003607
+  },
+  "with_entities": {
+    "bytes": 600107,
+    "median_cpu_seconds_before": 0.284634,
+    "median_cpu_seconds_after": 0.003722
+  },
+  "checkpoint_interval_characters": 512,
+  "maximum_checkpoints_per_span": 16384,
+  "maximum_entity_intervals_per_span": 4096,
+  "fallback_and_cache_invalidation_verified": true,
+  "weak_cache_collection_verified": true,
+  "synthetic_cross_chapter_marks_thoughts_bookmarks_both_sizes": true,
+  "owner_kindle_oasis_2_simulated_size": {
+    "underlines_located": 14,
+    "thought_items_checked": 53,
+    "online_and_new_offline_process_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authorization_posts": 0
+  },
+  "local_unit_specs": 477,
+  "physical_device_tested": false,
+  "limitations": [
+    "CPU time covers 200 synthetic quotes from one long span, including lazy cache construction, not the complete reading or annotation workflow.",
+    "Sparse indices retain additional memory while a span is live; physical Kindle memory, power, screen refresh and performance were not measured.",
+    "Entity-dense spans beyond the interval cap use the original boundary check."
+  ]
+}

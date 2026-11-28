@@ -1,0 +1,181 @@
+-- Fetch chapter image references without cookies or authorization headers.
+-- All results remain in memory; the caller owns publication and cancellation.
+local Resources=require('weread.lib.native_chapter_resources')
+local Crypto=require('weread.lib.crypto')
+local Position=require('weread.lib.native_position_protocol')
+local M={MAX_IMAGE=8*1024*1024,MAX_TOTAL=32*1024*1024}
+local ALLOWED={'qq.com','qpic.cn','qlogo.cn','weixin.qq.com','myqcloud.com','qcloud.com','gfp.tencent-cloud.com'}
+local function current(options)
+    if type(options.is_current)~='function' then return false end
+    local ok,value=pcall(options.is_current)
+    return ok and value==true
+end
+function M.allowed(reference)
+    if type(reference)~='string' or #reference==0 or #reference>4096 or reference:find('[%z%c%s\\]') then return nil end
+    local url=reference:sub(1,2)=='//' and 'https:'..reference or reference
+    url=url:gsub('^[Hh][Tt][Tt][Pp][Ss]://','https://')
+    local authority=url:match('^https://([^/?#]+)')
+    if not authority or url:find('#',1,true) or authority:find('@',1,true) then return nil end
+    local host=authority:lower()
+    if host:sub(-4)==':443' then host=host:sub(1,-5) end
+    if #host==0 or #host>253 or not host:match('^[a-z0-9][a-z0-9%.%-]*[a-z0-9]$')
+        or host:find('..',1,true) then return nil end
+    local allowed=false
+    for _,suffix in ipairs(ALLOWED) do
+        if host==suffix or #host>#suffix and host:sub(-#suffix-1)=='.'..suffix then allowed=true;break end
+    end
+    return allowed and url or nil
+end
+local function mime(data)
+    if data:sub(1,8)=='\137PNG\r\n\26\n' then return 'image/png' end
+    if data:sub(1,3)=='\255\216\255' then return 'image/jpeg' end
+    if data:sub(1,6)=='GIF87a' or data:sub(1,6)=='GIF89a' then return 'image/gif' end
+    if data:sub(1,4)=='RIFF' and data:sub(9,12)=='WEBP' then return 'image/webp' end
+end
+local function redirect_url(base,location)
+    if location:sub(1,2)=='//' then return M.allowed('https:'..location) end
+    if location:match('^[%a][%w+.-]*:') then return M.allowed(location) end
+    local origin=base:match('^(https://[^/?#]+)')
+    if not origin then return nil end
+    if location:sub(1,1)=='/' then return M.allowed(origin..location) end
+    local path=base:match('^[^?]+') or base
+    if location:sub(1,1)=='?' then return M.allowed(path..location) end
+    local directory=path:match('^(https://[^/]+/.*)/[^/]*$') or origin
+    return M.allowed(directory..'/'..location)
+end
+local SOURCE_FIELDS={'book_id','chapter_uid','book_version','catalog_sha256','reading_catalog_sha256','source_channel',
+    'coordinate_source_authoritative','is_text','body','css','unusable_resources','image_signatures_recognized'}
+local PART_FIELDS={'source','data'}
+local ASSET_FIELDS={'source','data','media_type','href'}
+local function snapshot(source)
+    local result={}
+    for _,key in ipairs(SOURCE_FIELDS) do result[key]=source[key] end
+    for _,list in ipairs({'body_parts','style_parts','assets'}) do
+        result[list]={}
+        for _,row in ipairs(source[list]) do
+            local saved={}
+            for _,key in ipairs(list=='assets' and ASSET_FIELDS or PART_FIELDS) do saved[key]=row[key] end
+            result[list][#result[list]+1]=saved
+        end
+    end
+    return result
+end
+local function same_source(source,saved)
+    if type(source)~='table' then return false end
+    for _,key in ipairs(SOURCE_FIELDS) do if source[key]~=saved[key] then return false end end
+    for _,list in ipairs({'body_parts','style_parts','assets'}) do
+        if type(source[list])~='table' or #source[list]~=#saved[list] then return false end
+        local count=0
+        for key in pairs(source[list]) do
+            if type(key)~='number' or key%1~=0 or key<1 or key>#saved[list] then return false end
+            count=count+1
+        end
+        if count~=#saved[list] then return false end
+        for i,row in ipairs(saved[list]) do
+            local actual=source[list][i]
+            if type(actual)~='table' then return false end
+            for _,key in ipairs(list=='assets' and ASSET_FIELDS or PART_FIELDS) do
+                if actual[key]~=row[key] then return false end
+            end
+        end
+    end
+    return true
+end
+function M.complete(client,source,options)
+    options=options or {}
+    if type(options)~='table' or not current(options) then return nil,'session_changed' end
+    if type(source)~='table' or type(source.book_id)~='string' or Position.id(source.book_id)~=source.book_id
+        or type(source.chapter_uid)~='string' or Position.id(source.chapter_uid)~=source.chapter_uid
+        or not Position.integer(source.book_version,0,2147483647)
+        or type(source.catalog_sha256)~='string' or #source.catalog_sha256~=64
+        or not source.catalog_sha256:match('^[0-9a-f]+$') then return nil,'invalid_source' end
+    local resource_options={allow_missing_images=options.allow_missing_images==true}
+    local initial,reason=Resources.prepare(source,nil,resource_options)
+    if not initial then return nil,reason end
+    local saved=snapshot(source)
+    local function ready()
+        if not current(options) then return false,'session_changed' end
+        if not same_source(source,saved) then return false,'source_changed' end
+        return true
+    end
+    local assets,total,missing,downloaded,digests={},0,0,0,{}
+    local function placeholder(reference)
+        if options.allow_missing_images~=true then return false end
+        assets[#assets+1]={source=reference,data=require('weread.lib.native_missing_image'),media_type='image/png'}
+        missing=missing+1;return true
+    end
+    local function fetch(url)
+        local visited={}
+        for hop=0,3 do
+            if visited[url] then return nil,'unavailable' end
+            visited[url]=true
+            local chunks,size={},0
+            local ok,raw,code,headers=pcall(client.request,client,{
+                url=url,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
+                diagnostic_api='native_chapter_image',timeout={5,22},
+                headers={Accept='image/*',['Referer']='https://weread.qq.com/'},
+                sink=function(chunk)
+                    if chunk then
+                        size=size+#chunk
+                        if size>M.MAX_IMAGE or total+size>M.MAX_TOTAL then return nil,'response_limit' end
+                        chunks[#chunks+1]=chunk
+                    end
+                    return 1
+                end,
+            })
+            local allowed,why=ready();if not allowed then return nil,why end
+            code=tonumber(code)
+            if code==429 then return nil,'rate_limited' end
+            if ok and (code==301 or code==302 or code==303 or code==307 or code==308) then
+                local location=type(headers)=='table' and (headers.location or headers.Location)
+                if hop==3 or type(location)~='string' or #location==0 or #location>4096
+                    or location:find('[%z%c%s\\]')
+                    or headers.location and headers.Location and headers.location~=headers.Location then return nil,'unavailable' end
+                url=redirect_url(url,location)
+                if not url then return nil,'unavailable' end
+            else
+                local data=ok and code==200 and size<=M.MAX_IMAGE and total+size<=M.MAX_TOTAL
+                    and (type(raw)=='string' and raw or table.concat(chunks)) or nil
+                if not data or #data==0 or #data>M.MAX_IMAGE or total+#data>M.MAX_TOTAL then return nil,'unavailable' end
+                if not mime(data) then return nil,'invalid_image' end
+                return data
+            end
+        end
+        return nil,'unavailable'
+    end
+    for _,reference in ipairs(initial.remote_urls) do
+        local url=M.allowed(reference)
+        local allowed,why=ready();if not allowed then return nil,why end
+        if not url then
+            if not placeholder(reference) then return nil,'remote_unsupported' end
+        else
+            local data,fetch_reason=fetch(url)
+            if not data then
+                if fetch_reason=='rate_limited' or fetch_reason=='session_changed' or fetch_reason=='source_changed' then return nil,fetch_reason end
+                if not placeholder(reference) then return nil,fetch_reason end
+            else
+                local media_type=mime(data)
+                total=total+#data;downloaded=downloaded+1
+                assets[#assets+1]={source=reference,data=data,media_type=media_type}
+                digests[#digests+1]=Crypto.sha256_hex(data)
+            end
+        end
+    end
+    local allowed,why=ready();if not allowed then return nil,why end
+    -- With no remote URLs, the validated source and local assets have not
+    -- changed. Reuse the first preparation after the same liveness/source
+    -- check instead of parsing the entire chapter a second time.
+    local result,err
+    if #initial.remote_urls==0 then result=initial
+    else result,err=Resources.prepare(source,assets,resource_options) end
+    if not result then return nil,err end
+    if result.remote_references~=0 then return nil,'source_changed' end
+    result.downloaded_images=downloaded
+    result.downloaded_digests=digests
+    if options.allow_missing_images==true then
+        result.missing_images=missing+result.missing_local_images
+        if result.missing_images>64 then return nil,'invalid_source' end
+    end
+    return result
+end
+return M

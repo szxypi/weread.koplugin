@@ -1,0 +1,25 @@
+{
+  "feature": "native_direct_cloud_position_navigation",
+  "installed_koreader_synthetic": {
+    "screen_sizes": ["600x800", "1264x1680"],
+    "same_chapter_navigation": "PASS",
+    "cancel_and_page_change": "PASS",
+    "cloud_change_during_check_and_after_confirmation": "PASS",
+    "other_chapter_and_no_chapter_keep_page": "PASS",
+    "progress_write_requests": 0
+  },
+  "owner_readonly": {
+    "screen_size": "1264x1680",
+    "isolated_reader_host": true,
+    "no_chapter": "PASS",
+    "other_chapter": "PASS",
+    "same_chapter_navigation": "UNVERIFIED: selected chapter could not be prepared",
+    "cloud_progress_unchanged": true,
+    "shelf_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0
+  },
+  "cross_chapter_open_enabled": false,
+  "cloud_progress_upload_enabled": false,
+  "physical_kindle_tested": false
+}

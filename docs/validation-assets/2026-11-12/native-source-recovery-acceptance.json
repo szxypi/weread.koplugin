@@ -1,0 +1,309 @@
+{
+  "result": "NATIVE_SOURCE_RECOVERY_REAL_AND_TIMER_VERIFIED",
+  "runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "timer-snapshot",
+      "result": "PASS",
+      "synthetic_data_posts": 2,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": false,
+      "renewal_pending": false,
+      "timer_triggered": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "timer-prewrite",
+      "result": "PASS",
+      "synthetic_data_posts": 2,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": false,
+      "renewal_pending": false,
+      "timer_triggered": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "offline",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "account",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "suspend",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "timer-snapshot",
+      "result": "PASS",
+      "synthetic_data_posts": 2,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": false,
+      "renewal_pending": false,
+      "timer_triggered": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "timer-prewrite",
+      "result": "PASS",
+      "synthetic_data_posts": 2,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": false,
+      "renewal_pending": false,
+      "timer_triggered": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "offline",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "account",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "suspend",
+      "result": "PASS",
+      "synthetic_data_posts": 1,
+      "synthetic_authentication_posts": 1,
+      "local_intent_kept": true,
+      "renewal_pending": true,
+      "timer_triggered": false,
+      "workers_reaped": true,
+      "profile_removed": true
+    }
+  ],
+  "duplex_synthetic_runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "result": "NATIVE_SOURCE_AUTOMATIC_RENEWAL_VERIFIED",
+      "synthetic_authentication_posts": 1,
+      "synthetic_data_posts": 0,
+      "blocked_data_posts": 1,
+      "source_preparations": 2,
+      "native_file_audit": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "result": "NO_NATIVE_EXPIRY_OBSERVED",
+      "synthetic_authentication_posts": 0,
+      "synthetic_data_posts": 0,
+      "blocked_data_posts": 0,
+      "source_preparations": 1,
+      "native_file_audit": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "NATIVE_SOURCE_AUTOMATIC_RENEWAL_VERIFIED",
+      "synthetic_authentication_posts": 1,
+      "synthetic_data_posts": 0,
+      "blocked_data_posts": 1,
+      "source_preparations": 2,
+      "native_file_audit": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "NO_NATIVE_EXPIRY_OBSERVED",
+      "synthetic_authentication_posts": 0,
+      "synthetic_data_posts": 0,
+      "blocked_data_posts": 0,
+      "source_preparations": 1,
+      "native_file_audit": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    }
+  ],
+  "real": {
+    "result": "NATIVE_SOURCE_AUTOMATIC_RENEWAL_VERIFIED",
+    "dimensions": [
+      600,
+      800,
+      167
+    ],
+    "authentication_posts": 1,
+    "data_posts": 0,
+    "independent_natural_http401": true,
+    "plugin_native_gets": 9,
+    "independent_native_statuses": [
+      401,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "source_preparations": 2,
+    "one_time_claim_consumed": true,
+    "new_grant_keychain_readback": true,
+    "complete_original_position_summary_counts_version_shelf_preserved": true,
+    "planned_data_dto_independently_checked_and_blocked": true,
+    "no_position_upload_success_claimed": true,
+    "old_consumed_trial_unchanged": true,
+    "profile_removed": true,
+    "workers_reaped": true,
+    "native_file_audit": true,
+    "screenshots": 0
+  },
+  "real_control": {
+    "result": "NO_NATIVE_EXPIRY_OBSERVED",
+    "dimensions": [
+      1264,
+      1680,
+      300
+    ],
+    "renewal_forbidden": true,
+    "authentication_posts": 0,
+    "data_posts": 0,
+    "blocked_posts": 0,
+    "new_claim_marker_absent": true,
+    "native_file_audit": true,
+    "profile_removed": true,
+    "cloud_state_preserved": true
+  },
+  "checks": {
+    "python_files": 121,
+    "python_tests": 1544,
+    "python_skips": 0,
+    "new_python_tests": 18,
+    "lua_groups": 254,
+    "lua_syntax_files": 721,
+    "luacheck_files": 719,
+    "luacheck_warnings": 0
+  },
+  "package": {
+    "files": 284,
+    "sha256": "cde08399c0af86fd32d0a832629c47a506b7cb58d1b79e8597f752ac45e03d31",
+    "source_and_installed_bytes_match": true
+  },
+  "regressions": {
+    "old_reader_prepare": "PASS",
+    "legacy_prewrite_snapshot": "PASS"
+  },
+  "limitations": [
+    "No new real position writes; genuine write/ACK restoration remains covered by earlier independent trials.",
+    "No physical Kindle Oasis 2 or power-failure acceptance; performance phase follows complete functional acceptance."
+  ],
+  "privacy": {
+    "result": "PASS",
+    "files": 1823,
+    "document_links_checked": 288,
+    "actual_authentication_literals": 0,
+    "web_and_new_native_grants_retained": true,
+    "all_old_consumed_scopes_retained": true,
+    "real_auth_claim_consumed": true
+  }
+}

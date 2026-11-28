@@ -80,6 +80,8 @@ package.preload["weread.lib.content"] = function()
         save_chapter_epub = function(_settings, _book, chapter)
             return "/cache/book/chapter-" .. tostring(chapter.chapterUid) .. ".epub"
         end,
+        load_download_chapter_text = function(workspace,index) return workspace[index] end,
+        cleanup_download_workspace = function() end,
         save_book_epub = function()
             return "/cache/book/full.epub"
         end,
@@ -124,10 +126,13 @@ local function make_downloader()
     return Downloader:new{
         settings = {
             get = function(_self, key)
-                return key == "books" and live_books or nil
+                assert(key ~= "books", "download completion read the entire library")
             end,
-            set = function(_self, key, value)
-                if key == "books" then live_books = value end
+            record_download = function(_self, id, book, change)
+                local record = live_books[id] or book
+                require("weread.lib.book_store").apply_download(record, change)
+                live_books[id] = record
+                return true, record
             end,
             flush = function() end,
         },
@@ -195,6 +200,7 @@ coll_adds, coll_removes, coll_writes = {}, {}, 0
 do
     local chapter_33 = { chapterUid = 33, title = "Other" }
     local downloader = make_downloader()
+    local completed
     downloader:_step({
         book = {
             book_id = "book",
@@ -204,7 +210,8 @@ do
         },
         chapters = { chapter, chapter_33 },
         selected = { chapter, chapter_33 },
-        bodies = { ["22"] = "<p>22</p>", ["33"] = "<p>33</p>" },
+        selected_indices = {1,2},
+        workspace = {"<p>22</p>", "<p>33</p>"},
         assets = {},
         assets_by_uid = { ["22"] = {}, ["33"] = {} },
         state = { css = "" },
@@ -216,7 +223,9 @@ do
         separate_chapters = true,
         silent_completion = true,
         started_at = 999,
+        on_complete = function(ok) completed = ok end,
     })
+    eq(completed, true, "separate chapters packaged successfully")
     eq(#coll_adds, 0, "separate chapters does not add")
 end
 
@@ -259,15 +268,37 @@ package.preload["weread.lib.plugin_util"] = function()
     }
 end
 
+-- This spec isolates collection updates; filesystem ownership is covered by
+-- book_cache_cleanup_spec and the native real-file case.
+local removed_roots={}
+package.preload['libs/libkoreader-lfs']=function() return {
+    symlinkattributes=function() return {mode='directory',dev=1,ino=1} end,
+} end
+package.preload['weread.lib.book_cache_cleanup']=function() return {
+    scan=function(root) return {root=root,files=1,bytes=1,metadata='fixture',owner={dev=1,ino=1}} end,
+    acquire=function(root)
+        return {owns=function() return true end,release=function() end},
+            {root=root,files=1,bytes=1,metadata='fixture',owner={dev=1,ino=1}}
+    end,
+    same_plan=function() return true end,
+    step=function(job) removed_roots[job.plan.root]=true;job.files=1;return true,'done' end,
+} end
+package.preload['weread.lib.book_store']=function() return {clear_downloads=function() return true end} end
+require('weread.lib.plugin_util').file_exists=function(path)
+    return not removed_roots[path:match('^(.*)/[^/]+$')]
+end
+
 local real_os_execute = os.execute
 rawset(os, "execute", function() return 0 end)
 
 package.loaded["weread.ui.cache"] = nil
 package.loaded["weread.lib.content"] = nil
 package.loaded["weread.lib.protocol"] = nil
+package.loaded["weread.lib.book_store"] = nil
 local Cache = require("weread.ui.cache")
 
 local function make_cache_host(books)
+    removed_roots={}
     local stored = books
     local host = {
         settings = {
@@ -342,11 +373,11 @@ do
             cached_file = "/cache/n/full.epub",
             cached_full_book = "/cache/n/full.epub",
         },
-        ["MP_WXS_1"] = { cached_file = "/cache/mp/article.epub" },
+        ["MP_WXS_1"] = { cached_file = "/cache/MP_WXS_1/article.epub" },
     })
     host:clearAllMPCache()
     eq(#coll_removes, 1, "clearAllMPCache removes only MP")
-    eq(coll_removes[1] and coll_removes[1].path, "/cache/mp/article.epub",
+    eq(coll_removes[1] and coll_removes[1].path, "/cache/MP_WXS_1/article.epub",
         "clearAllMPCache path")
 end
 

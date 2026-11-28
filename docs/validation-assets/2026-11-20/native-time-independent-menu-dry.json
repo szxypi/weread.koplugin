@@ -1,0 +1,14 @@
+{
+  "result": "INDEPENDENT_NATIVE_MENU_DRY_VERIFIED",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "dispatch_may_have_occurred": false,
+  "real_accounting_verified": false,
+  "private_data_in_report": false,
+  "profile_removed": true,
+  "capture_and_all_journals_unchanged": true,
+  "native_menu": true,
+  "background_service": true,
+  "host_document_is_synthetic": true,
+  "physical_kindle_tested": false
+}

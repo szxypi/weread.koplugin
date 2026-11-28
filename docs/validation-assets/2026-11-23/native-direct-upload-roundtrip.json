@@ -1,0 +1,21 @@
+{
+  "scope": "one existing XHTML chapter and a unique visible source boundary",
+  "transport": "independent Python native zero-time protocol",
+  "source_and_cloud_baseline_verified": true,
+  "account_data_posts": 2,
+  "explicit_success_receipts": 2,
+  "independent_two_channel_readbacks": 2,
+  "original_position_and_summary_restored": true,
+  "reading_counts_and_visible_shelves_unchanged": true,
+  "authentication_posts": 0,
+  "web_progress_posts": 0,
+  "separate_native_ui_dry_runs": {
+    "resolutions": ["600x800", "1264x1680"],
+    "summary_present_and_missing": true,
+    "progress_posts_blocked_before_network": 2,
+    "pending_journal_verified": true,
+    "cloud_and_shelf_unchanged": true,
+    "temporary_profiles_removed": true
+  },
+  "limitations": ["one account and chapter", "native UI writes simulated only", "missing-summary real write untested", "server history and recent-reading time not verified", "physical Kindle untested"]
+}

@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-23",
+  "scope": "one existing authorized EPUB chapter in an isolated KOReader ReaderUI host",
+  "dry_run": {"screen": "1264x1680", "production_submit_boundary_blocked": true, "account_data_posts": 0},
+  "roundtrip": {
+    "screen": "1264x1680", "native_account_data_posts": 3, "independent_steps": 3,
+    "operations": ["create_private_thought", "edit_new_thought", "delete_new_thought"],
+    "conditional_highlight_cleanup_posts": 0, "original_records_restored": true,
+    "derived_chapter_metadata_changed": false, "shelf_and_reading_position_unchanged": true,
+    "temporary_profile_removed": true, "credential_file_audit_passed": true,
+    "installed_bytes_match": true, "intent_cleared": true
+  },
+  "initial_attempts": "Stopped before dispatch due to expired native authorization; one renewal verified same account and shelf, then baseline rechecked.",
+  "authorization_renewal_posts": 1,
+  "synthetic_screens": ["600x800", "1264x1680"],
+  "synthetic_cases": ["blocked dry run", "three-step roundtrip", "lost acknowledgement", "no effect and replay blocked"],
+  "limitations": ["one account and chapter", "isolated ReaderUI host", "physical Kindle untested", "full plugin instance tested with synthetic service only"]
+}

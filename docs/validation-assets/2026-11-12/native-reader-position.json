@@ -1,0 +1,73 @@
+{
+  "result": "PACKAGED_NATIVE_TXT_READER_MOCK_VERIFIED",
+  "synthetic_only": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "timer_eligibility_fixed": true,
+  "unknown_basis_rejected": true,
+  "source_runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "manual_native_posts": 1,
+      "timed_native_posts": 1,
+      "unknown_receipt_native_posts": 1,
+      "web_posts": 0,
+      "actual_reader_from_visible_shelf": true,
+      "sqlite_claim_before_http": true,
+      "independent_python_raw_summary_dto_signature": true,
+      "original_local_units": true,
+      "summary_not_in_checkpoints": true,
+      "timer_cancelled_worker_reaped": true,
+      "unknown_record_and_local_intent_retained": true,
+      "fresh_process_pending_read": true,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "installed": {
+        "files": 278,
+        "bytes_match": true
+      }
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "manual_native_posts": 1,
+      "timed_native_posts": 1,
+      "unknown_receipt_native_posts": 1,
+      "web_posts": 0,
+      "actual_reader_from_visible_shelf": true,
+      "sqlite_claim_before_http": true,
+      "independent_python_raw_summary_dto_signature": true,
+      "original_local_units": true,
+      "summary_not_in_checkpoints": true,
+      "timer_cancelled_worker_reaped": true,
+      "unknown_record_and_local_intent_retained": true,
+      "fresh_process_pending_read": true,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "installed": {
+        "files": 278,
+        "bytes_match": true
+      }
+    }
+  ],
+  "package": {
+    "result": "PASS",
+    "files": 278,
+    "sha256": "8301d134b1d68861eece0f025e9536a70fb342dda1b39da25a5fa9723fe381ac",
+    "source_bytes_match": true
+  },
+  "real_reader_write_roundtrip_verified": false,
+  "physical_ko2_verified": false,
+  "release_published": false
+}

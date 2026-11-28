@@ -1,0 +1,20 @@
+{
+  "result": "TXT_IMPORT_AND_SOURCE_VERIFIED",
+  "fixture": "one self-authored short plain-text book",
+  "source_format": "web_txt",
+  "fixture_marker_found": true,
+  "catalog_versions_and_observed_position_unchanged": true,
+  "independent_shelf_baselines_match": true,
+  "fixture_imported_and_removal_independently_observed": true,
+  "prior_group_fixture_retained_and_targets_absent": true,
+  "earlier_historical_baseline_restored": "not established",
+  "credential_requests": 1,
+  "cos_put_attempts": 1,
+  "import_notification_posts": 1,
+  "fixture_removal_posts": 1,
+  "authentication_posts": 0,
+  "private_source_or_credentials_saved": false,
+  "durable_one_shot_receipts_retained": true,
+  "native_reader_or_cloud_position_verified": false,
+  "physical_device_verified": false
+}

@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-24",
+  "result": "NATIVE_DIRECT_OFFLINE_THOUGHT_OWNER_VERIFIED",
+  "book_samples": 1,
+  "chapter_samples": 1,
+  "resolutions": [[600, 800], [1264, 1680]],
+  "native_web_source_independently_matched": true,
+  "actual_reader_selection_independently_matched": true,
+  "offline_draft_saved_and_resumed": true,
+  "offline_draft_resume_same_reader_process": true,
+  "offline_network_requests": 0,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "temporary_profiles_removed": true,
+  "observed_shelf_unchanged": true,
+  "real_online_draft_submission_tested": false,
+  "physical_kindle_tested": false
+}

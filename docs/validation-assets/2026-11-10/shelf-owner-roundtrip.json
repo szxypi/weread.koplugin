@@ -1,0 +1,181 @@
+{
+  "checked_at": "2026-11-10T09:30:15.727663+00:00",
+  "stages": [
+    {
+      "stage": "shelf_preview",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "shelf_preflight",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "shelf_write",
+      "status": 200,
+      "keys": [
+        "succ"
+      ]
+    },
+    {
+      "stage": "shelf_readback",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "shelf_preview",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "shelf_preflight",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "shelf_write",
+      "status": 200,
+      "keys": [
+        "succ"
+      ]
+    },
+    {
+      "stage": "shelf_readback",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    }
+  ],
+  "probe": "native_shelf_write",
+  "data_writes_attempted": 2,
+  "readback_attempts": 2,
+  "operation": "remove",
+  "target_supplied": true,
+  "before": true,
+  "desired": false,
+  "shelf_before_count": 140,
+  "result": "PASS",
+  "roundtrip": true,
+  "roundtrip_verified": true,
+  "operations": [
+    {
+      "operation": "add",
+      "result": "PASS",
+      "acknowledgement_recognized": true,
+      "desired_state_observed": true,
+      "write_verified": true
+    },
+    {
+      "operation": "remove",
+      "result": "PASS",
+      "acknowledgement_recognized": true,
+      "desired_state_observed": true,
+      "write_verified": true
+    }
+  ],
+  "receipt_received": true,
+  "shelf_after_count": 139,
+  "acknowledgement_recognized": true,
+  "desired_state_observed": true,
+  "unrelated_membership_changes": false,
+  "write_verified": true,
+  "owner_scoped_permission_consumed": true,
+  "initial_shelf_count": 139,
+  "maximum_observed_shelf_count": 140,
+  "final_shelf_count": 139,
+  "before_after_membership_restored": true,
+  "ordering_timestamps_restoration_verified": false,
+  "implemented_transport": "Python prototype",
+  "lua_real_write_combination_verified": false,
+  "private_book_account_and_credentials_saved": false
+}

@@ -9,7 +9,6 @@ end
 package.preload["logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
-package.preload["weread.lib.crypto"] = function() return {} end
 package.preload["weread.lib.reader_state"] = function() return {} end
 package.preload["weread.lib.protocol"] = function()
     return {
@@ -91,7 +90,7 @@ package.preload["lfs"] = function()
     return {
         attributes = function(path, attribute)
             local probe = io.popen("test -d " .. string.format("%q", path)
-                .. " && echo directory")
+                .. " && echo directory || (test -f " .. string.format("%q", path) .. " && echo file)")
             local mode = probe:read("*l")
             probe:close()
             if attribute == "mode" then return mode end
@@ -147,6 +146,7 @@ function fake_client:download_to_file(_url, path)
     file:close()
     return path
 end
+local tar_download=fake_client.download_to_file
 
 collectgarbage("collect")
 local before_kb = collectgarbage("count")
@@ -188,6 +188,101 @@ expect(zip_src_map["page-1.jpeg"] == "../" .. zip_assets[1].href,
     "ZIP image map was wrong")
 expect(io.open(workspace.incoming_dir .. "/chapter-1.tar", "rb") == nil,
     "source ZIP was not removed after extraction")
+
+local failure_workspace={path=workspace.path..'/failure',incoming_dir=workspace.path..'/failure/incoming',
+    asset_dir=workspace.path..'/failure/images'}
+assert(os.execute('mkdir -p '..string.format('%q',failure_workspace.incoming_dir)..' '
+    ..string.format('%q',failure_workspace.asset_dir)))
+local function read_file(path)
+    local handle=assert(io.open(path,'rb'));local data=handle:read('*a');assert(handle:close());return data
+end
+local function failed_close_at(n)
+    local real_open=io.open
+    local count=0
+    -- luacheck: push ignore 122
+    io.open=function(path,mode)
+        local handle,err=real_open(path,mode)
+        if handle and mode=='wb' and path==failure_workspace.incoming_dir..'/resource-image.part' then
+            count=count+1
+            if count==n then
+                return {write=function(_,...) return handle:write(...) end,close=function()
+                    handle:close();return nil,'injected close failure'
+                end}
+            end
+        end
+        return handle,err
+    end
+    return function() io.open=real_open end
+    -- luacheck: pop
+end
+local original=assert(io.open(failure_workspace.asset_dir..'/untouched.jpg','wb'))
+assert(original:write('original'));assert(original:close())
+fake_client.download_to_file=tar_download
+local restore=failed_close_at(2)
+local retry_names={}
+local failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=11,tar='https://example.test/tar'},retry_names,failure_workspace)
+restore()
+expect(not failed and not io.open(failure_workspace.asset_dir..'/image-001.jpg','rb')
+    and not io.open(failure_workspace.asset_dir..'/image-002.jpg','rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb')
+    and read_file(failure_workspace.asset_dir..'/untouched.jpg')=='original'
+    and not retry_names['image-001.jpg'] and not retry_names['image-002.jpg'],
+    'TAR close failure left published images or changed an existing file')
+local retry=Content.download_chapter_assets_to_files(fake_client,{book_id='book'},
+    {chapterUid=11,tar='https://example.test/tar'},retry_names,failure_workspace)
+expect(#retry==image_count and read_file(retry[2].path):sub(1,3)=='\255\216\255',
+    'TAR extraction could not retry after a close failure')
+fake_client.download_to_file=function(_self,_url,path)
+    local handle=assert(io.open(path,'wb'))
+    assert(handle:write(tar_header('partial-one.jpg',512),'\255\216\255',string.rep('x',509),
+        tar_header('partial-two.jpg',512),'\255\216\255short'))
+    assert(handle:close());return path
+end
+local partial_names={}
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=13,tar='https://example.test/tar'},partial_names,failure_workspace)
+expect(not failed and not io.open(failure_workspace.asset_dir..'/partial-one.jpg','rb')
+    and not io.open(failure_workspace.asset_dir..'/partial-two.jpg','rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb')
+    and not partial_names['partial-one.jpg'] and not partial_names['partial-two.jpg'],
+    'truncated TAR retained images or reserved their names')
+
+fake_client.download_to_file=function(_self,_url,path)
+    local handle=assert(io.open(path,'wb'));assert(handle:write('PK\003\004fake'));assert(handle:close());return path
+end
+local zip_name=assert(zip_assets[1].href:match('^images/(.+)$'))
+restore=failed_close_at(1)
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=12,tar='https://example.test/zip'},{},failure_workspace)
+restore()
+expect(not failed and not io.open(failure_workspace.asset_dir..'/'..zip_name,'rb')
+    and not io.open(failure_workspace.incoming_dir..'/resource-image.part','rb'),
+    'ZIP close failure left a partial image')
+local existing=assert(io.open(failure_workspace.asset_dir..'/'..zip_name,'wb'))
+assert(existing:write('existing'));assert(existing:close())
+failed=pcall(Content.download_chapter_assets_to_files,fake_client,{book_id='book'},
+    {chapterUid=12,tar='https://example.test/zip'},{},failure_workspace)
+expect(not failed and read_file(failure_workspace.asset_dir..'/'..zip_name)=='existing',
+    'resource extraction overwrote an existing image')
+
+local remote_downloads=0
+fake_client.download_to_file=function(_self,_url,path)
+    remote_downloads=remote_downloads+1
+    local handle=assert(io.open(path,'wb'));assert(handle:write('\137PNG\r\n\26\nremote'))
+    assert(handle:close());return path
+end
+local remote_names={}
+local html='<p><img src="https://example.test/shared.png"/></p>'
+local _,first_remote=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+local _,shared_remote=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+expect(remote_downloads==1 and #first_remote==1 and #shared_remote==1
+    and first_remote[1].path==shared_remote[1].path,
+    'shared remote image was not recorded for both chapters')
+assert(os.remove(first_remote[1].path))
+local _,replacement=Content.download_remote_images_to_files(fake_client,html,remote_names,failure_workspace)
+expect(remote_downloads==2 and #replacement==1 and replacement[1].path~=first_remote[1].path,
+    'missing shared image was reused instead of downloaded again')
 
 local settings = {
     cache_dir = root,
@@ -270,5 +365,39 @@ expect(removed == 3 and io.open(root .. "/orphan.epub.part", "rb") == nil,
 local lfs = require("lfs")
 expect(lfs.attributes(workspace.path, "mode") == nil,
     "startup recovery did not remove the active-looking stale workspace")
+local renamed = assert(io.open(root .. "/missing.epub.weread-backup", "wb"))
+assert(renamed:write("last complete copy"))
+assert(renamed:close())
+local indexed_recovery = { cache_dir = root .. "/new-cache",
+    get_book_indexes = function() return { book = { cache_dir = root } } end,
+    get = function() error("startup recovery hydrated the book records") end }
+expect(Content.cleanup_stale_downloads(indexed_recovery) == 1,
+    "indexed recovery did not find a backup in a moved cache directory")
+local restored = assert(io.open(root .. "/missing.epub", "rb"))
+expect(restored:read("*a") == "last complete copy", "indexed recovery changed the restored backup")
+restored:close()
+
+local catalog_path = root .. "/catalog.json"
+local catalog_file = assert(io.open(catalog_path, "wb"))
+assert(catalog_file:write("last complete catalog"))
+assert(catalog_file:close())
+local open_file = io.open
+rawset(io, "open", function(path, mode)
+    local file, reason = open_file(path, mode)
+    if path ~= catalog_path .. ".tmp" or not file then return file, reason end
+    return {write=function(_,data) return file:write(data) end,
+        close=function() assert(file:close());return nil,"injected catalog close error" end}
+end)
+local catalog_client = {json_encode=function() return "new complete catalog" end}
+local book_to_migrate = {book_id="book",cache_dir=root}
+local catalog_saved, catalog_error = Content.save_catalog_cache(catalog_client, recovery_settings, book_to_migrate, {{chapterUid=7}})
+rawset(io, "open", open_file)
+catalog_file = assert(io.open(catalog_path, "rb"))
+expect(not catalog_saved and catalog_error == "injected catalog close error"
+    and catalog_file:read("*a") == "last complete catalog" and lfs.attributes(catalog_path .. ".tmp") == nil,
+    "a delayed catalog write failure replaced the previous cache")
+catalog_file:close()
+expect(Content.save_catalog_cache(catalog_client, recovery_settings, book_to_migrate, {{chapterUid=7}}),
+    "an interrupted catalog write could not be retried")
 assert(os.execute("rm -rf " .. string.format("%q", root)))
 print(("download_disk_assets_spec: %d checks"):format(checks))

@@ -1,0 +1,30 @@
+{
+  "scope": "new nonoverlapping current-day native chapter interval using automatic selection and transfer",
+  "environment": "KOReader emulator, 1264x1680, isolated temporary profile",
+  "timer_override_seconds": 1,
+  "production_timer_seconds": 300,
+  "collection": "Six seconds captured by the real statistics plugin in a separate isolated reader process; the automatic-stage active session was supplied by the harness.",
+  "dry_run": {
+    "result": "DIRECT_NATIVE_TIME_DRY_VERIFIED",
+    "account_data_posts": 0,
+    "prior_records_unchanged": true,
+    "profile_removed": true
+  },
+  "live_trial": {
+    "result": "DIRECT_NATIVE_TIME_ACCOUNTING_VERIFIED",
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "seconds": 6,
+    "automatic_selection_and_source_scan": true,
+    "background_service": true,
+    "plugin_local_settlement": true,
+    "independent_readbacks": 2,
+    "position_unchanged": true,
+    "shelf_unchanged": true,
+    "prior_records_unchanged": true,
+    "one_shot_record_retained": true,
+    "profile_removed": true
+  },
+  "full_five_minute_cycle_tested": false,
+  "physical_kindle_tested": false
+}

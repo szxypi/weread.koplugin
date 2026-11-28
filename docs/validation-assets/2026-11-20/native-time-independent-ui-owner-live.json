@@ -1,0 +1,19 @@
+{
+  "result": "INDEPENDENT_MENU_READBACK_MATCH",
+  "account_data_posts": 1,
+  "authentication_posts": 0,
+  "dispatch_may_have_occurred": true,
+  "independent_readback": true,
+  "real_accounting_verified": true,
+  "private_data_in_report": false,
+  "menu_confirmed": true,
+  "historical_date_matched": true,
+  "seconds": 6,
+  "capture_present_after": true,
+  "gate_phase_after": "acknowledged",
+  "audit_bound_to_gate_after": true,
+  "remaining_private_profiles": 0,
+  "tested_commit": "51f518833ba12d8f6a2ec101ebea0af2cb1cc74b",
+  "host_document_is_synthetic": true,
+  "physical_kindle_tested": false
+}

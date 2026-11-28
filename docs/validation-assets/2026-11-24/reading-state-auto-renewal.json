@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-24",
+  "feature": "started-reading status one-time native authorization recovery",
+  "synthetic_packaged_ui": {
+    "dimensions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "initial_progress_http_401": true,
+    "authentication_posts": 1,
+    "renewed_shelf_verified": true,
+    "progress_read_after_renewal": true,
+    "confirmed_credential_revision_delta": 2,
+    "profile_removed": true
+  },
+  "component_checks": [
+    "renewal failure",
+    "second 401 without renewal loop",
+    "cancellation during renewal",
+    "account switch",
+    "duplicate and stale callbacks"
+  ],
+  "owner": {
+    "native_shelf_http_401": true,
+    "independent_lua_statistics_http_401": true,
+    "renewal": "separate Python tool",
+    "authentication_posts": 1,
+    "account_data_writes": 0,
+    "keychain_readback_verified": true,
+    "shelf_books": 140,
+    "post_renewal_ordinary_ui": "1264x1680",
+    "post_renewal_imported_ui": "600x800",
+    "shelf_unchanged": true
+  },
+  "limits": [
+    "Real 401 to recovery within the started-reading UI has not been verified.",
+    "Physical Kindle Oasis 2 has not been verified."
+  ]
+}

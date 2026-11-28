@@ -1,0 +1,12 @@
+{
+  "result": "ORDINARY_PARTIAL_RECOVERY_PREPARED",
+  "checked_at": "2026-11-22T09:27:41.722435+00:00",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "original_trial_verified": false,
+  "phase": "complete",
+  "independent_readbacks": 2,
+  "current_position_matches_observed": true,
+  "source_catalog_time_counts_unchanged": true
+}

@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "kind": "membership_queue",
+  "pairs": [
+    {
+      "baseline": {
+        "concurrent_saves": 814,
+        "journal_mode/busy": 66,
+        "success": 4934,
+        "storage": 66
+      },
+      "candidate": {
+        "success": 5000,
+        "storage": 0,
+        "concurrent_saves": 1771
+      }
+    },
+    {
+      "baseline": {
+        "success": 4911,
+        "storage": 89,
+        "concurrent_saves": 918,
+        "journal_mode/busy": 89
+      },
+      "candidate": {
+        "concurrent_saves": 1754,
+        "success": 5000,
+        "storage": 0
+      }
+    },
+    {
+      "baseline": {
+        "storage": 57,
+        "concurrent_saves": 658,
+        "journal_mode/busy": 57,
+        "success": 4943
+      },
+      "candidate": {
+        "concurrent_saves": 577,
+        "success": 5000,
+        "storage": 0
+      }
+    }
+  ],
+  "baseline_sha256": "6c05a15237d1bcd9aaa3e24c3437629e2b90aba7eb746b2bd1a4d2c64e6cd988",
+  "candidate_sha256": "90bc519060e34a615631e4aaef37ccbe9bc715b1b6cbd47d55ca8d0cc63c1ec2",
+  "probe_sha256": "7da2e36ab2ea8497d68eb9cfd4d39952f610d1a8a99e828ddc3aba809bdc631f",
+  "profiles_removed": true,
+  "candidate_shared_sha256": "425b700b0cf490fe1f4004184cde2f499c3cbd317bdd96c98e015f0e4610c59e"
+}

@@ -5,6 +5,10 @@ local Content = require("weread.lib.content")
 local logger = require("weread.lib.logger")
 local PathChooser = require("ui/widget/pathchooser")
 local Scan = require("weread.lib.scan")
+local ReadAccess = require("weread.lib.read_access")
+local ShelfFilters = require("weread.lib.shelf_filters")
+local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
 
@@ -227,6 +231,10 @@ local SHELF_SORT_OPTIONS = {
     { key = "default",   label = _("Default order"), short = _("Default") },
     { key = "name_asc",  label = _("Title A-Z"), short = "A–Z" },
     { key = "name_desc", label = _("Title Z-A"), short = "Z–A" },
+    { key = "author_asc", label = _("Author A-Z"), short = _("Author A-Z") },
+    { key = "author_desc", label = _("Author Z-A"), short = _("Author Z-A") },
+    { key = "progress_desc", label = _("Cached progress (highest first)"), short = _("Progress descending") },
+    { key = "progress_asc", label = _("Cached progress (lowest first)"), short = _("Progress ascending") },
 }
 
 local function shelfSortLabel(sort_key)
@@ -249,12 +257,14 @@ end
 local SHELF_FILTER_OPTIONS = {
     { dim = "reading",  value = "finished",       label = _("Only show finished books"),       short = _("Finished") },
     { dim = "reading",  value = "unfinished",     label = _("Only show unfinished books"),     short = _("Unfinished") },
+    { dim = "reading",  value = "progress_zero",  label = _("Unread (known progress is 0%)"), short = _("Unread · progress") },
+    { dim = "reading",  value = "progress_active",label = _("Reading (known progress above 0%)"), short = _("Reading · progress") },
     { dim = "download", value = "downloaded",     label = _("Only show downloaded books"),     short = _("Downloaded") },
     { dim = "download", value = "not_downloaded", label = _("Only show not-downloaded books"), short = _("Not downloaded") },
 }
 
 function M:shelfFilterSummary()
-    local filters = self.shelf_filters
+    local filters = self.shelf_filters or {}
     local parts = {}
     for _i, opt in ipairs(SHELF_FILTER_OPTIONS) do
         if filters[opt.dim] == opt.value then
@@ -268,17 +278,39 @@ function M:shelfFilterSummary()
 end
 
 function M:saveShelfFilters()
+    local db = self.library_db
+    local account = db and db.accountKey and db:accountKey()
+    local filters = ShelfFilters.normalize(self.shelf_filters)
+    if account and type(db.putProfileState) == 'function' then
+        local ok, saved = pcall(db.putProfileState, db, ShelfFilters.KEY, filters)
+        if db:accountKey() ~= account then return end
+        if ok and saved == true then
+            self._shelf_unsaved_filters = nil
+        else
+            self._shelf_unsaved_filters = account
+            if self.showTransientInfo then
+                self:showTransientInfo(_('Could not save the bookshelf filters. They are still active for this session.'), 4)
+            end
+        end
+        return
+    end
     local shelf = self.settings:get("shelf")
-    shelf.filter_reading = self.shelf_filters.reading
-    shelf.filter_download = self.shelf_filters.download
+    shelf.filter_reading = filters.reading
+    shelf.filter_download = filters.download
     self.settings:set("shelf", shelf)
     self.settings:flush()
 end
 
 function M:bookMatchesFilters(book, saved_books, downloaded_cache)
     local filters = self.shelf_filters or {}
-    if filters.reading == "finished" and book.finishReading ~= 1 then return false end
-    if filters.reading == "unfinished" and book.finishReading == 1 then return false end
+    local finished=ShelfFlags.display(book,'finished')
+    if filters.reading == "finished" and finished~=true then return false end
+    if filters.reading == "unfinished" and finished~=false then return false end
+    if filters.reading == "progress_zero" or filters.reading == "progress_active" then
+        local value=book._shelf_progress_exact
+        if finished~=false or type(value)~='number' or value~=value or value<0 or value>100 then return false end
+        if filters.reading=='progress_zero' and value~=0 or filters.reading=='progress_active' and value<=0 then return false end
+    end
     if filters.download then
         local is_downloaded = self:isBookDownloaded(book, saved_books, downloaded_cache)
         if filters.download == "downloaded" and not is_downloaded then return false end
@@ -287,8 +319,12 @@ function M:bookMatchesFilters(book, saved_books, downloaded_cache)
     return true
 end
 
-function M:showShelfSortOptions(on_sorted)
+function M:showShelfSortOptions(on_sorted, origin)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    local function current()
+        return not origin or origin.is_current() and Popup.current(origin.owner,dialog)
+    end
     local current_sort = self.settings:get("shelf").sort_order or "default"
     local buttons = {}
     for _i, opt in ipairs(SHELF_SORT_OPTIONS) do
@@ -302,7 +338,8 @@ function M:showShelfSortOptions(on_sorted)
                 -- against the still-shown dialog (avoids a ghost label on close).
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         local shelf = self.settings:get("shelf")
                         shelf.sort_order = opt.key
                         self.settings:set("shelf", shelf)
@@ -313,17 +350,41 @@ function M:showShelfSortOptions(on_sorted)
             },
         })
     end
+    if origin and type(self.shelf_regular)=='table' then
+        buttons[#buttons+1]={{text=_('Update all bookshelf progress'),callback=function()
+            UIManager:nextTick(function()
+                if not current() then return end
+                if self.cancelShelfProgress then self:cancelShelfProgress() end
+                Popup.close(origin.owner)
+                require('weread.ui.shelf_progress_all').start(self,origin,on_sorted)
+            end)
+        end}}
+    end
     dialog = ButtonDialog:new{
         title = _("Sort by"),
         title_align = "center",
         buttons = buttons,
     }
-    UIManager:show(dialog)
+    if origin then Popup.show(origin.owner,dialog) else UIManager:show(dialog) end
 end
 
-function M:showShelfFilterOptions(on_changed)
+function M:showShelfFilterOptions(on_changed, origin)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    if not self.shelf_filters and self.loadShelfFilters then self:loadShelfFilters() end
+    self.shelf_filters = self.shelf_filters or {}
     local filters = self.shelf_filters
+    local db = self.library_db
+    local account = db and db.accountKey and db:accountKey()
+    local auth = not origin and self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local selected = false
+    local function current()
+        if selected or self.shelf_filters ~= filters or self.library_db ~= db then return false end
+        if origin then return origin.is_current() and Popup.current(origin.owner,dialog) end
+        if db and db.accountKey and db:accountKey() ~= account then return false end
+        if auth then return self.settings:auth_scope_matches(auth) end
+        return not self.settings.get_auth_scope or not self.settings:get_auth_scope()
+    end
     local buttons = {
         {
             {
@@ -333,7 +394,9 @@ function M:showShelfFilterOptions(on_changed)
                 end,
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        selected = true
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         filters.reading = nil
                         filters.download = nil
                         self:saveShelfFilters()
@@ -352,22 +415,38 @@ function M:showShelfFilterOptions(on_changed)
                 end,
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        selected = true
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         -- Toggle within the dimension: re-tapping clears it, else select.
-                        filters[opt.dim] = (filters[opt.dim] == opt.value) and nil or opt.value
+                        if filters[opt.dim] == opt.value then filters[opt.dim] = nil
+                        else filters[opt.dim] = opt.value end
                         self:saveShelfFilters()
                         on_changed()
+                        if (filters.reading=='progress_zero' or filters.reading=='progress_active') and self.showTransientInfo then
+                            self:showTransientInfo(_('Progress filters use cached values, which may be old. Unknown progress is hidden; update all bookshelf progress to refresh.'), 5)
+                        end
                     end)
                 end,
             },
         })
+    end
+    if origin and type(self.shelf_regular)=='table' then
+        buttons[#buttons+1]={{text=_('Update all bookshelf progress'),callback=function()
+            UIManager:nextTick(function()
+                if not current() then return end
+                if self.cancelShelfProgress then self:cancelShelfProgress() end
+                Popup.close(origin.owner)
+                require('weread.ui.shelf_progress_all').start(self,origin,on_changed)
+            end)
+        end}}
     end
     dialog = ButtonDialog:new{
         title = _("Filter by"),
         title_align = "center",
         buttons = buttons,
     }
-    UIManager:show(dialog)
+    if origin then Popup.show(origin.owner,dialog) else UIManager:show(dialog) end
 end
 
 function M:bookRecordHasDownload(record)
@@ -375,22 +454,48 @@ function M:bookRecordHasDownload(record)
     if file_exists(record.cached_full_book) or file_exists(record.cached_file) then
         return true
     end
-    for _uid, path in pairs(record.cached_chapters or {}) do
+    for _uid, path in pairs(type(record.cached_chapters)=='table' and record.cached_chapters or {}) do
         if file_exists(path) then return true end
     end
     return false
 end
 
+function M:nativeChapterCachePresent(book_id, repair_current)
+    if not self.settings.get_auth_scope or not self.settings.auth_scope_matches
+        or not self.library_db or not self.library_db.accountKey then return false end
+    local scope=self.settings:get_auth_scope()
+    if not scope or type(scope.vid)~='string' then return false end
+    local owner
+    local function authorized()
+        owner=owner or require('weread.lib.crypto').sha256_hex('weread-library:'..scope.vid):sub(1,20)
+        return self.library_db:accountKey()==owner and self.settings:auth_scope_matches(scope)
+    end
+    local cache=require('weread.lib.native_direct_cache')
+    if not repair_current then
+        return cache.present(self.settings,scope.vid,book_id,nil,authorized)
+    end
+    -- Check for a book directory before reading authorization. The worker still
+    -- checks authorization before reading a marker and during repair.
+    return cache.present(self.settings,scope.vid,book_id,function()
+        return repair_current() and authorized()
+    end,authorized)
+end
+
 function M:isBookDownloaded(book, saved_books, downloaded_cache)
-    local book_id = book.book_id or book.bookId
+    local book_id = ShelfSnapshot.persisted_id(book)
     if not book_id then
         return false
     end
     if downloaded_cache and downloaded_cache[book_id] ~= nil then
         return downloaded_cache[book_id]
     end
-    local record = (saved_books or self.settings:get("books", {}))[book_id]
+    local record,conflict = ReadAccess.cached_book(saved_books or ReadAccess.book_lookup(self.settings),book_id)
+    if conflict then
+        if downloaded_cache then downloaded_cache[book_id]=false end
+        return false
+    end
     local is_downloaded = self:bookRecordHasDownload(record)
+    if not is_downloaded then is_downloaded=self:nativeChapterCachePresent(book_id) end
     if downloaded_cache then
         downloaded_cache[book_id] = is_downloaded
     end
@@ -422,7 +527,6 @@ function M:shelfToolbarItems(with_filters, refresh)
 end
 
 function M:showCacheManagement()
-    local lfs = require("libs/libkoreader-lfs")
     local books = self.settings:get("books", {})
     local items = {}
     local entries = {}
@@ -430,36 +534,13 @@ function M:showCacheManagement()
     local total_size = 0
     local mp_total_size = 0
 
-    local function directory_stats(path)
-        local size = 0
-        local file_count = 0
-        local ok, iter, dir_obj = pcall(lfs.dir, path)
-        if not ok then
-            return size, file_count
-        end
-        for entry in iter, dir_obj do
-            if entry ~= "." and entry ~= ".." then
-                local child = path .. "/" .. entry
-                local attr = lfs.attributes(child)
-                if attr and attr.mode == "file" then
-                    size = size + (attr.size or 0)
-                    file_count = file_count + 1
-                elseif attr and attr.mode == "directory" then
-                    local child_size, child_count = directory_stats(child)
-                    size = size + child_size
-                    file_count = file_count + child_count
-                end
-            end
-        end
-        return size, file_count
-    end
-
     local function add_cache_entry(book_id, title, book_dir)
         if seen_dirs[book_dir] then
             return
         end
         seen_dirs[book_dir] = true
-        local size, file_count = directory_stats(book_dir)
+        local ok, plan = pcall(require("weread.lib.book_cache_cleanup").scan, book_dir, book_id)
+        local size, file_count = ok and plan.bytes or 0, ok and plan.files or 0
         if file_count == 0 then
             return
         end
@@ -500,28 +581,14 @@ function M:showCacheManagement()
     table.insert(items, {
         text = T(_("[Cleanup] Clear all public account cache (%1)"), mp_total_str),
         callback = self:safeCallback(_("Clear all public account cache"), function()
-            UIManager:show(ConfirmBox:new{
-                text = _("Clear all public account cache? Downloaded articles and cached article lists will be deleted."),
-                ok_text = _("Clear"),
-                ok_callback = function()
-                    self:clearAllMPCache()
-                    self:refreshCacheManagement(_("Public account cache cleared"))
-                end,
-            })
+            self:confirmClearSelectedCaches(true)
         end),
     })
     table.insert(items, {
         text = T(_("[Cleanup] Clear all cache (%1)"), total_str),
         separator = true,
         callback = self:safeCallback(_("Clear all cache"), function()
-            UIManager:show(ConfirmBox:new{
-                text = _("Clear all cache? Downloaded books and articles, underlines, thoughts, and matching progress will be deleted."),
-                ok_text = _("Clear"),
-                ok_callback = function()
-                    self:clearAllCache()
-                    self:refreshCacheManagement(_("Cache cleared"))
-                end,
-            })
+            self:confirmClearSelectedCaches(false)
         end),
     })
 
@@ -662,20 +729,26 @@ function M:offerScanNewDir(new_dir, base_message)
     end)
 end
 
-function M:confirmClearBookCache(book_id, title, on_cleared)
-    UIManager:show(ConfirmBox:new{
-        text = T(_("Clear cache for \"%1\"?\nDownloaded files, underlines, thoughts, and matching progress will be deleted."), title),
-        ok_text = _("Clear"),
-        ok_callback = function()
-            self:clearBookCache(book_id)
-            if on_cleared then
-                on_cleared()
-                self:showTransientInfo(_("Cache cleared"))
-            else
-                self:refreshCacheManagement(_("Cache cleared"))
-            end
-        end,
-    })
+function M:confirmClearBookCache(book_id, title, on_cleared, full_path)
+    local copy=full_path and {path=full_path}
+    return require('weread.ui.book_cache_cleanup').show(self,{book_id},title,on_cleared,copy)
+end
+
+local function cache_ids(host,mp_only)
+    local ids={}
+    for id in pairs(host.settings:get('books',{})) do
+        if not mp_only or WeRead.is_mp_book(id) then ids[#ids+1]=id end
+    end
+    table.sort(ids,function(a,b) return tostring(a)<tostring(b) end)
+    return ids
+end
+
+function M:confirmClearSelectedCaches(mp_only)
+    return require('weread.ui.book_cache_cleanup').show(self,cache_ids(self,mp_only))
+end
+
+function M:cancelBookCacheCleanup()
+    return require('weread.ui.book_cache_cleanup').cancel(self)
 end
 
 local function annotation_document_paths(book)
@@ -734,88 +807,17 @@ function M:clearBookAnnotationData(book_id, book)
     return true
 end
 
+-- Direct entry points share the same checked backend as the interactive flow.
 function M:clearBookCache(book_id)
-    local books = self.settings:get("books", {})
-    local book = books[book_id]
-    local path_to_remove = book and (book.cached_full_book or book.cached_file)
-    local cache_dir = Content.book_resolved_dir(self.settings, book_id, book)
-    self:clearBookAnnotationData(book_id, book)
-    os.execute("rm -rf " .. string.format("%q", cache_dir))
-    if book then
-        books[book_id] = nil
-        self.settings:set("books", books)
-        self.settings:flush()
-    end
-    if path_to_remove then
-        pcall(function()
-            local ReadCollection = require("readcollection")
-            local name = self.settings.collection_name or "weread"
-            if not ReadCollection.coll then
-                ReadCollection:_read()
-            end
-            ReadCollection:removeItem(path_to_remove, name)
-        end)
-    end
-    self:refreshShelfCacheIndicators()
+    return require('weread.ui.book_cache_cleanup').run(self,{book_id})
 end
 
 function M:clearAllMPCache()
-    -- Delete each MP book's real directory (which may sit under an old download
-    -- root) rather than scanning only the current cache_dir, and only touch
-    -- plugin-owned entries tracked in the books table.
-    local books = self.settings:get("books", {})
-    pcall(function()
-        local ReadCollection = require("readcollection")
-        local name = self.settings.collection_name or "weread"
-        if not ReadCollection.coll then
-            ReadCollection:_read()
-        end
-        for book_id, book in pairs(books) do
-            if WeRead.is_mp_book(book_id) and book then
-                local path = book.cached_full_book or book.cached_file
-                if path then
-                    ReadCollection:removeItem(path, name, true)
-                end
-            end
-        end
-        ReadCollection:write({ [name] = true })
-    end)
-    for book_id, book in pairs(books) do
-        if WeRead.is_mp_book(book_id) then
-            os.execute("rm -rf " .. string.format("%q", Content.book_resolved_dir(self.settings, book_id, book)))
-            books[book_id] = nil
-        end
-    end
-    self.settings:set("books", books)
-    self.settings:flush()
-    self:refreshShelfCacheIndicators()
+    return require('weread.ui.book_cache_cleanup').run(self,cache_ids(self,true))
 end
 
 function M:clearAllCache()
-    local books = self.settings:get("books", {})
-    pcall(function()
-        local ReadCollection = require("readcollection")
-        local name = self.settings.collection_name or "weread"
-        if not ReadCollection.coll then
-            ReadCollection:_read()
-        end
-        for _id, book in pairs(books) do
-            if book then
-                local path = book.cached_full_book or book.cached_file
-                if path then
-                    ReadCollection:removeItem(path, name, true)
-                end
-            end
-        end
-        ReadCollection:write({ [name] = true })
-    end)
-    for book_id, book in pairs(books) do
-        self:clearBookAnnotationData(book_id, book)
-        os.execute("rm -rf " .. string.format("%q", Content.book_resolved_dir(self.settings, book_id, book)))
-    end
-    self.settings:set("books", {})
-    self.settings:flush()
-    self:refreshShelfCacheIndicators()
+    return require('weread.ui.book_cache_cleanup').run(self,cache_ids(self,false))
 end
 
 return M

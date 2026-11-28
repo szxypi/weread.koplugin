@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "mock_only": true,
+  "noack": false,
+  "restore_noack": false,
+  "dry_body_bound": true,
+  "dry_posts": 0,
+  "claimed_posts": 1,
+  "acknowledged_posts": 1,
+  "verified": 0,
+  "coordinator": true,
+  "actual_reader": true,
+  "retry_scope": true,
+  "third_scope": true,
+  "partial_recovery": true,
+  "retry_recovery": true,
+  "recovery_noack": false,
+  "read_failure_after_enter": true,
+  "enter_noack": false,
+  "restore_readback_resolved": false,
+  "restore_verified": true,
+  "real_account_posts": 0
+}

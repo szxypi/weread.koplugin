@@ -1,0 +1,23 @@
+{
+  "feature": "native_direct_position_ephemeral_web_cookie",
+  "initial_diagnosis": {
+    "account_response_changed_access_cookie": true,
+    "old_cookie_catalog_api_code": -2012,
+    "same_account_updated_cookie_catalog_succeeded": true,
+    "persistent_session_overwritten": false
+  },
+  "owner_readonly": {
+    "screen_sizes": ["600x800", "1264x1680"],
+    "actual_reader_position": "PASS",
+    "independent_original_offset": "PASS",
+    "native_and_web_source_bytes_equal": true,
+    "isolated_host": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "shelf_unchanged": true,
+    "original_credential_file_audit": true,
+    "temporary_profile_removed": true
+  },
+  "cloud_progress_upload_enabled": false,
+  "physical_kindle_tested": false
+}

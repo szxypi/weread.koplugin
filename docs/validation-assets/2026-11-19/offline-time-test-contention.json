@@ -1,0 +1,73 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "production_code_changed": false,
+  "prior_failure": {
+    "phase": "claimed",
+    "synthetic_dispatch_count": 0,
+    "exact_cause_recorded": false
+  },
+  "controlled_sqlite": {
+    "shared_writer_blocked": true,
+    "wal_reader_succeeded": true,
+    "separate_writer_succeeded": true
+  },
+  "runs": [
+    {
+      "screen_width": 600,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "actual_native_reader": true,
+      "actual_memory_workers": true,
+      "actual_sqlite": true,
+      "synthetic_counter_isolated": true,
+      "read_only_phase_poll": true,
+      "cancel_after_ack_repetitions": 5,
+      "cases": [
+        "confirmed",
+        "many_sources_cancel_before_send",
+        "many_sources_read_only_recovery",
+        "large_scope_worker_result",
+        "long_chapter_ids_real_archive",
+        "read_only_recovery",
+        "lost_ack_no_replay",
+        "local_settlement_recovery",
+        "cancel_after_ack",
+        "multi_chapter_worker_deadline"
+      ],
+      "duplicate_dispatches": 0,
+      "old_metadata_unchanged": true,
+      "result": "PASS",
+      "synthetic_only": true,
+      "checks": 319
+    },
+    {
+      "cases": [
+        "confirmed",
+        "many_sources_cancel_before_send",
+        "many_sources_read_only_recovery",
+        "large_scope_worker_result",
+        "long_chapter_ids_real_archive",
+        "read_only_recovery",
+        "lost_ack_no_replay",
+        "local_settlement_recovery",
+        "cancel_after_ack",
+        "multi_chapter_worker_deadline"
+      ],
+      "duplicate_dispatches": 0,
+      "screen_width": 1264,
+      "checks": 320,
+      "old_metadata_unchanged": true,
+      "actual_native_reader": true,
+      "account_data_posts": 0,
+      "result": "PASS",
+      "authentication_posts": 0,
+      "synthetic_only": true,
+      "actual_memory_workers": true,
+      "actual_sqlite": true,
+      "synthetic_counter_isolated": true,
+      "read_only_phase_poll": true,
+      "cancel_after_ack_repetitions": 5
+    }
+  ]
+}

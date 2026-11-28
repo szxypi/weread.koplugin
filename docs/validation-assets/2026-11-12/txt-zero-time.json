@@ -1,0 +1,311 @@
+{
+  "result": "ZERO_TIME_PROTOCOL_UNVERIFIED_ORIGINAL_BINDINGS_VERIFIED",
+  "production_lua_unchanged": true,
+  "production_upload_enabled": false,
+  "public_source": [
+    {
+      "url": "https://cdn.weread.qq.com/web/wrwebnjlogic/js/app.d51b45eb.js",
+      "bytes": 5149741,
+      "sha256": "54b3fb59f6b33dc2b425f94cde3d8a6e1a40d36e3243cdecc25a538d55a50fca"
+    },
+    {
+      "url": "https://cdn.weread.qq.com/web/wrwebnjlogic/js/9.625560b7.js",
+      "bytes": 2367468,
+      "sha256": "ba993fec345c6f2e498379b729ebcbb306fb54bfb398a8d396bc62c7ce954203"
+    }
+  ],
+  "config_read": {
+    "result": "CURRENT_WEB_CONFIG_TOKEN_READ_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "token_available": true
+  },
+  "preflight": {
+    "result": "TXT_ZERO_TIME_PLAN_VERIFIED",
+    "checked_at": "2026-11-12T03:09:48.270679+00:00",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "enter_posts": 0,
+    "private_data_on_regular_disk": false,
+    "production_upload_enabled": false,
+    "current_config_token_read": true,
+    "summary_scalars": 30,
+    "planned_posts": 1,
+    "planned_read_seconds": 0,
+    "stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "t_0",
+        "status": 200
+      },
+      {
+        "stage": "t_1",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "web_config",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ],
+    "intent_phase": "absent"
+  },
+  "attempt": {
+    "result": "UNVERIFIED",
+    "checked_at": "2026-11-12T03:11:39.947375+00:00",
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "enter_posts": 0,
+    "private_data_on_regular_disk": false,
+    "production_upload_enabled": false,
+    "current_config_token_read": true,
+    "summary_scalars": 30,
+    "planned_posts": 1,
+    "planned_read_seconds": 0,
+    "receipt": {
+      "object": true
+    },
+    "original_readback": true,
+    "stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "t_0",
+        "status": 200
+      },
+      {
+        "stage": "t_1",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "web_config",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "write_same",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ],
+    "intent_phase": "same_pending"
+  },
+  "resolution": {
+    "result": "TXT_UNKNOWN_RECEIPT_CLOSED_ORIGINAL_BINDINGS_VERIFIED",
+    "checked_at": "2026-11-12T03:12:51.393886+00:00",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "enter_posts": 0,
+    "private_data_on_regular_disk": false,
+    "production_upload_enabled": false,
+    "original_point_summary_and_visible_shelf_unchanged": true,
+    "prior_protocol_success_claimed": false,
+    "intent_phase": "closed_same_unverified",
+    "stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "t_0",
+        "status": 200
+      },
+      {
+        "stage": "t_1",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ]
+  },
+  "real_account_data_posts": 1,
+  "authentication_posts": 0,
+  "enter_posts": 0,
+  "prior_enter_trial_not_replayed": true,
+  "protocol_success_claimed": false,
+  "consumed_unknown_tombstone_retained": true
+}

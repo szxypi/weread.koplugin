@@ -1,0 +1,310 @@
+{
+  "result": "NATIVE_POSITION_REVIEW_UI_AND_READONLY_VERIFIED",
+  "runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "local",
+      "result": "PASS",
+      "synthetic_native_posts": 3,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": true,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": false
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "cloud",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": true,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": false
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "cancel",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "move",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "offline",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "account",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "storage",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "local",
+      "result": "PASS",
+      "synthetic_native_posts": 3,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": true,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": false
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "cloud",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": true,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": false
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "cancel",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "move",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "offline",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "account",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "storage",
+      "result": "PASS",
+      "synthetic_native_posts": 2,
+      "web_progress_posts": 0,
+      "old_request_not_replayed": true,
+      "newer_local_kept_until_choice": false,
+      "workers_reaped": true,
+      "fresh_process_offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true,
+      "pending_local_intent_preserved": true
+    }
+  ],
+  "real_account_data_posts": 0,
+  "authentication_posts": 0,
+  "real_native": {
+    "result": "PASS",
+    "lua_native_gets": 6,
+    "readbacks": 2,
+    "independent_python_before_after_gets": 6,
+    "full_observation_matches": true,
+    "source_record_memory_only": true,
+    "source_record_unchanged": true,
+    "no_archive_performed": true
+  },
+  "real_txt_cloud": {
+    "result": "PASS",
+    "python_projection_matches": true,
+    "lua_https_six_reads_match": true,
+    "same_owner_rechecked": true,
+    "private_source_on_disk": false
+  },
+  "sqlite": {
+    "result": "PASS",
+    "checks": 52,
+    "competing_archives_one_winner": true,
+    "failed_commit_rolled_back": true,
+    "old_revision_rejected": true,
+    "history_bound": 32,
+    "fresh_process_history_retained": true,
+    "history_summary_free": true
+  },
+  "checks": {
+    "lua_groups": 253,
+    "python_files": 119,
+    "python_tests": 1512,
+    "python_skips": 0,
+    "review_controller_checks": 72,
+    "review_task_checks": 215,
+    "review_ui_checks": 37,
+    "txt_cloud_checks": 27,
+    "progress_sync_checks": 627,
+    "lua_syntax_files": 717,
+    "luacheck_files": 715,
+    "luacheck_warnings": 0
+  },
+  "legacy_xhtml_cloud_navigation": "PASS",
+  "package": {
+    "files": 283,
+    "sha256": "301863a0277c58c687139d5fe76b4aaa2f765e0b608d05819f6ee61305294db3",
+    "source_and_installed_bytes_match": true
+  },
+  "real_unknown_write_not_created": true,
+  "old_consumed_trials_unchanged": true,
+  "physical_ko2_verified": false,
+  "release_published": false
+}

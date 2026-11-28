@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-23",
+  "scope": "installed KOReader with one account and one chapter per note variant",
+  "screens": ["600x800", "1264x1680"],
+  "real_account": {
+    "chapter_highlights": 2,
+    "chapter_quoted_thoughts": 2,
+    "navigation_from_another_page": true,
+    "native_and_web_source_bytes_match": true,
+    "quotes_independently_matched": true,
+    "offline_reopen_and_navigation": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "original_cloud_state_unchanged": true,
+    "web_position_unchanged": true,
+    "credential_file_audit_passed": true,
+    "temporary_profiles_removed": true,
+    "installed_bytes_match": true
+  },
+  "synthetic_koreader": ["highlights, bookmarks and thoughts from the native menu", "navigation from another page", "offline reopen", "corrupt source rejected", "strict source search fallback"],
+  "limitations": ["one account and chapter per tested note variant", "real bookmark navigation not yet validated", "native navigation across chapters not implemented", "physical Kindle untested"]
+}

@@ -1,0 +1,14 @@
+{
+  "result": "INDEPENDENT_NATIVE_DRY_RUN_VERIFIED",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "dispatch_may_have_occurred": false,
+  "real_accounting_verified": false,
+  "private_data_in_report": false,
+  "profile_removed": true,
+  "capture_and_all_journals_unchanged": true,
+  "tested_commit": "675c692252e9e9d83d36e7b7dabe4a963ca1ac26",
+  "native_task_only": true,
+  "normal_menu_tested": false,
+  "physical_kindle_tested": false
+}

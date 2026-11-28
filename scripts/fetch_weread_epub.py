@@ -714,18 +714,21 @@ def fetch_chapter(
             referer=referer,
         ).decode("utf-8", "replace")
         if result == "{}":
-            raise ValueError(f"{endpoint} returned empty object for chapterUid={chapter_uid}")
+            if endpoint == "/web/book/chapter/t_1":
+                result = ""
+            else:
+                raise ValueError(f"{endpoint} returned empty object for chapterUid={chapter_uid}")
         if sleep_seconds:
             time.sleep(sleep_seconds)
         return result
 
     if content_format[0] == "txt":
         t0 = post("/web/book/chapter/t_0")
-        t1_text = ""
-        try:
-            t1_text = post("/web/book/chapter/t_1")
-        except ValueError:
-            pass
+        if len(t0) <= 32:
+            raise ValueError("Invalid TXT first shard")
+        t1_text = post("/web/book/chapter/t_1")
+        if t1_text and (len(t1_text) < 32 or len(t1_text) == 32 and t1_text != hashlib.md5(b'').hexdigest().upper()):
+            raise ValueError("Invalid TXT second shard")
         plain = decode_content_shards(t0, t1_text, "")
         return str(title), txt_to_xhtml(plain), "", []
 
@@ -733,11 +736,11 @@ def fetch_chapter(
     if e0.startswith("{") and '"bookId"' in e0:
         content_format[0] = "txt"
         t0 = post("/web/book/chapter/t_0")
-        t1_text = ""
-        try:
-            t1_text = post("/web/book/chapter/t_1")
-        except ValueError:
-            pass
+        if len(t0) <= 32:
+            raise ValueError("Invalid TXT first shard")
+        t1_text = post("/web/book/chapter/t_1")
+        if t1_text and (len(t1_text) < 32 or len(t1_text) == 32 and t1_text != hashlib.md5(b'').hexdigest().upper()):
+            raise ValueError("Invalid TXT second shard")
         plain = decode_content_shards(t0, t1_text, "")
         return str(title), txt_to_xhtml(plain), "", []
 

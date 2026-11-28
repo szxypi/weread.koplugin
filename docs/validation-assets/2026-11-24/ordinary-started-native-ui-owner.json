@@ -1,0 +1,36 @@
+{
+  "owner_read_only_preview": {
+    "ordinary_book_both_sizes": true,
+    "imported_book_both_sizes": true,
+    "account_data_writes": 0,
+    "shelf_and_progress_unchanged": true
+  },
+  "loopback_native_guard": {
+    "both_sizes_passed": true,
+    "synthetic_posts_per_size": 5,
+    "lost_receipt_independently_checked": true,
+    "unchanged_result_rejected": true,
+    "external_account_data_writes": 0
+  },
+  "owner_ordinary_book_roundtrip": {
+    "initially_outside_shelf": true,
+    "initial_position_and_reading_counters_zero": true,
+    "initial_highlights_and_thoughts_empty": true,
+    "steps": [
+      {"operation": "add", "attempts": 1, "independent_readback": true},
+      {"operation": "mark_started", "attempts": 1, "width": 1264, "height": 1680, "native_ui": true, "independent_readback": true},
+      {"operation": "restore_unstarted", "attempts": 1, "width": 600, "height": 800, "native_ui": true, "independent_readback": true},
+      {"operation": "remove", "attempts": 1, "independent_readback": true}
+    ],
+    "status_write_receipts_used_to_claim_success": false,
+    "new_process_audit": {
+      "both_channels_match": true,
+      "shelf_groups_position_counters_and_notes_restored": true,
+      "account_data_writes": 0
+    },
+    "automatic_replays": 0,
+    "temporary_profiles_removed_and_credentials_audited": true
+  },
+  "imported_book_owner_native_ui_write_verified": false,
+  "physical_device_verified": false
+}

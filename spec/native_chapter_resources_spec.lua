@@ -1,0 +1,159 @@
+package.path='./?.lua;'..package.path
+local Resources=require('weread.lib.native_chapter_resources')
+local function input(body,css,assets)
+    return {source_channel='eink',coordinate_source_authoritative=false,is_text=false,body=body,css=css,unusable_resources=0,
+        body_parts={{source='text/7.xhtml',data=body}},style_parts={{source='style/book.css',data=css}},assets=assets or {}}
+end
+local png='\137PNG\r\n\26\nsynthetic image data'
+local assets={{source='images/cover.png',data=png,media_type='image/png'}}
+local body=[[<html><body><img alt="A > B" src="../images/cover.png"/><img src="https://example.invalid/remote.png"/></body></html>]]
+local css=[[/* url(ignored) */ p{content:"url(ignored)";background:url('../images/cover.png')}]]
+local prepared=assert(Resources.prepare(input(body,css,assets)))
+local href=prepared.assets[1].href
+assert(href:match('^images/eink%-[0-9a-f]+%.png$') and #prepared.assets==1)
+assert(prepared.xhtml:find('src="../'..href..'"',1,true) and prepared.xhtml:find('https://example.invalid/remote.png',1,true))
+assert(prepared.css:find('url("'..href..'")',1,true) and prepared.css:find('content:"url(ignored)"',1,true)
+    and prepared.css:find('/* url(ignored) */',1,true))
+assert(prepared.localized_references==2 and prepared.remote_references==1 and prepared.coordinate_source_authoritative==false)
+assert(#prepared.remote_urls==1 and prepared.remote_urls[1]=='https://example.invalid/remote.png')
+local escaped=input('<img src="https://img.qq.com/a.png?a=1&amp;b=2"/>',
+    'p{background:url("https://img.qq.com/a.png?a=1&b=2")}',{})
+local pending=assert(Resources.prepare(escaped))
+assert(pending.remote_references==2 and #pending.remote_urls==1 and pending.xhtml:find('&amp;',1,true))
+local remote_assets={{source='https://img.qq.com/a.png?a=1&b=2',data=png,media_type='image/png'}}
+local offline=assert(Resources.prepare(escaped,remote_assets))
+assert(offline.remote_references==0 and #offline.remote_urls==0 and offline.localized_references==2
+    and offline.xhtml:find('../'..offline.assets[1].href,1,true) and offline.css:find(offline.assets[1].href,1,true))
+local duplicate={{source='one/p.png',data=png..'a',media_type='image/png'},{source='one/sub/../p.png',data=png..'b',media_type='image/png'}}
+local function denied(value,reason)
+    local result,why=Resources.prepare(value);assert(not result and why=='native_resources/'..reason,tostring(why))
+end
+denied(input('<img src="../one/p.png"/>','',duplicate),'ambiguous')
+denied(input('<img src="../unknown/p.png"/>','',duplicate),'missing')
+denied(input('<img src="../unknown/z.png"/>','',duplicate),'missing')
+denied(input('<img src="x%2Z.png"/>','',assets),'unsupported')
+denied(input('<img src="../images/cover.png" srcset="other.png 2x"/>','',assets),'unsupported_markup')
+local styled='<p style="width: 75%; color: red; font-size:0">text</p>'
+assert(assert(Resources.prepare(input(styled,'',assets))).xhtml==styled,
+    'simple inline typography and layout must remain intact')
+local styled_image="<img STYLE='width:100%; height:auto' src=\"../images/cover.png\"/>"
+local inline_image=assert(Resources.prepare(input(styled_image,'',assets)))
+assert(inline_image.xhtml:find("STYLE='width:100%; height:auto'",1,true)
+    and inline_image.xhtml:find('../'..inline_image.assets[1].href,1,true))
+for _,tag in ipairs({
+    '<p style=width:100%>text</p>',
+    '<p style="width:1px" style="color:red">text</p>',
+    '<p style="background:url(https://example.invalid/x)">text</p>',
+    '<p style="width:expression(alert(1))">text</p>',
+    '<p style="width:1px;@import x">text</p>',
+    '<p style="width:1&amp;2">text</p>',
+    '<p style="width:1\\70x">text</p>',
+    '<p style="width:1px/*comment*/">text</p>',
+    '<p style="unknown:10px">text</p>',
+}) do denied(input(tag,'',assets),'inline_style') end
+denied(input('<p>text</p>','@import "external.css";',assets),'css_import')
+denied(input('<p>text</p>','p{background:url("../missing.png")}',assets),'missing')
+
+local missing_image=input('<html><body><img src="../lost.png"/>Readable text</body></html>',
+    'p{background:url("../lost.png")}',{})
+local fallback=assert(Resources.prepare(missing_image,nil,{allow_missing_images=true}))
+assert(fallback.missing_local_images==1 and #fallback.assets==1
+    and fallback.assets[1].data==require('weread.lib.native_missing_image')
+    and fallback.xhtml:find('Readable text',1,true) and fallback.xhtml:find('../'..fallback.assets[1].href,1,true)
+    and fallback.css:find(fallback.assets[1].href,1,true),'missing local image was not safely replaced')
+local rejected,reason=Resources.prepare(input('<p>text</p>','p{src:url("../font.woff")}',{}),nil,{allow_missing_images=true})
+assert(not rejected and reason=='native_resources/missing','missing non-image was silently replaced')
+local bad_image_path,bad_image_reason=Resources.prepare(input('<img src="x%2Z.png"/>','',{}),nil,{allow_missing_images=true})
+assert(not bad_image_path and bad_image_reason=='native_resources/unsupported','malformed image path was accepted')
+local many_missing={};for i=1,65 do many_missing[#many_missing+1]='<img src="../missing'..i..'.png"/>' end
+local excessive,limit_reason=Resources.prepare(input(table.concat(many_missing),'',{}),nil,{allow_missing_images=true})
+assert(not excessive and limit_reason=='native_resources/missing_limit','missing image count was not bounded')
+
+local stale=input('<p>text</p>','',assets);stale.body='different';denied(stale,'source_changed')
+local remote=assert(Resources.prepare(input('<img src="data:image/png;base64,AAAA"/>','',{})))
+assert(remote.remote_references==0 and remote.xhtml:find('data:image/png;base64,AAAA',1,true))
+local with_link=input('<html><head><link rel="stylesheet" type="text/css" href="../style/book.css"/></head><body>Text</body></html>',
+    'p{color:black}',{})
+local linked=assert(Resources.prepare(with_link));assert(not linked.xhtml:find('<link',1,true) and linked.css=='p{color:black}')
+denied(input('<link rel="stylesheet" href="https://example.invalid/a.css"/>','',{}),'link_tag')
+local inline_sheet=input('<html><head><style type="text/css">/* safe */ p{color:red}</style></head><body>Text</body></html>',
+    '',{})
+local inline_result=assert(Resources.prepare(inline_sheet))
+assert(inline_result.css=='\n/* safe */ p{color:red}' and not inline_result.xhtml:find('<style',1,true)
+    and inline_result.xhtml:find('Text',1,true),'inline stylesheet was not retained outside the source body')
+local inline_image_sheet=input('<style>p{background:url(../images/cover.png)}</style><p>Text</p>','',assets)
+local inline_image_result=assert(Resources.prepare(inline_image_sheet))
+assert(inline_image_result.css:find(inline_image_result.assets[1].href,1,true)
+    and inline_image_result.localized_references==1,'inline stylesheet image did not resolve from the original chapter')
+local remote_inline=input('<style>body > p{background:url(https://example.invalid/x.png)}</style><p>Text</p>','',{})
+local remote_first=assert(Resources.prepare(remote_inline))
+assert(remote_first.remote_references==1 and remote_first.remote_urls[1]=='https://example.invalid/x.png',
+    'inline stylesheet remote resource was not identified')
+local remote_second=assert(Resources.prepare(remote_inline,{{source='https://example.invalid/x.png',data=png,media_type='image/png'}}))
+assert(remote_second.remote_references==0 and remote_second.css:find(remote_second.assets[1].href,1,true)
+    and not remote_second.css:find('https://',1,true),'inline stylesheet remote resource was not localized')
+local ordered_inline=input('<style>p{color:red}</style><link rel="stylesheet" href="../style/book.css"/><p>Text</p>',
+    'p{color:blue}',{})
+assert(assert(Resources.prepare(ordered_inline)).css=='p{color:red}\np{color:blue}',
+    'stylesheet following inline CSS lost its cascade order')
+ordered_inline.body='<link rel="stylesheet" href="../style/book.css"/><style>p{color:red}</style><p>Text</p>'
+ordered_inline.body_parts[1].data=ordered_inline.body
+assert(assert(Resources.prepare(ordered_inline)).css=='p{color:blue}\np{color:red}',
+    'inline CSS following a stylesheet lost its cascade order')
+local different_inline=input('<style>p{color:red}</style><p>A</p>','',{})
+different_inline.body_parts[2]={source='text/8.xhtml',data='<style>p{color:blue}</style><p>B</p>'}
+different_inline.body=different_inline.body_parts[1].data..'\n'..different_inline.body_parts[2].data
+denied(different_inline,'multiple_styles')
+for _,tag in ipairs({'<style>@import "https://example.invalid/x";</style>',
+    '<style>p{background:u\\72l(https://example.invalid/x)}</style>',
+    '<style media="screen">p{color:red}</style>', '<style type="text/css" type="text/css">p{color:red}</style>',
+    '<style>p{color:red}', '<style/>', '<style>p{color:<script>}</style>'}) do
+    local _,why=Resources.prepare(input(tag,'',{}))
+    assert(why=='native_resources/style_tag' or why=='native_resources/ambiguous',tostring(why))
+end
+local multi=input('<p>Text</p>','a\nb',{})
+multi.style_parts={{source='style/a.css',data='a'},{source='style/b.css',data='b'}};denied(multi,'multiple_styles')
+local ordered_body='<html><head><link rel="stylesheet" href="../style/b.css"/>'
+    ..'<link rel="stylesheet" href="../style/a.css"/></head><body>Text</body></html>'
+local function ordered()
+    local value=input(ordered_body,'p{color:red}\np{color:blue}',{})
+    value.style_parts={{source='style/a.css',data='p{color:red}'},{source='style/b.css',data='p{color:blue}'}}
+    return value
+end
+local cascade=assert(Resources.prepare(ordered()))
+assert(cascade.css=='p{color:blue}\np{color:red}' and not cascade.xhtml:find('<link',1,true),
+    'stylesheet cascade must follow the document, not archive order')
+local two_parts=ordered()
+two_parts.body_parts[2]={source='text/8.xhtml',data=ordered_body}
+two_parts.body=ordered_body..'\n'..ordered_body
+assert(assert(Resources.prepare(two_parts)).css==cascade.css,'matching chapter parts must retain one ordered cascade')
+local multi_images=ordered()
+multi_images.assets=assets
+multi_images.style_parts[1].data='p{background:url(../images/cover.png)}'
+multi_images.css=multi_images.style_parts[1].data..'\n'..multi_images.style_parts[2].data
+local image_result=assert(Resources.prepare(multi_images))
+assert(image_result.css:find(image_result.assets[1].href,1,true) and image_result.localized_references==1,
+    'multi-sheet image paths must resolve from each original stylesheet')
+local missing=ordered();missing.body_parts[1].data=ordered_body:gsub('<link rel="stylesheet" href="../style/a.css"/>','')
+missing.body=missing.body_parts[1].data;denied(missing,'multiple_styles')
+local repeated=ordered();repeated.body_parts[1].data=ordered_body:gsub('../style/a.css','../style/b.css')
+repeated.body=repeated.body_parts[1].data;denied(repeated,'multiple_styles')
+local divided=ordered()
+local reversed=ordered_body:gsub('style/b%.css','style/tmp.css'):gsub('style/a%.css','style/b.css'):gsub('style/tmp%.css','style/a.css')
+divided.body_parts[2]={source='text/8.xhtml',data=reversed}
+divided.body=divided.body_parts[1].data..'\n'..divided.body_parts[2].data;denied(divided,'multiple_styles')
+local atrule=ordered();atrule.style_parts[1].data='@media screen{p{color:red}}'
+atrule.css=atrule.style_parts[1].data..'\n'..atrule.style_parts[2].data;denied(atrule,'multiple_styles')
+local malformed=ordered();malformed.style_parts[1].data='p{color:red'
+malformed.css=malformed.style_parts[1].data..'\n'..malformed.style_parts[2].data;denied(malformed,'multiple_styles')
+local trailing=ordered();trailing.style_parts[1].data='p{color:red}unfinished'
+trailing.css=trailing.style_parts[1].data..'\n'..trailing.style_parts[2].data;denied(trailing,'multiple_styles')
+local escaped_css=ordered();escaped_css.style_parts[1].data='p{content:"@email }";color:red}/* trailing */'
+escaped_css.css=escaped_css.style_parts[1].data..'\n'..escaped_css.style_parts[2].data
+assert(Resources.prepare(escaped_css),'quoted symbols and trailing comments should preserve order')
+denied(input('<body background="foo.png">Text</body>','',{}),'background_attribute')
+denied(input('<embed src="foo.bin"/>','',{}),'unsupported_markup')
+denied(input('<p>\255</p>','',{}),'source')
+local sparse=input('<p>text</p>','',assets);sparse.assets={[2]=assets[1]};denied(sparse,'assets')
+denied(input('<p>text</p>','',{{source='images/a.png',data='not png',media_type='image/png'}}),'asset')
+print('PASS: native chapter resource mapping, missing and ambiguous references')

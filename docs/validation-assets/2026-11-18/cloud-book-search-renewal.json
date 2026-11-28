@@ -1,0 +1,54 @@
+{
+  "result": "PASS",
+  "synthetic": [
+    {
+      "width": 600,
+      "height": 800,
+      "result": "PASS",
+      "search_401": 4,
+      "search_429": 1,
+      "successful_pages": 2,
+      "renewal_posts": 2,
+      "verified_navigation": true,
+      "downloaded": false,
+      "catalog_downloaded": false
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "result": "PASS",
+      "search_401": 4,
+      "search_429": 1,
+      "successful_pages": 2,
+      "renewal_posts": 2,
+      "verified_navigation": true,
+      "downloaded": true,
+      "catalog_downloaded": true
+    }
+  ],
+  "real_account_normal_regression": [
+    {
+      "result": "PASS",
+      "missing_chapter": false,
+      "screens": 2,
+      "position_unchanged": true,
+      "catalog_unchanged": true,
+      "source_unchanged": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "screenshots": 0
+    },
+    {
+      "result": "PASS",
+      "missing_chapter": true,
+      "screens": 2,
+      "position_unchanged": true,
+      "catalog_unchanged": true,
+      "source_unchanged": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "screenshots": 0
+    }
+  ],
+  "real_account_expiry_tested": false
+}

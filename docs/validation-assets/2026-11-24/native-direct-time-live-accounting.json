@@ -1,0 +1,33 @@
+{
+  "scope": "one current-day native chapter with an existing cloud position",
+  "environment": "KOReader emulator, 1264x1680, isolated temporary profile",
+  "dry_run": {"account_data_posts": 0, "result": "DIRECT_NATIVE_TIME_DRY_VERIFIED"},
+  "live_attempt": {
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "receipt": "acknowledged",
+    "requested_seconds": 6,
+    "original_plugin_settlement": "unconfirmed; strict accounting rejects the observed additional zero-duration day bucket",
+    "automatic_resend": false,
+    "one_shot_record": "retained in Keychain"
+  },
+  "independent_readback": {
+    "account_data_posts": 0,
+    "stable_reads": 2,
+    "book_seconds_delta": 6,
+    "day_seconds_delta": 6,
+    "month_seconds_delta": 6,
+    "read_days_delta": 0,
+    "other_book_counters_unchanged": true,
+    "other_day_changes": 0,
+    "added_zero_duration_days": 1,
+    "position_unchanged": true,
+    "shelf_unchanged": true,
+    "strict_original_comparison": false,
+    "updated_native_accounting_target": true,
+    "updated_native_added_zero_buckets": 1
+  },
+  "profile_removed": true,
+  "physical_kindle_tested": false,
+  "updated_plugin_real_settlement_tested": false
+}

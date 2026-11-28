@@ -1,0 +1,21 @@
+{
+  "result": "READ_ONLY_NATIVE_SEARCH_SUGGESTIONS_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "simulated_native_menu_search_and_cancellation": true,
+  "simulated_stale_query_rejected": true,
+  "real_query_samples": 1,
+  "real_suggestions": 8,
+  "python_read_requests": 1,
+  "lua_native_read_requests": 1,
+  "python_lua_ordered_projection_matches": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "natural_expiry_ui_verified": false,
+  "real_account_ui_verified": false,
+  "kindle_device_verified": false
+}

@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-24",
+  "result": "NATIVE_SHELF_RENEWAL_VERIFIED",
+  "scope": "Actual FileManager plugin, native shelf HTTP 401 and single automatic renewal",
+  "ui_simulated_resolution": [1264, 1680],
+  "independent_expiry_check": true,
+  "real_account_dry_run_authentication_posts": 0,
+  "real_account_authorization_posts_claimed": 1,
+  "account_data_posts": 0,
+  "renewed_grant_independently_verified_and_saved": true,
+  "native_shelf_ui_and_independent_readback_verified": true,
+  "fresh_process_web_and_native_readbacks_each": 2,
+  "verified_books": 140,
+  "verified_groups": 5,
+  "temporary_profile_removed": true,
+  "credentials_retained_in_keychain": true,
+  "private_data_in_report": false,
+  "physical_kindle_tested": false,
+  "other_pages_real_account_ui_renewal_tested": false
+}

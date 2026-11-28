@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Memory-only owner comparison of native started-reading state; offline by default."""
+import argparse
+import json
+import re
+import resource
+import subprocess
+
+from cloud_group_contract import project
+from secure_native_session import NativeSessionStore
+from secure_weread_session import SessionStore
+from verify_reading_state import ReadOnlyProbe
+from verify_translation_preflight import save_refreshed_web_session
+from verify_web_source_progress import WebSourceProbe
+
+
+def inspect(saved, credentials, probe, command, *, ui_kind=None, contract=False):
+    before = probe.shelf(credentials)
+    initial = project(before)
+    ordinary, imported = [], []
+    for row in before['books']:
+        value = row.get('bookId')
+        if type(value) is int:
+            if not 1 <= value <= 9007199254740991:
+                continue
+            value = str(value)
+        if not isinstance(value, str):
+            continue
+        if re.fullmatch(r'[1-9][0-9]{0,19}', value):
+            ordinary.append(value)
+        elif re.fullmatch(r'CB_[A-Za-z0-9]{1,64}', value):
+            imported.append(value)
+    if ui_kind not in (None, 'ordinary', 'imported'):
+        raise ValueError('owner_reading_state/scope')
+    ids = (sorted(ordinary)[:1] if ui_kind == 'ordinary' else sorted(imported)[:1] if ui_kind == 'imported'
+           else sorted(ordinary)[:5] + sorted(imported)[:5])
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError('owner_reading_state/scope')
+    probe.allowed = set(ids)
+    samples, expected = [], []
+    for identity in ids:
+        raw = probe.progress(credentials, identity)
+        book = raw.get('book')
+        flag = book.get('isStartReading') if isinstance(book, dict) else None
+        if type(flag) is not int or flag not in (0, 1):
+            raise ValueError('owner_reading_state/field')
+        for node in (raw, book):
+            for key, value in (('bookId', identity), ('vid', saved['vid']), ('userVid', saved['vid'])):
+                if key in node and str(node[key]) != value:
+                    raise ValueError('owner_reading_state/identity')
+        samples.append({'book_id': identity, 'raw': raw})
+        expected.append(flag == 1)
+    payload = {'samples': samples, 'credentials': credentials}
+    if contract:
+        if ui_kind:
+            raise ValueError('owner_reading_state/scope')
+        payload['shelf'] = before
+    encoded = json.dumps(payload).encode()
+    if len(encoded) > 2 * 1024 * 1024:
+        raise ValueError('owner_reading_state/size')
+    child = subprocess.run(command, input=encoded, capture_output=True, timeout=180)
+    frame = b'\nWEREAD_OWNER_READING_STATE='
+    if child.returncode or len(child.stdout) > 65536 or child.stdout.count(frame) != 1:
+        raise ValueError('owner_reading_state/lua')
+    result = json.loads(child.stdout.split(frame)[1])
+    expected_result = {'model': expected, 'native': expected, 'requests': len(ids)}
+    if ui_kind:
+        expected_result['ui'] = True
+    if contract:
+        expected_result['contract'] = True
+    if result != expected_result:
+        raise ValueError('owner_reading_state/mismatch')
+    if project(probe.shelf(credentials)) != initial:
+        raise ValueError('owner_reading_state/shelf_changed')
+    return dict(result='OWNER_READ_ONLY_VERIFIED', ordinary_books=sum(not value.startswith('CB_') for value in ids),
+                imported_books=sum(value.startswith('CB_') for value in ids), lua_projection_matches=True,
+                native_https_readback_matches=True, full_plugin_ui_verified=bool(ui_kind), change_plan_verified=contract,
+                account_data_writes=0, shelf_unchanged=True)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--ui-kind', choices=('ordinary', 'imported'))
+    parser.add_argument('--contract', action='store_true')
+    parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
+    args = parser.parse_args(argv)
+    if args.saved_session != bool(args.lua_command) or (args.ui_kind or args.contract) and not args.saved_session or args.ui_kind and args.contract:
+        parser.error('saved session and Lua command are required together')
+    if not args.saved_session:
+        print(json.dumps({'result': 'OFFLINE_ONLY', 'account_data_writes': 0}))
+        return 0
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    saved = credentials = web = store = None
+    try:
+        store = SessionStore()
+        native_store = NativeSessionStore()
+        saved = store.load()
+        credentials = native_store.load(saved['vid'])
+        web = WebSourceProbe()
+        web.vid = saved['vid']
+        for key, value in saved['cookies'].items():
+            web.set_cookie(key, value)
+        web.verify_account()
+        report = inspect(saved, credentials, ReadOnlyProbe(), args.lua_command, ui_kind=args.ui_kind, contract=args.contract)
+        if store.load() != saved or native_store.load(saved['vid']) != credentials:
+            raise ValueError('owner_reading_state/session_changed')
+        web.verify_account()
+    except Exception:
+        report = {'result': 'UNVERIFIED', 'account_data_writes': 0}
+    finally:
+        if web and saved and store and web.authenticated:
+            try:
+                report['refreshed_web_session_saved'] = save_refreshed_web_session(store, saved, web)
+            except Exception:
+                report.update(result='UNVERIFIED', session_preservation_failed=True)
+        if web:
+            web.close()
+        if saved:
+            saved.clear()
+        if credentials:
+            credentials.clear()
+    print(json.dumps(report, indent=2))
+    return 0 if report['result'] == 'OWNER_READ_ONLY_VERIFIED' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

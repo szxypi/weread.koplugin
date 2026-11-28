@@ -1,0 +1,12 @@
+{
+  "result": "UNVERIFIED",
+  "position_posts": 0,
+  "cleanup_posts": 0,
+  "authentication_posts": 0,
+  "fixture_only": true,
+  "private_data_in_report": false,
+  "phase": "shelf",
+  "detail": "cleanup/target_flags",
+  "upload_state": "imported",
+  "fixture_retained": true
+}

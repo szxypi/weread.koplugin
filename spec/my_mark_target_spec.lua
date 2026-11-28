@@ -1,0 +1,154 @@
+package.path='./?.lua;'..package.path
+package.preload.util=function() return {htmlEntitiesToUtf8=function(s)
+    return s:gsub('&amp;','&'):gsub('&lt;','<'):gsub('&gt;','>'):gsub('&quot;','"')
+end} end
+local Target=require('weread.lib.my_mark_target')
+local Crypto=require('weread.lib.crypto')
+local checks=0
+local function eq(a,b) checks=checks+1;assert(a==b,tostring(a)..' ~= '..tostring(b)) end
+local function count(s) local n=0;for _char in s:gmatch('[%z\1-\127\194-\244][\128-\191]*') do n=n+1 end;return n end
+local function row(raw,quote,start)
+    raw=raw:gsub('^\239\187\191','')
+    local at=start or assert(raw:find(quote,1,true))-1
+    local first=count(raw:sub(1,at))
+    return {type=1,chapterUid=2,markText=quote,range=tostring(first)..'-'..tostring(first+count(quote))}
+end
+local function check(raw,mark,offset)
+    local value,reason=Target.project(raw,'41','2',mark);assert(value,reason)
+    eq(value.chapter_offset,offset);eq(value.book_id,'41');eq(value.chapter_uid,'2')
+    eq(value.raw_sha256,Crypto.sha256_hex(raw));eq(value.raw_bytes,#raw)
+    eq(value.basis,'filtered_xhtml_utf16');eq(value.upload_verified,false)
+end
+local quote='Unique selected text'
+local raw='<html><body><p>'..quote..' content.</p></body></html>'
+eq(Target.can_locate(row(raw,quote)),true)
+for _i,item in ipairs({{}, {type=1,chapterUid=2,markText=quote}, {type=0,chapterUid=2,markText=quote,range='15-35'},
+    {type=1,chapterUid=0,markText=quote,range='15-35'},{type=1,chapterUid=2,markText=quote,range='35-15'}}) do eq(Target.can_locate(item),false) end
+check(raw,row(raw,quote),15)
+check('\239\187\191'..raw,row(raw,quote),16)
+local emoji='<html><body><p>😀 '..quote..' content.</p></body></html>'
+check(emoji,row(emoji,quote),18)
+local ignored='<html><body><p>prefix<a href="https://example.invalid/">'..quote..'</a> tail</p></body></html>'
+check(ignored,row(ignored,quote),21)
+local repeated='<html><body><p>First context before YES after first instance.</p><p>Second context before YES after second instance.</p></body></html>'
+local at=assert(repeated:find('YES',assert(repeated:find('Second',1,true)),true))-1
+check(repeated,row(repeated,'YES',at),at)
+local block='<p>'..string.rep('identical long context ',20)..'YES'..string.rep(' identical suffix',20)..'</p>'
+local duplicate='<html><body>'..block..block..'</body></html>'
+local refused,why=Target.project(duplicate,'41','2',row(duplicate,'YES'));eq(refused,nil);eq(why,'my_mark_target/unmatched')
+local edges='<html><body><p>\n  '..quote..' \t\n</p></body></html>'
+check(edges,{type=1,chapterUid=2,markText=quote,range='15-41'},18)
+local html='<html><body><p>Unique &amp; selected <b>text</b> content.</p></body></html>'
+check(html,{type=1,chapterUid=2,markText='Unique & selected text',range='15-48'},15)
+local comment='<html><body><!-- hidden > quote --><p>left <3 &amp; right more text</p></body></html>'
+local start=assert(comment:find('left',1,true))-1;local finish=assert(comment:find('</p>',1,true))-1
+check(comment,{type=1,chapterUid=2,markText='left <3 & right more text',range=start..'-'..finish},start)
+for _i,change in ipairs({{type=0},{chapterUid=3},{bookId='99'},{range='1-99999'},{range='40-15'},
+    {range=true},{markText='Different selected text'},{markText='Unique  selected text'}}) do
+    local mark=row(raw,quote);for k,v in pairs(change) do mark[k]=v end
+    local value,reason=Target.project(raw,'41','2',mark);eq(value,nil);eq(reason:match('^my_mark_target/[a-z_]+$')~=nil,true)
+end
+local hidden='<html><head><title>'..quote..'</title></head><body><p>'..quote..'</p></body></html>'
+refused,why=Target.project(hidden,'41','2',row(hidden,quote));eq(refused,nil);eq(why,'my_mark_target/quote_changed')
+local Source=require('weread.lib.position_source')
+local Identity=require('weread.lib.book_file_identity')
+local book={book_id='41',bookVersion=7}
+local chapter={chapterUid='2'}
+local capture=assert(Source.capture(book,chapter,raw,'web_xhtml'))
+local root=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(raw))
+local identity=assert(Identity.decode(root));local path='OEBPS/text/chapter.xhtml'
+local metadata=assert(Source.bind(capture,identity,path,Crypto.sha256_hex(raw)))
+local members={[Identity.PATH]=root,[Source.meta_path('2')]=metadata,[Source.path_meta_path(path)]=metadata,
+    [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[path]=raw}
+local reads=0
+local function archive(file,wanted)
+    reads=reads+1;assert(file=='/cached.epub')
+    local result={};for key,limit in pairs(wanted) do assert(members[key] and #members[key]<=limit);result[key]=members[key] end
+    return result
+end
+local bound=Target.bind_file('/cached.epub','41',row(raw,quote),17,archive)
+eq(bound.position.chapter_offset,15);eq(bound.position.file_id,identity.file_id);eq(bound.metadata,metadata)
+eq(bound.request_id,17);eq(bound.file,'/cached.epub');eq(bound.identity.file_id,identity.file_id);eq(reads,4)
+eq(bound.raw,nil);eq(bound.position.upload_verified,false);eq(bound.position.percent,nil)
+for _i,key in ipairs({Identity.PATH,Source.meta_path('2'),Source.path_meta_path(path),Source.raw_path(Crypto.sha256_hex(raw)),path}) do
+    local prior=members[key];members[key]='changed'
+    eq(Target.bind_file('/cached.epub','41',row(raw,quote),17,archive).position,nil)
+    members[key]=prior
+end
+eq(Target.bind_file('/cached.epub','99',row(raw,quote),17,archive).position,nil)
+eq(Target.bind_file('/bad','41',row(raw,quote),17,archive).position,nil)
+eq(Target.bind_file('/cached.epub','41',{type=1,chapterUid=3,markText=quote,range='15-35'},17,archive).position,nil)
+local candidates={}
+local function candidates_archive(file,wanted)
+    candidates[#candidates+1]=file
+    return archive(file,wanted)
+end
+local resolved=Target.resolve({book_id='41',cached_chapters={['2']='/cached.epub'},cached_full_book='/other.epub'},'/wrong.epub',row(raw,quote),19,candidates_archive)
+eq(resolved.position.chapter_offset,15);eq(candidates[1],'/wrong.epub');eq(candidates[2],'/cached.epub')
+eq(#candidates,5)
+reads=0;resolved=Target.resolve({book_id='41',cached_file='/cached.epub',cached_full_book='/cached.epub',cached_chapters={['2']='/cached.epub'}},'/cached.epub',row(raw,quote),20,function() reads=reads+1;error('invalid archive') end)
+eq(resolved.position,nil);eq(reads,1)
+local imported={book_id='CB_Synthetic',bookVersion=7,cached_chapters={['2']='/cached.epub'}}
+local imported_capture=assert(Source.capture(imported,chapter,raw,'web_xhtml'))
+local imported_root=Identity.encode(imported,{chapter},Identity.capture(imported),Crypto.sha256_hex(raw))
+local imported_identity=assert(Identity.decode(imported_root))
+local imported_metadata=assert(Source.bind(imported_capture,imported_identity,path,Crypto.sha256_hex(raw)))
+members={[Identity.PATH]=imported_root,[Source.meta_path('2')]=imported_metadata,[Source.path_meta_path(path)]=imported_metadata,
+    [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[path]=raw}
+local imported_row=row(raw,quote);imported_row.bookId='CB_Synthetic'
+eq(Target.bind_file('/cached.epub','CB_Synthetic',imported_row,21,archive).position.chapter_offset,15)
+eq(Target.resolve(imported,'/cached.epub',imported_row,21,archive).position.chapter_offset,15)
+eq(Target.project(raw,'CB_Synthetic','2',imported_row).upload_verified,false)
+eq(Target.project(raw,'CB_Other','2',imported_row),nil)
+local changed_imported=row(raw,'Different selected text',15);changed_imported.bookId='CB_Synthetic'
+eq(Target.project(raw,'CB_Synthetic','2',changed_imported),nil)
+bound=Target.bind_search_file('/cached.epub','CB_Synthetic',imported_row,21,archive)
+eq(bound.position.book_id,'CB_Synthetic');eq(bound.position.chapter_offset,15);eq(bound.position.upload_verified,false);eq(bound.remote,nil)
+resolved=Target.resolve_search(imported,'/cached.epub',imported_row,22,archive)
+eq(resolved.position.book_id,'CB_Synthetic');eq(resolved.position.chapter_offset,15)
+eq(Target.bind_search_file('/cached.epub','CB_Other',imported_row,21,archive).position,nil)
+local txt_prefix='A self-authored test begins with one emoji: 😀.\n'
+local txt_quote='A unique synthetic passage for testing a plain text highlight.'
+local txt=txt_prefix..txt_quote..'\nA different following sentence provides extra context.'
+local txt_row={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='47-109'}
+local txt_target,txt_reason=Target.project(txt,'CB_Synthetic','2',txt_row,'web_txt')
+assert(txt_target,txt_reason)
+eq(txt_target.chapter_offset,48);eq(txt_target.basis,'raw_txt_utf16');eq(txt_target.upload_verified,false)
+local bom_target=assert(Target.project('\239\187\191'..txt,'CB_Synthetic','2',txt_row,'web_txt'))
+eq(bom_target.chapter_offset,49)
+-- Official web uses UTF-16; an earlier native test sent scalar ranges. Both
+-- are accepted only when they resolve to the same exact source quotation.
+local official={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='48-110'}
+eq(assert(Target.project(txt,'CB_Synthetic','2',official,'web_txt')).chapter_offset,48)
+eq(assert(Target.project('\239\187\191'..txt,'CB_Synthetic','2',official,'web_txt')).chapter_offset,49)
+local wrong={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='49-111'}
+eq(Target.project(txt,'CB_Synthetic','2',wrong,'web_txt'),nil)
+local ambiguous='😀'..string.rep('a',64)
+local duplicated={type=1,chapterUid=2,bookId='CB_Synthetic',markText=string.rep('a',12),range='2-14'}
+local rejected,ambiguous_reason=Target.project(ambiguous,'CB_Synthetic','2',duplicated,'web_txt')
+eq(rejected,nil);eq(ambiguous_reason,'my_mark_target/ambiguous')
+local cut={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='1-110'}
+eq(Target.project(txt,'CB_Synthetic','2',cut,'web_txt'),nil)
+local cut_quote='Unique quoted text for testing.'
+local surrogate='前文😀'..cut_quote..'x'
+local inside={type=1,chapterUid=2,bookId='CB_Synthetic',markText=cut_quote,range='3-'..tostring(4+#cut_quote)}
+eq(Target.project(surrogate,'CB_Synthetic','2',inside,'web_txt'),nil)
+eq(Target.project(txt,'CB_Other','2',txt_row,'web_txt'),nil)
+eq(Target.project(txt,'CB_Synthetic','2',txt_row,'unsupported'),nil)
+local txt_render='<html><body><p>Synthetic rendered text.</p></body></html>'
+local txt_capture=assert(Source.capture(imported,chapter,txt,'web_txt'))
+local txt_root=Identity.encode(imported,{chapter},Identity.capture(imported),Crypto.sha256_hex(txt_render))
+local txt_identity=assert(Identity.decode(txt_root))
+local txt_meta=assert(Source.bind(txt_capture,txt_identity,path,Crypto.sha256_hex(txt_render)))
+members={[Identity.PATH]=txt_root,[Source.meta_path('2')]=txt_meta,[Source.path_meta_path(path)]=txt_meta,
+    [Source.raw_path(Crypto.sha256_hex(txt))]=txt,[path]=txt_render}
+local txt_bound=Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archive)
+assert(txt_bound.position,txt_bound.error)
+eq(txt_bound.position.chapter_offset,48);eq(txt_bound.position.basis,'raw_txt_utf16')
+eq(txt_bound.position.upload_verified,false);eq(txt_bound.metadata,txt_meta)
+eq(Target.bind_file('/cached.epub','CB_Synthetic',official,24,archive).position.chapter_offset,48)
+local before_txt=members[Source.raw_path(Crypto.sha256_hex(txt))]
+members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
+eq(Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archive).position,nil)
+members[Source.raw_path(Crypto.sha256_hex(txt))]=before_txt
+print('my_mark_target_spec: '..checks..' source-bound target checks passed')

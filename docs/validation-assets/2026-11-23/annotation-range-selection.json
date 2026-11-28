@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "scope": "synthetic KOReader UI",
+  "screen_sizes": [[600, 800], [1264, 1680], [800, 600]],
+  "offline_network_guard": true,
+  "cross_page_range": true,
+  "reverse_range": true,
+  "existing_selection_preserved": true,
+  "range_cancellation": true,
+  "confirmation_and_layout": true,
+  "unlinked_scope": "component tests",
+  "physical_kindle_tested": false
+}

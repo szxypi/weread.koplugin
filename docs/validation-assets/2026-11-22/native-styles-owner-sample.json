@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "account_writes": 0,
+  "samples": [
+    {"sample": 1, "stylesheets": 1, "stylesheet_links": 1},
+    {"sample": 2, "stylesheets": 1, "stylesheet_links": 1},
+    {"sample": 3, "stylesheets": 1, "stylesheet_links": 1}
+  ]
+}

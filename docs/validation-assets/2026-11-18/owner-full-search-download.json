@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "sample": "one imported book, 57 readable chapters",
+  "native_screen": "1264x1680",
+  "cancel_before_download": true,
+  "all_catalog_chapters_searched": true,
+  "target_source_verified": true,
+  "offline_navigation_verified": true,
+  "current_reader_file_preserved": true,
+  "position_unchanged": true,
+  "catalog_unchanged": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_writes": 0,
+  "read_only_download_gets": 58,
+  "read_only_catalog_posts": 0,
+  "read_only_content_posts": 172,
+  "credential_audit_passed": true,
+  "temporary_profile_removed": true,
+  "private_data_on_regular_disk": false,
+  "physical_kindle_tested": false,
+  "prior_navigation_attempt": "unverified; cause not identified; independent account readback unchanged"
+}

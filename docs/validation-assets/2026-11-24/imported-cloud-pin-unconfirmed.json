@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-24",
+  "feature": "cloud pin for an existing imported book",
+  "result": "RESTORE_NOT_FULLY_VERIFIED",
+  "initial_read_only": {
+    "candidate_imported_books": 5,
+    "candidate_marker": "missing_in_both_channels",
+    "stable_progress": true
+  },
+  "write_trial": {
+    "pin_posts": 1,
+    "restore_posts": 1,
+    "authentication_posts": 0,
+    "pin_receipt_acknowledged": true,
+    "pin_independently_observed_in_both_channels": true,
+    "restore_receipt_acknowledged": true,
+    "full_snapshot_matches_original": false,
+    "pin_intent_phase": "verified",
+    "restore_intent_phase": "acknowledged",
+    "automatically_resent": false
+  },
+  "subsequent_independent_read_only": {
+    "rounds": 2,
+    "account_data_writes": 0,
+    "each_round_stable": true,
+    "native_pin_marker": "missing",
+    "web_pin_marker": "missing",
+    "current_native_web_members_and_core_groups_match": true,
+    "current_native_web_visible_flags_match": true,
+    "full_snapshot_matches_original": false
+  },
+  "audit_binding": {
+    "same_account_same_device": true,
+    "read_only": true,
+    "contains_no_tokens_or_book_identity": true
+  },
+  "limitations": [
+    "Missing pin markers do not prove an explicit false value.",
+    "The previous combined snapshot digest cannot identify which component differs.",
+    "The cause of the difference is unknown; restoration of all original state is unproven.",
+    "Imported-book cloud-pin write UI remains disabled."
+  ]
+}

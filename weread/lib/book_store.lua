@@ -11,6 +11,13 @@ local reading_fields = {
     chapter_offset = true,
     chapter_uid = true,
     last_local_position = true,
+    last_local_account = true,
+    home_recent_at = true,
+    home_recent_account = true,
+    native_home_resume = true,
+    native_location_claims = true,
+    unindexed_resume = true,
+    cb_cloud_view_resume = true,
     last_pull_at = true,
     last_remote_position = true,
     last_sync_error = true,
@@ -19,6 +26,8 @@ local reading_fields = {
     pclts = true,
     pending_upload_position = true,
     pending_upload_reason = true,
+    pending_upload_account = true,
+    source_dispatch = true,
     progress = true,
     psvts = true,
     read_context_updated_at = true,
@@ -36,6 +45,20 @@ local article_fields = {
     mp_articles_time = true,
 }
 
+-- Reading state has one owner: the latest per-book checkpoint. Metadata
+-- snapshots must neither restore cleared fields nor overwrite newer ones.
+function BookStore.is_reading_field(key)
+    return reading_fields[key] == true
+end
+
+function BookStore.without_reading_state(book)
+    local metadata = {}
+    for key, value in pairs(book) do
+        if not reading_fields[key] then metadata[key] = value end
+    end
+    return metadata
+end
+
 local function basename_safe(value)
     value = tostring(value or ""):gsub("[^%w%._-]", "_")
     return value ~= "" and value or "weread"
@@ -45,6 +68,12 @@ local function dirname(path)
     if type(path) == "string" then
         return path:match("^(.*)/[^/]+$")
     end
+end
+
+local function parent_dir(path)
+    local parent=dirname(path)
+    if parent and parent~='' then return parent end
+    return path:sub(1,1)=='/' and '/' or '.'
 end
 
 local function resolved_dir(settings, book_id, book)
@@ -91,22 +120,55 @@ local function read_json(path)
     return ok and type(value) == "table" and value or nil
 end
 
-local function write_json(path, value)
+local function write_json(path, value, durable_root)
     local ok, content = pcall(encode, value)
     if not ok then return false, content end
+    local util
+    if durable_root then
+        local available
+        available,util=pcall(require,'ffi/util')
+        if not available or type(util)~='table' or type(util.fsyncOpenedFile)~='function' or type(util.fsyncDirectory)~='function' then
+            return false,'reading state synchronization unavailable'
+        end
+    end
     local tmp_path = path .. ".tmp"
     local file, err = io.open(tmp_path, "wb")
     if not file then return false, err end
     local write_ok, write_err = file:write(content)
-    file:close()
-    if not write_ok then
+    local sync_ok,sync_err=true,nil
+    if write_ok and util then
+        local called,flushed,flush_err=pcall(file.flush,file)
+        if not called or not flushed then sync_ok,sync_err=false,flush_err or 'reading state flush failed'
+        else
+            local called_sync,synced=pcall(util.fsyncOpenedFile,file,true)
+            if not called_sync or synced~=true then sync_ok,sync_err=false,'reading state file synchronization failed' end
+        end
+    end
+    -- Buffered writes may succeed while fclose reports the actual I/O error.
+    -- Never publish that incomplete state or grant a dispatch receipt for it.
+    local close_ok, close_err = file:close()
+    if not write_ok or not sync_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err
+        return false, write_err or sync_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then
         os.remove(tmp_path)
         return false, rename_err
+    end
+    if util then
+        -- Account directories may have just been created. Sync their entries
+        -- through the book directory and its parent before allowing dispatch.
+        local parent=parent_dir(path)
+        local dirs={parent,parent_dir(parent),durable_root,parent_dir(durable_root)}
+        local seen={}
+        for _,dir in ipairs(dirs) do
+            if dir and dir~='' and not seen[dir] then
+                seen[dir]=true
+                local called,synced=pcall(util.fsyncDirectory,dir)
+                if not called or synced~=true then return false,'reading state directory synchronization failed' end
+            end
+        end
     end
     return true
 end
@@ -117,26 +179,291 @@ local function merge(target, source)
     end
 end
 
+local function merge_fields(target, source, fields)
+    if type(source) ~= 'table' then return end
+    for _, key in ipairs(fields) do
+        if source[key] ~= nil then target[key] = source[key] end
+    end
+end
+
 local function has_values(value)
     return next(value) ~= nil
+end
+
+local function exists(path)
+    local file=io.open(path,'rb');if not file then return false end
+    file:close();return true
+end
+
+local function scoped_path(settings,dir,known_scope)
+    if type(settings.account_state_scope)~='function' then return nil end
+    local scope=known_scope or settings:account_state_scope()
+    if scope~='anonymous' and (type(scope)~='string' or #scope~=20 or not scope:match('^[a-f0-9]+$')) then
+        return false
+    end
+    return dir..'/.weread-accounts/'..scope..'/reading_state.json',scope
+end
+
+local function legacy_state(dir,metadata,scope)
+    local legacy_path=dir..'/reading_state.json'
+    local legacy=read_json(legacy_path)
+    if not legacy and exists(legacy_path) then return nil,'invalid legacy reading state' end
+    local snapshot_path=dir..'/.weread-accounts/legacy_metadata.json'
+    local snapshot=read_json(snapshot_path)
+    if not snapshot and exists(snapshot_path) then return nil,'invalid legacy metadata snapshot' end
+    metadata=snapshot or metadata
+    return require('weread.lib.account_book_state').legacy(metadata,legacy,reading_fields,scope)
+end
+
+local function read_scoped_state(path)
+    local state=read_json(path)
+    if not state and exists(path) then return nil,'invalid account reading state' end
+    return state
+end
+
+local function scoped_state(dir,metadata,path,scope)
+    local state,err=read_scoped_state(path)
+    if state or err then return state,err end
+    return legacy_state(dir,metadata,scope)
+end
+
+local function make_dir(dir)
+    local quote="'"..dir:gsub("'", "'\\''").."'"
+    local ok=os.execute('mkdir -p '..quote)
+    return ok==true or ok==0
+end
+
+local function make_parent(path) return make_dir(assert(dirname(path))) end
+
+local function preserve_legacy_metadata(dir,metadata)
+    local path=dir..'/.weread-accounts/legacy_metadata.json'
+    if exists(path) then
+        return read_json(path)~=nil,'invalid legacy metadata snapshot'
+    end
+    local legacy=exists(dir..'/reading_state.json')
+    local snapshot={}
+    for key,value in pairs(metadata or {}) do
+        if reading_fields[key] or key=='recent_read_account' or key=='recent_read_at' or key=='_library_account_key' then
+            snapshot[key]=value
+            if reading_fields[key] or key=='recent_read_at' then legacy=true end
+        end
+    end
+    if not legacy then return true end
+    if not make_parent(path) then return false,'could not create legacy metadata directory' end
+    return write_json(path,snapshot)
 end
 
 function BookStore.load(settings, book_id, index)
     local book = {}
     merge(book, index)
     local dir = resolved_dir(settings, book_id, index)
-    merge(book, read_json(dir .. "/metadata.json"))
-    merge(book, read_json(dir .. "/reading_state.json"))
+    local metadata=read_json(dir .. "/metadata.json")
+    merge(book,metadata)
+    local path,scope=scoped_path(settings,dir)
+    if path~=nil then
+        for key in pairs(reading_fields) do book[key]=nil end
+        if path then merge(book,scoped_state(dir,metadata,path,scope)) end
+    elseif path==nil then merge(book,read_json(dir .. "/reading_state.json")) end
     merge(book, read_json(dir .. "/articles.json"))
     book.book_id = book.book_id or book.bookId or tostring(book_id)
     book.cache_dir = dir
     return book
 end
 
+local progress_fields = {'book_id', 'bookId', 'recent_read_account', 'pending_upload_account', 'pending_upload_position'}
+
+-- Shelf progress can use the cloud snapshot without hydrating a local book
+-- whose current account checkpoint has no pending upload.
+function BookStore.load_pending_progress(settings, book_id, index, known_scope)
+    local dir = resolved_dir(settings, book_id, index)
+    local path, scope = scoped_path(settings, dir, known_scope)
+    if path == false then return end
+    local state
+    if path then
+        local err
+        state, err = read_scoped_state(path)
+        if err or state and type(state.pending_upload_position) ~= 'table' then return end
+    else
+        state = read_json(dir .. '/reading_state.json')
+    end
+    local metadata = read_json(dir .. '/metadata.json')
+    local book = {}
+    merge_fields(book, index, progress_fields)
+    merge_fields(book, metadata, progress_fields)
+    if path then
+        book.pending_upload_account, book.pending_upload_position = nil, nil
+        if not state then state = legacy_state(dir, metadata, scope) end
+    end
+    merge_fields(book, state, progress_fields)
+    if type(book.pending_upload_position) ~= 'table' then return end
+    book.book_id = book.book_id or book.bookId or tostring(book_id)
+    return book
+end
+
+-- Home needs display metadata and recent events, not per-book download,
+-- article or synchronization data. Resume still loads the chosen book.
+local home_fields={'book_id','bookId','title','author','cover','category','_library_account_key',
+    'recent_read_at','recent_read_account','home_recent_at','home_recent_account'}
+
+function BookStore.home_books(settings,indexes,account,minimum_time)
+    local result={}
+    if type(account)~='string' or account=='' or settings:account_state_scope()~=account then return result end
+    local valid_time=require('weread.lib.shelf_time').value
+    for key,index in pairs(indexes) do
+        -- Keep the preferred string key occupied even when its event is
+        -- absent, so a stale numeric alias cannot lend its reading time.
+        result[key]=false
+        local dir=resolved_dir(settings,key,index)
+        local path=scoped_path(settings,dir,account)
+        if not path then return {} end
+        local state=read_json(path)
+        local time=state and valid_time(state.home_recent_at)
+        -- Keep ties and legacy records so identity and fallback times can
+        -- still affect which books make the list.
+        if not state or state.home_recent_account==nil
+            or state.home_recent_account==account and time and (not minimum_time or time>=minimum_time) then
+            local metadata=read_json(dir..'/metadata.json')
+            if not state and not exists(path) then state=legacy_state(dir,metadata,account) end
+            local book={}
+            merge_fields(book,index,home_fields)
+            merge_fields(book,metadata,home_fields)
+            book.home_recent_account,book.home_recent_at=nil,nil
+            merge_fields(book,state,home_fields)
+            book.book_id=book.book_id or book.bookId or tostring(key)
+            if book.home_recent_account==account and valid_time(book.home_recent_at)
+                or book.home_recent_account==nil and book.recent_read_account==account and valid_time(book.recent_read_at) then
+                result[key]=book
+            end
+        end
+    end
+    return result
+end
+
+local download_fields = {
+    'book_id', 'bookId', 'bookInfo', 'book', 'title', 'author', 'authors', 'cover', 'category',
+    'reason', 'searchIdx', 'idx', 'cached_full_book', 'cached_file', 'cached_chapters',
+    '_library_account_key', 'recent_read_account', 'home_recent_account',
+}
+
+-- The download list only needs cache paths, display data and ownership.
+-- When metadata has no owner, keep the reader's legacy ownership fallback.
+function BookStore.download_books(settings, indexes)
+    local scope = settings.account_state_scope and settings:account_state_scope()
+    local result = {}
+    for key, index in pairs(indexes) do
+        local dir = resolved_dir(settings, key, index)
+        local metadata = read_json(dir .. '/metadata.json')
+        local book = {}
+        merge_fields(book, index, download_fields)
+        merge_fields(book, metadata, download_fields)
+        book.book_id = book.book_id or book.bookId or tostring(key)
+        if book._library_account_key == nil then
+            local path, account = scoped_path(settings, dir, scope)
+            if path ~= nil then
+                local state = path and scoped_state(dir, metadata, path, account)
+                book.home_recent_account = state and state.home_recent_account or nil
+            else
+                local state = read_json(dir .. '/reading_state.json')
+                if state and state.home_recent_account ~= nil then book.home_recent_account = state.home_recent_account end
+            end
+        end
+        result[key] = book
+    end
+    return result
+end
+
+local function directory_prefix(path)
+    return path:gsub("/+$", "") .. "/"
+end
+
+local function recorded_file(index, directory, file)
+    local metadata = read_json(directory .. "metadata.json") or {}
+    index = type(index) == "table" and index or {}
+    local full = metadata.cached_full_book
+    local last = metadata.cached_file
+    if full == nil then full = index.cached_full_book end
+    if last == nil then last = index.cached_file end
+    if full == file or last == file then return true end
+    local chapters = metadata.cached_chapters
+    if chapters == nil then chapters = index.cached_chapters end
+    for _, path in pairs(type(chapters) == "table" and chapters or {}) do
+        if path == file then return true end
+    end
+    return false
+end
+
+-- Route initial reader setup using the most specific indexed directory. A
+-- legacy record may point to a parent of the entire managed cache.
+function BookStore.find_file(settings, indexes, file)
+    local root = directory_prefix(settings.cache_dir)
+    local best_id, best_directory, tied
+    for id, index in pairs(indexes or {}) do
+        local directory = directory_prefix(resolved_dir(settings, id, index))
+        if root:sub(1, #directory) ~= directory and file:sub(1, #directory) == directory then
+            if not best_directory or #directory > #best_directory then
+                best_id, best_directory, tied = id, directory, false
+            elseif directory == best_directory then
+                tied = true
+            end
+        end
+    end
+    if tied then return nil, nil, 'ambiguous' end
+    if best_directory then return best_id, best_directory, 'directory' end
+
+    -- Legacy files outside the indexed book directory must match a stored
+    -- path. Read only metadata and keep these matches live on later lookups.
+    for id, index in pairs(indexes or {}) do
+        local directory = directory_prefix(resolved_dir(settings, id, index))
+        if recorded_file(index, directory, file) then
+            if best_id ~= nil then return nil, nil, 'ambiguous' end
+            best_id, best_directory = id, directory
+        end
+    end
+    if best_directory then return best_id, best_directory, 'recorded' end
+end
+
+-- Late reader jobs update one bounded state file, never an older in-memory
+-- copy of the global settings, metadata or another book's state.
+function BookStore.patch_reading(settings, book_id, index, patch)
+    if type(index) ~= 'table' or type(patch) ~= 'table' then return false, 'missing book index' end
+    for key in pairs(patch) do if not reading_fields[key] then return false, 'not a reading-state field' end end
+    local dir=resolved_dir(settings,book_id,index)
+    local path,scope=scoped_path(settings,dir)
+    if path==false then return false,'invalid reading account scope' end
+    local state,err
+    if path then
+        state,err=scoped_state(dir,read_json(dir..'/metadata.json'),path,scope)
+        if not state then return false,err end
+        if not make_parent(path) then return false,'could not create reading state directory' end
+    else
+        path=dir..'/reading_state.json';state=read_json(path)
+        if not state and exists(path) then return false,'invalid reading state' end
+        state=state or {}
+    end
+    for key,value in pairs(patch) do state[key] = value ~= false and value or nil end
+    -- A pending dispatch is a write-ahead record, not an ordinary reading
+    -- checkpoint. Its creation and removal must be synchronized separately.
+    return write_json(path,state,(patch.source_dispatch~=nil or state.source_dispatch~=nil) and dir or nil)
+end
+
 function BookStore.save(settings, book_id, book)
     book = type(book) == "table" and book or {}
     local dir = resolved_dir(settings, book_id, book)
-    os.execute("mkdir -p " .. string.format("%q", dir))
+    if not make_dir(dir) then return false,'could not create book directory' end
+
+    local path,scope=scoped_path(settings,dir)
+    local previous_metadata
+    if path==false then return false,'invalid reading account scope' end
+    if path then
+        local metadata_path=dir..'/metadata.json'
+        previous_metadata=read_json(metadata_path)
+        if not previous_metadata and exists(metadata_path) then return false,'invalid book metadata' end
+        local _,state_err=scoped_state(dir,previous_metadata,path,scope)
+        if state_err then return false,state_err end
+        if not make_parent(path) then return false,'could not create reading state directory' end
+        local preserved,preserve_err=preserve_legacy_metadata(dir,previous_metadata)
+        if not preserved then return false,preserve_err end
+    end
 
     local metadata = { book_id = book.book_id or book.bookId or tostring(book_id) }
     local reading_state = {}
@@ -153,8 +480,17 @@ function BookStore.save(settings, book_id, book)
 
     local ok, err = write_json(dir .. "/metadata.json", metadata)
     if not ok then return false, err end
-    if has_values(reading_state) then
-        ok, err = write_json(dir .. "/reading_state.json", reading_state)
+    if path then
+        -- Only the bounded reading-state patch may create or clear this
+        -- journal. A stale metadata snapshot must not erase an in-flight
+        -- send or resurrect one that was independently confirmed.
+        local current,state_err=scoped_state(dir,previous_metadata,path,scope)
+        if not current then return false,state_err end
+        reading_state.source_dispatch=current.source_dispatch
+    end
+    if path or has_values(reading_state) then
+        ok, err = write_json(path or dir .. "/reading_state.json", reading_state,
+            reading_state.source_dispatch~=nil and dir or nil)
         if not ok then return false, err end
     else
         os.remove(dir .. "/reading_state.json")
@@ -168,6 +504,101 @@ function BookStore.save(settings, book_id, book)
     return true, { cache_dir = dir }
 end
 
+local download_metadata_fields = { "cached_file", "cached_full_book", "cached_chapters", "annotation_documents" }
+
+function BookStore.apply_download(record, change)
+    local chapters, documents = {}, {}
+    merge(chapters, record.cached_chapters)
+    merge(documents, record.annotation_documents)
+    local full = change.cached_full_book
+    if full then
+        local previous = record.cached_full_book or record.cached_file
+        for uid, path in pairs(chapters) do
+            if path == previous or path == full then chapters[uid] = nil end
+        end
+        record.cached_full_book, record.cached_file = full, full
+    end
+    for uid, path in pairs(change.cached_chapters or {}) do
+        local legacy = tonumber(uid)
+        if type(uid) == "string" and legacy and legacy >= 0 and legacy <= 9007199254740991
+            and string.format("%.0f", legacy) == uid then
+            chapters[legacy] = nil
+        end
+        chapters[uid] = path
+    end
+    merge(documents, change.annotation_documents)
+    record.cached_chapters, record.annotation_documents = chapters, documents
+end
+
+-- Existing downloads only change metadata. The account checkpoint can be
+-- written independently by an active reader or a just-closed reader worker.
+function BookStore.record_download(settings, book_id, index, book, change)
+    local record = {}
+    if not index then
+        merge(record, book)
+        record.cache_dir = change.cache_dir or record.cache_dir
+        record.reader_url = record.reader_url or change.reader_url
+        BookStore.apply_download(record, change)
+        local ok, value = BookStore.save(settings, book_id, record)
+        if not ok then return false, value end
+        record.cache_dir = value.cache_dir
+        return true, record, value
+    end
+
+    local dir = resolved_dir(settings, book_id, index)
+    local path = dir.."/metadata.json"
+    local metadata = read_json(path)
+    if not metadata and exists(path) then return false, "invalid book metadata" end
+    metadata = metadata or { book_id = book_id }
+    if not require("weread.lib.read_access").cached_book({ [book_id] = metadata }, book_id) then
+        return false, "book_identity_conflict"
+    end
+    merge_fields(record, index, download_metadata_fields)
+    merge_fields(record, metadata, download_metadata_fields)
+    if record.cached_chapters ~= nil and type(record.cached_chapters) ~= "table"
+        or record.annotation_documents ~= nil and type(record.annotation_documents) ~= "table" then
+        return false, "invalid download metadata"
+    end
+    BookStore.apply_download(record, change)
+    merge_fields(metadata, record, download_metadata_fields)
+    local ok, err = write_json(path, metadata)
+    if not ok then return false, err end
+    record.cache_dir = dir
+    return true, record
+end
+
+-- Cache removal must not round-trip a stale reading_state.json snapshot. A
+-- closed-reader report may still be patching its journal independently.
+function BookStore.clear_downloads(settings, book_id, index, expected, removed_path)
+    local dir=resolved_dir(settings,book_id,index)
+    local path=dir..'/metadata.json'
+    local file=io.open(path,'rb');if not file then return false,'unavailable book metadata' end
+    local raw=file:read(2*1024*1024+1);file:close()
+    if not raw or #raw>2*1024*1024 or expected and raw~=expected then return false,'changed book metadata' end
+    local ok,metadata=pcall(decode,raw)
+    if not ok or type(metadata)~='table' or tostring(metadata.book_id or metadata.bookId or '')~=tostring(book_id)
+        or metadata.cached_chapters~=nil and type(metadata.cached_chapters)~='table'
+        or metadata.annotation_documents~=nil and type(metadata.annotation_documents)~='table' then return false,'invalid book metadata' end
+    local function keep(filename)
+        if removed_path and filename~=removed_path then return true end
+        return type(filename)=='string' and exists(filename)
+    end
+    for _i,key in ipairs({'cached_file','cached_full_book'}) do
+        if not keep(metadata[key]) then metadata[key]=nil end
+    end
+    local chapters={}
+    for uid,filename in pairs(metadata.cached_chapters or {}) do
+        if keep(filename) then chapters[uid]=filename end
+    end
+    metadata.cached_chapters=next(chapters) and chapters or nil
+    local annotations={}
+    for filename,value in pairs(metadata.annotation_documents or {}) do
+        if keep(filename) then annotations[filename]=value end
+    end
+    metadata.annotation_documents=next(annotations) and annotations or nil
+    return write_json(path,metadata)
+end
+
 function BookStore.is_minimal_index(books)
     for _book_id, record in pairs(books or {}) do
         if type(record) ~= "table" then return false end
@@ -176,6 +607,29 @@ function BookStore.is_minimal_index(books)
         end
     end
     return true
+end
+
+-- Some older profiles already use a directory-only index but still have an
+-- inline chapter list in metadata.json. Reading state and articles never own it.
+function BookStore.has_legacy_catalog(settings, book_id, index)
+    local metadata = read_json(resolved_dir(settings, book_id, index) .. "/metadata.json")
+    return metadata ~= nil and metadata.chapters ~= nil
+end
+
+-- Remove a superseded inline catalog without saving a reading-state snapshot.
+function BookStore.clear_legacy_catalog(settings, book_id, index)
+    local path = resolved_dir(settings, book_id, index) .. "/metadata.json"
+    local metadata = read_json(path)
+    if not metadata then
+        if exists(path) then return false, "invalid book metadata" end
+        return true
+    end
+    if metadata.chapters == nil then return true end
+    if not require("weread.lib.read_access").cached_book({ [book_id] = metadata }, book_id) then
+        return false, "book identity conflict"
+    end
+    metadata.chapters = nil
+    return write_json(path, metadata)
 end
 
 return BookStore

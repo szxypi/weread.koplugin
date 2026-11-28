@@ -1,0 +1,1 @@
+{"fixture":"synthetic","runs":[{"width":600,"height":800,"result":"PASS"},{"width":1264,"height":1680,"result":"PASS"}],"selection_private_thought_create_edit_delete":true,"offline_draft_restore":true,"changed_selection_source_keeps_draft":true,"selection_pending_offline_no_replay":true,"existing_thought_preserved":true,"mock_data_posts_per_run":11,"real_account_posts":0}

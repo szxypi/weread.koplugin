@@ -1,0 +1,249 @@
+{
+  "result": "NATIVE_DISCOVERY_CONTRACT_VERIFIED",
+  "checked_at": "2026-11-08T16:43:54.791558+00:00",
+  "account_data_writes_attempted": 0,
+  "private_results_saved": false,
+  "credentials_written_to_files": false,
+  "shelf_book_count": 139,
+  "book_metadata_field_names": [
+    "author",
+    "bookId",
+    "categoryName",
+    "cover",
+    "intro",
+    "isbn",
+    "newRating",
+    "newRatingCount",
+    "publishTime",
+    "publisher",
+    "title"
+  ],
+  "pages": [
+    {
+      "kind": "recommend",
+      "first_count": 0,
+      "has_more": false,
+      "session_returned": false
+    },
+    {
+      "kind": "search",
+      "first_count": 20,
+      "has_more": true,
+      "session_returned": false,
+      "second_count": 2,
+      "cursor_advanced": true,
+      "overlap_count": 0,
+      "session_preserved": true
+    },
+    {
+      "kind": "similar",
+      "first_count": 20,
+      "has_more": true,
+      "session_returned": true,
+      "second_count": 3,
+      "cursor_advanced": true,
+      "overlap_count": 0,
+      "session_preserved": true
+    }
+  ],
+  "lua_projection_matches": true,
+  "native_https_verified": true,
+  "native_pages": [
+    {
+      "has_more": false,
+      "session_returned": false,
+      "first_count": 0,
+      "kind": "recommend"
+    },
+    {
+      "session_preserved": true,
+      "overlap_count": 0,
+      "first_count": 20,
+      "second_count": 2,
+      "has_more": true,
+      "session_returned": false,
+      "cursor_advanced": true,
+      "kind": "search"
+    },
+    {
+      "session_preserved": true,
+      "overlap_count": 0,
+      "first_count": 20,
+      "second_count": 3,
+      "has_more": true,
+      "session_returned": true,
+      "cursor_advanced": true,
+      "kind": "similar"
+    }
+  ],
+  "native_read_requests": 5,
+  "same_owner_verified": true,
+  "stages": [
+    {
+      "stage": "discovery_shelf",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "discovery_metadata",
+      "status": 200,
+      "keys": [
+        "AISummary",
+        "aiBookButtonType",
+        "askAIBook",
+        "author",
+        "authorSeg",
+        "autoBookRequest",
+        "availables",
+        "beginningChapterUid",
+        "blacked",
+        "blockSaveImg",
+        "bookId",
+        "bookSize",
+        "bookStatus",
+        "categories",
+        "category",
+        "centPrice",
+        "chapterSize",
+        "copyrightChapterUids",
+        "copyrightInfo",
+        "cover",
+        "coverBoxInfo",
+        "cpid",
+        "deepLink",
+        "deepVRating",
+        "encodeId",
+        "extra_type",
+        "finishReading",
+        "finished",
+        "follow",
+        "format",
+        "free",
+        "hasKeyPoint",
+        "hasLecture",
+        "hasSubject",
+        "hideFriendMark",
+        "hideReview",
+        "hideUpdateTime",
+        "inStoreBookId",
+        "intro",
+        "isAutoDownload",
+        "isAutoPay",
+        "isChapterPaid",
+        "isEPUBComics",
+        "isHideTTSButton",
+        "isShowTTS",
+        "isTraditionalChinese",
+        "isVerticalLayout",
+        "isbn",
+        "ispub",
+        "language",
+        "lastChapterIdx",
+        "latestReviewSecretMode",
+        "lectureOffline",
+        "lectureRecommended",
+        "marketType",
+        "maxFreeChapter",
+        "maxFreeInfo",
+        "mcardDiscount",
+        "newRating",
+        "newRatingCount",
+        "newRatingDetail",
+        "offline",
+        "onTime",
+        "originalPrice",
+        "paid",
+        "paperBook",
+        "payType",
+        "payingStatus",
+        "price",
+        "publishPrice",
+        "publishTime",
+        "publisher",
+        "ranklist",
+        "ratingCount",
+        "ratingDetail",
+        "readerLink",
+        "recommended",
+        "secret",
+        "selfProduceIncentive",
+        "shortTimeRead",
+        "shouldHideTTS",
+        "showDeepVRatingLabel",
+        "showLectureButton",
+        "skuInfo",
+        "soldout",
+        "star",
+        "title",
+        "totalWords",
+        "type",
+        "unitPrice",
+        "updateTime",
+        "version",
+        "webBookControl",
+        "wxtts"
+      ]
+    },
+    {
+      "stage": "recommend",
+      "status": 200,
+      "keys": [
+        "books",
+        "recentBooks"
+      ]
+    },
+    {
+      "stage": "search",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "parts",
+        "queryUid",
+        "sid",
+        "totalCount"
+      ]
+    },
+    {
+      "stage": "search",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "parts",
+        "queryUid",
+        "sid",
+        "totalCount"
+      ]
+    },
+    {
+      "stage": "similar",
+      "status": 200,
+      "keys": [
+        "booksimilar"
+      ]
+    },
+    {
+      "stage": "similar",
+      "status": 200,
+      "keys": [
+        "booksimilar"
+      ]
+    }
+  ]
+}

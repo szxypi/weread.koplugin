@@ -19,6 +19,8 @@ function M:safeCallback(label, callback)
     return function(...)
         local args = { ... }
         local ok, err = xpcall(function()
+            local navigation=package.loaded['weread.ui.my_mark_navigation']
+            if navigation and navigation.cancel_incoming then navigation.cancel_incoming(self) end
             return callback(unpack_args(args))
         end, debug.traceback)
         if not ok then
@@ -42,21 +44,32 @@ function M:showTransientInfo(text, timeout)
     })
 end
 
-function M:showBusy(text)
+function M:showBusy(text, on_cancel)
     self:closeBusy()
-    self.busy_message = InfoMessage:new{
+    local dialog
+    dialog = InfoMessage:new{
         text = text,
-        dismissable = false,
+        dismissable = on_cancel ~= nil,
+        dismiss_callback = function()
+            if self.busy_message == dialog and on_cancel then
+                self.busy_message = nil
+                on_cancel()
+            end
+        end,
     }
+    self.busy_message = dialog
     UIManager:show(self.busy_message)
     self:refreshUI()
 end
 
 function M:closeBusy()
     if self.busy_message then
-        UIManager:close(self.busy_message)
+        local dialog = self.busy_message
         self.busy_message = nil
-        self:refreshUI()
+        UIManager:close(dialog)
+        -- A parent's CloseWidget callback can cancel its request after child
+        -- text buffers are freed, while that parent is still on the stack.
+        -- close() queues the repaint; let the event loop finish closing first.
     end
 end
 
@@ -117,6 +130,15 @@ function M:isNetworkConnected()
     return connected == true
 end
 
+-- For optional background reads, an unknown link state is not a reason to
+-- perform the potentially blocking DNS probe on the UI thread. The actual
+-- request still runs in its worker and handles network failures normally.
+function M:isNetworkLinkAvailable()
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if not ok or not NetworkMgr or type(NetworkMgr.isConnected) ~= "function" then return true end
+    return self:isNetworkConnected()
+end
+
 function M:showOffline(label)
     self:closeBusy()
     logger.warn("network unavailable:", label)
@@ -124,7 +146,8 @@ function M:showOffline(label)
 end
 
 function M:runOnlineTask(label, callback, delay, options)
-    if not self:isNetworkOnline() then
+    local check = options and options.link_only and self.isNetworkLinkAvailable or self.isNetworkOnline
+    if not check(self) then
         if not (options and options.silent_offline) then
             self:showOffline(label)
         end
@@ -159,14 +182,19 @@ function M:showList(title, items, empty_text, options)
         return
     end
     options = options or {}
-    local menu = Menu:new{
+    local menu_options = {
         title = title,
         item_table = items,
         is_borderless = true,
         title_bar_fm_style = true,
+        title_bar_left_icon = options.left_icon,
         items_per_page = options.items_per_page,
         subtitle = options.subtitle,
     }
+    local menu = options.thought_text and require('weread.ui.thought_text').menu(menu_options) or Menu:new(menu_options)
+    if type(options.on_choice) == "function" then
+        menu.onMenuChoice = function(_, item) options.on_choice(item); return true end
+    end
     UIManager:show(menu)
     if options.initial_page and options.initial_page > 1
         and type(menu.onGotoPage) == "function" then
@@ -179,15 +207,26 @@ function M:showList(title, items, empty_text, options)
     return menu
 end
 
-function M:requireLogin(require_cookie, require_api_key)
+function M:requireLogin(require_cookie, require_api_key, continuation)
     local missing_cookie = require_cookie and not self.settings:is_cookie_configured()
     local missing_api_key = require_api_key and not self.settings:is_api_configured()
     if not missing_cookie and not missing_api_key then
         return true
     end
+    local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local verified_web = self.settings:is_cookie_configured()
+        and (not self.settings.get_auth_scope or (scope and self.settings:auth_scope_matches(scope)))
+    if missing_api_key and not missing_cookie and verified_web then
+        self:showInfo(_("This feature requires WeRead Skill authorization. Your current login still supports the bookshelf and reading. Enable WeRead Skill in the WeRead app settings, then sign in again to load its key."))
+        return false
+    end
     self:showTransientInfo(_("Please scan the QR code to log in first."), 2)
     UIManager:scheduleIn(0.2, function()
-        self.qr_login:start()
+        if continuation then
+            local ok,current=pcall(continuation.current)
+            if not ok or current~=true then return end
+        end
+        self.qr_login:start(continuation)
     end)
     return false
 end
@@ -206,14 +245,11 @@ function M:refreshLoginMenu()
 end
 
 function M:renewCookieWithUI()
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runNetworkAction(_("Renew cookie"), function()
-        self.client:renew_cookie()
-        logger.info("cookie renewed")
-        return _("WeRead cookie renewed.")
-    end)
+    return require('weread.ui.web_renewal').manual(self)
+end
+
+function M:cancelWebRenewal()
+    return require('weread.ui.web_renewal').cancel(self)
 end
 
 function M:showAccountStatus()
@@ -238,12 +274,14 @@ end
 
 function M:confirmClearAccount()
     UIManager:show(ConfirmBox:new{
-        text = _("Clear WeRead cookie and API key? Cached books will remain."),
+        text = _("Clear WeRead login and E-Ink authorization? Cached books will remain."),
         ok_text = _("Clear"),
         ok_callback = self:safeCallback(_("Clear"), function()
             self.qr_login:cancel()
+            if self.native_authorization then self.native_authorization:clearForLogout() end
             self.read_report:stop("account_cleared")
             self.settings:reset_account()
+            require('weread.ui.web_renewal').clear_for_logout(self)
             if self.onWeReadAccountChanged then
                 self:onWeReadAccountChanged()
             end

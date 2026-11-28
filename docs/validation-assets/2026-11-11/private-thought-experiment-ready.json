@@ -1,0 +1,130 @@
+{
+  "base_commit": "c93ae14545d7169a6b30cfb05bd7729b1c967b63",
+  "scope": "Python-only readiness for one new private thought create/edit/delete; real thought writes not performed",
+  "tool_sha256": {
+    "scripts/annotation_experiment_model.py": "36fb5f932760c19c396a26e807d6722c87fbffa7bc6598edcb6de9ef2504eb58",
+    "scripts/secure_annotation_experiment.py": "c843b973fdf731ce7faf18098340ae3d4eb5a4ccd9ca7ae5545bb3ba50aa2599",
+    "scripts/verify_annotation_experiment.py": "bb52d15841529343b13c98143e18accb65f06fe203878de0484f877a1ac25629",
+    "scripts/test_annotation_experiment.py": "d9937e54e18e5db1e806213e2726646b199a5c45be55445ba652b11ae2ef195a",
+    ".github/workflows/ci.yml": "2fc83f960e9b8f6c0977e311510d67eb50e6e1c17f00e8c7ed78791201332537"
+  },
+  "checks": {
+    "python": {
+      "result": "PASS",
+      "files": 67,
+      "tests": 839,
+      "skipped": 0
+    },
+    "lua": {
+      "result": "PASS",
+      "lua_spec_groups": 197,
+      "lint_warnings": 0,
+      "lint_errors": 0,
+      "lint_files": 533,
+      "namespace": true,
+      "timezones": 4
+    },
+    "syntax_package": {
+      "result": "PASS",
+      "lua_syntax": 535,
+      "python_compile": 191,
+      "production_files": 219,
+      "production_identical_to_previous_accepted_candidate": true,
+      "zip_crc": true
+    },
+    "new_synthetic_tests": 15
+  },
+  "production_reference": "my-cloud-thoughts.json#production_sha256",
+  "candidate_sha256": "13f9fdc93286e139bfefa7c5e37974c93be2155c1782b3820a4d63d29805a201",
+  "intent": {
+    "phase": "prepared",
+    "posts_consumed": 0,
+    "fingerprint": "51c0fbc32ff24ebf5008c62114588e6774f72d981794152cc1a0d432f23d8044",
+    "stored_in_separate_keychain_item": true,
+    "planned_post_limit": 3,
+    "planned_operations": [
+      "create_private_test",
+      "edit_that_test",
+      "delete_that_test"
+    ],
+    "shelf_books_at_preparation": 140,
+    "existing_thoughts": 3,
+    "existing_marks": 52,
+    "same_owner": true,
+    "independent_baseline_unchanged": true,
+    "source_range_reused": true,
+    "book_version_field": "version",
+    "original_records_are_not_write_targets": true,
+    "matching_test_records": 0
+  },
+  "real_request_ledger": {
+    "application_gets": 30,
+    "authentication_posts": 1,
+    "account_data_posts": 0,
+    "reports": [
+      {
+        "report": "annotation-experiment-preview-v1.json",
+        "sha256": "10ea0511b34906d4b1d0ff43a3efa5e0afde5d7159b9d20bd4b43f488b12b3ef",
+        "result": "UNVERIFIED",
+        "application_gets": 1,
+        "authentication_posts": 0,
+        "account_data_posts": 0
+      },
+      {
+        "report": "annotation-experiment-native-renewal.json",
+        "sha256": "da9f6d511ab563b0a36e48324fcbedab16c7282d3fd9741bce11c63ffe8ecb2a",
+        "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+        "application_gets": 1,
+        "authentication_posts": 1,
+        "account_data_posts": 0
+      },
+      {
+        "report": "annotation-experiment-preview-v2.json",
+        "sha256": "19cabccc5e2344e9e4b6c16e6b9489f444cc44939783a28b9d6ccf0e7a785bd5",
+        "result": "ANNOTATION_EXPERIMENT_READ_ONLY_PREVIEW_VERIFIED",
+        "application_gets": 12,
+        "authentication_posts": 0,
+        "account_data_posts": 0
+      },
+      {
+        "report": "annotation-experiment-prepared.json",
+        "sha256": "3aaa07a203e14ed049fbd347883d7d59f234279449730ebd42f6a122077083dd",
+        "result": "ANNOTATION_EXPERIMENT_PREPARED",
+        "application_gets": 12,
+        "authentication_posts": 0,
+        "account_data_posts": 0
+      },
+      {
+        "report": "annotation-experiment-pending-read.json",
+        "sha256": "30b10fdf60a95e8176a7962f3fcd36705675a92dcaee0297d99d7d6f60a40b71",
+        "result": "ANNOTATION_PENDING_STATE_READ",
+        "application_gets": 4,
+        "authentication_posts": 0,
+        "account_data_posts": 0
+      }
+    ]
+  },
+  "sensitive_scan": {
+    "strict_findings": [],
+    "new_broad_finding_paths": [],
+    "total_broad_matches": 157,
+    "private_values_printed": false
+  },
+  "privacy": {
+    "private_payloads_saved_to_files": false,
+    "private_identifiers_or_text_in_public_evidence": false,
+    "real_screenshots": 0,
+    "development_credentials_retained": true
+  },
+  "limitations": [
+    "Actual create/edit/delete awaits separate authorization",
+    "Private response must be verified after creation; request flag alone is not proof",
+    "Possible leftover test record on interrupted or inconsistent verification",
+    "Recent-note ordering or service history cannot be guaranteed restored",
+    "No native selection-to-range conversion",
+    "Lua writes and actual native write UI not implemented",
+    "No new physical KO2 acceptance; production files unchanged",
+    "Overall roadmap and concentrated performance work incomplete"
+  ],
+  "earlier_failure": "Container namespace command could not start without rg; namespace, lint, specs and time zones passed on the host"
+}

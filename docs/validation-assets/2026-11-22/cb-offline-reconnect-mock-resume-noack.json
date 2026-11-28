@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "case": "noack",
+  "resume": true,
+  "synthetic_data_posts": 2,
+  "uncertain_intent_preserved": true,
+  "no_replay": true,
+  "real_account_data_posts": 0
+}

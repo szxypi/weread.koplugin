@@ -1,0 +1,75 @@
+{
+  "result": "UNVERIFIED",
+  "checked_at": "2026-11-22T10:04:04.083290+00:00",
+  "account_data_posts": null,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "guarded_write_mode": false,
+  "phase": "live",
+  "retry_scope": true,
+  "body_checks": {
+    "fields": true,
+    "app": true,
+    "book": true,
+    "chapter": true,
+    "index": true,
+    "offset": true,
+    "summary": true,
+    "percent": true,
+    "reader_session": true,
+    "counter": true,
+    "fresh": true,
+    "signature": true
+  },
+  "readback_checks": {
+    "web_position": true,
+    "web_catalog": true,
+    "web_source": true,
+    "web_snapshot": true,
+    "native_position_and_counts": true,
+    "web_shelf": false,
+    "native_shelf": false
+  },
+  "shelf_core_checks": {
+    "web": true,
+    "native": true
+  },
+  "shelf_stable_fields": {
+    "web": true,
+    "native": true
+  },
+  "web_shelf_changed_fields": [
+    "/lectureSynckey"
+  ],
+  "native_shelf_changed_fields": [
+    "/lectureSynckey"
+  ],
+  "diagnostic": {
+    "type": "PreflightError",
+    "frames": [
+      {
+        "function": "request",
+        "line": 29
+      },
+      {
+        "function": "request",
+        "line": 346
+      },
+      {
+        "function": "request",
+        "line": 201
+      }
+    ]
+  },
+  "live": {
+    "result": "UNVERIFIED",
+    "dry_verified": true,
+    "claimed_posts": 1,
+    "acknowledged_posts": 1,
+    "independently_verified": 0,
+    "claim_interrupted": false,
+    "restore_claimed": false,
+    "restore_acknowledged": false,
+    "restoration_verified": false
+  }
+}

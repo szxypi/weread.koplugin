@@ -1,0 +1,229 @@
+{
+  "result": "PASS",
+  "accepted_scope": "synthetic_plugin_local_reading_handoff",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_parent_commit": "16f19370d84489849ee4f9565901733c683bd3a6",
+  "production_manifest_sha256": "25c5cb3496f0c1e46d8253860d9321c202547232c8efaae0c1c6ca615053ac3a",
+  "fixture_sha256": "2e8b68d073e952d2ee0341eadcbe64051f8df39c8dfc76547288d12932bfab03",
+  "baseline_single_to_full_failure_reproduced": true,
+  "synthetic_only": true,
+  "production_account_used": false,
+  "real_account_writes": 0,
+  "profiles": [
+    {
+      "content_format": "epub",
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "reading": {
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "cancelled_live_file_open": true,
+        "full_to_single_handoff": true,
+        "live_source_preparation": true,
+        "live_single_to_full_handoff": true,
+        "single_to_full_handoff": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_xhtml",
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "epub",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "7bbba0b7b97dd6a3d57e18e571bc31db049b0e22a898fb3d400e8e825f7a9c1f"
+    },
+    {
+      "content_format": "txt",
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "reading": {
+        "full_to_single_handoff": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_txt",
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "cancelled_live_file_open": true,
+        "live_single_to_full_handoff": true,
+        "live_source_preparation": true,
+        "single_to_full_handoff": true
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "txt",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "d2d784292dea8357c316526bc7165f3cb23d7510bd9530c628e07de42cc24cd8"
+    },
+    {
+      "content_format": "epub",
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "reading": {
+        "live_single_to_full_handoff": true,
+        "single_to_full_handoff": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_xhtml",
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "cancelled_live_file_open": true,
+        "full_to_single_handoff": true,
+        "live_source_preparation": true
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "epub",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "75698f2609c07456fed62398c0cf75bf7439315f2869ec2acda587673c77d320"
+    },
+    {
+      "content_format": "txt",
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "reading": {
+        "cancelled_live_file_open": true,
+        "result": "PASS",
+        "live_single_to_full_handoff": true,
+        "synthetic_only": true,
+        "full_to_single_handoff": true,
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "live_source_preparation": true,
+        "single_to_full_handoff": true,
+        "content_format": "web_txt"
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "txt",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 185,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "df28af16bf887d3c2d7bb6f694c599c571c396f3a40908b4e4ff84e86e94bb16"
+    }
+  ],
+  "raw_chapters_matched": 24,
+  "automated": {
+    "lua_spec_groups": 157,
+    "read_resume_checks": 71,
+    "new_progress_sync_checks": 31,
+    "python_tests": 433,
+    "luacheck_files": 414,
+    "luacheck_warnings": 0,
+    "luacheck_errors": 0,
+    "lua_syntax_files": 416,
+    "time_zones": 4
+  },
+  "pending": [
+    "real_full_book_resources",
+    "authorized_cloud_write_readback",
+    "multi_device",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ]
+}

@@ -12,16 +12,43 @@ local bit = require("bit")
 
 local M = {}
 
+local function focus_top(item, scroll)
+    if item._focus_content_top then
+        return scroll.dimen.y + item._focus_content_top - scroll:getScrolledOffset().y
+    end
+    return item.dimen.y
+end
+
+local function send_gesture_to_focused(view, gesture)
+    local item = view:getFocusItem()
+    if item and item._focus_content_top then
+        local area = view._nav_scroll.dimen
+        local top = focus_top(item, view._nav_scroll)
+        local center = top + item.dimen.h / 2
+        if center < area.y or center > area.y + area.h then return true end
+        -- A key event can follow a scroll before the new viewport is painted.
+        if item.dimen.y ~= top then
+            local UIManager = require("ui/uimanager")
+            UIManager:setDirty(view, "fast")
+            UIManager:forceRePaint()
+            if item.dimen.y ~= top then return true end
+        end
+    end
+    return FocusManager._sendGestureEventToFocusedWidget(view, gesture)
+end
+
 -- rows: array of rows, each an array of focusable widgets in visual order.
 -- A widget must react to onFocus()/onUnfocus() (Button does natively) and
 -- expose a tap gesture that triggers its action (that is how Press activates).
 -- options.scroll: ScrollableContainer that owns some of the rows.
 -- options.outside_scroll: hash of widgets living outside that container.
+-- options.windowed: rows with _focus_content_top get positions on paint only.
 function M.apply(view, rows, options)
     options = options or {}
     view.layout = rows
     view._nav_scroll = options.scroll
     view._nav_outside_scroll = options.outside_scroll or {}
+    if options.windowed then view._sendGestureEventToFocusedWidget = send_gesture_to_focused end
     if options.scroll and options.scroll.key_events then
         -- ScrollableContainer registers ScrollPageUp/Down for PgBack/PgFwd,
         -- and events propagate children-first: the container would swallow
@@ -92,7 +119,8 @@ function M.scrollFocusedToTop(view)
     local row = item.dimen
     local area = scroll.dimen
     if not row or not area or not area.h then return end
-    scroll:_scrollBy(0, row.y - area.y)
+    local top = focus_top(item, scroll)
+    scroll:_scrollBy(0, top - area.y)
 end
 
 -- Keep the focused widget fully inside the scroll area, scrolling minimally.
@@ -103,10 +131,11 @@ function M.scrollToFocused(view)
     local row = item.dimen
     local area = scroll.dimen
     if not row or not area or not area.h then return end
-    if row.y < area.y then
-        scroll:_scrollBy(0, row.y - area.y)
-    elseif row.y + row.h > area.y + area.h then
-        scroll:_scrollBy(0, row.y + row.h - area.y - area.h)
+    local top = focus_top(item, scroll)
+    if top < area.y then
+        scroll:_scrollBy(0, top - area.y)
+    elseif top + row.h > area.y + area.h then
+        scroll:_scrollBy(0, top + row.h - area.y - area.h)
     end
 end
 

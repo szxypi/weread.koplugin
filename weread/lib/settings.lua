@@ -10,6 +10,7 @@ Settings.AUTH_SCHEMA_VERSION = 1
 
 local defaults = {
     auth_schema_version = Settings.AUTH_SCHEMA_VERSION,
+    auth_epoch = 0,
     device_fingerprint = "",
     api_key = "",
     cookies = {},
@@ -23,6 +24,7 @@ local defaults = {
     },
     books = {},
     downloads = {},
+    prefer_eink_chapters = false,
     sync = {
         pull_on_open = false,
         upload_on_close = false,
@@ -31,6 +33,8 @@ local defaults = {
     },
     cache = {
         download_book_images = true,
+        native_chapter_resources = false,
+        native_full_book_resources = false,
         download_mp_images = false,
         download_underlines_and_thoughts = false,
         prefetch_annotations = false,
@@ -52,6 +56,9 @@ local defaults = {
         interval_seconds = 30,
         report_on_open = true,
     },
+    offline_time = { enabled = false, auto_native = false },
+    cloud_highlight_style = 1,
+    cloud_highlight_color = 0,
     thought_popup = {
         -- Thought popup height as a fraction of the screen height.
         height_ratio = 0.70,
@@ -92,9 +99,17 @@ local defaults = {
         release_url = "",
     },
     shelf = {
+        source = "auto",
         sort_order = "time_desc",
         paginated = true,
-        view_mode = "list",
+        view_mode = "cover",
+        tap_to_read = false,
+    },
+    home = {
+        view_mode = "cover", density = "comfortable", recent_limit = 12,
+        show_status = true, show_summary = true, show_shortcuts = true,
+        sections = { "status", "summary", "shortcuts", "recent" },
+        shortcuts = { "shelf", "store", "search", "settings" },
     },
     download_dir = "",
 }
@@ -116,7 +131,8 @@ local function ensure_dir(path)
     end
 end
 
-local function clear_auth_store(store)
+local function clear_auth_store(store, keep_epoch)
+    if not keep_epoch then store:saveSetting("auth_epoch", (tonumber(store:readSetting("auth_epoch", 0)) or 0) + 1) end
     store:saveSetting("api_key", "")
     store:saveSetting("cookies", {})
     store:saveSetting("wr_ticket", "")
@@ -257,7 +273,137 @@ function Settings:get(key, default)
     return books
 end
 
+-- Route files without hydrating unrelated per-book collections.
+function Settings:get_book_indexes()
+    local value=self.store:readSetting('books',{})
+    return type(value)=='table' and value or nil
+end
+
+function Settings:home_recent_books(account, minimum_time)
+    return BookStore.home_books(self,self:get_book_indexes() or {},account,minimum_time)
+end
+
+function Settings:download_books()
+    return BookStore.download_books(self,self:get_book_indexes() or {})
+end
+
+-- Retain the stored key when loading a legacy numeric index.
+local function indexed_book_lookup(settings, load_book, scope)
+    local indexes = settings:get_book_indexes() or {}
+    local loaded = {}
+    local cached_key = require("weread.lib.read_access").cached_key
+    return function(id)
+        local book = loaded[id]
+        if book then return book end
+        local index = cached_key(indexes, id)
+        if index == nil then return nil end
+        local key = indexes[id] ~= nil and id or tonumber(id)
+        book = load_book(settings, key, index, scope)
+        loaded[id] = book
+        return book
+    end
+end
+
+function Settings:book_lookup()
+    return indexed_book_lookup(self, BookStore.load)
+end
+
+function Settings:pending_progress_lookup()
+    return indexed_book_lookup(self, BookStore.load_pending_progress, self:account_state_scope())
+end
+
+function Settings:find_book_by_file(path)
+    if type(path) ~= "string" or path == "" then return nil end
+    return BookStore.find_file(self, self:get_book_indexes(), path)
+end
+
+-- Match the library database's stable account key without exposing a VID in
+-- reading-state paths. Signed-out reading has a separate local namespace.
+function Settings:account_state_scope()
+    local account=self:get('account',{})
+    local vid=type(account)=='table' and account.user_vid
+    if vid==nil or tostring(vid)=='' then return 'anonymous' end
+    return require('weread.lib.crypto').sha256_hex('weread-library:'..tostring(vid)):sub(1,20)
+end
+
+-- Hydrate one indexed book without loading unrelated per-book collections.
+function Settings:get_book(book_id, legacy_numeric)
+    book_id = tostring(book_id)
+    local indexes=self.store:readSetting("books", {})
+    if type(indexes) ~= "table" then return nil end
+    local index = indexes[book_id]
+    if index == nil and legacy_numeric then
+        index = require("weread.lib.read_access").cached_key(indexes, book_id)
+    end
+    return index and BookStore.load(self, book_id, index) or nil
+end
+
+local function save_book_index(settings, indexes, book_id, index, legacy_key)
+    local updated = {}
+    for key, value in pairs(indexes) do updated[key] = value end
+    if legacy_key then updated[legacy_key] = nil end
+    updated[book_id] = index
+    settings.store:saveSetting("books", updated)
+    settings:flush()
+end
+
+-- Register a first catalog or retire a superseded inline copy for one book.
+-- The caller saves the separate catalog before retiring any legacy data.
+function Settings:remember_catalog_book(book_id, book)
+    local indexes = self:get_book_indexes()
+    if not indexes then return false, "invalid book index" end
+    local Access = require("weread.lib.read_access")
+    local index, reason, legacy_key = Access.cached_book_for_update(indexes, book_id)
+    if reason then return false, reason end
+    if not Access.cached_book({ [book_id] = book }, book_id) then return false, "book identity conflict" end
+
+    if index then
+        local ok, err = BookStore.clear_legacy_catalog(self, book_id, index)
+        if not ok then return false, err end
+        if index.chapters == nil then return true end
+        local trimmed = {}
+        for key, value in pairs(index) do
+            if key ~= "chapters" then trimmed[key] = value end
+        end
+        index = trimmed
+    else
+        local ok, value = BookStore.save(self, book_id, book)
+        if not ok then return false, value end
+        index = value
+    end
+    save_book_index(self, indexes, legacy_key or book_id, index)
+    return true
+end
+
+function Settings:record_download(book_id, book, change)
+    local indexes = self:get_book_indexes()
+    local Access = require("weread.lib.read_access")
+    local index, reason, legacy_key = Access.cached_book_for_update(indexes, book_id)
+    if not indexes or reason or not Access.cached_book({ [book_id] = book }, book_id) then
+        return false, "book_identity_conflict"
+    end
+    local ok, record, new_index = BookStore.record_download(self, book_id, index, book, change)
+    if not ok then return false, record end
+    if new_index or legacy_key then
+        save_book_index(self, indexes, book_id, new_index or index, legacy_key)
+    end
+    return true, record
+end
+
+function Settings:patch_reading_state(book_id, patch)
+    book_id = tostring(book_id)
+    local indexes = self.store:readSetting('books',{})
+    return BookStore.patch_reading(self,book_id,type(indexes)=='table' and indexes[book_id],patch)
+end
+
 function Settings:set(key, value)
+    if key == "account" then
+        local old = self:get("account", {})
+        if tostring(old.user_vid or "") ~= tostring(type(value) == "table" and value.user_vid or "")
+            or old.login_time ~= (type(value) == "table" and value.login_time or nil) then
+            self:_advance_auth_epoch()
+        end
+    end
     if key == "books" and type(value) == "table" then
         local indexes = {}
         for book_id, book in pairs(value) do
@@ -272,6 +418,53 @@ function Settings:set(key, value)
     self.store:saveSetting(key, value)
 end
 
+-- Native grants belong to one Web login session, including a fresh login to
+-- the same VID. Cookie renewal does not advance this epoch.
+function Settings:_advance_auth_epoch()
+    local ok, disk = pcall(dofile, self.settings_file)
+    local disk_epoch = ok and type(disk) == "table" and tonumber(disk.auth_epoch) or 0
+    self.store:saveSetting("auth_epoch", math.max(tonumber(self:get("auth_epoch", 0)) or 0, disk_epoch or 0) + 1)
+end
+
+function Settings:get_auth_scope(from_disk)
+    local account, cookies, epoch
+    if from_disk then
+        -- Do not resurrect an older account from LuaSettings' .old fallback.
+        local ok, data = pcall(dofile, self.settings_file)
+        if not ok or type(data) ~= "table" then return nil end
+        account, cookies, epoch = data.account, data.cookies, data.auth_epoch or 0
+    else
+        account, cookies, epoch = self:get("account", {}), self:get("cookies", {}), self:get("auth_epoch", 0)
+    end
+    local owner = type(account) == "table" and tostring(account.user_vid or "") or ""
+    if #owner > 32 or not owner:match("^[1-9]%d*$") or type(epoch) ~= "number"
+        or epoch < 0 or epoch % 1 ~= 0 or epoch > 9007199254740990 then return nil end
+    if type(cookies) == "table" and cookies.wr_vid ~= nil and tostring(cookies.wr_vid) ~= owner then return nil end
+    return { vid = owner, epoch = epoch }
+end
+
+function Settings:auth_scope_matches(scope)
+    local current, disk = self:get_auth_scope(), self:get_auth_scope(true)
+    return type(scope) == "table" and current ~= nil and disk ~= nil
+        and current.vid == scope.vid and disk.vid == scope.vid
+        and current.epoch == scope.epoch and disk.epoch == scope.epoch
+end
+
+function Settings:set_shelf_source(source)
+    if source ~= "auto" and source ~= "native" and source ~= "gateway" then return false end
+    local scope, disk = self:get_auth_scope(), self:get_auth_scope(true)
+    if (scope or disk) and not self:auth_scope_matches(scope) then return false end
+    local previous = deepcopy(self:get("shelf", {}))
+    local updated = deepcopy(previous)
+    updated.source = source
+    local ok = pcall(function() self:set("shelf", updated) self:flush() end)
+    local read_ok, data = pcall(dofile, self.settings_file)
+    if ok and read_ok and type(data) == "table" and type(data.shelf) == "table" and data.shelf.source == source then return true end
+    self:set("shelf", previous)
+    pcall(self.flush, self)
+    return false
+end
+
 function Settings:delete(key)
     if type(self.store.delSetting) == "function" then
         self.store:delSetting(key)
@@ -282,11 +475,15 @@ end
 
 function Settings:has_legacy_book_records()
     local books = self.store:readSetting("books", {})
-    return not BookStore.is_minimal_index(books)
+    if not BookStore.is_minimal_index(books) then return true end
+    for id, index in pairs(books or {}) do
+        if BookStore.has_legacy_catalog(self, id, index) then return true end
+    end
+    return false
 end
 
 function Settings:flush()
-    self.store:flush()
+    return self.store:flush()
 end
 
 function Settings:get_device_fingerprint()
@@ -336,7 +533,8 @@ function Settings:update_auth(credentials, options)
         end
     end
     if type(credentials.account) == "table" then
-        self:set("account", deepcopy(credentials.account))
+        self:_advance_auth_epoch()
+        self.store:saveSetting("account", deepcopy(credentials.account))
         changed = true
     end
 
@@ -385,7 +583,8 @@ function Settings:set_download_dir(path)
 end
 
 function Settings:reset_account()
-    clear_auth_store(self.store)
+    self:_advance_auth_epoch()
+    clear_auth_store(self.store, true)
     self:flush()
 end
 

@@ -58,14 +58,31 @@ function Picker:actionBar()
             self.on_select(chapters)
         end
     end, {
-        enabled = self.choices and self.on_remove ~= nil or not self.choices and self.model.count > 0,
+        enabled = self.choices and self.on_remove ~= nil or not self.choices and not self.range_mode and self.model.count > 0,
         height = Screen:scaleBySize(self.choices and 40 or 64) - 2 * border,
         bordersize = border, text_font_size = self.choices and 16 or 22,
         text_font_bold = not self.choices,
     })
-    return FrameContainer:new{
+    local action=FrameContainer:new{
         padding = padding, margin = 0, bordersize = 0, self.action_button,
     }
+    if self.choices then return action end
+    local available=self.width-2*padding
+    local first=math.floor(available*0.43)
+    local second=math.floor(available*0.29)
+    self.quick_add=self:button(_("Add current and next 9 chapters"),first,function()
+        self.model:addCurrentWindow();self:rebuild('quick',1)
+    end,{enabled=not self.range_mode and self.model.current_index~=nil and self.model.current~=nil,
+        height=Screen:scaleBySize(44),text_font_size=16})
+    self.quick_range=self:button(self.range_mode and _("Cancel range") or _("Select range"),second,function()
+        self.range_mode=not self.range_mode;self.range_start=nil;self:rebuild('quick',2)
+    end,{enabled=next(self.model.by_uid)~=nil,height=Screen:scaleBySize(44),text_font_size=16})
+    self.quick_clear=self:button(_("Clear chapter selection"),available-first-second,function()
+        self.model:clear()
+        if self.model.current_index then self:rebuild('quick',1) else self:rebuild() end
+    end,{enabled=not self.range_mode and self.model.count>0,height=Screen:scaleBySize(44),text_font_size=16})
+    return VerticalGroup:new{align='center',
+        HorizontalGroup:new{self.quick_add,self.quick_range,self.quick_clear},action}
 end
 
 function Picker:init()
@@ -80,20 +97,22 @@ function Picker:init()
         with_bottom_line = true, show_parent = self,
         close_callback = function() self:onClose() end,
     }
+    local hint_width=self.width-2*Screen:scaleBySize(10)
+    self.hint_text = not self.choices and TextWidget:new{
+        text = _("Select chapters. Fetching again replaces their saved thoughts."),
+        face = Font:getFace("cfont", 14), fgcolor = BB.COLOR_DARK_GRAY, max_width = hint_width } or nil
     local hint = self.choices and VerticalGroup:new{ align = "left",
         TextWidget:new{ text = _("Choose a match for local chapter"), face = Font:getFace("cfont", 14),
-            fgcolor = BB.COLOR_DARK_GRAY, max_width = self.width - Screen:scaleBySize(20) },
+            fgcolor = BB.COLOR_DARK_GRAY, max_width = hint_width },
         VerticalSpan:new{ width = Screen:scaleBySize(5) },
         TextWidget:new{ text = self.local_title, face = Font:getFace("cfont", 20), bold = true,
-            max_width = self.width - Screen:scaleBySize(20) },
-    } or TextWidget:new{ text = _("Select chapters. Fetching again replaces their saved thoughts."),
-        face = Font:getFace("cfont", 14), fgcolor = BB.COLOR_DARK_GRAY,
-        max_width = self.width - Screen:scaleBySize(20) }
+            max_width = hint_width },
+    } or self.hint_text
     self.hint = FrameContainer:new{
         padding = Screen:scaleBySize(10), margin = 0, bordersize = 0,
         background = self.choices and BB.COLOR_GRAY_E or BB.COLOR_WHITE,
         LeftContainer:new{ dimen = Geom:new{
-            w = self.width - Screen:scaleBySize(20), h = hint:getSize().h }, hint },
+            w = hint_width, h = hint:getSize().h }, hint },
     }
     self.actions = self:actionBar()
     local available = self.height - self.title_bar:getHeight() - self.hint:getSize().h
@@ -115,7 +134,7 @@ function Picker:init()
 end
 
 function Picker:edit(node)
-    if not self.on_edit or not node.xpointer then return end
+    if self.range_mode or not self.on_edit or not node.xpointer then return end
     self.on_edit(node, function(model)
         local selected = {}
         for _, old in ipairs(self.model.nodes) do
@@ -159,7 +178,18 @@ function Picker:chapterRow(node)
     local side, status_width = Screen:scaleBySize(44), Screen:scaleBySize(92)
     local half = math.floor(self.row_height / 2)
     local indent = math.min(node.depth, 5) * Screen:scaleBySize(14)
-    local toggle = function() self.model:toggle(node); self:rebuild(node, 2) end
+    local toggle = function()
+        if self.range_mode then
+            local index = self.model:chapterIndex(node)
+            if not index then return end
+            if not self.range_start then self.range_start = index
+            else
+                self.model:addRange(self.range_start, index)
+                self.range_mode, self.range_start = false, nil
+            end
+        else self.model:toggle(node) end
+        self:rebuild(node, 2)
+    end
     local content_width = self.width - side - indent - status_width
     local title = self:button(node.title, content_width, toggle, {
         height = half, align = "left", text_font_bold = node.branch or node == self.model.current,
@@ -172,7 +202,8 @@ function Picker:chapterRow(node)
     local check = self:button(node.selected and "✓" or "□", side, toggle,
         { text_font_size = 24, enabled = node.selectable })
     local matched = node.state == "matched"
-    local status = node.state == "ready_to_fetch" and _("Ready to fetch")
+    local status = self.range_mode and self.range_start and self.range_start == self.model:chapterIndex(node) and _("Range start")
+        or node.state == "ready_to_fetch" and _("Ready to fetch")
         or node.state == "ready_to_match" and _("Ready to match")
         or matched and "✓ " .. _("Matched") or _("Unlinked")
     local border = node.chapter and not matched and self.line_height or 0
@@ -185,7 +216,7 @@ function Picker:chapterRow(node)
                 fgcolor = matched and BB.COLOR_WHITE or BB.COLOR_DARK_GRAY } } }
     local edit = self:button(node.chapter and _("Change match") or _("Select match"), status_width,
         function() self:edit(node) end, { height = self.row_height - half, text_font_size = 16,
-            enabled = self.on_edit ~= nil and node.xpointer ~= nil })
+            enabled = not self.range_mode and self.on_edit ~= nil and node.xpointer ~= nil })
     return HorizontalGroup:new{ align = "center", check, HorizontalSpan:new{ width = indent },
         VerticalGroup:new{ align = "left", title, remote },
         VerticalGroup:new{ align = "center", label, edit } }, { check, title, edit }
@@ -197,6 +228,11 @@ function Picker:rebuild(focus_node, focus_column)
     if self.body then
         self.body:free()
         self.actions = self:actionBar()
+    end
+    if self.hint_text then
+        self.hint_text:setText(self.range_mode and (self.range_start and _("Choose the end chapter; catalog order is used.")
+            or _("Choose the start chapter for the range."))
+            or _("Select chapters. Fetching again replaces their saved thoughts."))
     end
     local visible = self.choices or self.model:visible()
     self.pages = math.max(1, math.ceil(#visible / self.per_page))
@@ -223,6 +259,10 @@ function Picker:rebuild(focus_node, focus_column)
         { enabled = false, height = self.page_bar_height, text_font_size = 18 })
     local next_page = self:button(_("Next"), self.width - third * 2, function() self:onNextPage() end,
         { enabled = self.page < self.pages, height = self.page_bar_height, text_font_size = 22, text_font_bold = true })
+    if not self.choices then
+        focus_rows[#focus_rows + 1] = { self.quick_add,self.quick_range,self.quick_clear }
+        if focus_node=='quick' then focus_y=#focus_rows end
+    end
     focus_rows[#focus_rows + 1] = { self.action_button }
     focus_rows[#focus_rows + 1] = { previous, counter, next_page }
     self.layout = focus_rows

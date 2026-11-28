@@ -1,0 +1,18 @@
+{
+  "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+  "screens": [[600, 800, 167], [1264, 1680, 300]],
+  "scenarios_per_screen": 21,
+  "zero_version_ui_selection_and_skip": true,
+  "zero_version_native_ui_simulated_transfer": true,
+  "single_chapter_content_bound_txt_required": true,
+  "native_zero_and_web_version_absent_required": true,
+  "unbound_multi_chapter_or_non_txt_zero_rejected": true,
+  "version_source_and_content_changes_rejected": true,
+  "unknown_result_not_replayed": true,
+  "acknowledged_read_only_recovery": true,
+  "koreader_archive_and_sqlite_tested": true,
+  "real_account_data_posts": 0,
+  "real_authentication_posts": 0,
+  "real_historical_zero_version_accounting_verified": false,
+  "physical_device_tested": false
+}

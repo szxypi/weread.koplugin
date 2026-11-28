@@ -1,0 +1,92 @@
+{
+  "result": "PASS",
+  "source": "isolated KOReader native UI",
+  "account_writes": 0,
+  "initial_native_preflight_status": 401,
+  "renewal_authentication_posts": 1,
+  "renewal_same_owner_and_keychain_readback": true,
+  "cases": {
+    "small": {
+      "preflight_gets": 3,
+      "same_owner_verified": true,
+      "profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_sort_checked": true,
+          "progress_gets": 138,
+          "cover_gets": 148,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_sort_checked": true,
+          "progress_gets": 0,
+          "cover_gets": 0,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true
+        }
+      ]
+    },
+    "ko2": {
+      "preflight_gets": 3,
+      "same_owner_verified": true,
+      "profile_removed": true,
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_sort_checked": true,
+          "progress_gets": 138,
+          "cover_gets": 152,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "shelf_books": 140,
+          "progress_snapshots": 138,
+          "known_progress": 138,
+          "progress_sort_checked": true,
+          "progress_gets": 0,
+          "cover_gets": 0,
+          "forbidden_requests": 0,
+          "screenshots": 0,
+          "anonymous_credentials": true,
+          "credential_file_audit": true,
+          "file_backed_sqlite": true,
+          "workers_reaped": true
+        }
+      ]
+    }
+  }
+}

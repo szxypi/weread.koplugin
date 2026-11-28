@@ -1,0 +1,69 @@
+{
+  "result": "MP_CATALOG_UNVERIFIED",
+  "checked_at": "2026-11-08T20:49:30.935859+00:00",
+  "account_writes_attempted": 0,
+  "credential_renewal_attempts": 1,
+  "credentials_written_to_files": false,
+  "private_articles_saved": false,
+  "renewed_credentials_saved": true,
+  "renewal_pending_cleared": true,
+  "web_ticket_present": false,
+  "web_protection_header_present": false,
+  "owner_verified": true,
+  "mp_account_count": 2,
+  "samples": [
+    {
+      "top_level": {
+        "errCode": "int",
+        "errMsg": "str",
+        "errLog": "str",
+        "info": "str"
+      },
+      "group_count": 0,
+      "errcode": -2041
+    },
+    {
+      "top_level": {
+        "errCode": "int",
+        "errMsg": "str",
+        "errLog": "str",
+        "info": "str"
+      },
+      "group_count": 0,
+      "errcode": -2041
+    }
+  ],
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "web_renewal",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "mp_catalog",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "stage": "mp_catalog",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

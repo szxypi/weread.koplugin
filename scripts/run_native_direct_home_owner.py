@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""Read-only native chapter and offline home resume in a disposable tmpfs profile."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import resource
+import sys
+import tempfile
+import zipfile
+
+from run_native_direct_position_owner import frame, synthetic_endpoint_allowed
+from run_persistent_ui_probe import extract_candidate, run_child
+
+REPO = Path(__file__).resolve().parent.parent
+FRAME = b'\nWEREAD_DIRECT_HOME_OWNER_RUN='
+
+
+def contains_private(content, key, value):
+    # Single-character cookie flags commonly occur in unrelated files. For
+    # short values, require an actual keyed assignment, not a raw substring.
+    if len(value) >= 8:
+        return value in content
+    name=re.escape(key.encode());secret=re.escape(value)
+    return re.search(rb'(?<![A-Za-z0-9_])'+name+rb'[\x22\x27]?\s*\]?\s*[:=]\s*[\x22\x27]?'
+                     +secret+rb'(?![A-Za-z0-9_])',content) is not None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--koreader', type=Path, required=True)
+    parser.add_argument('--candidate', type=Path, required=True)
+    parser.add_argument('--width', type=int, default=600)
+    parser.add_argument('--height', type=int, default=800)
+    parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--full-ui', action='store_true')
+    reading_mode = parser.add_mutually_exclusive_group()
+    reading_mode.add_argument('--cloud-resume', action='store_true')
+    reading_mode.add_argument('--start-unread', action='store_true')
+    parser.add_argument('--resume-missing-source', action='store_true')
+    parser.add_argument('--store-search', action='store_true')
+    parser.add_argument('--quick-search', action='store_true')
+    parser.add_argument('--progress-estimate', action='store_true')
+    parser.add_argument('--offline-reminder', action='store_true')
+    parser.add_argument('--offline-time', action='store_true')
+    parser.add_argument('--offline-time-ui', action='store_true')
+    parser.add_argument('--offline-time-preflight', action='store_true')
+    parser.add_argument('--no-position-guidance', action='store_true')
+    args = parser.parse_args(argv)
+    if args.resume_missing_source and not args.cloud_resume:
+        parser.error('missing source requires cloud resume')
+    cloud_entry = args.cloud_resume or args.start_unread
+    if cloud_entry and (not args.full_ui or args.store_search or args.progress_estimate
+                        or args.offline_reminder or args.offline_time):
+        parser.error('cloud reading requires full UI without other probe modes')
+    if args.store_search and not args.full_ui:
+        parser.error('store search requires full UI')
+    if args.quick_search and not args.store_search:
+        parser.error('quick search requires store search')
+    if args.progress_estimate and not args.full_ui:
+        parser.error('progress estimate requires full UI')
+    if args.offline_reminder and not args.full_ui:
+        parser.error('offline reminder requires full UI')
+    if args.offline_time and not args.full_ui:
+        parser.error('offline time requires full UI')
+    if args.offline_time_ui and not args.offline_time:
+        parser.error('offline time UI requires offline time')
+    if args.offline_time_preflight and not args.offline_time_ui:
+        parser.error('offline time preflight requires offline time UI')
+    if args.no_position_guidance and not args.offline_time_preflight:
+        parser.error('no-position guidance requires offline time preflight')
+    runtime = args.koreader.resolve()
+    if (sys.platform != 'linux' or not (runtime/'luajit').is_file()
+            or not all(1 <= value <= 4096 for value in (args.width, args.height, args.dpi))
+            or not any(row.split()[1:3] == ['/dev/shm', 'tmpfs'] for row in Path('/proc/mounts').read_text().splitlines())):
+        parser.error('Linux, KOReader and tmpfs required')
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    report = dict(result='UNVERIFIED', profile_removed=False)
+    root = None
+    phase = 'input'
+    try:
+        raw = sys.stdin.buffer.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('input_limit')
+        payload = json.loads(raw)
+        if not synthetic_endpoint_allowed(payload, payload.get('mock_endpoint')):
+            raise ValueError('endpoint')
+        if any(key in payload for key in ('live_cloud_resume', 'start_unread', 'missing_resume_source')):
+            raise ValueError('cloud_reading_mode')
+        excerpt = payload.get('cloud_excerpt')
+        if cloud_entry:
+            if (payload.get('mock_endpoint') is not None or payload.get('web_cookies')
+                    or any(not isinstance(payload.get(key), str) or re.fullmatch(r'[1-9][0-9]{0,19}', payload[key]) is None
+                           for key in ('book_id', 'uid'))):
+                raise ValueError('cloud_reading_payload')
+        if args.cloud_resume:
+            if not isinstance(excerpt, str) or not 12 <= len(excerpt.encode()) <= 512:
+                raise ValueError('cloud_excerpt')
+        elif excerpt is not None:
+            raise ValueError('cloud_excerpt')
+        if args.store_search != (isinstance(payload.get('store_search_keyword'), str)
+                and 0 < len(payload['store_search_keyword'].encode()) <= 512):
+            raise ValueError('search_keyword')
+        if args.store_search and (not isinstance(payload.get('inline_style'),str)
+                or not 0<len(payload['inline_style'].encode())<=32768):
+            raise ValueError('inline_style')
+        progress=payload.get('progress_estimate')
+        if args.progress_estimate:
+            if (not isinstance(progress,dict) or set(progress)!={'order','count','before','words','total'}
+                    or any(type(value) is not int for value in progress.values())
+                    or not 1<=progress['order']<=progress['count']<=20000
+                    or not 0<=progress['before']<progress['total']<=2000000000000
+                    or not 0<progress['words']<=progress['total']-progress['before']):
+                raise ValueError('progress_estimate')
+        elif progress is not None:
+            raise ValueError('progress_estimate')
+        with tempfile.TemporaryDirectory(prefix='weread-native-home-owner-', dir='/dev/shm') as directory:
+            root = Path(directory)
+            profile, xdg = root/'profile', root/'xdg'
+            (profile/'plugins').mkdir(parents=True)
+            xdg.mkdir(mode=0o700)
+            extract_candidate(args.candidate, profile/'plugins')
+            plugin = profile/'plugins/weread.koplugin'
+            env = dict(os.environ, KO_HOME=str(profile), XDG_RUNTIME_DIR=str(xdg), LD_LIBRARY_PATH=str(runtime/'libs'),
+                       SDL_VIDEODRIVER='dummy', EMULATE_READER='1', EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8',
+                       EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
+                       EMULATE_READER_DPI=str(args.dpi), WEREAD_DIRECT_OWNER_TMPFS='1')
+            if args.offline_time_ui: env['TZ'] = 'Asia/Shanghai'
+            phase = 'native_chapter'
+            prepare = dict(payload, plugin_home=True, quick_search=args.quick_search)
+            if cloud_entry:
+                prepare.update(live_cloud_resume=True, read_entry='shelf', exact_resume=args.cloud_resume,
+                               start_unread=args.start_unread, cloud_chapter_uid=payload['uid'] if args.cloud_resume else '0')
+            if args.resume_missing_source:
+                prepare['missing_resume_source'] = True
+            probe = 'native_direct_home_full_owner_probe.lua' if args.full_ui else 'native_direct_owner_ui_probe.lua'
+            probe_marker = b'WEREAD_DIRECT_HOME_FULL=' if args.full_ui else b'WEREAD_DIRECT_OWNER='
+            code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                                            str(plugin), str(REPO/'spec/koreader'/probe)], env,
+                                           json.dumps(prepare, ensure_ascii=False).encode(), runtime, timeout=180)
+            if code:
+                match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                if match:
+                    report['probe_line'] = int(match.group(1))
+                stage = re.search(rb'(?m)^WEREAD_DIRECT_HOME_STAGE=(search_dialog|search_results|details|catalog|reader|cloud_position|home_record|quick_menu|quick_input|quick_results|close_home)$',out)
+                if stage:
+                    report['probe_stage'] = stage.group(1).decode()
+                reason = re.search(rb'(?m)^WEREAD_DIRECT_HOME_REASON=(not_entitled|auth_expired|rate_limited|service_rejected|session_changed|catalog_changed|unavailable|invalid_source|invalid_image|remote_unsupported|storage|resource_[a-z_]+)$',out)
+                if reason:
+                    value=reason.group(1).decode()
+                    resources={'missing','unsupported','ambiguous','inline_style','css','css_import','css_url','html','body',
+                               'link_tag','style_tag','unsupported_markup','background_attribute','other_source_attribute',
+                               'multiple_styles','source','source_changed','asset','assets','remote_limit','missing_limit','options','unavailable'}
+                    if not value.startswith('resource_') or value[9:] in resources:
+                        report['reason'] = value
+                for name,allowed in (('archive',{'ok','filename','entry_limit','password','checksum','manifest_chapter',
+                                                  'body_selection','manifest_parse','body_limit','other'}),
+                                     ('download',{'http_200','http_401','http_429','http_other','transport'})):
+                    item=profile/('native-home-'+name)
+                    if item.is_file() and item.stat().st_size<=32:
+                        value=item.read_text()
+                        if value in allowed:
+                            report[name+'_status']=value
+                item=profile/'native-home-payload'
+                if item.is_file() and item.stat().st_size<=32:
+                    value=item.read_text()
+                    if value in {kind+'_'+key for kind in ('empty','zip','json','other') for key in ('key','nokey','duplicate')}:
+                        report['payload_status']=value
+            prepared = frame(out, probe_marker)
+            if prepared.get('reason') in {'not_entitled', 'auth_expired', 'rate_limited', 'service_rejected',
+                                         'session_changed', 'catalog_changed', 'unavailable', 'invalid_source',
+                                         'invalid_image', 'remote_unsupported', 'storage'}:
+                report['reason'] = prepared['reason']
+            path = Path(prepared.get('path', ''))
+            if (code or repaint or prepared.get('ok') is not True or prepared.get('source_matches') is not True
+                    or type(prepared.get('requests')) is not int or not 5 <= prepared['requests'] <= 69
+                    or args.full_ui and prepared.get('store_search') is not args.store_search
+                    or args.full_ui and prepared.get('quick_search') is not args.quick_search
+                    or args.cloud_resume and (prepared.get('cloud_position_verified') is not True
+                        or prepared.get('cloud_reads') != 3)
+                    or args.start_unread and (prepared.get('first_page_verified') is not True or prepared.get('cloud_reads') != 2)
+                    or cloud_entry and prepared.get('home_return_verified') is not True
+                    or args.resume_missing_source and prepared.get('chapter_reads') != 2
+                    or not path.is_file() or profile/'weread' not in path.parents):
+                raise ValueError('prepare')
+            for mode in (('reopen',) if args.full_ui else ('record', 'reopen')):
+                phase = mode
+                private = dict(mode=mode, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                if args.store_search:
+                    private['store_search'] = True
+                if args.progress_estimate:
+                    private['progress_estimate'] = progress
+                code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                                                str(REPO), str(REPO/'spec/koreader/native_home_resume_probe.lua')], env,
+                                               json.dumps(private).encode(), runtime, timeout=150)
+                if code:
+                    match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                    if match:
+                        report['probe_line'] = int(match.group(1))
+                expected=dict(ok=True, mode=mode, network_blocked=True)
+                if args.progress_estimate: expected['progress_estimate']=True
+                if code or repaint or frame(out, b'WEREAD_NATIVE_HOME=') != expected:
+                    raise ValueError('home')
+            if args.offline_time:
+                phase = 'offline_time'
+                saved = None
+                for stage in (('capture', 'reopen', 'reopen_review') if args.offline_time_ui else ('capture', 'reopen')):
+                    private = dict(stage=stage, path=str(path), book_id=payload['book_id'], vid=payload['credentials']['vid'])
+                    if args.no_position_guidance: private['expect_no_position']=True
+                    code, out, repaint = run_child([str(runtime/'luajit'), str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO), str(REPO/'spec/koreader/native_direct_time_owner_probe.lua')], env,
+                        json.dumps(private).encode(), runtime, timeout=150)
+                    if code:
+                        match = re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)', out)
+                        if match: report['probe_line'] = int(match.group(1))
+                        diagnostic = re.search(rb'WEREAD_DIRECT_TIME_DIAGNOSTIC=((?:reader|collector)_(?:none|disabled|reader_hidden|native_time_checking|native_time_unavailable|recording_native|statistics_unavailable|paused|no_book|error))', out)
+                        if diagnostic: report['time_diagnostic'] = diagnostic.group(1).decode()
+                    observed = frame(out, b'WEREAD_DIRECT_TIME_OWNER=')
+                    if (code or repaint or observed.get('ok') is not True or observed.get('stage') != stage
+                            or observed.get('network_blocked') is not True
+                            or type(observed.get('rows')) is not int or observed['rows'] < 1
+                            or type(observed.get('seconds')) is not int or observed['seconds'] < 5
+                            or not isinstance(observed.get('snapshot'), str)
+                            or re.fullmatch(r'[0-9a-f]{64}', observed['snapshot']) is None
+                            or observed.get('review_verified') is not (stage == 'reopen_review')
+                            or observed.get('guidance_verified') is not (stage == 'reopen_review' and args.no_position_guidance)):
+                        raise ValueError('offline_time')
+                    point = observed['rows'], observed['seconds'], observed['snapshot']
+                    if saved is not None and point != saved: raise ValueError('offline_time_changed')
+                    saved = point
+                if args.offline_time_preflight:
+                    phase = 'offline_time_preflight'
+                    private=dict(credentials=payload['credentials'],cookies=payload['web_cookies'],
+                        book_id=payload['book_id'],uid=payload['uid'],expect_no_position=args.no_position_guidance)
+                    if payload.get('mock_endpoint') is not None: private['mock_endpoint']=payload['mock_endpoint']
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO),str(REPO/'spec/koreader/native_direct_time_online_preflight.lua')],env,
+                        json.dumps(private).encode(),runtime,timeout=200)
+                    if code:
+                        match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                        if match: report['probe_line']=int(match.group(1))
+                    observed=frame(out,b'WEREAD_DIRECT_TIME_ONLINE=')
+                    if observed.get('last') in {'none','metadata','native_progress','shelf','statistics','config','feature',
+                            'native_catalog','native_source','user','web_progress','web_catalog','reader','web_source'}:
+                        report['preflight_last']=observed['last']
+                    if observed.get('rejected') in {'none','book_info','book_getProgress','shelf_sync','readdata_detail',
+                            'config','feature','book_chapterInfos','book_chapterdownload','api_userInfo','web_book_getProgress',
+                            'web_book_chapterInfos','web_reader_','web_book_chapter_e_','book_batchUploadProgress'}:
+                        report['preflight_rejected']=observed['rejected']
+                    if type(observed.get('last_status')) is int and -1<=observed['last_status']<=599:
+                        report['preflight_status']=observed['last_status']
+                    if observed.get('source_reason') in {'none','invalid','file_changed','source_changed','unavailable',
+                            'web_expired','auth_expired','not_entitled','rate_limited','session_changed'}:
+                        report['preflight_source_reason']=observed['source_reason']
+                    if observed.get('transport') in {'none','sensitive_request_failed','other'}:
+                        report['preflight_transport']=observed['transport']
+                    if type(observed.get('error_line')) is int and 0<=observed['error_line']<=10000:
+                        report['preflight_error_line']=observed['error_line']
+                    if observed.get('point_failure') in {'none','native_invalid','native_missing','native_no_chapter','native_other',
+                            'web_invalid','web_missing','web_no_chapter','web_other'}:
+                        report['preflight_point_failure']=observed['point_failure']
+                    if (code or repaint or observed.get('ok') is not True or observed.get('blocked_before_dispatch') is not True
+                            or observed.get('ledger_unchanged') is not True or observed.get('write_guard_verified') is not True
+                            or observed.get('unstarted_time_ready') is not args.no_position_guidance
+                            or type(observed.get('requests')) is not int
+                            or not 1<=observed['requests']<=100):
+                        raise ValueError('offline_time_preflight')
+                    del report['preflight_last']
+                    del report['preflight_rejected']
+                    del report['preflight_status']
+                    del report['preflight_source_reason']
+                    del report['preflight_transport']
+                    del report['preflight_error_line']
+                    del report['preflight_point_failure']
+            if args.offline_reminder:
+                phase='offline_reminder'
+                for stage in ('save','conflict_cancel_close','reopen_replace','save','manual_conflict','save','manual_offline','discard_cancel','different','restore','manual_restore',
+                              'manual_discard','save','discard','cleared'):
+                    private=dict(stage=stage,path=str(path),book_id=payload['book_id'],vid=payload['credentials']['vid'])
+                    code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
+                        str(REPO),str(REPO/'spec/koreader/native_direct_pending_reader_probe.lua')],env,
+                        json.dumps(private).encode(),runtime,timeout=150)
+                    if code:
+                        match=re.search(rb'WEREAD_DIRECT_OWNER_ERROR=(\d+)',out)
+                        if match: report['probe_line']=int(match.group(1))
+                    if code or repaint or frame(out,b'WEREAD_DIRECT_PENDING_READER=')!=dict(ok=True,stage=stage,network_blocked=True):
+                        raise ValueError('offline_reminder')
+            phase = 'audit'
+            credentials = payload['credentials']
+            secrets = [(key,credentials[key].encode()) for key in ('accessToken', 'refreshToken', 'deviceId')]
+            if args.offline_time_preflight:
+                secrets.extend((key,value.encode()) for key,value in payload['web_cookies'].items()
+                    if key!='wr_vid' and isinstance(value,str) and value)
+            for item in profile.rglob('*'):
+                if item.is_symlink():
+                    raise ValueError('symlink')
+                if item.is_file() and plugin not in item.parents:
+                    if item.stat().st_size > 128*1024*1024:
+                        raise ValueError('file_limit')
+                    content = item.read_bytes()
+                    for key,secret in secrets:
+                        if contains_private(content,key,secret):
+                            report['audit_match']=key
+                            raise ValueError('credential_file')
+            with zipfile.ZipFile(args.candidate) as archive:
+                for item in archive.infolist():
+                    if not item.is_dir() and archive.read(item) != (profile/'plugins'/item.filename).read_bytes():
+                        raise ValueError('installed_bytes')
+            report.update(result='PASS', native_requests=prepared['requests'], source_matches=True,
+                          home_record=True, offline_home_resume=True, page_restored=True, network_blocked=True,
+                          credential_file_audit=True, installed_bytes_match=True)
+            if args.full_ui:
+                report['full_ui'] = True
+            if args.cloud_resume:
+                report.update(cloud_position_verified=True, cloud_reads=3)
+            if args.resume_missing_source:
+                report.update(original_recovered=True, chapter_reads=2)
+            if args.start_unread:
+                report.update(first_page_verified=True, cloud_reads=2)
+            if cloud_entry:
+                report['home_return_verified'] = True
+            if args.store_search:
+                report['store_search'] = True
+                report['inline_style_verified'] = True
+            if args.quick_search:
+                report['quick_search'] = True
+            if args.progress_estimate:
+                report['progress_estimate_verified'] = True
+            if args.offline_reminder:
+                report['offline_reminder_verified'] = True
+            if args.offline_time:
+                report['offline_time_verified'] = True
+            if args.offline_time_ui:
+                report['offline_time_ui_verified'] = True
+            if args.offline_time_preflight:
+                report['offline_time_preflight_verified'] = True
+            if args.no_position_guidance:
+                report['no_position_guidance_verified'] = True
+    except (Exception, KeyboardInterrupt):
+        report['phase'] = phase
+    finally:
+        report['profile_removed'] = root is not None and not root.exists()
+    sys.stdout.buffer.write(FRAME + json.dumps(report).encode() + b'\n')
+    return int(report['result'] != 'PASS' or not report['profile_removed'])
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

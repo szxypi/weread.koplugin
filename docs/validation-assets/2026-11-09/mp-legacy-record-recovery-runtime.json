@@ -1,0 +1,219 @@
+{
+  "result": "PASS",
+  "recorded_at": "2026-11-09T09:31:12.542280+00:00",
+  "evidence_kind": "synthetic_native_assertions",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "native_fixture_sha256": "036cc17caffb6f4c9fddc95a55b7612046723b58e3fd147c9d145fc7bcfc66c6",
+  "synthetic_only": true,
+  "real_account_requests": 0,
+  "account_data_writes": 0,
+  "keychain_accessed": false,
+  "product_lua_changed": false,
+  "product_recovery_entry_implemented": false,
+  "legacy_recovery_reader_opens": 42,
+  "default_migration_reader_opens": 54,
+  "recovered_copies_across_profiles": 12,
+  "body_identity_and_archive_bytes_checked": true,
+  "container_progress_pending_checked": true,
+  "profiles": [
+    {
+      "kind": "legacy_recovery_prototype",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "production_commit": "d70b76aa4406969af57086d7174424534da8117d",
+      "stages": [
+        {
+          "result": "PASS",
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "recovered_versions": 6,
+          "source_snapshots": 2,
+          "reader_opens": 15,
+          "recovered_after_source_candidates_removed": true,
+          "chosen_snapshots_restored": true,
+          "automatic_product_recovery": false,
+          "sampled_hash_collision": true,
+          "shared_primary_backup_distinct": true,
+          "stock_migration_deletes_shared_candidates": true,
+          "original_html_unchanged": true,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true
+        },
+        {
+          "fresh_process": true,
+          "reader_opens": 6,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "result": "PASS",
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "recovered_versions": 6,
+          "automatic_product_recovery": false
+        }
+      ],
+      "package_files": 174,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "local_http_events": 0
+    },
+    {
+      "kind": "legacy_recovery_prototype",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "production_commit": "d70b76aa4406969af57086d7174424534da8117d",
+      "stages": [
+        {
+          "reader_opens": 15,
+          "result": "PASS",
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "sampled_hash_collision": true,
+          "shared_primary_backup_distinct": true,
+          "stock_migration_deletes_shared_candidates": true,
+          "original_html_unchanged": true,
+          "chosen_snapshots_restored": true,
+          "recovered_after_source_candidates_removed": true,
+          "recovered_versions": 6,
+          "source_snapshots": 2
+        },
+        {
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "result": "PASS",
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "recovered_versions": 6,
+          "fresh_process": true,
+          "reader_opens": 6,
+          "automatic_product_recovery": false,
+          "synthetic_only": true
+        }
+      ],
+      "package_files": 174,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "local_http_events": 0
+    },
+    {
+      "kind": "default_launcher_regression",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "production_commit": "d70b76aa4406969af57086d7174424534da8117d",
+      "stages": [
+        {
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "reader_opens": 36,
+          "result": "PASS",
+          "version_files": 18,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "transitions": [
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "doc",
+              "target": "dir",
+              "pending_preserved": true,
+              "html_unchanged": true
+            },
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "doc",
+              "target": "hash",
+              "pending_preserved": true,
+              "html_unchanged": true
+            },
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "dir",
+              "target": "doc",
+              "pending_preserved": true,
+              "html_unchanged": true
+            },
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "dir",
+              "target": "hash",
+              "pending_preserved": true,
+              "html_unchanged": true
+            },
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "hash",
+              "target": "doc",
+              "pending_preserved": true,
+              "html_unchanged": true
+            },
+            {
+              "versions": 3,
+              "notes_preserved": true,
+              "positions_restored": true,
+              "old_location_removed": true,
+              "source": "hash",
+              "target": "dir",
+              "pending_preserved": true,
+              "html_unchanged": true
+            }
+          ]
+        },
+        {
+          "version_files": 18,
+          "reader_opens": 18,
+          "fresh_process": true,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "transitions": {},
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "result": "PASS"
+        }
+      ],
+      "package_files": 174,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "local_http_events": 0
+    }
+  ],
+  "stock_migration_wrong_notes_checked": true
+}

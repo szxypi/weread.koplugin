@@ -1,0 +1,22 @@
+{
+  "result": "TXT_IMPORT_AND_SOURCE_VERIFIED",
+  "fixture": "new self-authored raw TXT import",
+  "web_catalog_samples": 2,
+  "web_catalog_version_root": "absent",
+  "web_catalog_version_book": "absent",
+  "native_metadata_samples": 2,
+  "native_version": "zero",
+  "source_catalog_and_position_stable": true,
+  "fixture_upload_puts": 1,
+  "fixture_import_notifications": 1,
+  "fixture_cleanup_requests": 1,
+  "web_shelf_restored": true,
+  "existing_book_writes": 0,
+  "reading_position_writes": 0,
+  "reading_time_writes": 0,
+  "authentication_posts": 0,
+  "previous_unresolved_group_fixture_retained": true,
+  "previous_unresolved_groups_absent": true,
+  "zero_version_time_supported": false,
+  "physical_device_tested": false
+}

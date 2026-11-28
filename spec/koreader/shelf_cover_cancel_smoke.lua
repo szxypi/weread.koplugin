@@ -1,0 +1,302 @@
+-- Real native cover children, delayed local HTTP, cancellation and reopening.
+return function(plugin,flush,evidence)
+    local UIManager=require('ui/uimanager')
+    local util=require('ffi/util')
+    local socket,http,ltn12=require('socket'),require('socket.http'),require('ltn12')
+    local Settings=require('weread.lib.settings');local LuaSettings=require('luasettings')
+    plugin:closeWeReadUI()
+    -- Actual KOReader has its file manager/reader underneath the plugin. Keep
+    -- that underlying window here so closing the test view does not quit SDL.
+    local anchor=require('ui/widget/infomessage'):new{text='合成封面取消验证',dismissable=false,modal=false}
+    UIManager:show(anchor)
+    local root=plugin.settings.data_dir..'/cover-cancellation';assert(require('util').makePath(root..'/cache'))
+    local data=plugin.client:json_decode(plugin.client:json_encode(plugin.settings.store.data))
+    data.books={};data.shelf={view_mode='cover',paginated=true,sort_order='default'}
+    local settings=setmetatable({data_dir=root,cache_dir=root..'/cache',default_cache_dir=root..'/cache',
+        settings_file=root..'/configuration.lua',mock_endpoint=plugin.settings.mock_endpoint},Settings)
+    settings.store=LuaSettings:open(settings.settings_file);settings.store.data=data;settings:flush()
+    local factory=Settings.new;Settings.new=function() return settings end
+    local class=getmetatable(plugin);local created,host=pcall(class.new,class,{ui=plugin.ui});Settings.new=factory
+    assert(created and host,'isolated cover host initialization failed')
+    local ffi=require('ffi');require('ffi/posix_h')
+    local parent_pid=tonumber(ffi.C.getpid())
+    local trace_path=root..'/prune-processes'
+    local cache=host:getShelfCoverCache()
+    local prune=cache.prune
+    function cache:prune(...)
+        local file=assert(io.open(trace_path,'ab'))
+        assert(file:write(tonumber(ffi.C.getpid())==parent_pid and 'P' or 'W'));assert(file:close())
+        return prune(self,...)
+    end
+    local function prune_trace()
+        local file=io.open(trace_path,'rb');if not file then return '' end
+        local trace=file:read('*a');file:close();return trace
+    end
+    local prunes_checked=0
+    host.isNetworkOnline=function() return true end
+    host.prepareShelfProgress=function() end;host.refreshVisibleShelfProgress=function() end
+    local client,endpoint=host.client,settings.mock_endpoint
+    local function state()
+        local chunks={};local _,code=http.request{url=endpoint..'/__state',proxy=endpoint,sink=ltn12.sink.table(chunks)}
+        assert(code==200);return client:json_decode(table.concat(chunks))
+    end
+    local function control(delay)
+        local raw=client:json_encode{match='/mock/cover.png',delay=delay,times=0}
+        local _,code=http.request{url=endpoint..'/__control',proxy=endpoint,method='POST',
+            headers={['content-type']='application/json',['content-length']=#raw},source=ltn12.source.string(raw),sink=ltn12.sink.null()}
+        assert(code==200)
+    end
+    local function pump(predicate,seconds)
+        local deadline=socket.gettime()+(seconds or 15)
+        while not predicate() do assert(socket.gettime()<deadline,'cover cancellation deadline');flush();socket.sleep(.01) end
+    end
+    local function check_cover_paint(view)
+        UIManager:forceRePaint()
+        local screen=require('device').screen
+        local BB=require('ffi/blitbuffer')
+        local frame=view._item_rows[1].frame
+        local repaint,dirty=UIManager.widgetRepaint,UIManager.setDirty
+        local cells,regions=0,{}
+        UIManager.widgetRepaint=function(ui,widget,...)
+            if widget==frame then cells=cells+1 end
+            return repaint(ui,widget,...)
+        end
+        UIManager.setDirty=function(ui,widget,mode,region,...)
+            if widget==nil and mode=='ui' and region then regions[#regions+1]=region end
+            return dirty(ui,widget,mode,region,...)
+        end
+        local ok,reason=pcall(pump,function() return not host.shelf_cover_job end)
+        UIManager.widgetRepaint,UIManager.setDirty=repaint,dirty
+        assert(ok,reason)
+        local traced=prune_trace()
+        assert(#traced>prunes_checked and not traced:find('P',1,true),'cover batch did not prune in its last child')
+        prunes_checked=#traced
+        assert(host.shelf_view==view and view._item_rows[1].frame==frame and view._item_rows[1]._has_cover,
+            'cover completion replaced the page or did not fill this cell')
+        assert(cells==1 and #regions==1 and regions[1].x==frame.dimen.x and regions[1].y==frame.dimen.y
+            and regions[1].w==frame.dimen.w and regions[1].h==frame.dimen.h
+            and regions[1].w*regions[1].h<screen:getWidth()*screen:getHeight(),
+            'cover completion did not request one cell-sized refresh')
+        UIManager:forceRePaint()
+        local partial=BB.tostring(screen.bb)
+        UIManager:setDirty(view,'ui',view.dimen)
+        UIManager:forceRePaint()
+        assert(partial==BB.tostring(screen.bb),'cover-only repaint pixels differed from a full repaint')
+        return {w=regions[1].w,h=regions[1].h}
+    end
+    local terminated,reaped,closed,owners,started={}, {}, {}, {}, {}
+    host.shelf_cover_subprocess={
+        run=function(task)
+            local pid,fd=util.runInSubProcess(task,true)
+            if pid then started[pid]=true end
+            if fd then owners[fd]=pid end
+            return pid,fd
+        end,
+        write_all=function(fd,value) return util.writeToFD(fd,value,true) end,
+        is_done=function(pid) local done=util.isSubProcessDone(pid);if done then reaped[pid]=true end;return done end,
+        terminate=function(pid) terminated[pid]=(terminated[pid] or 0)+1;return util.terminateSubProcess(pid) end,
+        read_all=function(fd)
+            local pid=assert(owners[fd]);owners[fd]=nil
+            closed[pid]=(closed[pid] or 0)+1;return util.readAllFromFD(fd)
+        end,
+    }
+    local report={result='UNVERIFIED',phase='init',synthetic_only=true,cases={},cover_regions={},
+        account_data_writes=0,authentication_posts=0}
+    local sequence=0
+    local function book(label,item)
+        sequence=sequence+1
+        return {bookId=tostring(990000+sequence),title='合成封面 '..label,author='测试作者',
+            cover='https://weread.qq.com/mock/cover.png?case=cancel-'..label..'&item='..item}
+    end
+    local function check_write_lease(seed)
+        local CoverCache=require('weread.lib.cover_cache')
+        local lfs=require('libs/libkoreader-lfs')
+        local function read(path)
+            local file=assert(io.open(path,'rb'))
+            local bytes=assert(file:read('*a'))
+            assert(file:close())
+            return bytes
+        end
+        local function write(path,bytes)
+            local file=assert(io.open(path,'wb'))
+            assert(file:write(bytes));assert(file:close())
+        end
+        local directory=root..'/write-race'
+        assert(lfs.mkdir(directory))
+        local cover=read(assert(cache:pathFor(seed)))
+        local observer=CoverCache:new({data_dir=directory})
+        local committed=assert(observer:store(seed,cover))
+        local target,legacy=book('lease',1),book('lease',2)
+        local legacy_path=observer.dir..'/'..observer:key(legacy)..'.png'
+        write(legacy_path,cover)
+        local source_stage,thumbnail_stage=observer.dir..'/.source.part',observer.dir..'/.thumb.part.png'
+        local ready=directory..'/ready'
+        local writer=CoverCache:new({data_dir=directory},{
+            render_thumbnail=function(source,destination,width,height)
+                assert(source==source_stage and destination==thumbnail_stage)
+                assert(require('weread.lib.cover_thumbnail').render(source,destination,width,height))
+                write(ready,'staged')
+                socket.sleep(10)
+                return destination
+            end,
+        })
+        local pid=assert(util.runInSubProcess(function() assert(writer:store(target,cover)) end))
+        local checked,reason=pcall(function()
+            pump(function() return lfs.attributes(ready,'mode')=='file' end,3)
+            local staged=read(thumbnail_stage)
+            local stored,store_reason=observer:store(target,cover)
+            local migrated,migrate_reason=observer:thumbnailFromCached(legacy)
+            local pruned,prune_reason=observer:prune(0)
+            assert(not stored and store_reason=='busy' and not migrated and migrate_reason=='busy'
+                and not pruned and prune_reason=='busy','competing cache mutations acquired the lock')
+            assert(read(source_stage)==cover and read(thumbnail_stage)==staged and read(legacy_path)==cover)
+            assert(observer:thumbnailFromCached(seed)==committed and not observer:pathFor(target))
+        end)
+        util.terminateSubProcess(pid)
+        pump(function() return util.isSubProcessDone(pid) end,3)
+        assert(checked,reason)
+        assert(lfs.attributes(source_stage) and lfs.attributes(thumbnail_stage) and not observer:pathFor(target),
+            'interrupted child published a thumbnail or did not leave staging for recovery')
+        assert(observer:prune()==0 and not lfs.attributes(source_stage) and not lfs.attributes(thumbnail_stage))
+        assert(observer:pathFor(seed)==committed and observer:thumbnailFromCached(legacy)
+            and observer:store(target,cover),'cache did not resume after a writer was terminated')
+    end
+    local function begin(label)
+        report.phase='begin_'..label
+        host:closeWeReadUI();pump(function() return not host.shelf_cover_job end)
+        local first,tail=book(label,1),book(label,2)
+        control(5);host:applyShelfSnapshot({first,tail},{})
+        local heartbeat=false;UIManager:scheduleIn(.1,function() heartbeat=true end)
+        host:showShelfView('books')
+        local job=assert(host.shelf_cover_job)
+        pump(function() return (state().active_requests[first.cover] or 0)==1 and heartbeat end)
+        assert(not reaped[job.pid] and not util.isSubProcessDone(job.pid),'cover child was not live before cancellation')
+        return job,first,tail
+    end
+    local initial=state().totals
+    local ok,failure=pcall(function()
+        local job,first,tail=begin('close')
+        report.phase='close_reopen'
+        host:closeWeReadUI()
+        assert(job.cancelled,'closing the native view did not cancel its live cover child')
+        host:closeWeReadUI();control(0)
+        local next_book=book('reopen',1);host:applyShelfSnapshot({next_book},{})
+        host:showShelfView('books')
+        assert(host.shelf_cover_job==job and host.shelf_cover_pending,'reopening bypassed the unreaped child')
+        report.cover_regions.shelf=check_cover_paint(host.shelf_view)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
+        assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
+        assert(host:getShelfCoverCache():pathFor(next_book) and host.shelf_view._item_rows[1]._has_cover)
+        UIManager:forceRePaint();require('device').screen:shot(evidence..'/shelf-cover-reopened.png')
+        report.cases.close_then_reopen=true
+        report.phase='cache_write_lease'
+        check_write_lease(next_book)
+        report.cases.cache_write_lease=true
+
+        job,first,tail=begin('account')
+        report.phase='account'
+        host:onWeReadAccountChanged();assert(job.cancelled and not host.shelf_cover_pending)
+        pump(function() return not host.shelf_cover_job end,2)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1 and not host.shelf_view)
+        assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
+        report.cases.account_change=true
+
+        job,first,tail=begin('list');report.phase='list'
+        local layout=settings:get('shelf');layout.view_mode='list';settings:set('shelf',layout)
+        host:showShelfView('books',nil,host.shelf_view)
+        assert(job.cancelled and not host.shelf_view.cover_mode)
+        pump(function() return not host.shelf_cover_job end,2)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
+        assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
+        layout.view_mode='cover';settings:set('shelf',layout);report.cases.switch_to_list=true
+
+        job,first,tail=begin('portal');report.phase='portal'
+        host:showDiscoveryPage('store',{}, {title='合成书城'})
+        assert(job.cancelled and host.shelf_view.portal)
+        pump(function() return not host.shelf_cover_job end,2)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
+        assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
+        report.cases.switch_to_portal=true
+
+        job,first,tail=begin('suspend')
+        report.phase='resume'
+        host:onSuspend();assert(job.cancelled and host.shelf_cover_resume)
+        control(0);host:onResume()
+        pump(function() return not host.shelf_cover_job end)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
+        assert(host:getShelfCoverCache():pathFor(first) and host:getShelfCoverCache():pathFor(tail))
+        assert(not host.shelf_cover_resume and host.shelf_view._item_rows[1]._has_cover)
+        report.cases.suspend_then_resume=true
+
+        job,first,tail=begin('suspend-close')
+        report.phase='suspend_close'
+        host:onSuspend();host:closeWeReadUI();control(0);host:onResume()
+        pump(function() return not host.shelf_cover_job end,2)
+        assert(terminated[job.pid]>=1 and reaped[job.pid] and closed[job.pid]==1)
+        assert(not host.shelf_cover_resume and not host.shelf_cover_pending and not host.shelf_view)
+        assert(not host:getShelfCoverCache():pathFor(first) and not host:getShelfCoverCache():pathFor(tail))
+        report.cases.closed_during_suspend=true
+
+        for _,tab in ipairs({'home','store'}) do
+            report.phase='cover_paint_'..tab
+            local home=tab=='home' and host:homePreferences() or nil
+            if home then home.view_mode='cover' end
+            local size=require('weread.ui.library_view').getLayout(true,60,'books',108,{home=home,store=not home}).page_size
+            local books={}
+            for i=1,60 do
+                books[i]=book(tab..'-loaded',i)
+                books[i].cover=nil
+            end
+            books[size+1]=book(tab..'-second-page',1)
+            host:showDiscoveryPage(tab,books,{title='合成封面 '..tab,home=home})
+            assert(host.shelf_view.page_size==size and not host.shelf_cover_job)
+            host.shelf_view:turnShelfPage(1)
+            local view=host.shelf_view
+            assert(view.page==2 and host.shelf_cover_job)
+            if home then host:stopHomeStatusTimer() end
+            report.cover_regions[tab]=check_cover_paint(view)
+            report.cases['cover_paint_'..tab]=true
+            host:closeWeReadUI()
+        end
+        report.phase='cover_paint_popup'
+        host:applyShelfSnapshot({book('covered-page',1)},{})
+        host:showShelfView('books')
+        local covered=host.shelf_view
+        local dialog=require('ui/widget/infomessage'):new{text='合成封面弹窗',dismissable=false}
+        assert(require('weread.ui.shelf_popup').show(covered,dialog))
+        pump(function() return not host.shelf_cover_job end)
+        assert(host.shelf_view==covered and UIManager:getTopmostVisibleWidget()==dialog
+            and not covered._item_rows[1]._has_cover,'cover arrived over an open popup')
+        UIManager:close(dialog)
+        pump(function() return host.shelf_view~=covered end)
+        assert(host.shelf_view._item_rows[1]._has_cover)
+        report.cases.cover_paint_popup=true
+        host:closeWeReadUI()
+        report.started_children,report.terminated_children,report.reaped_children,report.drained_pipes=0,0,0,0
+        for pid in pairs(started) do
+            assert(reaped[pid] and closed[pid]==1,'cover child or pipe ownership was not released once')
+            report.started_children=report.started_children+1
+            report.reaped_children=report.reaped_children+1
+            report.drained_pipes=report.drained_pipes+1
+            if terminated[pid] then report.terminated_children=report.terminated_children+1 end
+        end
+        assert(report.started_children==12 and report.terminated_children==6)
+        report.result='PASS';report.phase='complete'
+    end)
+    control(0);host:closeWeReadUI()
+    if host.shelf_cover_job then
+        local job=host.shelf_cover_job;util.terminateSubProcess(job.pid);util.isSubProcessDone(job.pid,true)
+        if job.read_fd then util.readAllFromFD(job.read_fd) end
+        host.shelf_cover_job=nil
+    end
+    UIManager:close(anchor)
+    local function count(rows,path)
+        local total=0;for _,row in ipairs(rows) do if row.path==path then total=total+row.count end end;return total
+    end
+    local final=state().totals
+    report.account_data_writes=count(final,'/web/book/read')-count(initial,'/web/book/read')
+    report.authentication_posts=count(final,'/web/login/renewal')-count(initial,'/web/login/renewal')
+    local out=assert(io.open(evidence..'/shelf-cover-cancellation.json','wb'));out:write(client:json_encode(report));out:close()
+    assert(ok,failure)
+    assert(report.account_data_writes==0 and report.authentication_posts==0)
+end

@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-24",
+  "feature": "offline started-reading observation",
+  "synthetic_packaged_ui": {
+    "dimensions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "separate_online_and_offline_processes": true,
+    "known_true_false_and_missing": true,
+    "offline_uncached": true,
+    "network_requests_online": 3,
+    "additional_network_requests_offline": 0,
+    "profile_removed": true
+  },
+  "synthetic_native_change_ui": {
+    "dimensions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "confirmed_and_pending_cache_updates": true,
+    "unconfirmed_change_does_not_update_cache": true,
+    "profile_removed": true
+  },
+  "sqlite": {
+    "concurrent_compare_and_swap": true,
+    "account_isolation": true,
+    "restart": true,
+    "commit_failure_rollback": true,
+    "corrupt_row_preserved": true
+  },
+  "owner_read_only": {
+    "ordinary": "600x800",
+    "imported": "1264x1680",
+    "online_then_offline_ui": true,
+    "account_data_writes": 0,
+    "shelf_unchanged": true,
+    "profile_removed": true,
+    "additional_ordinary_1264x1680_attempts": {
+      "count": 2,
+      "result": "UNVERIFIED",
+      "error_category": "ProbeError",
+      "account_data_writes": 0
+    }
+  },
+  "hardware_device_verified": false,
+  "limitations": [
+    "Cached status is a dated observation and may be stale.",
+    "Physical Kindle Oasis 2 acceptance remains pending."
+  ]
+}

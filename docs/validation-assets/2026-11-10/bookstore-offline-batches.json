@@ -1,0 +1,560 @@
+{
+  "result": "BOOKSTORE_OFFLINE_BATCHES_NATIVE_VERIFIED",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "physical_device": false,
+  "base_head": "55c1318c6933527d38d18fe269f4754d497f0fdd",
+  "production_changed": true,
+  "limits": {
+    "queries_per_account": 12,
+    "batches_per_query": 12,
+    "payload_bytes_per_query": 2097152,
+    "total_payload_bytes_per_account": 16777216
+  },
+  "cached_remote_sessions_or_credential_revisions": false,
+  "offline_next_only_when_saved": true,
+  "online_refresh_starts_fresh_first_batch": true,
+  "live_failure_keeps_current_batch": true,
+  "cached_similar_closes_detail": true,
+  "cached_label_visible_with_long_titles": true,
+  "real_profiles": [
+    {
+      "resolution": "600x800",
+      "dpi": 167,
+      "report": {
+        "result": "OWNER_DISCOVERY_FILE_UI_AND_OFFLINE_VERIFIED",
+        "checked_at": "2026-11-10T13:04:17.274007+00:00",
+        "account_data_posts_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "private_data_on_regular_disk": false,
+        "credentials_written_to_files": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "installed_bytes_match": true,
+          "installed_files": 203,
+          "stages": [
+            {
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": true,
+              "validated_views": 5,
+              "samples": 5,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "batch_sizes": [
+                20,
+                2,
+                20,
+                6,
+                0
+              ],
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true
+            },
+            {
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": false,
+              "validated_views": 8,
+              "samples": 5,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "batch_sizes": [
+                20,
+                2,
+                20,
+                6,
+                0
+              ]
+            }
+          ],
+          "runner_error": "none"
+        },
+        "same_owner_verified": true,
+        "same_response_python_projection_matches": true,
+        "python_preflight_gets": 7,
+        "preflight_stages": [
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          },
+          {
+            "stage": "discovery_metadata",
+            "status": 200
+          },
+          {
+            "stage": "recommend",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "similar",
+            "status": 200
+          },
+          {
+            "stage": "similar",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "resolution": "1264x1680",
+      "dpi": 300,
+      "report": {
+        "result": "OWNER_DISCOVERY_FILE_UI_AND_OFFLINE_VERIFIED",
+        "checked_at": "2026-11-10T13:04:23.425068+00:00",
+        "account_data_posts_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "private_data_on_regular_disk": false,
+        "credentials_written_to_files": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "installed_bytes_match": true,
+          "installed_files": 203,
+          "stages": [
+            {
+              "pagination_matches": true,
+              "worker_http_child": true,
+              "request_counts": [
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "batch_sizes": [
+                20,
+                2,
+                20,
+                6,
+                0
+              ],
+              "failed_line": 0,
+              "forbidden_requests": 0,
+              "screenshots": 0,
+              "mode": "live",
+              "profile_files_audited": 7,
+              "result": "PASS",
+              "credential_file_audit": true,
+              "phase": "complete",
+              "native_filemanager_host": true,
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "validated_views": 5,
+              "samples": 5,
+              "cache_account_scoped": true,
+              "cache_session_free": true
+            },
+            {
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": false,
+              "validated_views": 8,
+              "samples": 5,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "batch_sizes": [
+                20,
+                2,
+                20,
+                6,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true
+            }
+          ],
+          "runner_error": "none"
+        },
+        "same_owner_verified": true,
+        "same_response_python_projection_matches": true,
+        "python_preflight_gets": 7,
+        "preflight_stages": [
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          },
+          {
+            "stage": "discovery_metadata",
+            "status": 200
+          },
+          {
+            "stage": "recommend",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "similar",
+            "status": 200
+          },
+          {
+            "stage": "similar",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "synthetic_profiles": [
+    {
+      "resolution": "600x800",
+      "dpi": 167,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "installed_bytes_match": true,
+          "installed_files": 203,
+          "stages": [
+            {
+              "batch_sizes": [
+                20,
+                6,
+                20,
+                5,
+                20,
+                6
+              ],
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": true,
+              "validated_views": 6,
+              "samples": 6,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": false,
+              "validated_views": 10,
+              "samples": 6,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "batch_sizes": [
+                20,
+                6,
+                20,
+                5,
+                20,
+                6
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true
+            }
+          ],
+          "runner_error": "none"
+        },
+        "real_account_requests_attempted": 0
+      }
+    },
+    {
+      "resolution": "1264x1680",
+      "dpi": 300,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "installed_bytes_match": true,
+          "installed_files": 203,
+          "stages": [
+            {
+              "failed_line": 0,
+              "request_counts": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "batch_sizes": [
+                20,
+                6,
+                20,
+                5,
+                20,
+                6
+              ],
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": true,
+              "validated_views": 6,
+              "samples": 6,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0
+            },
+            {
+              "cache_account_scoped": true,
+              "cache_session_free": true,
+              "pagination_matches": true,
+              "worker_http_child": false,
+              "validated_views": 10,
+              "samples": 6,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "batch_sizes": [
+                20,
+                6,
+                20,
+                5,
+                20,
+                6
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "ui_projection_matches": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true
+            }
+          ],
+          "runner_error": "none"
+        },
+        "real_account_requests_attempted": 0
+      }
+    }
+  ],
+  "real_final_pair_gets": 24,
+  "real_final_pair_views": 26,
+  "synthetic_final_pair_views": 32,
+  "earlier_verified_pairs_real_gets": 72,
+  "earlier_stopped_attempts": [
+    {
+      "python_gets": 7,
+      "native_gets_exact_known": false,
+      "native_gets_upper_bound": 5,
+      "reason": "strict_stage_decoder_lost_partial_receipt"
+    },
+    {
+      "python_gets": 7,
+      "native_gets": 3,
+      "reason": "preflight_snapshot_field_comparison_unverified"
+    }
+  ],
+  "cumulative_real_gets_lower_bound": 113,
+  "cumulative_real_gets_upper_bound": 118,
+  "account_data_posts_attempted": 0,
+  "authentication_posts_attempted": 0,
+  "same_wire_python_projection": true,
+  "raw_wire_or_views_in_public_report": false,
+  "real_screenshots": 0,
+  "synthetic_visual_review": true,
+  "private_data_on_regular_disk": false,
+  "credential_entries_retained": true,
+  "sqlite_runtime_checks": 22,
+  "cache_model_checks": 25,
+  "offline_controller_checks": 15,
+  "static": {
+    "result": "PASS",
+    "lua_spec_groups": 182,
+    "python_files": 55,
+    "python_tests": 670,
+    "luacheck_files": 483,
+    "lua_syntax_files": 485,
+    "python_compiled_files": 152,
+    "calendar_time_zones": 4
+  },
+  "package": {
+    "production_files": 203,
+    "source_and_package_byte_equal": true,
+    "installed_byte_profiles": 6,
+    "zip_crc_verified": true,
+    "sha256": "6bf079ea8f3a6f029867cceaee3e46e7de901955ead9b2e954fedb370766d368"
+  },
+  "normal_reading_regression": {
+    "result": "PASS",
+    "resolutions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "synthetic_only": true,
+    "scope": "selection/download, offline/reconnect, source/interval/close sync, authorization save recovery, shelf membership",
+    "candidate_scope": "earlier candidate before cached-title prefix and SQLite cursor-error cleanup"
+  },
+  "legacy_combined_smoke": {
+    "result": "UNVERIFIED",
+    "bookstore_subscene_passed_both_sizes": true,
+    "full_smoke_passed": false,
+    "failing_fixture": "weread_mock_smoke.lua:138",
+    "reason": "upload_not_dispatched_source_position_unavailable",
+    "production_sync_changed": false,
+    "cause_isolated": false
+  },
+  "source_sha256": {
+    "weread/lib/discovery_cache.lua": "23195dd04be27cbf6498e1dc50b08e6b054b1ec5e0b4ec06abe2092c2c654797",
+    "weread/ui/discovery_cache.lua": "e2c54d42fd886f0db6f36e3a1bd5293128eaf8c25e0f239e212d6ef9209af81f",
+    "weread/ui/discovery.lua": "67aebf5739e893e0f719321c08f234fd0d4a479d16d0e1278be496ccfd147019",
+    "weread/ui/discovery_request.lua": "551151cef3d5ef4f4d9f38aefe072d67c70379e3eda19764b05084524aedd853",
+    "weread/lib/i18n.lua": "67f47c156a36a7709ecf49151b0b6c55ae3f7e0e7051bd24f6398792ec01364c",
+    "scripts/verify_owner_discovery.py": "fdc33aa343062fb3f78a39b7e00e9438767495cf553d0b009dea2ac3f266ac04",
+    "scripts/run_owner_discovery.py": "648ca3fdfddc8add1c0655a35bb38ac7fd684a96d08ae722d47e0aa36b403af9",
+    "scripts/test_owner_discovery.py": "bf3d1e9fbd9b3f7845e2148f09f76c192c2f3a3b379547df7686d5c2475557b5",
+    "scripts/test_owner_discovery_runtime.py": "1aa360f1020434a7700743c37b20d60dbb8c20dd8ca02bedd9c1be56f6b8b1bb",
+    "spec/discovery_cache_spec.lua": "5d377037be0f0d0ea33cca5dd597d8b970d35dce182ec21645cb6c1320f21bd6",
+    "spec/discovery_offline_spec.lua": "74434ed798577a8e02de4fe2a59a6b1cd3a551d829658ecd4b11c58b1bb6888c",
+    "spec/koreader/discovery_cache_smoke.lua": "4b0d752736ba73a5d3bd2ddb1f466b3570710a584d2bfcf05ad419d44bd7c384",
+    "spec/koreader/owner_discovery_probe.lua": "4878878af06fb12d8d99133f992374291f477f464f1aa30a92f04380628b4dfe",
+    "spec/koreader/native_discovery_smoke.lua": "af6a19cd70c0e81ebc73b28d047e8802a18c3e8b341260f9f96eb4264d99cd53",
+    "spec/koreader/discovery_smoke.lua": "2caf0bb2d6e8546cd2bfdae6cc41ee5ccab332d6f393f4a238936a2bee2d1236"
+  },
+  "pending": [
+    "legacy_combined_smoke_sync_failure",
+    "nonempty_real_recommendations",
+    "real_store_cover_combination",
+    "physical_ko2",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

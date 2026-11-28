@@ -1,0 +1,26 @@
+{
+  "capture": {
+    "result": "NATIVE_STATISTICS_WINDOW_CAPTURED",
+    "seconds": 6,
+    "native_rows": 1,
+    "sqlite_evidence_saved": true,
+    "previous_records_unchanged": true,
+    "native_grant_unchanged": true,
+    "profile_removed": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "not_before_utc": "2026-11-19T16:00:01Z"
+  },
+  "independent_same_day_inspection": {
+    "result": "SAME_DAY_DEFERRED",
+    "exact_rows": true,
+    "archive_verified": true,
+    "coverage_verified": true,
+    "pending_unchanged": true,
+    "saved_capture_unchanged": true,
+    "profile_removed": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "historical_dispatch_performed": false
+}

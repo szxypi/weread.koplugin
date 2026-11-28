@@ -1,0 +1,36 @@
+{
+  "result": "PASS",
+  "baseline_commit": "3ea4ec37",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "books": 1500,
+  "queries": 2000,
+  "runs_each": 3,
+  "scenarios": [
+    {"width": 600, "height": 800, "dpi": 167, "before_cpu_median_ms": 21, "after_cpu_median_ms": 1},
+    {"width": 1264, "height": 1680, "dpi": 300, "before_cpu_median_ms": 23, "after_cpu_median_ms": 1}
+  ],
+  "row_size_reads_before": 1335000,
+  "row_size_reads_after": 0,
+  "indexed_search_and_visible_iteration_still_required": true,
+  "independent_boundary_checks": 2325,
+  "native_random_scroll_positions": 200,
+  "pixel_identical_screenshots": 8,
+  "mirrored_and_unshaped_layouts_verified": true,
+  "owner_ui": [
+    {"width": 600, "height": 800, "books": 140, "online_and_offline_result": "PASS"},
+    {"width": 1264, "height": 1680, "books": 140, "online_and_offline_result": "PASS"}
+  ],
+  "owner_visible_books_independently_compared": true,
+  "owner_data_writes": 0,
+  "native_authorization_posts": 1,
+  "native_authorization_same_owner_and_keychain_readback": true,
+  "web_cookie_rotation_saved_after_identity_check": true,
+  "owner_screenshots": 0,
+  "owner_tmpfs_profiles_removed": true,
+  "physical_device_tested": false,
+  "limitations": [
+    "Batch lookup timings are from desktop emulation, not physical Kindle response time.",
+    "The index stores one numeric bottom offset per row."
+  ]
+}

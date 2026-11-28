@@ -1,0 +1,31 @@
+{
+  "result": "PASS",
+  "baseline_commit": "df54db1ad32b7c38eee92a7941fe78db3d99ecc8",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "synthetic_summary_calls_per_run": 100,
+  "runs_per_case": 3,
+  "read_only_database_opens_before": 200,
+  "read_only_database_opens_after": 100,
+  "calendar_date_formats_before": 6100,
+  "calendar_date_formats_after": 0,
+  "median_cpu_seconds": {
+    "short_streak_before": 0.013510,
+    "short_streak_after": 0.009015,
+    "long_streak_before": 0.056803,
+    "long_streak_after": 0.051122
+  },
+  "four_timezones_calendar_and_summary_comparison_verified": true,
+  "synthetic_real_sqlite_goal_corruption_account_and_timer_both_sizes": true,
+  "synthetic_full_plugin_smoke_ko2": true,
+  "synthetic_and_owner_statistics_full_model_comparison_and_offline_reopen": true,
+  "owner_screen_size": "1264x1680 simulated",
+  "owner_account_data_writes": 0,
+  "owner_authorization_posts": 0,
+  "local_lua_specs": 479,
+  "physical_device_tested": false,
+  "limitations": [
+    "The 100-call measurements use synthetic data and a RAM-backed filesystem, not Kindle storage or whole-application timing.",
+    "A long streak still requires walking its recorded days; only calendar-only work and a database open were removed.",
+    "The measurements do not establish physical device battery life, wakeups or display performance."
+  ]
+}

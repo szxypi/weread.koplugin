@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "baseline": "605f68a3",
+  "runtime": "KOReader Linux ARM64, SQLite, tmpfs",
+  "runs": 3,
+  "differential_operations_per_run": 240,
+  "measurements": [
+    {"variant":"marks","books":140,"iterations":20,"old_cpu_ms_median":2.6,"new_cpu_ms_median":1.9,"old_ordered_row_steps":141,"new_ordered_row_steps":0},
+    {"variant":"marks","books":1200,"iterations":20,"old_cpu_ms_median":7.5,"new_cpu_ms_median":3.2,"old_ordered_row_steps":1201,"new_ordered_row_steps":0},
+    {"variant":"marks","books":5000,"iterations":20,"old_cpu_ms_median":25.6,"new_cpu_ms_median":8.2,"old_ordered_row_steps":5001,"new_ordered_row_steps":0},
+    {"variant":"thoughts","books":140,"iterations":20,"old_cpu_ms_median":2.7,"new_cpu_ms_median":2.1,"old_ordered_row_steps":141,"new_ordered_row_steps":0},
+    {"variant":"thoughts","books":1200,"iterations":20,"old_cpu_ms_median":7.5,"new_cpu_ms_median":3.1,"old_ordered_row_steps":1201,"new_ordered_row_steps":0},
+    {"variant":"thoughts","books":5000,"iterations":20,"old_cpu_ms_median":25.8,"new_cpu_ms_median":8.2,"old_ordered_row_steps":5001,"new_ordered_row_steps":0}
+  ],
+  "limitations": "CPU time for 20 repeated synthetic writes; not Kindle latency, overall UI performance, disk endurance or energy. SQLite still scans payload lengths for quota totals."
+}

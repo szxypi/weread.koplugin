@@ -1,0 +1,38 @@
+{
+  "checked_at": "2026-11-08T17:09:49.797794+00:00",
+  "stages": [
+    {
+      "stage": "shelf_preview",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    }
+  ],
+  "probe": "native_shelf_write",
+  "data_writes_attempted": 0,
+  "readback_attempts": 0,
+  "authorization_source": "keychain",
+  "same_owner_verified": true,
+  "operation": "add",
+  "target_supplied": true,
+  "before": false,
+  "desired": true,
+  "shelf_before_count": 139,
+  "result": "PREVIEW_ONLY",
+  "roundtrip": true,
+  "target_already_present": false
+}

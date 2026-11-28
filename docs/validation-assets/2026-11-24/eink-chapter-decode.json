@@ -1,0 +1,36 @@
+{
+  "result": "PASS",
+  "baseline_commit": "e37908cb",
+  "fixture": "synthetic",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "output_bytes": 1260000,
+  "input_bytes": 1680097,
+  "decodes_per_run": 3,
+  "runs_each": 3,
+  "before": {"cpu_ms_median": 1778, "wall_ms_median": 1778, "process_peak_rss_kib_median": 57896},
+  "after": {"cpu_ms_median": 85, "wall_ms_median": 86, "process_peak_rss_kib_median": 19932},
+  "input_cases_compared_to_previous_decoder": 5013,
+  "overlapping_swap_cases": 5080,
+  "corrupted_shard_checksum_rejected": true,
+  "large_synthetic_output_bytes": 7000000,
+  "synthetic_epub_and_txt_two_sizes": true,
+  "owner_readonly": {
+    "width": 1264,
+    "height": 1680,
+    "result": "PASS",
+    "source_and_page_turn_verified": true,
+    "fresh_offline_reopen_verified": true,
+    "cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "credential_rotation_saved": false,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "profile_removed": true
+  },
+  "physical_device_tested": false,
+  "limitations": [
+    "Desktop emulator synthetic data, not a physical Kindle or total download time.",
+    "Peak RSS is per benchmark process, including runtime and inputs; it is not device-wide memory usage."
+  ]
+}

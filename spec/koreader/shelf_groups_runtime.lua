@@ -1,0 +1,978 @@
+-- Synthetic native Menu/InputDialog lifetime, SQLite groups and fresh offline pages.
+require('setupkoenv')
+local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
+local mode=assert(os.getenv('WEREAD_GROUP_MODE'))
+G_defaults=require('luadefaults'):open()
+G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
+package.path=assert(os.getenv('WEREAD_SOURCE'))..'/?.lua;'..package.path
+local Device=require('device');require('document/canvascontext'):init(Device)
+assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=8765})
+G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+local Loader=require('pluginloader')
+Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
+for _entry_index,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
+assert(#Loader.enabled_plugins==1)
+local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
+local FileManager=require('apps/filemanager/filemanager');FileManager:showFiles(home)
+local plugin=assert(FileManager.instance.weread)
+
+local json,socket=require('json'),require('socket')
+local file=assert(io.open(evidence..'/fixture.json','rb'));local raw=file:read(256*1024+1);file:close();assert(#raw<=256*1024)
+local input=json.decode(raw);local shelf=require('weread.lib.shelf_source').normalize(input.shelf,'web')
+if mode=='reopen' then assert(not plugin._volatile_shelf,'unsaved shelf survived a fresh process') end
+local requests=0
+plugin.client.request=function() requests=requests+1;error('offline group fixture attempted HTTP',0) end
+plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
+if mode=='live' then assert(plugin.library_db:cacheShelf(shelf.books,shelf.archive)) end
+local books=assert(plugin.library_db:getShelf());local archives=assert(plugin.library_db:getShelfArchives())
+assert(#books==#shelf.books and #archives==#shelf.archive)
+if mode=='live' then
+    local Event,Key=require('ui/event'),require('device/key')
+    local function page_key(name)
+        UI:sendEvent(Event:new('KeyPress',Key:new(name,{})))
+        UI:forceRePaint()
+    end
+    local function refresh_shelf()
+        local previous=assert(plugin.shelf_view)
+        local connected,get_shelf,progress=plugin.isNetworkConnected,plugin.client.get_shelf,plugin.refreshVisibleShelfProgress
+        plugin.isNetworkConnected=function() return true end
+        plugin.client.get_shelf=function() return {books=books,archive=archives} end
+        plugin.refreshVisibleShelfProgress=function() end
+        previous.on_refresh()
+        local deadline=socket.gettime()+5
+        while plugin.shelf_view==previous do
+            assert(socket.gettime()<deadline,'synthetic bookshelf refresh did not complete')
+            UI:handleInput();socket.sleep(.01)
+        end
+        plugin.isNetworkConnected,plugin.client.get_shelf,plugin.refreshVisibleShelfProgress=connected,get_shelf,progress
+        return assert(plugin.shelf_view)
+    end
+    local prefs=plugin.settings:get('shelf')
+    local saved_mode,saved_paginated,saved_sort=prefs.view_mode,prefs.paginated,prefs.sort_order
+    prefs.view_mode,prefs.paginated,prefs.sort_order='list',false,'default'
+    plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    local download,progress=plugin.isBookDownloaded,plugin.library_db.getShelfProgress
+    local checked,queries={},{}
+    plugin.isBookDownloaded=function(self,book,...)
+        checked[book.bookId]=(checked[book.bookId] or 0)+1
+        return download(self,book,...)
+    end
+    plugin.library_db.getShelfProgress=function(self,ids)
+        for _,id in ipairs(ids) do queries[id]=(queries[id] or 0)+1 end
+        return progress(self,ids)
+    end
+    plugin:showShelfView('books')
+    local shelf_view=plugin.shelf_view
+    assert(not shelf_view.paged)
+    UI:forceRePaint()
+    local first_screen={}
+    for _,book in ipairs(shelf_view:getVisibleBooks()) do first_screen[book.bookId]=true end
+    assert(not first_screen[shelf_view.books[#shelf_view.books].bookId])
+    for _,book in ipairs(shelf_view.books) do
+        local expected=first_screen[book.bookId] and 1 or nil
+        assert(checked[book.bookId]==expected and queries[book.bookId]==expected,
+            'continuous shelf opened with unrelated or repeated status reads')
+    end
+    shelf_view.scroll:_scrollBy(0,shelf_view._item_rows[1]:getSize().h+1)
+    UI:forceRePaint()
+    local arrived=0
+    for _,book in ipairs(shelf_view:getVisibleBooks()) do
+        if not first_screen[book.bookId] then arrived=arrived+1;first_screen[book.bookId]=true end
+    end
+    assert(arrived>0)
+    UI:setDirty(shelf_view,'ui');UI:forceRePaint()
+    for _,book in ipairs(shelf_view.books) do
+        local expected=first_screen[book.bookId] and 1 or nil
+        assert(checked[book.bookId]==expected and queries[book.bookId]==expected,
+            'scrolling or repainting reread unchanged or invisible statuses')
+    end
+    plugin.isBookDownloaded,plugin.library_db.getShelfProgress=download,progress
+    shelf_view.scroll:_scrollBy(0,-shelf_view:getScrollOffset().y)
+    shelf_view.scroll:_scrollBy(0,600)
+    UI:forceRePaint()
+    local offset=shelf_view:getScrollOffset().y
+    local visible=assert(shelf_view:getVisibleBooks()[1])
+    assert(offset>0 and visible~=shelf_view.books[1])
+    plugin:showBookMenu(visible)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view~=shelf_view and plugin.shelf_view:getScrollOffset().y==offset
+        and plugin.shelf_view:getVisibleBooks()[1]==visible,'book detail return reset continuous bookshelf scroll')
+    do
+        local reordered={{bookId='899998',title='合成书籍 先插入'}}
+        for _,book in ipairs(books) do reordered[#reordered+1]=book end
+        local before=plugin.shelf_view
+        local anchor=assert(before:getVisibleBooks()[1])
+        local focused=assert(before:getVisibleBooks()[2])
+        for y,row in ipairs(before.layout) do
+            if row[1].book==focused then
+                before:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break
+            end
+        end
+        plugin:showBookMenu(anchor)
+        plugin:applyShelfSnapshot(reordered,archives)
+        assert(plugin._book_detail_view):onClose()
+        local after=plugin.shelf_view
+        assert(after.books[1].bookId=='899998' and after:getVisibleBooks()[1].bookId==anchor.bookId
+            and after:getFocusedBookId()==focused.bookId,
+            'return after a bookshelf update lost the visible book or directional focus')
+
+        local refreshed=refresh_shelf()
+        assert(refreshed:getVisibleBooks()[1].bookId==anchor.bookId and refreshed:getFocusedBookId()==focused.bookId
+            and refreshed:getScrollOffset().y==offset,
+            'explicit refresh did not preserve the visible book, focus and in-row offset')
+    end
+    if Device:hasKeys() then
+        local scrolled=plugin.shelf_view
+        UI:forceRePaint()
+        local maximum=scrolled.scroll._max_scroll_offset_y
+        local distance=math.floor(scrolled.scroll.dimen.h/2)
+        scrolled.scroll:_scrollBy(0,maximum-distance-scrolled:getScrollOffset().y)
+        UI:forceRePaint()
+        assert(scrolled:getScrollOffset().y==maximum-distance and maximum>distance)
+        page_key('RPgFwd')
+        local last_page=scrolled:getVisibleBooks()
+        assert(scrolled:getScrollOffset().y==maximum and last_page[#last_page]==scrolled.books[#scrolled.books],
+            'page-forward key did not reach the bottom from the current viewport')
+        local focused=scrolled:getFocusItem()
+        if Device:hasDPad() then
+            assert(focused.book==last_page[1],'paging did not move directional focus into the viewport')
+        end
+        page_key('LPgFwd')
+        assert(scrolled:getScrollOffset().y==maximum,'page-forward key wrapped at the bottom')
+        page_key('RPgBack')
+        local viewport=scrolled.scroll:getCropRegion().h
+        assert(scrolled:getScrollOffset().y==math.max(0,maximum-viewport),
+            'page-back key did not move one viewport')
+        while scrolled:getScrollOffset().y>0 do
+            local before=scrolled:getScrollOffset().y
+            page_key('LPgBack')
+            assert(scrolled:getScrollOffset().y<before,'page-back key could not reach the top')
+        end
+        page_key('LPgBack')
+        assert(scrolled:getScrollOffset().y==0,'page-back key wrapped at the top')
+        local has_dpad=Device.hasDPad
+        Device.hasDPad=function() return false end
+        page_key('RPgFwd')
+        Device.hasDPad=has_dpad
+        assert(scrolled:getScrollOffset().y==math.min(viewport,maximum),
+            'page-forward key required a directional pad')
+    end
+    plugin:showBookMenu(visible)
+    plugin:applyShelfSnapshot({books[1],books[2],books[3]},archives)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view:getScrollOffset().y==0 and #plugin.shelf_view:getVisibleBooks()==3,
+        'previous scroll offset hid a shorter shelf')
+    if Device:hasKeys() then
+        page_key('RPgFwd')
+        assert(plugin.shelf_view:getScrollOffset().y==0,'page-forward key moved a list that fits one screen')
+    end
+
+    prefs.paginated,prefs.sort_order=true,'name_asc'
+    plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    plugin:showShelfView('books',nil,plugin.shelf_view,{page=1})
+    if Device:hasKeys() then
+        page_key('LPgFwd')
+        assert(plugin.shelf_view.page==2,'page-forward key did not advance the paged list')
+        page_key('RPgBack')
+        assert(plugin.shelf_view.page==1,'page-back key did not return to the first page')
+        page_key('RPgFwd')
+    else
+        plugin.shelf_view.on_page_changed(2)
+    end
+    local paged=plugin.shelf_view
+    local chosen=assert(paged._item_rows[2])
+    for y,row in ipairs(paged.layout) do
+        if row[1]==chosen then paged:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break end
+    end
+    local id=chosen.book.bookId
+    assert(paged.page==2 and paged:getFocusItem()==chosen)
+    plugin:showBookMenu(chosen.book)
+    local resorted={}
+    for index,book in ipairs(books) do
+        resorted[index]=book
+        if book.bookId==id then
+            local updated={};for key,value in pairs(book) do updated[key]=value end
+            updated.title='000 合成新书名';resorted[index]=updated
+        end
+    end
+    plugin:applyShelfSnapshot(resorted,archives)
+    assert(plugin._book_detail_view):onClose()
+    assert(plugin.shelf_view.page==1 and plugin.shelf_view:getFocusItem().book.bookId==id
+        and plugin.shelf_view:getFocusItem().book.title=='000 合成新书名',
+        'bookshelf return restored the old grid slot after a same-account reorder')
+    local refreshed=refresh_shelf()
+    assert(refreshed.page==2 and refreshed:getFocusedBookId()==id,
+        'explicit refresh retained the old page number after the focused book moved')
+    local function navigate(label)
+        local prior=assert(plugin.shelf_view)
+        local tr=require('weread.lib.i18n').tr
+        local callback
+        for _,button in ipairs(prior._navigation_buttons) do
+            if button.text==tr(label) then callback=button.callback;break end
+        end
+        assert(callback,'missing navigation to '..label)()
+        local deadline=socket.gettime()+4
+        while plugin.shelf_view==prior do
+            assert(socket.gettime()<deadline,'navigation did not open '..label)
+            UI:handleInput()
+        end
+        UI:forceRePaint()
+        return assert(plugin.shelf_view)
+    end
+    local keyword='合成书籍'
+    prefs.paginated,prefs.sort_order=false,'default';plugin.settings:set('shelf',prefs)
+    plugin:applyShelfSnapshot(books,archives)
+    plugin:showShelfView('books',keyword)
+    local browsing=assert(plugin.shelf_view);UI:forceRePaint()
+    browsing.scroll:_scrollBy(0,615);UI:forceRePaint()
+    local board_offset=browsing:getScrollOffset().y
+    local first_id=assert(browsing:getVisibleBooks()[1]).bookId
+    assert(board_offset>0 and first_id~=browsing.books[1].bookId)
+    assert(navigate('Home')._discovery_tab=='home')
+    local restored=navigate('Bookshelf')
+    assert(not restored.paged and restored.keyword==keyword and restored:getScrollOffset().y==board_offset
+        and restored:getVisibleBooks()[1].bookId==first_id,
+        'returning from home lost the continuous bookshelf search or scroll')
+    assert(navigate('Bookstore')._discovery_tab=='store')
+    local inserted={bookId='899999',title='合成书籍 新书'}
+    local reordered={inserted}
+    for _,book in ipairs(books) do reordered[#reordered+1]=book end
+    assert(plugin.library_db:cacheShelf(reordered,archives))
+    restored=navigate('Bookshelf')
+    assert(restored.books[1].bookId==inserted.bookId and restored:getVisibleBooks()[1].bookId==first_id
+        and restored:getScrollOffset().y>board_offset,
+        'returning from bookstore restored a screen coordinate instead of the visible book')
+    assert(plugin.library_db:cacheShelf(books,archives))
+    prefs.paginated=true;plugin.settings:set('shelf',prefs)
+    plugin:showShelfView('books',keyword,nil,{page=2})
+    local searched=assert(plugin.shelf_view)
+    local focused=assert(searched._item_rows[2])
+    for y,row in ipairs(searched.layout) do
+        if row[1]==focused then searched:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS);break end
+    end
+    assert(navigate('Home')._discovery_tab=='home')
+    restored=navigate('Bookshelf')
+    assert(restored.paged and restored.page==2 and restored.keyword==keyword
+        and restored:getFocusedBookId()==focused.book.bookId,
+        'returning from home lost the paged bookshelf focus')
+    plugin:showShelfView('public_account','合成公众号')
+    assert(navigate('Home')._discovery_tab=='home')
+    restored=navigate('Bookshelf')
+    assert(restored.mode=='public_account' and restored.keyword=='合成公众号' and #restored:getVisibleBooks()==1,
+        'returning to the bookshelf lost the public account tab')
+    navigate('Home')
+    plugin:closeWeReadUI()
+    local original_account=plugin.settings:get('account')
+    plugin.settings:set('account',{user_vid='900099',name='Other synthetic account'})
+    plugin.settings:flush()
+    assert(plugin.library_db:cacheShelf(books,{}))
+    plugin:showHome()
+    restored=navigate('Bookshelf')
+    assert(restored.mode=='books' and restored.keyword==nil and restored.page==1
+        and restored:getVisibleBooks()[1].bookId==books[1].bookId,
+        'another account inherited the previous shelf mode, search or page')
+    plugin:closeWeReadUI()
+    plugin.settings:set('account',original_account);plugin.settings:flush()
+    prefs.view_mode,prefs.paginated,prefs.sort_order=saved_mode,saved_paginated,saved_sort
+    plugin.settings:set('shelf',prefs)
+end
+-- Legacy numeric table keys must not alias adjacent large string book IDs.
+local account_key=plugin.library_db.accountKey
+local shelf_snapshot_read=plugin.library_db.getShelfSnapshot
+local settings_read,settings_lookup=plugin.settings.get,plugin.settings.book_lookup
+local settings_indexes,settings_book=plugin.settings.get_book_indexes,plugin.settings.get_book
+local state_scope=plugin.settings.account_state_scope
+local recent_owner=string.rep('a',20)
+local recent_saved={
+    [42]={recent_read_at=30,recent_read_account=recent_owner},
+    [9007199254740992]={recent_read_at=100,recent_read_account=recent_owner},
+}
+local recent_shelf={{bookId='9007199254740993',title='大编号',readUpdateTime=1},
+                    {bookId='43',title='另一本',readUpdateTime=2},{bookId='42',title='旧缓存',readUpdateTime=0}}
+plugin.library_db.accountKey=function() return recent_owner end
+plugin.library_db.getShelfSnapshot=function() return recent_shelf,{} end
+plugin.settings.get_book_indexes=function() return recent_saved end
+plugin.settings.account_state_scope=function() return recent_owner end
+plugin:showHome()
+local recent_view=assert(plugin.shelf_view)
+assert(#recent_view.books==3 and recent_view.books[1].bookId=='42' and recent_view.books[2].bookId=='43'
+    and recent_view.books[3].bookId=='9007199254740993' and recent_view.books[3]._recent_time==1,
+    'legacy numeric key attached a different large book to the home page')
+recent_saved['9007199254740993']={recent_read_at=90,recent_read_account=recent_owner}
+plugin:showHome();recent_view=assert(plugin.shelf_view)
+assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1]._recent_time==90,
+    'exact large string book key was not used on home')
+plugin:closeWeReadUI()
+plugin.library_db.accountKey=account_key;plugin.library_db.getShelfSnapshot=shelf_snapshot_read
+plugin.settings.get_book_indexes=settings_indexes;plugin.settings.account_state_scope=state_scope
+-- Persist an offline reading event in the real per-account book store, then
+-- verify the native shelf and a fresh process use it without leaking accounts.
+local account_a,account_b=string.rep('a',20),string.rep('b',20)
+local active_account=account_a
+plugin.settings.account_state_scope=function() return active_account end
+plugin.library_db.accountKey=function() return active_account end
+if mode=='live' then
+    plugin.settings:set('books',{['901001']={book_id='901001',title='合成本机阅读'},
+        ['901002']={book_id='901002',title='合成第二本'}})
+    plugin.settings:flush()
+    assert(plugin:recordRecentReading('901001'))
+    assert(plugin.settings:patch_reading_state('901001',{home_recent_at=os.time()-100}))
+end
+local recent_options=plugin.settings:get('shelf')
+local old_sort,old_view=recent_options.sort_order,recent_options.view_mode
+recent_options.sort_order='time_desc';recent_options.view_mode='list'
+plugin.settings:set('shelf',recent_options)
+local local_shelf={{bookId='901001',title='合成本机阅读',readUpdateTime=10},
+    {bookId='901002',title='合成第二本',readUpdateTime=20},
+    {bookId='901003',title='合成云端阅读',readUpdateTime=30}}
+plugin:applyShelfSnapshot(local_shelf,{})
+plugin.shelf_multi_groups={};plugin.shelf_group_key=nil;plugin:showShelfView('books')
+local local_view=assert(plugin.shelf_view)
+local local_records=plugin.settings:get('books',{})
+local expected_time=local_records[mode=='live' and '901001' or '901002'].home_recent_at
+assert(local_view.books[1].bookId==(mode=='live' and '901001' or '901002')
+    and local_view:itemStatus(local_view.books[1])==require('weread.lib.shelf_time').date(expected_time),
+    'offline recent event did not sort or render on native shelf')
+assert(local_shelf[1].readUpdateTime==10,'local event changed the cloud shelf snapshot')
+UI:forceRePaint()
+active_account=account_b;plugin:showShelfView('books')
+assert(plugin.shelf_view.books[1].bookId=='901003','foreign account inherited local reading time')
+active_account=account_a;plugin:showShelfView('books')
+assert(plugin.shelf_view.books[1].bookId==(mode=='live' and '901001' or '901002'),
+    'returning account lost local reading time')
+if mode=='live' then
+    local_view=plugin.shelf_view;local_view.on_page_changed(1);local_view=plugin.shelf_view
+    local reopen=assert(local_view._prepare_detail_return())
+    assert(plugin:recordRecentReading('901002'))
+    reopen();assert(plugin.shelf_view.books[1].bookId=='901002','return from reading kept stale recent sorting')
+end
+plugin:closeWeReadUI()
+recent_options.sort_order=old_sort;recent_options.view_mode=old_view;plugin.settings:set('shelf',recent_options)
+plugin.settings.account_state_scope=state_scope;plugin.library_db.accountKey=account_key
+-- Download indicators, filters and home selection use the same exact identity
+-- check, including legacy numeric keys and changes after a page was drawn.
+local downloaded_path=evidence..'/synthetic-identity.epub'
+local downloaded_file=assert(io.open(downloaded_path,'wb'));assert(downloaded_file:write('fixture'));downloaded_file:close()
+local cache_owner=string.rep('c',20)
+local cached_records={[42]={book_id='42',cached_file=downloaded_path,recent_read_at=100,recent_read_account=cache_owner},
+    ['43']={book_id='44',cached_file=downloaded_path},[9007199254740992]={cached_file=downloaded_path}}
+local cache_shelf={{bookId='42',title='旧格式书籍',readUpdateTime=1},
+    {bookId='43',title='错误归属',readUpdateTime=2},{bookId='9007199254740993',title='大编号',readUpdateTime=3}}
+local old_filters=plugin.shelf_filters
+plugin.library_db.accountKey=function() return cache_owner end
+plugin.library_db.getShelfSnapshot=function() return cache_shelf,{} end
+plugin.settings.get=function(self,key,default) if key=='books' then return cached_records end return settings_read(self,key,default) end
+plugin.settings.book_lookup=function() return cached_records end
+plugin.settings.get_book_indexes=function() return cached_records end
+plugin.settings.account_state_scope=function() return cache_owner end
+plugin.settings.get_book=function(_,id) return require('weread.lib.read_access').cached_key(cached_records,id) end
+plugin.shelf_filters={};plugin:applyShelfSnapshot(cache_shelf,{});plugin.shelf_multi_groups={};plugin:showShelfView('books')
+local cache_view=assert(plugin.shelf_view);local states={}
+for _,book in ipairs(cache_view.books) do states[book.bookId]=book._cached end
+assert(states['42']==true and states['43']==false and states['9007199254740993']==false,
+    'downloaded indicators used a foreign or rounded identity')
+plugin.shelf_filters={download='downloaded'};plugin:showShelfView('books')
+assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='42','downloaded filter lost legacy cache')
+plugin.shelf_filters={download='not_downloaded'};plugin:showShelfView('books')
+assert(#plugin.shelf_view.books==2,'not-downloaded filter hid mismatched or rounded records')
+plugin.shelf_filters={};plugin:showHome();local home_view=assert(plugin.shelf_view);local target
+for _,book in ipairs(home_view.books) do if book.bookId=='42' then target=book end end
+assert(target and target._cached,'legacy book not shown as downloaded on home')
+local read,detail=plugin.startBookReading,plugin.showBookRecord;local opened,shown
+plugin.startBookReading=function(_,book) opened=book end
+plugin.showBookRecord=function(_,book) shown=book end
+home_view.on_select(target,'books');assert(opened==cached_records[42],'home opened a different cached book')
+opened=nil;cached_records[42].book_id='44';home_view.on_select(target,'books')
+assert(not opened and shown==target,'home opened a record whose identity changed after drawing')
+local show_info=plugin.showInfo;local notice
+local set_settings=plugin.settings.set
+plugin.showInfo=function(_,message) notice=message end
+plugin.settings.set=function(self,key,value)
+    assert(key~='books','conflicting cache was written while opening book details')
+    return set_settings(self,key,value)
+end
+plugin.showBookRecord=detail;plugin:showBookRecord(target)
+assert(notice and cached_records[42].book_id=='44','book details did not preserve conflicting cache')
+plugin.showInfo=show_info;plugin.settings.set=set_settings;plugin.showBookRecord=function(_,book) shown=book end
+cached_records[42].book_id='42';shown=nil;assert(os.remove(downloaded_path));home_view.on_select(target,'books')
+assert(not opened and shown==target,'home opened a cache file removed after drawing')
+plugin.startBookReading=read;plugin.showBookRecord=detail;plugin:closeWeReadUI()
+plugin.settings.get=settings_read;plugin.settings.book_lookup=settings_lookup
+plugin.settings.get_book_indexes=settings_indexes;plugin.settings.get_book=settings_book;plugin.settings.account_state_scope=state_scope
+do
+    local options=plugin.settings:get('shelf')
+    local old_mode,old_order=options.view_mode,options.sort_order
+    options.view_mode,options.sort_order='cover','name_asc';plugin.settings:set('shelf',options)
+    local larger,indexes={},{}
+    for index=1,64 do
+        local prefix=(index==63 or index==64) and 'ZZ Needle ' or 'Shelf '
+        local id=tostring(880000+index)
+        larger[index]={bookId=id,title=prefix..string.format('%03d',index)}
+        indexes[id]={book_id=id}
+    end
+    local saved_file=assert(io.open(downloaded_path,'wb'));assert(saved_file:write('fixture'));assert(saved_file:close())
+    indexes['880064'].cached_file=downloaded_path
+    local read_indexes=plugin.settings.get_book_indexes
+    local BookStore=require('weread.lib.book_store')
+    local load_book=BookStore.load
+    local loads=0
+    plugin.settings.get_book_indexes=function() return indexes end
+    BookStore.load=function(...)
+        loads=loads+1
+        return load_book(...)
+    end
+    local check=plugin.isBookDownloaded
+    local checked={}
+    plugin.isBookDownloaded=function(self,book,...)
+        checked[book.bookId]=true;return check(self,book,...)
+    end
+    plugin.shelf_filters={};plugin:applyShelfSnapshot(larger,{})
+    plugin:showShelfView('books',nil,nil,{page=1})
+    local view=assert(plugin.shelf_view)
+    local visits=0;for _ in pairs(checked) do visits=visits+1 end
+    assert(#view.books==64 and visits==view.page_size and not checked['880064'],
+        'opening one shelf page checked invisible downloads')
+    assert(loads==visits,'opening one shelf page loaded invisible or repeated records')
+    checked={};loads=0;view.on_page_changed(view.page_count)
+    assert(checked['880064'] and not checked['880001'] and plugin.shelf_view.books[64]._cached,
+        'turning to the last page missed or checked unrelated download badges')
+    visits=0;for _ in pairs(checked) do visits=visits+1 end
+    assert(loads==visits,'turning one shelf page loaded invisible or repeated records')
+    assert(os.remove(downloaded_path));checked={};plugin.shelf_view.on_page_changed(view.page_count)
+    assert(checked['880064'] and plugin.shelf_view.books[64]._cached==false,'visible download badge kept a removed file')
+    saved_file=assert(io.open(downloaded_path,'wb'));assert(saved_file:write('fixture'));assert(saved_file:close())
+    plugin.shelf_filters={download='downloaded'};checked={};loads=0
+    plugin:showShelfView('books','Needle',nil,{page=1})
+    visits=0;for _ in pairs(checked) do visits=visits+1 end
+    assert(visits==2 and checked['880063'] and checked['880064'] and #plugin.shelf_view.books==1
+        and plugin.shelf_view.books[1].bookId=='880064','search evaluated downloads outside the matching books')
+    assert(loads==2,'search loaded records outside the matching books')
+    plugin:closeWeReadUI();assert(os.remove(downloaded_path))
+    BookStore.load=load_book;plugin.settings.get_book_indexes=read_indexes
+    plugin.isBookDownloaded=check
+    options.view_mode,options.sort_order=old_mode,old_order;plugin.settings:set('shelf',options)
+end
+plugin.settings.get=settings_read;plugin.library_db.accountKey=account_key
+plugin.library_db.getShelfSnapshot=shelf_snapshot_read;plugin.shelf_filters=old_filters
+-- The same safe book identity rule protects prefetch and annotation lookup.
+local cache_path=evidence..'/synthetic-prefetch.epub'
+local cache_file=assert(io.open(cache_path,'wb'));assert(cache_file:write('synthetic'));cache_file:close()
+local foreign={title='Other book',cached_chapters={['1']='/synthetic/original.epub'}}
+local prefetch_books={[9007199254740992]=foreign}
+local fake_settings=setmetatable({cache_dir=evidence..'/synthetic-prefetch-cache',store={
+    readSetting=function(_,key,default) return key=='books' and prefetch_books or default end,
+    saveSetting=function(_,key,value) assert(key=='books');prefetch_books=value end,
+    flush=function() end,
+}},{__index=require('weread.lib.settings')})
+local downloader=require('weread.lib.downloader'):new{settings=fake_settings,refresh_shelf=function() end}
+local download={book={book_id='9007199254740993'},chapters={{chapterUid='2'}},prefetch=true,
+    prefetch_book_id='9007199254740993',prefetch_chapter_uid='2'}
+downloader._active_job=download
+downloader:_applyPrefetchResult(download,{ok=true,value={path=cache_path,cache_dir=fake_settings.cache_dir,
+    book_id='9007199254740993',chapter_uid='2'}})
+assert(foreign.cached_chapters['2']==nil and prefetch_books['9007199254740993']~=foreign
+    and fake_settings:get_book('9007199254740993').book_id=='9007199254740993','prefetch modified a different legacy book')
+local Controller=require('weread.ui.annotation_sync_controller')
+local annotation_path='/synthetic/document.epub'
+foreign.annotation_documents={[annotation_path]={clean=true,chapters={}}}
+local annotation_store={documentKey=function(value) return value end,get=function() return nil end,
+    importLegacy=function() end,reconcileRanges=function() return {} end}
+local annotation_host={ui={document={file=annotation_path,getToc=function() return {} end}},
+    settings={get=function() return {[9007199254740992]=foreign} end},
+    _annotationBinding=function() return {book_id='9007199254740993',automatic=true} end,
+    _annotationStore=function() return annotation_store end,_xpointerOverlayPrototypeAvailable=function() return true end}
+for key,value in pairs(Controller) do if annotation_host[key]==nil then annotation_host[key]=value end end
+assert(not annotation_host:_usesUnifiedAnnotations(),'foreign annotation descriptor activated')
+local annotation_context=assert(annotation_host:_prepareAnnotationContext(false))
+assert(annotation_context.book==nil and annotation_context.descriptor==nil and #annotation_context.catalog==0,
+    'foreign annotation data was associated with a different book')
+local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.005) end
+local function pump(predicate)
+    local deadline=socket.gettime()+20
+    while not predicate() do assert(socket.gettime()<deadline,'synthetic group UI deadline');tick() end
+end
+local filters_key=require('weread.lib.shelf_filters').KEY
+local function reset()
+    plugin:closeWeReadUI()
+    local settings=plugin.settings:get('shelf');settings.view_mode='cover';settings.paginated=true
+    settings.sort_order='default'
+    assert(plugin.library_db:putProfileState(filters_key,{}))
+    plugin.settings:set('shelf',settings);plugin.settings:flush()
+    plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
+end
+local progress_fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+assert(dofile(progress_fixture..'shelf_progress_sort_case.lua')(plugin,mode,pump,evidence))
+assert(dofile(progress_fixture..'shelf_progress_filter_case.lua')(plugin,mode,pump,evidence))
+if mode=='reopen' then
+    assert(plugin.settings:get('shelf').sort_order=='author_desc','author sort did not survive a fresh process')
+    reset();local remembered=assert(plugin.shelf_view)
+    assert(#remembered.group_keys==2 and #remembered.books==21,'multi-group selection not restored in fresh offline process')
+    remembered.on_select_group(nil);pump(function() return plugin.shelf_view~=remembered end)
+    assert(#plugin.shelf_view.group_keys==0,'all-books selection failed to clear persisted groups')
+end
+-- A standard gateway may mix safe integer IDs with decimal strings. Exercise
+-- both its current canonicalization and a pre-existing mixed SQLite snapshot.
+local previous_multi=plugin.shelf_multi_groups
+for _,case in ipairs({'gateway','legacy'}) do
+    local account='synthetic-mixed-'..case
+    local isolated_settings={data_dir=evidence,get=function(_,key,default)
+        if key=='account' then return {user_vid=account} end
+        if key=='shelf' then return {source='gateway'} end
+        if key=='api_key' then return 'synthetic-key' end
+        return default
+    end}
+    local database=require('weread.lib.library_db'):new(isolated_settings)
+    if mode=='live' then
+        local mixed={books={{bookId='100000000000000',title='Synthetic string'},
+                            {bookId=100000000000001,title='Synthetic number'},
+                            {bookId='9007199254740993',title='Synthetic other'}},
+            archive={{archiveId=100000000000002,name='Synthetic mixed',
+                bookIds={100000000000000,'100000000000001'}}}}
+        if case=='gateway' then
+            local client={settings=isolated_settings,json_decode=function() return {} end,
+                get_gateway_shelf=function() return mixed,200,{} end}
+            mixed=require('weread.lib.shelf_source').fetch(client)
+            assert(mixed.books[2].bookId=='100000000000001' and mixed.archive[1].bookIds[1]=='100000000000000')
+        else
+            mixed.books[1].bookId='10000000000000'
+            mixed.archive[1]={archiveId=77,name='Synthetic legacy',bookIds={10000000000000,'100000000000001'}}
+        end
+        assert(database:cacheShelf(mixed.books,mixed.archive),'mixed shelf snapshot was not saved')
+        if case=='legacy' then
+            -- Reproduce older precision-losing JSON while leaving the SQLite
+            -- primary key intact, as it was in the old writer.
+            local db=assert(database:open())
+            local stmt=db:prepare('UPDATE books SET payload=? WHERE book_id=?')
+            stmt:bind(json.encode({bookId=100000000000001,title='Synthetic number'}),'100000000000001'):step();stmt:close()
+            stmt=db:prepare("UPDATE shelf_state SET payload=? WHERE name='archives'")
+            stmt:bind(json.encode({{archiveId=77,name='Synthetic legacy',
+                bookIds={10000000000000,'100000000000001',100000000000001}}})):step();stmt:close();db:close()
+        end
+    end
+    local saved_books,saved_archives=assert(database:getShelf()),assert(database:getShelfArchives())
+    plugin:closeWeReadUI();plugin:applyShelfSnapshot(saved_books,saved_archives)
+    plugin.shelf_multi_groups={}
+    plugin.shelf_group_key=case=='gateway' and 'archive:100000000000002' or 'archive:77';plugin:showShelfView('books')
+    local view=assert(plugin.shelf_view)
+    local identity=require('weread.lib.shelf_snapshot')
+    local found={};for _,book in ipairs(view.books) do found[identity.id(book)]=true end
+    assert(#view.books==2 and found[case=='gateway' and '100000000000000' or '10000000000000']
+        and found['100000000000001'],
+        'native group did not retain both exact mixed-format IDs: '..case..' '..tostring(#view.books))
+    UI:forceRePaint()
+    if case=='gateway' then
+        plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
+            'mixed-format group changed the adjacent ungrouped book')
+    else
+        local tr=require('weread.lib.i18n').tr
+        assert(view.group_membership_incomplete and view.group_label=='Synthetic legacy（信息不完整）',
+            'incomplete group was not identified in the reading view')
+        view:showSourceMenu('books');local picker=assert(view._shelf_popup)
+        local warned,uncategorized=false,false
+        for _,item in ipairs(picker.item_table) do
+            if item.text==tr('Some group memberships are unknown. Refresh the bookshelf.') then
+                warned=item.select_enabled==false
+            end
+            if item.text==tr('Uncategorized') then uncategorized=true end
+        end
+        assert(warned and not uncategorized,'uncertain membership was offered as ungrouped')
+        require('weread.ui.shelf_popup').close(view)
+        plugin.shelf_multi_groups={'__ungrouped__'};plugin.shelf_group_key=nil;plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==3 and #plugin.shelf_view.group_keys==1
+            and plugin.shelf_view.group_label==tr('Selected groups unavailable; showing all books'),
+            'saved ungrouped selection hid books when membership was unknown')
+        local multi_view=plugin.shelf_view;multi_view:showMultiGroupMenu()
+        local multi_picker=assert(multi_view._shelf_popup);local multi_warning,unavailable=false,false
+        for _,item in ipairs(multi_picker.item_table) do
+            if item.text==tr('Some group memberships are unknown. Refresh the bookshelf.') then
+                multi_warning=item.select_enabled==false
+            elseif item.text==tr('Unavailable saved group') then unavailable=item.select_enabled~=false end
+        end
+        assert(multi_warning and unavailable,'multi-group menu did not explain the preserved unavailable selection')
+        require('weread.ui.shelf_popup').close(multi_view)
+        plugin.shelf_multi_groups={};plugin.shelf_group_key='__ungrouped__'
+        plugin:applyShelfSnapshot(saved_books,saved_archives);plugin:showShelfView('books')
+        assert(plugin.shelf_group_key==nil and #plugin.shelf_view.books==3,
+            'single ungrouped selection narrowed an uncertain shelf')
+        local refreshed={{archiveId='77',name='Synthetic legacy',bookIds={'10000000000000','100000000000001'}}}
+        plugin:applyShelfSnapshot(saved_books,refreshed)
+        assert(plugin.shelf_ungrouped_known,'a complete refresh did not restore ungrouped status')
+        plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
+            'complete refresh did not restore the ungrouped view')
+    end
+end
+plugin:closeWeReadUI();plugin.shelf_group_key=nil;plugin.shelf_multi_groups=previous_multi
+local popup_cases=0
+local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
+local saved_searches=dofile(fixtures..'saved_searches_case.lua')(plugin,mode,pump,evidence)
+local recent_searches=dofile(fixtures..'recent_searches_case.lua')(plugin,mode,pump,evidence)
+local home_refresh_cases=dofile(fixtures..'home_refresh_failure_case.lua')(plugin,pump)
+local incomplete_shelf=dofile(fixtures..'shelf_incomplete_case.lua')(plugin)
+for _kind_index,kind in ipairs({'sort','filter','search'}) do
+    for _event_index,event in ipairs({'current','closed','session'}) do
+        reset();local view=assert(plugin.shelf_view)
+        if kind=='sort' then view.on_sort() elseif kind=='filter' then view.on_filter() else view.on_search() end
+        local dialog=assert(view._shelf_popup)
+        local callback
+        if kind=='search' then dialog:setInputText('合成书籍 1');callback=dialog.buttons[1][2].callback
+        else callback=dialog.buttons[2][1].callback end
+        UI:forceRePaint()
+        local before=json.encode(plugin.settings:get('shelf'))
+        local writes,filter_writes=0,0
+        local set,put=plugin.settings.set,plugin.library_db.putProfileState
+        plugin.settings.set=function(self,...) writes=writes+1;return set(self,...) end
+        plugin.library_db.putProfileState=function(self,key,value)
+            if key==filters_key then filter_writes=filter_writes+1 end
+            return put(self,key,value)
+        end
+        if event=='closed' then plugin:closeWeReadUI()
+        elseif event=='session' then plugin._reader_session_gen=(plugin._reader_session_gen or 0)+1 end
+        callback()
+        if event=='current' then
+            pump(function() return plugin.shelf_view and plugin.shelf_view~=view end)
+            assert(view._shelf_closed and not view._shelf_popup)
+            if kind=='search' then
+                assert(plugin.shelf_search_keyword=='合成书籍 1' and #plugin.shelf_view.books>0)
+                for _book_index,book in ipairs(plugin.shelf_view.books) do
+                    assert(book.title:find('合成书籍',1,true) and (book.title:find('1',1,true) or tostring(book.bookId):find('1',1,true)))
+                end
+            elseif kind=='filter' then
+                assert(filter_writes==1 and writes==0 and json.encode(plugin.settings:get('shelf'))==before
+                    and assert(plugin.library_db:getProfileState(filters_key)).reading=='finished')
+            else assert(writes==1 and filter_writes==0 and json.encode(plugin.settings:get('shelf'))~=before) end
+        else
+            for _i=1,5 do tick() end
+            assert(writes==0 and filter_writes==0 and json.encode(plugin.settings:get('shelf'))==before)
+            assert(event~='closed' or not plugin.shelf_view)
+        end
+        plugin.settings.set=set;plugin.library_db.putProfileState=put;popup_cases=popup_cases+1
+    end
+end
+-- Exercise identifier search through the real input dialog and group view
+-- when the author field is absent in an older or incomplete shelf entry.
+reset()
+local sparse={bookId='SYN-123456',title='合成稀疏书目'}
+plugin:applyShelfSnapshot({sparse, {bookId='SYN-OTHER',title='其他合成书目'}},
+    {{archiveId=97,name='合成分组',bookIds={'SYN-123456'}}})
+plugin.shelf_group_key='archive:97';plugin:showShelfView('books')
+local search_view=assert(plugin.shelf_view);search_view.on_search()
+local search_dialog=assert(search_view._shelf_popup);search_dialog:setInputText('  syn-123456  ')
+search_dialog.buttons[1][2].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+assert(plugin.shelf_search_keyword=='syn-123456' and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
+    'identifier search missed a grouped book without an author')
+UI:forceRePaint()
+search_view=plugin.shelf_view;search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+search_dialog:setInputText(' 　\194\160 ');search_dialog.buttons[1][2].callback()
+pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+assert(plugin.shelf_search_keyword==nil and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
+    'whitespace-only search did not restore the selected group')
+-- Unicode case folding and compatibility characters work within the active
+-- group using KOReader's own utf8proc implementation.
+plugin:applyShelfSnapshot({
+    {bookId='SYN-U1',title='Café des livres'},
+    {bookId='SYN-U2',title='Die Straße',author='JOSÉ'},
+    {bookId='SYN-U3',title='ＡＢＣ 全角'},
+    {bookId='SYN-OUT',title='Café outside group'},
+},{{archiveId=98,name='合成分组',bookIds={'SYN-U1','SYN-U2','SYN-U3'}},
+   {archiveId=99,name='其他',bookIds={'SYN-OUT'}}})
+plugin.shelf_group_key='archive:98';plugin:showShelfView('books')
+for _,case in ipairs({{'CAFÉ','SYN-U1'},{'STRASSE','SYN-U2'},{'josé','SYN-U2'},{'　abc\194\160','SYN-U3'}}) do
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText(case[1]);search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2],
+        'Unicode shelf search missed a grouped book or escaped the active group')
+end
+for _,case in ipairs({{'JOSÉ　STRASSE','SYN-U2'},{'SYN-U2\194\160josé','SYN-U2'},
+        {'STRASSE missing',false},{'Café outside',false}}) do
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText(case[1]);search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(case[2] and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2]
+        or not case[2] and #plugin.shelf_view.books==0,'multiword search or active group constraint failed')
+end
+do
+    plugin:applyShelfSnapshot({{bookId='SYN-U2',title='新版标题',author='JOSÉ'}},
+        {{archiveId=98,name='合成分组',bookIds={'SYN-U2'}}})
+    plugin:showShelfView('books','STRASSE')
+    assert(#plugin.shelf_view.books==0,'refreshed shelf still matched the former title')
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText('新版 JOSÉ');search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-U2',
+        'refreshed title and author did not match the same book')
+end
+-- Real paged shelf: equal values keep original order within pinned/unpinned
+-- sections after page changes and after switching the sort field.
+local tied,expected,pinned,unpinned={},{},{},{}
+for index=1,48 do
+    local book={bookId='SYN-TIE-'..index,title='相同合成书名',readUpdateTime=1700000000,isTop=index%7==0 and 1 or 0}
+    tied[#tied+1]=book;local bucket=book.isTop==1 and pinned or unpinned;bucket[#bucket+1]=book
+end
+for _,book in ipairs(pinned) do expected[#expected+1]=book end
+for _,book in ipairs(unpinned) do expected[#expected+1]=book end
+plugin:applyShelfSnapshot(tied,{})
+local shelf_options=plugin.settings:get('shelf');shelf_options.sort_order='time_desc';plugin.settings:set('shelf',shelf_options)
+plugin:showShelfView('books',nil,nil,{page=1});local tied_view=assert(plugin.shelf_view)
+for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal time changed shelf order') end
+assert(tied_view.page_size<#expected);local page_size=tied_view.page_size
+tied_view.on_page_changed(2);pump(function() return plugin.shelf_view and plugin.shelf_view~=tied_view end)
+tied_view=plugin.shelf_view;assert(tied_view.page==2)
+for index,book in ipairs(tied_view:getVisibleBooks()) do
+    assert(book==expected[page_size+index],'equal-time page changed shelf order')
+end
+shelf_options.sort_order='name_desc';plugin.settings:set('shelf',shelf_options)
+plugin:showShelfView('books',nil,tied_view,{page=1});tied_view=plugin.shelf_view
+for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal title changed shelf order') end
+UI:forceRePaint()
+-- Title sorting uses the same Unicode normalization as shelf search and keeps
+-- missing titles last without disturbing pinned books or equal-title order.
+local titles={
+    {bookId='SYN-TP',title='',isTop=1},
+    {bookId='SYN-TB',title='beta'},
+    {bookId='SYN-TA1',title=' Alpha '},
+    {bookId='SYN-TA2',title='ＡＬＰＨＡ'},
+    {bookId='SYN-TC',title='Charlie'},
+    {bookId='SYN-TM',title=''},
+}
+plugin:applyShelfSnapshot(titles,{{archiveId=94,name='合成书名分组',bookIds={'SYN-TP','SYN-TB','SYN-TA1','SYN-TA2','SYN-TC','SYN-TM'}}})
+plugin.shelf_group_key='archive:94';plugin:showShelfView('books');local title_view=assert(plugin.shelf_view)
+title_view.on_sort();local title_dialog=assert(title_view._shelf_popup)
+title_dialog.buttons[4][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=title_view end)
+title_view=plugin.shelf_view
+for index,id in ipairs({'SYN-TP','SYN-TA1','SYN-TA2','SYN-TB','SYN-TC','SYN-TM'}) do
+    assert(title_view.books[index].bookId==id,'ascending normalized title order incorrect')
+end
+title_view.on_sort();title_dialog=assert(title_view._shelf_popup)
+title_dialog.buttons[5][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=title_view end)
+title_view=plugin.shelf_view
+for index,id in ipairs({'SYN-TP','SYN-TC','SYN-TB','SYN-TA1','SYN-TA2','SYN-TM'}) do
+    assert(title_view.books[index].bookId==id,'descending normalized title order incorrect')
+end
+assert(titles[2].bookId=='SYN-TB' and titles[3].bookId=='SYN-TA1','title sort changed source order')
+UI:forceRePaint()
+-- Author sorting uses Unicode folding, retains pin precedence and keeps
+-- missing authors last. Exercise actual selector callbacks and group search.
+local authors={
+    {bookId='SYN-AP',title='置顶',isTop=1},
+    {bookId='SYN-B',title='乙',author='Bob'},
+    {bookId='SYN-A1',title='甲',author=' Alice '},
+    {bookId='SYN-A2',title='丙',author='ＡＬＩＣＥ'},
+    {bookId='SYN-C',title='丁',authors='Carol'},
+    {bookId='SYN-M',title='未知作者'},
+}
+plugin:applyShelfSnapshot(authors,{{archiveId=95,name='合成作者分组',bookIds={'SYN-AP','SYN-B','SYN-A1','SYN-A2','SYN-C','SYN-M'}}})
+plugin.shelf_group_key='archive:95';plugin:showShelfView('books');local author_view=assert(plugin.shelf_view)
+author_view.on_sort();local author_dialog=assert(author_view._shelf_popup)
+UI:forceRePaint();Device.screen:shot(evidence..'/author-sort.png')
+author_dialog.buttons[6][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+author_view=plugin.shelf_view
+for index,id in ipairs({'SYN-AP','SYN-A1','SYN-A2','SYN-B','SYN-C','SYN-M'}) do
+    assert(author_view.books[index].bookId==id,'ascending author order incorrect')
+end
+author_view.on_sort();author_dialog=assert(author_view._shelf_popup)
+author_dialog.buttons[7][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+author_view=plugin.shelf_view
+for index,id in ipairs({'SYN-AP','SYN-C','SYN-B','SYN-A1','SYN-A2','SYN-M'}) do
+    assert(author_view.books[index].bookId==id,'descending author order incorrect')
+end
+author_view.on_search();local author_search=assert(author_view._shelf_popup)
+author_search:setInputText('CAROL');author_search.buttons[1][2].callback()
+pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-C',
+    'alternate author field escaped group search')
+assert(authors[2].bookId=='SYN-B' and authors[3].bookId=='SYN-A1','author sort changed the source shelf')
+UI:forceRePaint()
+-- Old or malformed cached timestamps must not stop list rendering or promote
+-- an out-of-range value to the top of the shelf.
+local dated={
+    {bookId='SYN-DATE-BAD',title='无效日期',readUpdateTime='bad'},
+    {bookId='SYN-DATE-VALID',title='有效日期',readUpdateTime='1700000000'},
+    {bookId='SYN-DATE-BOOL',title='错误类型',readUpdateTime=true},
+    {bookId='SYN-DATE-LARGE',title='超大日期',readUpdateTime=253402300800},
+}
+assert(plugin.library_db:cacheShelf(dated,{}))
+local dated_cached=assert(plugin.library_db:getShelf())
+assert(#dated_cached==4 and dated_cached[2].readUpdateTime=='1700000000')
+local time_options=plugin.settings:get('shelf');time_options.view_mode='list';time_options.sort_order='time_desc'
+plugin.settings:set('shelf',time_options);plugin:applyShelfSnapshot(dated_cached,{})
+plugin:showShelfView('books');local time_view=assert(plugin.shelf_view)
+assert(time_view.books[1].bookId=='SYN-DATE-VALID')
+assert(time_view:itemStatus(time_view.books[1])==os.date('%Y-%m-%d',1700000000))
+for index=2,4 do assert(time_view:itemStatus(time_view.books[index])=='') end
+UI:forceRePaint()
+assert(plugin.library_db:cacheShelf(books,archives))
+reset();local view=plugin.shelf_view;view:showOptions();local old=assert(view._shelf_popup)
+local old_choice=old.buttons[1][1].callback
+view:showSourceMenu();local replacement=assert(view._shelf_popup)
+old_choice();for _i=1,5 do tick() end
+assert(view._shelf_popup==replacement);popup_cases=popup_cases+1
+UI:forceRePaint();Device.screen:shot(evidence..'/groups-selector.png')
+reset();view=plugin.shelf_view;view:showSourceMenu();local cached_popup=assert(view._shelf_popup)
+plugin:showBookshelf()
+assert(plugin.shelf_view~=view and view._shelf_closed and not view._shelf_popup and UI:getTopmostVisibleWidget()~=cached_popup)
+popup_cases=popup_cases+1
+reset()
+local manifest_path=evidence..'/group-pages.json'
+local manifest={pages={}}
+if mode=='reopen' then file=assert(io.open(manifest_path,'rb'));manifest=json.decode(file:read('*a'));file:close() end
+local report={painted_views=0}
+local function paint(tag,reverse)
+    local current=assert(plugin.shelf_view);local entries=json.decode('[]')
+    for _book_index,book in ipairs(current:getVisibleBooks()) do entries[#entries+1]={book.bookId,book.title} end
+    local key=tag..':'..current.page;local encoded=json.encode(entries)
+    if mode=='live' then assert(not manifest.pages[key]);manifest.pages[key]=encoded else assert(manifest.pages[key]==encoded) end
+    UI:forceRePaint();report.painted_views=report.painted_views+1
+    if tag=='group:24' and not reverse then Device.screen:shot(evidence..'/groups-unavailable.png') end
+end
+dofile(fixtures..'shelf_groups_ui_case.lua')(plugin,input,mode,report,pump,paint,manifest)
+reset();local all_view=plugin.shelf_view;plugin:applyShelfSnapshot(books,{})
+plugin:showShelfView('books',nil,all_view);all_view=plugin.shelf_view;all_view:showSourceMenu('books')
+local all_picker=assert(all_view._shelf_popup)
+assert(#all_picker.item_table==1+(all_view.on_manage_local_groups and 1 or 0),'empty group shelf offered an unavailable multi-group picker')
+if all_view.on_manage_local_groups then
+    assert(all_picker.item_table[2].text==require('weread.lib.i18n').tr('Manage local groups'))
+end
+UI:close(all_picker)
+reset();local initial=plugin.shelf_view
+local duplicate_archives={{archiveId=777,name='重复甲',bookIds={books[1].bookId}},
+    {archiveId=777,name='重复乙',bookIds={books[2].bookId}}}
+plugin:applyShelfSnapshot(books,duplicate_archives);plugin:showShelfView('books',nil,initial)
+local duplicate_view=assert(plugin.shelf_view);duplicate_view:showSourceMenu('books')
+local duplicate_menu=assert(duplicate_view._shelf_popup);local duplicate_row=assert(duplicate_menu.item_table[3])
+assert(duplicate_row.text==require('ffi/util').template(require('weread.lib.i18n').tr('Unavailable: %1'),'重复甲'))
+UI:forceRePaint();Device.screen:shot(evidence..'/duplicate-group-selector.png')
+local old_info=plugin.showInfo;local warning
+plugin.showInfo=function(_self,text) warning=text end
+duplicate_menu:onMenuSelect(duplicate_row)
+pump(function() return warning~=nil end)
+assert(warning==require('weread.lib.i18n').tr('This group is unavailable. Refresh the bookshelf and try again.')
+    and plugin.shelf_view==duplicate_view and not plugin.shelf_group_key and #duplicate_view.books==48,
+    'ambiguous group was selected or did not report the problem')
+plugin.showInfo=old_info
+reset()
+if mode=='live' then
+    reset();local source=assert(plugin.shelf_view);source:showSourceMenu('books')
+    local picker=assert(source._shelf_popup);local multiple=assert(picker.item_table[2])
+    assert(multiple.text==require('weread.lib.i18n').tr('Select multiple groups'))
+    picker:onMenuSelect(multiple);pump(function() return source._shelf_popup and source._shelf_popup~=picker end)
+    local chooser=assert(source._shelf_popup);assert(chooser:getSize().h<=source.screen_h and chooser:getSize().w<=source.screen_w)
+    local before=json.encode(plugin.library_db:getProfileState('shelf_multi_groups_v1'))
+    local cancelled=chooser.item_table[3];chooser:onMenuSelect(cancelled);pump(function() return cancelled.mandatory=='✓' end)
+    UI:close(chooser);cancelled.callback();for _i=1,3 do tick() end
+    assert(plugin.shelf_view==source and not source._shelf_popup
+        and json.encode(plugin.library_db:getProfileState('shelf_multi_groups_v1'))==before,'cancelled multi-group chooser saved changes')
+    source:showSourceMenu('books');picker=assert(source._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return source._shelf_popup and source._shelf_popup~=picker end);chooser=assert(source._shelf_popup)
+    local first,last=chooser.item_table[3],chooser.item_table[23]
+    chooser:onMenuSelect(first);pump(function() return first.mandatory=='✓' end)
+    local page=math.floor((23-1)/chooser.items_per_page)+1
+    while chooser.page<page do chooser:onNextPage() end
+    chooser:onMenuSelect(last);pump(function() return last.mandatory=='✓' end)
+    while chooser.page>1 do chooser:onPrevPage() end
+    UI:forceRePaint();Device.screen:shot(evidence..'/multi-group-selector.png')
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'native multi-group union incorrect')
+    local selected=plugin.shelf_view;first.callback();for _i=1,3 do tick() end
+    assert(plugin.shelf_view==selected,'closed multi-group selector applied a stale callback')
+    if not selected.paged then
+        selected.on_display_change('paginated',true)
+        pump(function() return plugin.shelf_view~=selected end)
+        selected=plugin.shelf_view
+    end
+    do
+        local page_two_first=assert(selected.books[selected.page_size+1])
+        local label,combined=selected.group_label,selected.books
+        selected.on_page_changed(2)
+        pump(function() return plugin.shelf_view~=selected end)
+        selected=plugin.shelf_view
+        UI:forceRePaint()
+        assert(selected.page==2 and selected.books==combined and selected.group_label==label
+            and selected:getVisibleBooks()[1]==page_two_first,'multi-group next page changed the result')
+    end
+    local partial={};for _,archive in ipairs(archives) do if tostring(archive.archiveId)~='21' then partial[#partial+1]=archive end end
+    plugin:applyShelfSnapshot(books,partial);plugin:showShelfView('books',nil,selected)
+    local fallback=assert(plugin.shelf_view);assert(#fallback.books==48 and #fallback.group_keys==2,'missing group hid shelf books')
+    fallback:showSourceMenu('books');picker=assert(fallback._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return fallback._shelf_popup and fallback._shelf_popup~=picker end);chooser=assert(fallback._shelf_popup)
+    local missing=assert(chooser.item_table[3]);assert(missing.text==require('weread.lib.i18n').tr('Unavailable saved group'))
+    chooser:onMenuSelect(missing);pump(function() return missing.mandatory=='' end)
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=fallback end)
+    assert(#plugin.shelf_view.group_keys==1 and #plugin.shelf_view.books==20,'unavailable selection could not be removed')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return source._shelf_popup and source._shelf_popup~=picker end);chooser=assert(source._shelf_popup)
+    last=assert(chooser.item_table[23]);page=math.floor((23-1)/chooser.items_per_page)+1
+    while chooser.page<page do chooser:onNextPage() end
+    chooser:onMenuSelect(last);pump(function() return last.mandatory=='✓' end)
+    while chooser.page>1 do chooser:onPrevPage() end
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'multi-group selection was not restored')
+    selected=plugin.shelf_view;selected.on_select_groups({'__ungrouped__'})
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    local all_ids={};for _,book in ipairs(books) do
+        if tostring(book.bookId):sub(1,7)~='MP_WXS_' then all_ids[#all_ids+1]=book.bookId end
+    end
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,{{archiveId='1',name='Synthetic',bookIds=all_ids}})
+    plugin:showShelfView('books',nil,selected);assert(#plugin.shelf_view.books==0 and #plugin.shelf_view.group_keys==1,
+        'empty remembered ungrouped selection unexpectedly showed all books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    selected=plugin.shelf_view;selected.on_select_group('__ungrouped__')
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    assert(#plugin.shelf_view.books>0 and plugin.shelf_group_key=='__ungrouped__')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,{{archiveId='1',name='Synthetic',bookIds=all_ids}})
+    plugin:showShelfView('books',nil,selected)
+    assert(#plugin.shelf_view.books==0 and plugin.shelf_group_key=='__ungrouped__',
+        'single ungrouped selection unexpectedly showed all books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    assert(#plugin.shelf_view.books>0 and plugin.shelf_group_key=='__ungrouped__',
+        'single ungrouped selection did not recover')
+    local system_archives={{archiveId='1',name='归档',bookIds={books[1].bookId,books[2].bookId}},
+                           {archiveId='2',name='Synthetic group',bookIds={books[2].bookId}}}
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,system_archives);plugin:showShelfView('books',nil,selected)
+    assert(plugin.shelf_group_key=='__ungrouped__' and #plugin.shelf_view.books==47,
+        'system archive incorrectly assigned ungrouped books')
+    for _,book in ipairs(plugin.shelf_view.books) do assert(book.bookId~=books[2].bookId,'user-group member in ungrouped') end
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup)
+    assert(picker.item_table[3].text=='归档');picker:onMenuSelect(picker.item_table[3])
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(plugin.shelf_group_key=='archive:1' and #plugin.shelf_view.books==2,'system archive is not selectable')
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup)
+    assert(picker.item_table[5].text==require('weread.lib.i18n').tr('Uncategorized'))
+    picker:onMenuSelect(picker.item_table[5]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(plugin.shelf_group_key=='__ungrouped__' and #plugin.shelf_view.books==47,
+        'native ungrouped selection lost system archive books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    selected=plugin.shelf_view;selected.on_select_groups({'archive:1','archive:21'})
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21)
+end
+if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
+if mode=='live' then
+    local ephemeral={books={{bookId='SYN-RESTART',title='合成未保存书籍',readUpdateTime=2000000000}},archives={}}
+    assert(require('weread.lib.volatile_shelf').remember(plugin,ephemeral,{_shelf_source='native'}))
+    plugin:showHome();assert(plugin.shelf_view.books[1].bookId=='SYN-RESTART')
+    local saved=plugin.settings:get('shelf');saved.sort_order='author_desc'
+    plugin.settings:set('shelf',saved);plugin.settings:flush()
+end
+if mode=='reopen' then
+    local saved=plugin.settings:get('shelf');saved.sort_order='progress_desc'
+    plugin.settings:set('shelf',saved);plugin.settings:flush()
+end
+assert(requests==0)
+report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
+report.volatile_restart=true;report.saved_searches=saved_searches;report.recent_searches=recent_searches;report.incomplete_shelf=incomplete_shelf
+report.mixed_group_identities=true
+report.uncertain_group_membership=true
+report.download_identity=true
+report.progress_sort=true
+report.progress_filters=true
+io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
+os.exit(0)

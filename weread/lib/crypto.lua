@@ -65,8 +65,7 @@ for i = 1, 64 do
     md5_k[i] = math.floor(math.abs(math.sin(i)) * 4294967296)
 end
 
-function Crypto.md5_hex(message)
-    message = tostring(message or "")
+local function md5_lua(message)
     local bit_len = #message * 8
     local padding_len = (56 - (#message + 1) % 64) % 64
     message = message .. string.char(0x80) .. string.rep("\0", padding_len)
@@ -123,6 +122,36 @@ function Crypto.md5_hex(message)
     })
 end
 
+-- The legacy WeRead shard protocol and cover cache use MD5 for compatibility.
+-- Select KOReader's implementation only after independent known-answer checks.
+local fast_md5
+local function load_md5()
+    fast_md5 = false
+    local ok, module = pcall(require, "ffi/sha2")
+    if not ok or type(module) ~= "table" or type(module.md5) ~= "function" then return end
+    local vectors = {
+        { "", "d41d8cd98f00b204e9800998ecf8427e" },
+        { "\0\255\128lua", "e882b923c7fc317d9da8a73d05ef2ab7" },
+        { string.rep("a", 56), "3b0c8ac703f828b04c6c197006d17218" },
+    }
+    for _, vector in ipairs(vectors) do
+        local valid, result = pcall(module.md5, vector[1])
+        if not valid or result ~= vector[2] then return end
+    end
+    fast_md5 = module.md5
+end
+
+function Crypto.md5_hex(message)
+    message = tostring(message or "")
+    if fast_md5 == nil then load_md5() end
+    if fast_md5 then
+        local ok, result = pcall(fast_md5, message)
+        if ok and type(result) == "string" and #result == 32 and result:match("^[0-9a-f]+$") then return result end
+        fast_md5 = false
+    end
+    return md5_lua(message)
+end
+
 local sha256_k = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -142,8 +171,7 @@ local sha256_k = {
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 }
 
-function Crypto.sha256_hex(message)
-    message = tostring(message or "")
+local function sha256_lua(message)
     local bit_len = #message * 8
     local padding_len = (56 - (#message + 1) % 64) % 64
     message = message .. string.char(0x80) .. string.rep("\0", padding_len)
@@ -197,6 +225,57 @@ function Crypto.sha256_hex(message)
         out[i] = word_to_be_hex(h[i])
     end
     return table.concat(out)
+end
+
+local function load_native_sha256()
+    local ffi = require("ffi")
+    if not ffi.loadlib then return end
+    ffi.cdef[[unsigned char *SHA256(const unsigned char *, size_t, unsigned char *);]]
+    local lib = ffi.loadlib("crypto", "57")
+    local output = ffi.new("unsigned char[32]")
+    local hex = {}
+    for byte = 0, 255 do hex[string.char(byte)] = string.format("%02x", byte) end
+    return function(message)
+        if lib.SHA256(message, #message, output) == nil then return end
+        return (ffi.string(output, 32):gsub(".", hex))
+    end
+end
+
+local function load_bundled_sha256()
+    local module = require("ffi/sha2")
+    if type(module) == "table" then return module.sha256 end
+end
+
+local function verify_sha256(loader)
+    local ok, hash = pcall(loader)
+    if not ok or type(hash) ~= "function" then return end
+    local vectors = {
+        { "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+        { "\0\255\128lua", "7813f4b3246ec2c76bb2a1752cb5dab7d39e77cf48b7b88a551674b6eb43844e" },
+        { string.rep("a", 56), "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a" },
+    }
+    for _, vector in ipairs(vectors) do
+        local valid, result = pcall(hash, vector[1])
+        if not valid or result ~= vector[2] then return end
+    end
+    return hash
+end
+
+-- Test each backend once before using it for persisted identities or requests.
+-- A backend that fails at runtime is replaced by the next available one.
+local sha256_loaders = { load_native_sha256, load_bundled_sha256 }
+local fast_sha256
+function Crypto.sha256_hex(message)
+    message = tostring(message or "")
+    while fast_sha256 or #sha256_loaders > 0 do
+        fast_sha256 = fast_sha256 or verify_sha256(table.remove(sha256_loaders, 1))
+        if fast_sha256 then
+            local ok, result = pcall(fast_sha256, message)
+            if ok and type(result) == "string" and #result == 64 and result:match("^[0-9a-f]+$") then return result end
+            fast_sha256 = nil
+        end
+    end
+    return sha256_lua(message)
 end
 
 return Crypto

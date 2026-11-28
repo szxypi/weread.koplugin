@@ -1,0 +1,263 @@
+package.path = "./?.lua;./?/init.lua;" .. package.path
+local Source = require("weread.lib.shelf_source")
+local checks = 0
+local function expect(value, label) checks = checks + 1 assert(value, label) end
+local function fixture(mode)
+    local data = { books = {{ bookId = 123, title = "Native book", author = "Author", version = 700,
+        bookVersion = 999, cover = "https://example.invalid/cover", readUpdateTime = "10", finishReading = 1,
+        unknown_secret = "private-response" }}, archive = {{ archiveId = 5, name = "Group", bookIds = { 123 } }} }
+    local current, revision, present, native_fail, web_fail, on_request = true, 1, true, false, false, nil
+    local config, requests, web_calls = { source = mode or "auto" }, {}, 0
+    local cookies, api_key, cookie_calls, cookie_fail, cookie_callback = {}, "test-key", 0, false, nil
+    local credentials = { vid = "123", accessToken = "test-native-access", refreshToken = "test-native-refresh",
+        deviceId = string.rep("1", 32) }
+    local scope = { vid = "123", epoch = 1 }
+    local settings = { data_dir = "/unused", get = function(_self, key)
+        if key == "shelf" then return config elseif key == "api_key" then return api_key elseif key == "cookies" then return cookies end
+    end, get_auth_scope = function() return scope end,
+        auth_scope_matches = function(_self, candidate) return current and candidate == scope end }
+    local store = { read = function() return present and credentials or nil, revision end }
+    local client = { settings = settings,
+        request = function(_self, request)
+            requests[#requests + 1] = request
+            if on_request then on_request() end
+            if native_fail then error("private-url-with-token", 0) end
+            return "fixture", 200
+        end,
+        json_decode = function() return data end,
+        get_gateway_shelf = function()
+            web_calls = web_calls + 1
+            if web_fail then error("gateway fixture failure", 0) end
+            return { books = {{ bookId = "web", title = "Gateway book" }}, archive = {} }, 200, {}
+        end,
+        get_web_shelf = function(_self, snapshot)
+            cookie_calls = cookie_calls + 1
+            expect(snapshot.wr_vid == "123" and snapshot.wr_skey == "synthetic-web-access", "Web jar was not account-bound")
+            if cookie_callback then cookie_callback() end
+            if cookie_fail then error("private-web-response-with-cookie", 0) end
+            return data
+        end,
+    }
+    return { client = client, settings = settings, store = store, requests = requests, data = data,
+        fetch = function(options) options = options or {} options.store = store return Source.fetch(client, options) end,
+        counts = function() return #requests, web_calls, cookie_calls end,
+        change = function(options)
+            if options.mode then config.source = options.mode end
+            if options.current ~= nil then current = options.current end
+            if options.revision then revision = options.revision end
+            if options.present ~= nil then present = options.present end
+            if options.native_fail ~= nil then native_fail = options.native_fail end
+            if options.web_fail ~= nil then web_fail = options.web_fail end
+            if options.on_request then on_request = options.on_request end
+            if options.cookies then cookies = options.cookies end
+            if options.api_key ~= nil then api_key = options.api_key end
+            if options.cookie_fail ~= nil then cookie_fail = options.cookie_fail end
+            if options.cookie_callback then cookie_callback = options.cookie_callback end
+        end }
+end
+local f = fixture()
+local result = f.fetch()
+expect(result._shelf_source == "native" and result._native_revision == 1, "automatic prefers verified native grant")
+expect(result.books[1].bookId == "123" and result.archive[1].bookIds[1] == "123", "IDs canonicalized for groups")
+expect(result.books[1]._native_version == 700 and result.books[1].bookVersion == nil and result.books[1].version == nil,
+    "unverified native version cannot become a Web download version")
+expect(result.books[1].unknown_secret == nil and result.books[1].readUpdateTime == 10, "bounded display metadata normalized")
+expect(f.data.books[1].bookId == 123 and f.data.books[1].bookVersion == 999, "source snapshot not mutated")
+local request = f.requests[1]
+expect(request.url == "https://i.weread.qq.com/shelf/sync" and request.method == "GET" and request.body == nil,
+    "native source sends only previously verified read endpoint")
+expect(request.sensitive and request.skip_cookie and request.persist_response_cookies == false
+    and request.headers.accessToken == "test-native-access" and request.headers.Cookie == nil
+    and request.headers.Authorization == nil, "native request isolated and diagnostics redacted")
+local _, web = f.counts()
+expect(web == 0, "successful native source does not also fetch gateway")
+f = fixture("native")
+f.data.books[2] = { bookId = "CB_Imported", title = "Imported", readUpdateTime = 20 }
+f.data.books[3] = { bookId = 125, title = "Duplicate", readUpdateTime = 30 }
+f.data.books[4] = { bookId = 126, title = "Other revision", readUpdateTime = 41 }
+f.data.books[5] = { bookId = 127, title = "No progress", readUpdateTime = 50 }
+f.data.bookProgress = {
+    { bookId = "123", progress = 0.75, updateTime = 10, summary = "private response" },
+    { bookId = "CB_Imported", progress = 0, updateTime = 20 },
+    { bookId = "125", progress = 18, updateTime = 30 },
+    { bookId = 125, progress = 45, updateTime = 30 },
+    { bookId = "126", progress = 90, updateTime = 40 },
+    { bookId = "127", updateTime = 50 },
+    { bookId = "999", progress = 80, updateTime = 10 },
+}
+result = f.fetch()
+local progress = result._display_progress
+expect(#progress == 2 and progress[1].book_id == "123" and progress[1].exact_percent == 0.75
+    and progress[1].updated_at == 10 and progress[1].source == "native" and progress[1].summary == nil,
+    "native aggregate accepted an ambiguous entry or lost precision")
+expect(progress[2].book_id == "CB_Imported" and progress[2].exact_percent == 0,
+    "native aggregate lost the imported book or its explicit zero")
+expect(f.counts() == 1 and not result.bookProgress, "native aggregate used extra requests or returned the raw progress")
+f = fixture("gateway"); result = f.fetch()
+local native
+native, web = f.counts()
+expect(result._shelf_source == "gateway" and native == 0 and web == 1, "explicit standard skips native auth entirely")
+f = fixture(); f.change({ native_fail = true }); result = f.fetch()
+native, web = f.counts()
+expect(result._shelf_source == "gateway" and result._native_fallback and native == 1 and web == 1,
+    "automatic failure falls back exactly once with public indication")
+f = fixture("native"); f.change({ native_fail = true })
+local ok, err = pcall(f.fetch)
+_, web = f.counts()
+expect(not ok and err == "shelf_source/native_unavailable" and web == 0, "native-only failure cannot switch source")
+f = fixture("native"); f.change({ present = false })
+ok, err = pcall(f.fetch)
+native, web = f.counts()
+expect(not ok and err == "shelf_source/native_required" and native == 0 and web == 0, "native-only requires authorization")
+local ready, reason = Source.ready(f.settings, f.store)
+expect(not ready and reason == "native_required", "UI receives native authorization requirement")
+f = fixture(); f.change({ present = false }); result = f.fetch()
+native, web = f.counts()
+expect(native == 0 and web == 1 and not result._native_fallback and result._native_revision == nil,
+    "unconfigured automatic uses established gateway without a native revision guard")
+for _i, change in ipairs({ { current = false }, { revision = 2 }, { mode = "gateway" }, { present = false } }) do
+    f = fixture()
+    f.change({ on_request = function() f.change(change) end })
+    ok, err = pcall(f.fetch)
+    _, web = f.counts()
+    expect(not ok and err == "shelf_source/session_changed" and web == 0, "changed owner/grant/source stops without fallback")
+end
+f = fixture(); f.change({ current = false })
+ok = pcall(function() f.fetch({ is_current = function() return false end }) end)
+native, web = f.counts()
+expect(not ok and native == 0 and web == 0, "stale queued refresh dispatches no HTTP")
+f = fixture()
+f.settings.get_auth_scope = function(_self, from_disk) return from_disk and { vid = "456", epoch = 2 } or nil end
+ok, err = pcall(f.fetch)
+native, web = f.counts()
+expect(not ok and err == "shelf_source/session_changed" and native == 0 and web == 0,
+    "missing local owner cannot bypass a different identified on-disk login")
+expect(not Source.ready(f.settings, f.store), "inconsistent owner requires a new login before shelf access")
+for _i, mutate in ipairs({
+    function(data) data.books = nil end,
+    function(data) data.books[2] = data.books[1] end,
+    function(data) data.books[1].bookId = "" end,
+    function(data) data.archive[1].bookIds = "invalid" end,
+    function(data) data.books.extra = {} end,
+}) do
+    f = fixture(); mutate(f.data)
+    result = f.fetch()
+    expect(result._native_fallback and result.books[1].bookId == "web", "invalid native snapshot cannot replace cache with partial books")
+end
+f = fixture("native"); f.data.books, f.data.archive = {}, {}
+result = f.fetch()
+expect(#result.books == 0 and #result.archive == 0 and result._shelf_source == "native", "valid empty shelf remains empty")
+f = fixture()
+local original_request = f.client.request
+f.client.request = function(self, options) original_request(self, options) return "fixture", 401 end
+ok, err = pcall(f.fetch, { recover_auth = true })
+_, web = f.counts()
+expect(not ok and err == "shelf_source/native_expired" and web == 0, "401 recovery signal precedes gateway fallback")
+local original_read = f.store.read
+f.store.read = function() local value, current_revision = original_read() return value, current_revision, nil, true end
+result = f.fetch({ recover_auth = true })
+expect(result._shelf_source == "gateway" and result._native_fallback, "pending renewal cannot trigger automatic replay")
+f = fixture(); result = f.fetch({ skip_native = true })
+native, web = f.counts()
+expect(native == 0 and web == 1 and result._native_fallback, "failed renewal can fall back without a second native attempt")
+f = fixture("native"); result = f.fetch({ skip_native = true })
+expect(result._shelf_source == "native", "native-only policy cannot be bypassed by fallback options")
+
+local jar = {wr_vid="123",wr_skey="synthetic-web-access"}
+-- The gateway must not publish a malformed or partial book/group list merely
+-- because its outer JSON values are arrays. A valid Web snapshot is still a
+-- usable fallback; without one, leave the previous shelf untouched.
+for _, invalid in ipairs({
+    {books={{bookId='1',title='One'},{bookId='1',title='Duplicate'}},archive={}},
+    {books={{bookId='',title='Missing ID'}},archive={}},
+    {books={{bookId='1'}},archive={}},
+    {books={{bookId='1',title='One'}},archive={{archiveId=2,name='Bad',bookIds='invalid'}}},
+    {books={{bookId='1',title='One'}},archive={{archiveId=2,name='Bad',bookIds={false}}}},
+}) do
+    f=fixture('gateway')
+    f.client.get_gateway_shelf=function() return invalid,200,{} end
+    ok,err=pcall(f.fetch)
+    expect(not ok and err=='shelf_source/invalid_snapshot','malformed gateway data was accepted')
+    f.change{cookies=jar}
+    result=f.fetch()
+    expect(result._shelf_source=='web' and result._gateway_fallback and result.books[1].bookId=='123',
+        'malformed gateway data did not fall back to the Web shelf')
+end
+f=fixture('gateway')
+local gateway_book={bookId='1',title='One',readerLink='https://example.invalid/reader',bookVersion=42}
+f.client.get_gateway_shelf=function() return {books={gateway_book},archive=nil,mp={bookId='MP_WXS_1'}},200,{} end
+result=f.fetch()
+expect(result.books[1]==gateway_book and result.books[1].readerLink==gateway_book.readerLink
+    and result.books[1].bookVersion==42 and result.archive==nil and result.mp.bookId=='MP_WXS_1',
+    'gateway validation discarded original metadata or changed incomplete-group semantics')
+f=fixture('gateway')
+local large_book={bookId=100000000000000,title='Large number',readerLink='synthetic-reader'}
+local large_group={archiveId=100000000000001,name='Large group',bookIds={'100000000000000'}}
+f.client.get_gateway_shelf=function() return {books={large_book},archive={large_group}},200,{} end
+result=f.fetch()
+expect(result.books[1].bookId=='100000000000000' and result.books[1].readerLink=='synthetic-reader'
+    and result.archive[1].archiveId=='100000000000001' and result.archive[1].bookIds[1]=='100000000000000'
+    and large_book.bookId==100000000000000 and large_group.archiveId==100000000000001,
+    'gateway lost exact large numeric IDs or mutated its input')
+f=fixture();f.change{present=false,api_key="",cookies=jar}
+expect(Source.ready(f.settings,f.store),"verified Web account without key cannot read shelf")
+result=f.fetch()
+local cookie_calls
+native,web,cookie_calls=f.counts()
+expect(native==0 and web==0 and cookie_calls==1 and result._shelf_source=='web',"keyless automatic route contacted another source")
+expect(result.books[1]._web_shelf_version==700 and result.books[1]._native_version==nil
+    and result.books[1].bookVersion==nil and result.books[1].version==nil,"Web shelf version promoted to a download version")
+expect(type(result._web_revision)=='string' and #result._web_revision==64,"Web result lacks revision for parent guard")
+f=fixture('gateway');f.change{api_key='',cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==0 and web==0 and cookie_calls==1 and result._shelf_source=='web',"standard policy cannot use verified Web login without key")
+f=fixture();f.change{present=false,web_fail=true,cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==0 and web==1 and cookie_calls==1 and result._gateway_fallback and result._shelf_source=='web',"gateway failure did not fall back exactly once")
+f=fixture();f.change{native_fail=true,api_key='',cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==1 and web==0 and cookie_calls==1 and result._native_fallback,"native failure cannot fall back to keyless Web")
+f=fixture('native');f.change{native_fail=true,api_key='',cookies=jar}
+ok,err=pcall(f.fetch);native,web,cookie_calls=f.counts()
+expect(not ok and err=='shelf_source/native_unavailable' and native==1 and web==0 and cookie_calls==0,"native-only leaked into Web fallback")
+for _,change in ipairs({{current=false},{cookies={}},{cookies={wr_vid='123',wr_skey='different-web-access'}},{mode='native'}}) do
+    f=fixture('gateway');f.change{api_key='',cookies=jar}
+    f.change{cookie_callback=function() f.change(change) end}
+    ok,err=pcall(f.fetch)
+    expect(not ok and err=='shelf_source/session_changed',"stale Web response was allowed to update shelf")
+end
+f=fixture('gateway');f.change{api_key='',cookies=jar,cookie_fail=true}
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/web_unavailable',"Web failure exposed its response or cookie")
+f=fixture('gateway');f.change{api_key='',cookies={wr_vid='456',wr_skey='synthetic-web-access'}}
+expect(not Source.ready(f.settings,f.store),"mismatching Web owner is considered logged in")
+f=fixture('gateway');f.change{api_key='',cookies={wr_vid='123',wr_gid='guest-only-id'}}
+expect(not Source.ready(f.settings,f.store),"guest identity was accepted as authenticated Web access")
+local binary=Source.normalize({books={{bookId='1',title='Binary',secret=false,finishReading=false,isTop=false,finished=1}}}).books[1]
+expect(binary.secret==0 and binary.finishReading==0 and binary.isTop==false and binary.finished==1,'explicit false flags dropped or independent finished metadata merged')
+binary=Source.normalize({books={{bookId='1',title='Invalid',secret=2,finishReading='1',isTop='true',finished=1}}}).books[1]
+expect(binary.secret==nil and binary.finishReading==nil and binary.isTop==nil and binary.finished==1,'invalid API flags became explicit states')
+expect(Source.normalize({books={}}).archive==nil,'missing archive became an authoritative empty group list')
+expect(type(Source.normalize({books={},archive={}}).archive)=='table','explicit empty group list was lost')
+f=fixture('native');f.data.archive=nil;result=f.fetch()
+expect(result.archive==nil and #result.books==1,'native incomplete groups were hidden')
+f=fixture('gateway');f.change{api_key='',cookies=jar};f.data.archive=nil;result=f.fetch()
+expect(result.archive==nil and #result.books==1,'Web incomplete groups were hidden')
+local array_mt={}
+f=fixture('native');f.data.archive={}
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/native_unavailable','native empty JSON object became an empty group array')
+f=fixture('native');f.data.archive=setmetatable({},array_mt)
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+expect(#f.fetch().archive==0,'native explicit empty JSON array was rejected')
+f=fixture('native');f.data.archive[1].bookIds={}
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/native_unavailable','native empty member object became an empty member list')
+f=fixture('gateway')
+f.client.json_decode=function() return setmetatable({},array_mt) end
+f.client.get_gateway_shelf=function() return {books=setmetatable({},array_mt),archive={}} end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/invalid_snapshot','gateway empty JSON object became an empty group array')
+print("PASS: " .. checks .. " shelf source routing/normalization/account checks")
