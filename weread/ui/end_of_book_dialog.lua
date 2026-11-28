@@ -52,7 +52,7 @@ function M.show(opts, callbacks)
         local nav_row = {
             {
                 id = 'chapter_list',
-                text = _("Chapter list"),
+                text = opts.chapter_list_downloaded and _("Downloaded chapters") or _("Chapter list"),
                 enabled = opts.enable_chapter_list ~= false,
                 callback = function() dismiss_then(callbacks.on_chapter_list) end,
             },

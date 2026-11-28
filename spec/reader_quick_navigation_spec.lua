@@ -49,9 +49,9 @@ function host:showCurrentBookDetails() details=true end
 function host:onWeReadSyncProgress() sync=true end
 function host:showTransientInfo(value) notice=value end
 for key,value in pairs(Navigation) do if host[key]==nil then host[key]=value end end
-local function menu()
+local function menu(at_end,open_downloads)
     building_menu=true
-    assert(host:showEndOfBookDialog('123'))
+    assert(host:showEndOfBookDialog('123',at_end,open_downloads))
     building_menu=false
     return callbacks
 end
@@ -90,7 +90,8 @@ doc.file='/synthetic/2.epub'
 do
     original.chapters=nil
     local actions=menu()
-    assert(options.enable_chapter_list and not options.enable_next_chapter,'saved chapters needed the full catalog')
+    assert(options.chapter_list_downloaded and options.enable_chapter_list and not options.enable_next_chapter,
+        'saved chapters needed the full catalog')
     actions.on_chapter_list()
     assert(saved_picker and saved_picker.load_book()==fresh and not listing,'quick menu did not use the saved picker')
     fresh.bookVersion=2
@@ -99,8 +100,13 @@ do
     epoch=2
     assert(not saved_picker.is_current() and not saved_picker.load_book(),'saved picker accepted a changed session')
     epoch=1
+    saved_picker=nil
+    menu(true,true)
+    assert(saved_picker and saved_picker.load_book()==fresh,'automatic end-of-file fallback did not open the saved picker')
     original.cached_chapters={}
-    menu();assert(not options.enable_chapter_list,'no catalog or saved chapters enabled the picker')
+    saved_picker=nil
+    menu(true,true)
+    assert(not saved_picker and not options.enable_chapter_list,'no catalog or saved chapters enabled the picker')
     original.cached_chapters={['2']=doc.file}
     original.chapters=catalog
 end

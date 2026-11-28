@@ -57,7 +57,7 @@ function M:onShowWeReadSearch()
     return true
 end
 
-function M:showEndOfBookDialog(book_id, at_end)
+function M:showEndOfBookDialog(book_id, at_end, open_downloads)
     local reader_ui = self.ui
     local document = reader_ui and reader_ui.document
     local search = reader_ui and reader_ui.search
@@ -115,6 +115,14 @@ function M:showEndOfBookDialog(book_id, at_end)
         if ok and matching_book(fresh) then return fresh end
         self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'), 3)
     end
+    local function show_downloaded_chapters()
+        self:showSavedChapters(book_id, nil, { is_current = valid_reader, load_book = load_current_book })
+    end
+    local downloaded_only = not chapters and has_saved_chapters
+    if open_downloads and downloaded_only then
+        show_downloaded_chapters()
+        return true
+    end
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
     local expected_next,still_at_end=expected_chapter,nil
@@ -148,6 +156,7 @@ function M:showEndOfBookDialog(book_id, at_end)
     EndOfBookDialog.show({
         show_chapter_nav = true,
         show_next_chapter = true,
+        chapter_list_downloaded = downloaded_only,
         enable_chapter_list = chapters ~= nil or has_saved_chapters,
         enable_next_chapter = next_chapter ~= nil or still_at_end ~= nil,
         enable_book_details = book ~= nil,
@@ -214,8 +223,8 @@ function M:showEndOfBookDialog(book_id, at_end)
             if chapters then
                 local fresh = load_current_book()
                 if fresh then self:showChapterList(fresh) end
-            elseif has_saved_chapters then
-                self:showSavedChapters(book_id, nil, { is_current = valid_reader, load_book = load_current_book })
+            elseif downloaded_only then
+                show_downloaded_chapters()
             else
                 show_context_required()
             end
@@ -227,9 +236,9 @@ function M:showEndOfBookDialog(book_id, at_end)
                 local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_next,1)
                 if ok and fresh and target and valid_reader() then self:openChapter(fresh,target)
                 elseif valid_reader() then self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
-            elseif is_regular_weread_book then
+            elseif chapters then
                 self:showTransientInfo(_("You have reached the last chapter."), 1)
-            else
+            elseif not is_regular_weread_book then
                 show_context_required()
             end
         end,

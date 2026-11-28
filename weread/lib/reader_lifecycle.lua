@@ -103,13 +103,18 @@ function M:handleEndOfBook(status_self)
     if action == "next_file" then
         local book = ReadAccess.load_cached_book(self.settings, book_id)
         local chapters = self:ensureChaptersLoaded(book,true)
-        if chapters then book.chapters=chapters end
+        if not chapters then
+            -- Chapter IDs identify files but cannot establish which chapter follows.
+            if self:showEndOfBookDialog(book_id,true,true) then return true end
+            return self._orig_onEndOfBook(status_self)
+        end
+        book.chapters=chapters
         local current_idx, _, is_full_book, partial, proof = self:getChapterInfoFromFile(book, file)
         if is_full_book and partial then
             current_idx=require('weread.lib.reader_progress_chapter').combined_end(book,self.ui.document,proof)
             if not current_idx and self:showEndOfBookDialog(book_id,true) then return true end
         end
-        local next_ch = chapters and current_idx and chapters[current_idx + 1]
+        local next_ch = current_idx and chapters[current_idx + 1]
         if next_ch then
             self:openChapter(book, next_ch)
         else

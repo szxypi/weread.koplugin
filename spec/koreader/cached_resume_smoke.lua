@@ -136,9 +136,20 @@ local function check_saved_chapter_picker(reader, with_standalone)
         assert(menu.title==tr('Downloaded chapters'))
         return menu
     end
-    local menu
+    local function turn_past_end(action)
+        clean(reader)
+        local previous=G_reader_settings:readSetting('end_document_action')
+        G_reader_settings:saveSetting('end_document_action',action)
+        reader.rolling:onGotoPage(reader.document:getPageCount())
+        reader.rolling:onGotoViewRel(1)
+        if previous then G_reader_settings:saveSetting('end_document_action',previous)
+        else G_reader_settings:delSetting('end_document_action') end
+    end
+    local menu,standalone_next
     if with_standalone then
-        local single=assert(book(current).cached_chapters['2'])
+        local saved=book(current)
+        local single=assert(saved.cached_chapters['2'])
+        standalone_next=assert(saved.cached_chapters['4'])
         patch(current,{cached_full_book=false,cached_file=false,cached_chapters={['2']=single,['4']=single..'.missing'}})
         menu=picker()
         assert(#menu.item_table==1 and menu.item_table[1].text=='合成重复章节','offline picker included a missing chapter')
@@ -155,11 +166,33 @@ local function check_saved_chapter_picker(reader, with_standalone)
         pump(function() return menu.item_table[1].text=='合成重复章节' end)
         assert(#menu.item_table==1 and menu.item_table[1].chapter_id=='2',
             'catalog-free single EPUB did not restore its own title')
+        patch(current,{cached_chapters={['2']=reader.document.file,['4']=standalone_next}})
+        turn_past_end('next_file')
+        menu=assert(current._saved_chapter_menu,'automatic advance did not show the offline chapter picker')
+        assert(Reader.instance==reader and UI:getTopmostVisibleWidget()==menu and #menu.item_table==2,
+            'automatic advance left the current reader or missed the other saved chapter')
+        local chosen=menu.item_table[2]
+        assert(chosen.chapter_id=='4')
+        menu:onMenuSelect(chosen)
+        pump(function() return Reader.instance and Reader.instance.document.file==standalone_next end)
+        reader=assert(Reader.instance);current=assert(reader.weread)
+        assert(Source.read_document(reader.document,id,4),'automatic fallback opened the wrong standalone source')
     end
     patch(current,{cached_full_book=full,cached_file=full,cached_chapters={}})
     local previous_size=G_reader_settings:readSetting('items_per_page')
     G_reader_settings:saveSetting('items_per_page',3)
-    menu=picker()
+    if with_standalone then
+        menu=picker()
+    else
+        turn_past_end('pop-up')
+        local quick=assert(UI:getTopmostVisibleWidget())
+        local downloaded=assert(quick:getButtonById('chapter_list'))
+        assert(downloaded.text==tr('Downloaded chapters') and downloaded.enabled~=false)
+        assert(quick:getButtonById('next_chapter').enabled==false)
+        downloaded:onTapSelectButton()
+        pump(function() return current._saved_chapter_menu~=nil end)
+        menu=assert(current._saved_chapter_menu)
+    end
     pump(function() return menu.item_table[4].text=='4. 合成重复章节' end)
     assert(#menu.item_table==6 and menu.item_table[2].text=='2. 合成重复章节',
         'the combined file did not supply ordered titles without the catalog')
