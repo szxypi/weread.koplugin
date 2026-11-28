@@ -35,6 +35,16 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(DiscoveryError):page('similar',dict(booksimilar=dict(books=[],sessionId='bad\nvalue')))
         self.assertEqual(page('recommend',dict(books=[]))['books'],[])
 
+    def test_full_recommendation_without_cursor_is_one_batch(self):
+        books = [dict(bookId=str(900001+i), title='Synthetic') for i in range(20)]
+        terminal = page('recommend', dict(books=books))
+        self.assertEqual(len(terminal['books']), 20)
+        self.assertEqual(terminal['next_cursor'], 0)
+        self.assertFalse(terminal['has_more'])
+        for i, book in enumerate(books, 1):
+            book['searchIdx'] = i
+        self.assertTrue(page('recommend', dict(books=books))['has_more'])
+
     def test_guard_allows_only_known_gets(self):
         probe=DiscoveryProbe()
         probe.guard('search','https://i.weread.qq.com/store/search?keyword=%E4%B8%89%E4%BD%93&scope=10&count=20&maxIdx=0',None)

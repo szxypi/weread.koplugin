@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""Opt-in owner bookstore pages and fresh-process offline batches; GET only."""
+"""Opt-in owner bookstore pages and fresh-process offline batches; read only."""
 import argparse
 from datetime import datetime,timezone
 import json
 import subprocess
+from urllib.request import Request, build_opener
 from secure_native_session import NativeSessionStore
-from secure_weread_session import SessionStore
+from secure_weread_session import ACCOUNT, MacKeychain, SessionStore
 from verify_native_discovery import DiscoveryProbe,page
+from verify_pin_gateway import SERVICE, validate
+from verify_pin_observability import GATEWAY, NoRedirect
 
 FRAME=b'\nWEREAD_OWNER_DISCOVERY_RESULT='
 PRIVATE_FRAME=b'\nWEREAD_OWNER_DISCOVERY_PRIVATE='
 FLAGS={'anonymous_credentials','transport_guard_selftest','file_backed_sqlite','ui_projection_matches',
        'workers_reaped','credential_file_audit','native_filemanager_host','cache_account_scoped','cache_session_free','pagination_matches','saved_searches_verified'}
-COUNTS={'validated_views':10,'samples':6,'profile_files_audited':512,'screenshots':0,'forbidden_requests':512,'failed_line':2000}
+COUNTS={'validated_views':10,'samples':6,'profile_files_audited':512,'screenshots':0,'forbidden_requests':512,
+        'failed_line':2000,'gateway_read_posts':1}
 PHASES={'init','search','similar','recommend','audit','complete'}
 ERRORS={'none','child_timeout','runner_exception','candidate_layout','input_limit','stage_unverified','discovery_schema'}
 
@@ -25,7 +29,7 @@ def stage(value,mode):
     for key,limit in [('request_counts',1),('batch_sizes',100)]:
         rows=value[key]
         if not isinstance(rows,list) or not 0<=len(rows)<=6 or any(type(n) is not int or not 0<=n<=limit for n in rows):raise ValueError('discovery_schema')
-    if mode=='reopen' and any(value['request_counts']):raise ValueError('discovery_schema')
+    if mode=='reopen' and (any(value['request_counts']) or value['gateway_read_posts']):raise ValueError('discovery_schema')
     if value['result']=='PASS' and (not 3<=len(value['request_counts'])<=6 or len(value['batch_sizes'])!=len(value['request_counts']) or value['phase']!='complete' or not all(value[k] for k in FLAGS) or value['forbidden_requests']
             or value['failed_line'] or value['samples']!=len(value['batch_sizes']) or value['profile_files_audited']<1
             or value['worker_http_child']!=(mode=='live') or value['validated_views']!=(value['samples'] if mode=='live' else 2*value['samples']-2)
@@ -110,23 +114,55 @@ def prepare(credentials,probe):
     return dict(credentials=credentials,book_id=probe.target,book_title='Saved book',keyword='三体',samples=samples),baseline
 
 
+def attach_terminal_skill_recommendation(payload, owner):
+    sample = payload['samples'][-1]
+    if (sample['kind'] != 'recommend' or sample['cursor'] != 0
+            or sample['expected']['books'] or sample['expected']['has_more']):
+        raise ValueError('native_recommendation_not_empty')
+    key = validate(json.loads(MacKeychain(service=SERVICE, account=ACCOUNT).load()), owner)['key']
+    body = dict(api_name='/book/recommend', skill_version='1.0.5', count=20, maxIdx=0)
+    request = Request(GATEWAY, data=json.dumps(body).encode(), headers={
+        'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'Accept': 'application/json',
+    })
+    with build_opener(NoRedirect()).open(request, timeout=20) as response:
+        raw = response.read(4 * 1024 * 1024 + 1)
+        if response.status != 200 or len(raw) > 4 * 1024 * 1024:
+            raise ValueError('skill_recommendation_response')
+    model = page('recommend', json.loads(raw))
+    if not model['books'] or model['has_more']:
+        raise ValueError('skill_recommendation_not_terminal')
+    sample['expected'] = model
+    for book in model['books']:
+        if book['searchIdx'] is None:
+            book.pop('searchIdx')
+    payload['skill_key'] = key
+
+
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--with-skill-recommendation',action='store_true',help='verify the non-paginated Skill fallback')
+    parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('pair --saved-session and --lua-command; put --lua-command last')
+    if args.with_skill_recommendation and not args.saved_session:parser.error('Skill fallback requires --saved-session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts_attempted=0,
                 authentication_posts_attempted=0,screenshots=0,private_data_on_regular_disk=False,credentials_written_to_files=False)
     credentials=payload=probe=None
     try:
         if args.saved_session:
             credentials=NativeSessionStore().load(SessionStore().load()['vid']);probe=DiscoveryProbe();payload,_baseline=prepare(credentials,probe)
+            if args.with_skill_recommendation:
+                attach_terminal_skill_recommendation(payload,credentials['vid'])
             raw=json.dumps(payload,ensure_ascii=False).encode()
             if len(raw)>2*1024*1024:raise ValueError('input_limit')
             child=subprocess.run(args.lua_command,input=raw,capture_output=True,timeout=320)
             value,private=private_output(child.stdout);report['ui']=value
             if child.returncode or value['result']!='PASS' or value['stages'][0]['batch_sizes']!=[len(row['expected']['books']) for row in payload['samples']]:raise ValueError('stage_unverified')
+            if value['stages'][0]['gateway_read_posts']!=int(args.with_skill_recommendation):raise ValueError('stage_unverified')
             compare_private(private,payload['samples'])
             report.update(result='OWNER_DISCOVERY_FILE_UI_AND_OFFLINE_VERIFIED',same_owner_verified=True,same_response_python_projection_matches=True,python_preflight_gets=len(probe.report['stages']))
+            if args.with_skill_recommendation:
+                report.update(terminal_skill_fallback_verified=True,skill_preflight_read_posts=1)
     except Exception:report.update(result='UNVERIFIED',reason='owner_discovery_unverified')
     finally:
         if credentials:credentials.clear()

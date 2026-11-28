@@ -11,7 +11,7 @@ from verify_owner_discovery import FLAGS,FRAME,PRIVATE_FRAME,decode_runner,decod
 
 def receipt(mode='live'):
     return dict(result='PASS',mode=mode,phase='complete',worker_http_child=mode=='live',validated_views=5 if mode=='live' else 8,
-        samples=5,profile_files_audited=7,screenshots=0,forbidden_requests=0,failed_line=0,batch_sizes=[20,2,20,3,0],
+        samples=5,profile_files_audited=7,screenshots=0,forbidden_requests=0,failed_line=0,gateway_read_posts=0,batch_sizes=[20,2,20,3,0],
         request_counts=[1]*5 if mode=='live' else [0]*5,**dict.fromkeys(FLAGS,True))
 
 
@@ -53,6 +53,8 @@ class Tests(unittest.TestCase):
     def test_offline_network_and_unclean_runner_rejected(self):
         value=receipt('reopen');value['request_counts'][0]=1
         with self.assertRaises(ValueError):stage(value,'reopen')
+        value=receipt('reopen');value['gateway_read_posts']=1
+        with self.assertRaises(ValueError):stage(value,'reopen')
         for key,bad in [('profile_removed',False),('tmpfs_profile',False),('installed_bytes_match',False),('installed_files',0),('stages',[receipt()]),('runner_error',[])]:
             value=outer();value[key]=bad
             with self.subTest(key=key),self.assertRaises(ValueError):decode_runner(FRAME+json.dumps(value).encode())
@@ -66,7 +68,7 @@ class Tests(unittest.TestCase):
     def test_offline_default_and_invalid_args_do_not_load_credentials(self):
         with patch('verify_owner_discovery.SessionStore') as saved,redirect_stdout(io.StringIO()) as out:self.assertEqual(main([]),0)
         saved.assert_not_called();self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
-        for args in [['--saved-session'],['--lua-command','invalid']]:
+        for args in [['--saved-session'],['--lua-command','invalid'],['--with-skill-recommendation']]:
             with patch('verify_owner_discovery.SessionStore') as saved,redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
             saved.assert_not_called()
 

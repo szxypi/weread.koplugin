@@ -55,7 +55,7 @@ def page(kind,data,cursor=0):
             books.append(dict(bookId=book_id,title=book['title'],author=book.get('author') if text(book.get('author'),4096) else '',
                               cover=book.get('cover') if text(book.get('cover'),8192) else '',
                               category=book.get('category') if text(book.get('category'),4096) else '',searchIdx=idx))
-    more=container.get('hasMore',len(container['books'])>=20) in (True,1,'1')
+    more=container.get('hasMore',len(container['books'])>=20 and last>cursor) in (True,1,'1')
     if more and last<=cursor:raise DiscoveryError('native_cursor_missing')
     session=container.get('sessionId')
     if session is not None and not text(session,512):raise DiscoveryError('native_session_invalid')

@@ -8,7 +8,7 @@ local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_credentials=f
     file_backed_sqlite=false,ui_projection_matches=false,workers_reaped=false,credential_file_audit=false,
     native_filemanager_host=false,cache_account_scoped=false,cache_session_free=false,pagination_matches=false,saved_searches_verified=false,
     worker_http_child=false,validated_views=0,samples=0,profile_files_audited=0,screenshots=0,forbidden_requests=0,
-    failed_line=0,request_counts=json.decode('[0]'),batch_sizes=json.decode('[]')}
+    failed_line=0,gateway_read_posts=0,request_counts=json.decode('[0]'),batch_sizes=json.decode('[]')}
 local private={sources=json.decode('[]'),views=json.decode('[]')}
 local plugin,counters,memory
 local descriptors={}
@@ -20,6 +20,10 @@ local ok,reason=pcall(function()
     assert((lfs.symlinkattributes(home..'/weread')~=nil)==(mode=='reopen'))
     local raw=assert(io.stdin:read(2*1024*1024+1));assert(#raw<=2*1024*1024)
     local input=json.decode(raw);local grant=assert(input.credentials)
+    local skill_key=input.skill_key
+    if skill_key then
+        assert(type(skill_key)=='string' and #skill_key>=12 and #skill_key<=4096 and skill_key:match('^wrk%-%g+$'))
+    end
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$') and #grant.vid<=20)
     for _i,key in ipairs({'accessToken','refreshToken','deviceId'}) do assert(type(grant[key])=='string' and #grant[key]>=8) end
     assert(type(input.samples)=='table' and #input.samples>=3 and #input.samples<=6)
@@ -29,6 +33,7 @@ local ok,reason=pcall(function()
     if mock then
         assert(tonumber(mock)==input.mock_port and grant.vid=='900000' and grant.accessToken=='mock-native-access'
             and grant.refreshToken=='mock-native-refresh' and grant.deviceId=='eink334691225'..string.rep('1',19))
+        assert(not skill_key or skill_key=='wrk-mock-recommendation')
     end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
     G_defaults=require('luadefaults'):open()
@@ -46,7 +51,7 @@ local ok,reason=pcall(function()
         end
         return '/proc/self/fd/'..fd
     end
-    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies={},api_key=''}
+    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies={},api_key=skill_key or ''}
     local scope_path=anonymous(auth);local saved={}
     for key,value in pairs(grant) do saved[key]=value end
     saved.epoch,saved.verified_at,saved.book_count=1,os.time(),0
@@ -91,9 +96,20 @@ local ok,reason=pcall(function()
     end
     local function classify(options)
         local headers=options.headers or {};local rule=allowed[options.url]
-        if rule and mode=='live' and options.method=='GET' and options.body==nil and options.skip_cookie==true
-            and options.persist_response_cookies==false and options.sensitive==true and headers.vid==grant.vid
-            and headers.accessToken==grant.accessToken and not headers.Cookie and not headers.Authorization then return rule end
+        if mode~='live' or options.skip_cookie~=true or options.persist_response_cookies~=false
+            or options.sensitive~=true or headers.Cookie then return end
+        if rule and options.method=='GET' and options.body==nil and headers.vid==grant.vid
+            and headers.accessToken==grant.accessToken and not headers.Authorization then return rule end
+        if skill_key and options.url=='https://i.weread.qq.com/api/agent/gateway' and options.method=='POST'
+            and headers.Authorization=='Bearer '..skill_key and headers['Content-Type']=='application/json'
+            and type(options.body)=='string' and #options.body<=200 then
+            for key in pairs(headers) do if key~='Authorization' and key~='Content-Type' then return end end
+            local decoded,body=pcall(json.decode,options.body)
+            if not decoded or type(body)~='table' then return end
+            local expected={api_name='/book/recommend',skill_version=Protocol.SKILL_VERSION,count=20,maxIdx=0}
+            for key,value in pairs(body) do if value~=expected[key] then return end;expected[key]=nil end
+            if not next(expected) then return {slot=66,limit=1} end
+        end
     end
     local first=next(allowed)
     local valid={url=first,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
@@ -107,6 +123,18 @@ local ok,reason=pcall(function()
         elseif change=='owner' then test.headers.vid='0' elseif change=='token' then test.headers.accessToken='invalid'
         elseif change=='authorization' then test.headers.Authorization='forbidden' elseif change=='skip' then test.skip_cookie=false
         elseif change=='persist' then test.persist_response_cookies=true else test.sensitive=false end
+        assert(not classify(test))
+    end
+    if skill_key then
+        local test={url='https://i.weread.qq.com/api/agent/gateway',method='POST',skip_cookie=true,
+            persist_response_cookies=false,sensitive=true,
+            headers={Authorization='Bearer '..skill_key,['Content-Type']='application/json'},
+            body=json.encode{api_name='/book/recommend',skill_version=Protocol.SKILL_VERSION,count=20,maxIdx=0}}
+        assert((classify(test)~=nil)==(mode=='live'))
+        test.headers.accessToken=grant.accessToken
+        assert(not classify(test))
+        test.headers.accessToken=nil
+        test.body=json.encode{api_name='/shelf/sync',skill_version=Protocol.SKILL_VERSION,count=20,maxIdx=0}
         assert(not classify(test))
     end
     report.transport_guard_selftest=true
@@ -170,10 +198,37 @@ local ok,reason=pcall(function()
             assert(socket.gettime()<deadline);UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
         end
     end
+    local function check_terminal_recommendations(state)
+        assert(not state.has_more and #state.books>0 and (mode=='reopen' or state.source_kind=='gateway'))
+        local next_batch=require('weread.lib.plugin_util').tr('Next batch')
+        local book_index=0
+        for page=1,plugin.shelf_view.page_count do
+            local view=plugin.shelf_view
+            assert(view.page==page and plugin.discovery_state==state)
+            for _,button in ipairs(view._action_buttons) do assert(button.text~=next_batch) end
+            for _,cell in ipairs(view._item_rows) do
+                book_index=book_index+1
+                assert(cell.book==state.books[book_index])
+            end
+            UI:forceRePaint()
+            if page<view.page_count then
+                assert(view:turnShelfPage(1))
+                wait(function() return plugin.shelf_view~=view end)
+            end
+        end
+        assert(book_index==#state.books)
+        while plugin.shelf_view.page>1 do
+            local view=plugin.shelf_view
+            assert(view:turnShelfPage(-1))
+            wait(function() return plugin.shelf_view~=view end)
+            assert(plugin.shelf_view.page==view.page-1)
+        end
+    end
     local function verify(sample)
         local state=assert(plugin.discovery_state);assert(state.kind==sample.kind and state.cursor==sample.cursor)
         assert(state.cached==(mode=='reopen') or mode=='live' and state.cached==nil)
         assert(#state.books==#sample.expected.books and #plugin.shelf_view.books==#state.books)
+        if skill_key and sample.kind=='recommend' then check_terminal_recommendations(state) end
         local view={kind=state.kind,cursor=state.cursor,next_cursor=state.next_cursor,has_more=state.has_more,
             cached=state.cached==true,books=json.decode('[]')}
         for index,book in ipairs(state.books) do
@@ -268,12 +323,14 @@ local ok,reason=pcall(function()
                     report.profile_files_audited=report.profile_files_audited+1;assert(report.profile_files_audited<=512 and info.size<=4*1024*1024)
                     local handle=assert(io.open(filename,'rb'));local bytes=handle:read('*a');handle:close()
                     for _i,key in ipairs({'accessToken','refreshToken','deviceId'}) do assert(not bytes:find(grant[key],1,true)) end
+                    if skill_key then assert(not bytes:find(skill_key,1,true)) end
                 else error('unexpected profile entry',0) end
             end
         end
     end
     audit(home);report.credential_file_audit=true
     assert(counters[64]==0)
+    assert(counters[66]==(skill_key and mode=='live' and 1 or 0))
     for index in ipairs(input.samples) do assert(counters[index-1]==(mode=='live' and 1 or 0)) end
     report.phase,report.result='complete','PASS'
 end)
@@ -281,6 +338,7 @@ if plugin then pcall(plugin.closeWeReadUI,plugin) end
 if counters then
     for index=1,#report.request_counts do report.request_counts[index]=tonumber(counters[index-1]) end
     report.forbidden_requests=tonumber(counters[64]);report.worker_http_child=counters[65]==1
+    report.gateway_read_posts=tonumber(counters[66])
     ffi.C.munmap(memory,4096)
 end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
