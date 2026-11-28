@@ -41,6 +41,14 @@ function settings:merge_set_cookie(value)
     values.cookies=require('weread.lib.cookie').merge_set_cookie(values.cookies or {},value)
 end
 local lfs=require('libs/libkoreader-lfs');assert(lfs.mkdir(settings.cache_dir))
+local BookStore=require('weread.lib.book_store')
+local download_index
+function settings:record_download(id,first,change)
+    assert(id==book_id)
+    local ok,record,new_index=BookStore.record_download(self,id,download_index,first,change)
+    if ok then download_index=new_index or download_index end
+    return ok,record
+end
 local store={read=function() return input.credentials,1,nil,false end}
 local access=require('weread.lib.native_read_access');local capture=access.capture
 access.capture=function(s,existing) return capture(s,existing or store) end
@@ -219,6 +227,7 @@ if input.corrupt then
     assert(target:read('*a')=='must remain');assert(target:close())
 end
 assert(book.cached_full_book==result and not lfs.attributes(book.cache_dir..'/.weread-download-resume-full'))
+assert(download_index and BookStore.load(settings,book_id,download_index).cached_full_book==result)
 client.request=function() error('offline network request forbidden') end
 require('socket.http').request=function() error('offline network request forbidden') end
 local doc=assert(require('document/documentregistry'):openDocument(result))
