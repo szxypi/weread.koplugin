@@ -36,13 +36,18 @@ local rows={one,copy,two,old}
 package.preload['weread.lib.native_direct_cache']=function() return {MAX_ENTRIES=2000,
     valid_entry=function(e,id,account) return type(e)=='table' and e.book_id==id and account=='123' end,
     list=function(_,_,_,current) assert(current());return rows end} end
-local scans={}
+local scans,match_counts={},{b=1,c=1}
 package.preload['weread.lib.native_direct_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,
-    scan=function(_,_,entry,_,from,_,current)
+    scan=function(_,_,entry,_,from,_,current,options)
         assert(current());scans[#scans+1]=entry.key
         if entry==one then return {error='damaged'} end
-        return {complete=true,unresolved=0,hits={{chapter_uid=entry.chapter_uid,byte=from,file_id=string.rep('a',64),
-            context='match '..entry.key,anchor={co=1}}}}
+        local hits,total={},match_counts[entry.key]
+        local last=math.min(total,from+options.max_hits-1)
+        for byte=from,last do
+            hits[#hits+1]={chapter_uid=entry.chapter_uid,byte=byte,file_id=string.rep('a',64),
+                context='match '..entry.key,anchor={co=byte}}
+        end
+        return {complete=last==total,next_byte=last<total and last+1 or nil,unresolved=0,hits=hits}
     end} end
 local navigated,open_cancels
 package.preload['weread.ui.native_direct_search_open']=function() return {
@@ -124,9 +129,40 @@ expect(not owner.finished and not owner.job and owner.menu.redraws==3 and #tasks
 owner.menu.item_table[1].callback();finish(worker)
 expect(owner.finished and owner.menu.redraws==4 and #tasks==0,'resumed search kept an older progress redraw')
 local previous_limit=Search.MAX_RESULTS;Search.MAX_RESULTS=1
-owner=start();finish(workers[#workers]);Search.MAX_RESULTS=previous_limit
+local function action(text)
+    for _,item in ipairs(owner.menu.item_table) do if item.text==text then return item.callback end end
+end
+local function next_batch()
+    assert(action('Search next batch (keeps only the previous batch)'))()
+end
+owner=start();finish(workers[#workers])
 expect(owner.limit and not owner.job and owner.menu.redraws==2 and #tasks==0
     and owner.menu.item_table[5].text=='First · match b','result limit did not flush immediately')
+local first_batch=owner.value
+next_batch();host.busy_message.cancel()
+expect(owner.next_batch and owner.value==first_batch and owner.batch==1 and not owner.job,
+    'cancelling the next-batch scan removed the visible results')
+assert(action('Continue searching downloaded chapters'))();finish(workers[#workers])
+expect(owner.finished and not owner.limit and owner.batch==2 and owner.previous==first_batch
+    and #owner.value==1 and owner.value[1].entry==two,'exact last batch required an empty follow-up')
+assert(action('Show previous result batch'))()
+expect(owner.show_previous and not action('Continue searching downloaded chapters'),'previous batch could resume scanning')
+Search.cancel(host)
+Search.MAX_RESULTS=2;match_counts={b=2,c=0}
+owner=start();finish(workers[#workers]);first_batch=owner.value
+next_batch();finish(workers[#workers])
+expect(owner.finished and not owner.limit and owner.batch==1 and owner.value==first_batch and not owner.previous,
+    'a later chapter without matches replaced the current batch')
+Search.cancel(host)
+Search.MAX_RESULTS=3;match_counts={b=2,c=5}
+owner=start();finish(workers[#workers])
+expect(#owner.value==3 and owner.value[3].entry==two and owner.value[3].hit.byte==1,'first batch exceeded its remaining capacity')
+next_batch();finish(workers[#workers])
+expect(#owner.value==3 and owner.value[1].hit.byte==2 and owner.value[3].hit.byte==4,'continuation omitted or repeated matches')
+next_batch();finish(workers[#workers])
+expect(owner.finished and not owner.limit and #owner.value==1 and owner.value[1].hit.byte==5,
+    'partial last batch lost its final result')
+Search.MAX_RESULTS=previous_limit;match_counts={b=1,c=1}
 Search.cancel(host)
 owner=start();worker=workers[#workers];local callback,task=worker.callback,worker.task;account='other';callback(task())
 expect(not host._native_direct_search and not owner.menu,'old account produced results');account='owner'

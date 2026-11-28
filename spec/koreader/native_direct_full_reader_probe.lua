@@ -201,6 +201,52 @@ do
     cancel_saved_fallback()
     host.isNetworkConnected=is_connected
 end
+do
+    local search_ui=require('weread.ui.native_direct_search')
+    local limit=search_ui.MAX_RESULTS
+    local function query(keyword,batch_size)
+        search_ui.MAX_RESULTS=batch_size
+        quick(host,'search_cached')
+        pump(function() return host._native_direct_search and host._native_direct_search.input end)
+        local search_owner=host._native_direct_search
+        search_owner.input:setInputText(keyword);search_owner.input.buttons[1][2].callback()
+        pump(function() return not search_owner.job and (search_owner.finished or search_owner.limit) end)
+        return search_owner
+    end
+    local function next_batch(search_owner)
+        local label=util.tr('Search next batch (keeps only the previous batch)')
+        for _,row in ipairs(search_owner.menu.item_table) do
+            if row.text==label then search_owner.menu:onMenuSelect(row);return end
+        end
+        error('next result batch action missing')
+    end
+    local function check_hits(values,first_paragraph)
+        assert(#values==17,'native result batch exceeded or fell short of its capacity')
+        for offset,value in ipairs(values) do
+            local marker='native marker, paragraph '..tostring(first_paragraph+offset-1)..'.'
+            assert(value.entry.chapter_uid=='37' and value.hit.context:find(marker,1,true),
+                'the continued result batch omitted or repeated a paragraph')
+        end
+    end
+    local paged=query('native marker',17)
+    local first_batch=paged.value
+    check_hits(first_batch,1)
+    next_batch(paged)
+    assert(paged.value==first_batch,'starting a continuation hid the current results')
+    pump(function() return not paged.job and paged.limit and paged.batch==2 end)
+    assert(paged.previous==first_batch)
+    check_hits(paged.value,18)
+    search_ui.cancel(host)
+    local last=query('Chapter 37 native marker, paragraph 50.',1)
+    assert(last.limit and #last.value==1)
+    first_batch=last.value
+    next_batch(last)
+    pump(function() return not last.job and last.finished end)
+    assert(last.value==first_batch and last.batch==1 and not last.previous and not last.limit,
+        'a later chapter without matches created an empty batch')
+    search_ui.cancel(host)
+    search_ui.MAX_RESULTS=limit
+end
 quick(host,'search_cached')
 pump(function() return host._native_direct_search and host._native_direct_search.input end)
 local owner=host._native_direct_search

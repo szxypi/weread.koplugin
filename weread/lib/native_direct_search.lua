@@ -20,15 +20,18 @@ end
 
 -- `from` is an original normalized UTF-8 byte offset, never a folded offset.
 -- The caller must pin account, reader, and document through `current`.
-local function scan(settings,account,entry,keyword,from,ignore_case,current,dependencies,expected_file_id)
+local function scan(settings,account,entry,keyword,from,ignore_case,current,options,expected_file_id)
+    local max_hits=options and options.max_hits
+    if max_hits==nil then max_hits=M.MAX_HITS end
     if type(current)~='function' or type(account)~='string' or NativeProtocol.id(account)~=account
         or type(entry)~='table' or type(entry.book_id)~='string'
         or not Cache.valid_entry(entry,entry.book_id,account)
         or type(keyword)~='string' or #keyword<1 or #keyword>160
         or type(from)~='number' or from~=from or from%1~=0 or from<1 or from>Coordinates.MAX_BYTES*4+1
+        or not NativeProtocol.integer(max_hits,1,M.MAX_HITS)
         or ignore_case~=nil and type(ignore_case)~='boolean' or not live(current) then return {error='invalid'} end
-    local cache=dependencies and dependencies.cache or Cache
-    local archive=dependencies and dependencies.archive or Archive
+    local cache=options and options.cache or Cache
+    local archive=options and options.archive or Archive
     local ok,result=pcall(function()
         local wanted=Dom.normalize(keyword)
         if type(wanted)~='string' or wanted=='' then return {error='invalid'} end
@@ -61,7 +64,7 @@ local function scan(settings,account,entry,keyword,from,ignore_case,current,depe
             else haystack,needle=fold_ascii(haystack),fold_ascii(needle) end
         end
         local hits,examined,unresolved={},0,0
-        while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
+        while #hits<max_hits and examined<M.MAX_EXAMINED do
             if not live(current) then return {error='cancelled'} end
             local first=haystack:find(needle,at,true)
             if not first then
@@ -92,12 +95,13 @@ local function scan(settings,account,entry,keyword,from,ignore_case,current,depe
         end
         if not live(current) then return {error='cancelled'} end
         if expected_file_id then return {error='changed'} end
-        return finish({hits=hits,next_byte=resume,unresolved=unresolved})
+        local next_byte=haystack:find(needle,at,true) and resume or nil
+        return finish({hits=hits,next_byte=next_byte,complete=next_byte==nil,unresolved=unresolved})
     end)
     return ok and result or {error='unavailable'}
 end
-function M.scan(settings,account,entry,keyword,from,ignore_case,current,dependencies)
-    return scan(settings,account,entry,keyword,from,ignore_case,current,dependencies)
+function M.scan(settings,account,entry,keyword,from,ignore_case,current,options)
+    return scan(settings,account,entry,keyword,from,ignore_case,current,options)
 end
 
 -- Recompute one selected match from its saved file and original byte offset.

@@ -53,6 +53,17 @@ deps.archive.read=read
 local second=scan('needle',first.next_byte)
 expect(#second.hits==7 and second.complete and first.hits[1].anchor.co~=second.hits[1].anchor.co,
     'continuation lost or repeated results')
+deps.max_hits=7
+local exact_end=scan('needle',first.next_byte)
+expect(exact_end.complete and not exact_end.next_byte and #exact_end.hits==7
+    and exact_end.hits[7].byte==second.hits[7].byte,'an exact-full scan reported another batch')
+deps.max_hits=1
+local limited=scan('needle')
+expect(#limited.hits==1 and limited.next_byte and limited.hits[1].byte==first.hits[1].byte
+    and scan('needle',limited.next_byte).hits[1].byte==first.hits[2].byte,
+    'the requested result limit skipped or duplicated a byte on resume')
+deps.max_hits=0;expect(scan('needle').error=='invalid','empty scan budget was accepted')
+deps.max_hits=nil
 local folded=scan('NeEdLe',1,true)
 expect(#folded.hits==30 and folded.hits[1].anchor.co==first.hits[1].anchor.co,'case fold changed location')
 expect(#scan('NeEdLe',1,false).hits==0,'case-sensitive search ignored case')

@@ -63,10 +63,14 @@ render=function(host,owner)
         local items={}
         if owner.limit then
             items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false}
+        end
+        if owner.limit and not owner.show_previous then
+            local batch=owner.value
             items[#items+1]={text=_('Search next batch (keeps only the previous batch)'),callback=function()
-                if current(host,owner) and owner.limit and not owner.job and not owner.navigation then
-                    owner.previous=owner.value;owner.value={};owner.limit=false;owner.show_previous=false
-                    owner.batch=owner.batch+1;render(host,owner);start(host,owner)
+                if current(host,owner) and owner.limit and owner.value==batch and not owner.show_previous
+                    and not owner.job and not owner.navigation then
+                    owner.limit=false;owner.next_batch=true
+                    render(host,owner);start(host,owner)
                 end
             end}
         end
@@ -77,8 +81,12 @@ render=function(host,owner)
                 end
             end}
         end
-        if not owner.finished and not owner.limit and not owner.job then
+        if not owner.show_previous and not owner.finished and not owner.limit and not owner.job then
             items[#items+1]={text=_('Continue searching downloaded chapters'),callback=function() start(host,owner) end}
+        end
+        if owner.batch>1 then
+            items[#items+1]={text=T(_('Downloaded search results: batch %1.'),owner.show_previous and owner.batch-1 or owner.batch),
+                select_enabled=false}
         end
         items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
             owner.checked,#owner.queue,owner.unavailable),select_enabled=false}
@@ -106,21 +114,24 @@ render=function(host,owner)
         owner.menu:switchItemTable(nil,items)
     end)
 end
-local function valid_result(result,entry,from)
-    if type(result)~='table' or result.error or type(result.hits)~='table' or #result.hits>Search.MAX_HITS
+local function valid_result(result,entry,from,room)
+    if type(result)~='table' or result.error or type(result.hits)~='table' or #result.hits>room
         or type(result.unresolved)~='number' or result.unresolved%1~=0 or result.unresolved<0 or result.unresolved>Search.MAX_EXAMINED
         or result.complete~=true and (type(result.next_byte)~='number' or result.next_byte%1~=0 or result.next_byte<=from)
         or result.complete==true and result.next_byte~=nil then return false end
+    local last=from-1
     for _,hit in ipairs(result.hits) do
         if type(hit)~='table' or hit.chapter_uid~=entry.chapter_uid or type(hit.byte)~='number'
-            or hit.byte%1~=0 or hit.byte<from or type(hit.file_id)~='string' or #hit.file_id~=64
+            or hit.byte%1~=0 or hit.byte<=last or result.next_byte and hit.byte>=result.next_byte
+            or type(hit.file_id)~='string' or #hit.file_id~=64
             or not hit.file_id:match('^[a-f0-9]+$') or type(hit.context)~='string' or #hit.context>1024
             or type(hit.anchor)~='table' then return false end
+        last=hit.byte
     end
     return true
 end
 start=function(host,owner)
-    if not current(host,owner) or owner.job or owner.navigation or owner.finished or owner.limit then return end
+    if not current(host,owner) or owner.job or owner.navigation or owner.finished or owner.limit or owner.show_previous then return end
     local ok,worker=pcall(function() return owner.worker or require('weread.lib.memory_worker'):new{
         scheduler=UI,codec=host.client,max_bytes=8*1024*1024,timeout=180} end)
     if not ok then host:showInfo(_('Could not search downloaded chapters.'));return end
@@ -159,24 +170,35 @@ start=function(host,owner)
             return
         end
         local chapter=owner.queue[owner.index]
-        if not chapter then owner.finished=true;stop(host,owner);render(host,owner);return end
+        if not chapter then
+            owner.finished=true;owner.next_batch=nil;stop(host,owner);render(host,owner);return
+        end
         local entry=chapter.copies[owner.copy];local from=owner.from
+        local used=owner.next_batch and 0 or #owner.value
+        local room=math.min(Search.MAX_HITS,M.MAX_RESULTS-used)
         local called,started=pcall(worker.start,worker,function()
             return Search.scan(host.settings,owner.scope.vid,entry,owner.keyword,from,owner.ignore_case,
-                function() return host.settings:auth_scope_matches(owner.scope) end)
+                function() return host.settings:auth_scope_matches(owner.scope) end,{max_hits=room})
         end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
-            if not valid_result(result,entry,from) then
+            if not valid_result(result,entry,from,room) then
                 if owner.from==1 and owner.copy<#chapter.copies then owner.copy=owner.copy+1
                 else owner.unavailable=owner.unavailable+1;owner.index=owner.index+1;owner.copy=1;owner.from=1 end
             else
                 owner.unresolved=owner.unresolved+result.unresolved
+                if owner.next_batch and #result.hits>0 then
+                    owner.previous,owner.value=owner.value,{}
+                    owner.next_batch=nil;owner.batch=owner.batch+1
+                end
                 for _,hit in ipairs(result.hits) do owner.value[#owner.value+1]={entry=entry,hit=hit,title=chapter.title} end
                 if result.complete then owner.checked=owner.checked+1;owner.index=owner.index+1;owner.copy=1;owner.from=1
                 else owner.from=result.next_byte end
             end
-            if #owner.value>=M.MAX_RESULTS then owner.limit=true;stop(host,owner);render(host,owner);return end
+            if not owner.next_batch and #owner.value>=M.MAX_RESULTS then
+                owner.finished=not owner.queue[owner.index];owner.limit=not owner.finished
+                stop(host,owner);render(host,owner);return
+            end
             progress();later()
         end)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
