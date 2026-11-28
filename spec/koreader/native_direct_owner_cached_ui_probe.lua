@@ -11,7 +11,9 @@ local scope={vid=input.vid,epoch=1}
 local data=input.plugin_home and home..'/weread' or home
 local settings={data_dir=data,cache_dir=data,get=function(_,_,default) return default end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
-require('weread.lib.native_read_access').capture=function() error('offline lookup requested credentials') end
+local Access=require('weread.lib.native_read_access')
+-- Book details check which online actions are available. This profile has no grant.
+Access.capture=function() return nil end
 local client=require('weread.lib.client'):new(settings)
 client.request=function() error('offline lookup attempted network access') end
 local UI=require('ui/uimanager');local socket=require('socket')
@@ -34,6 +36,7 @@ local function wait(predicate)
     end
 end
 host:showBookMenu({book_id=input.book_id,title='Synthetic native book',author='Fixture',chapters={}})
+Access.capture=function() error('offline lookup requested credentials') end
 local detail=assert(host._book_detail_view);local action
 local label=require('weread.lib.plugin_util').tr('Read saved E-Ink chapter')
 for _,button in ipairs(detail._action_buttons) do if button.text==label then action=button end end
