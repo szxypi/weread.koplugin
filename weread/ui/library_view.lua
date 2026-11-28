@@ -273,14 +273,18 @@ end
 
 LeftAlignedTitle.onCloseWidget = LeftAlignedTitle.free
 
-local function build_center_cropped_cover(path, width, height)
+local function decode_cover(renderer, path, snapshot)
+    if snapshot then return renderer:renderImageData(snapshot, #snapshot, false) end
+    return renderer:renderImageFile(path, false)
+end
+
+local function build_center_cropped_cover(RenderImage, path, width, height, snapshot)
     -- Keep image preparation independent from ImageWidget's "fit" and
     -- "stretch" modes: neither offers a cover-fill mode for raster files.
     -- Rendering once, scaling proportionally, and cropping the excess gives
     -- every thumbnail a uniform frame without distorting its artwork.
     local ok, cropped = pcall(function()
-        local RenderImage = require("ui/renderimage")
-        local source = RenderImage:renderImageFile(path, false)
+        local source = decode_cover(RenderImage, path, snapshot)
         if not source then return nil end
         local source_width, source_height = source:getWidth(), source:getHeight()
         if source_width < 1 or source_height < 1 then
@@ -303,10 +307,9 @@ end
 -- Public-account covers are typically square profile images. Keep their
 -- proportions and center them on white instead of cropping a portrait card
 -- tightly around an avatar.
-local function build_center_contained_cover(path, width, height, inset)
+local function build_center_contained_cover(RenderImage, path, width, height, inset, snapshot)
     local ok, contained = pcall(function()
-        local RenderImage = require("ui/renderimage")
-        local source = RenderImage:renderImageFile(path, false)
+        local source = decode_cover(RenderImage, path, snapshot)
         if not source then return nil end
         local source_width, source_height = source:getWidth(), source:getHeight()
         if source_width < 1 or source_height < 1 then
@@ -553,13 +556,17 @@ local function load_cover(cell, path, image_width, image_height)
     if path then
         local image
         local ok = pcall(function()
+            local renderer_ok, renderer = pcall(require, "ui/renderimage")
+            local function prepare(snapshot)
+                if not renderer_ok then return nil end
+                if cell.contain_cover then
+                    return build_center_contained_cover(renderer, path, image_width, image_height, 0, snapshot)
+                end
+                return build_center_cropped_cover(renderer, path, image_width, image_height, snapshot)
+            end
             local rendered = CoverBitmapCache.shared():render(
-                path, image_width, image_height, cell._cover_fit, function()
-                    if cell.contain_cover then
-                        return build_center_contained_cover(path, image_width, image_height, 0)
-                    end
-                    return build_center_cropped_cover(path, image_width, image_height)
-                end)
+                path, image_width, image_height, cell._cover_fit, prepare,
+                renderer_ok and type(renderer.renderImageData) == "function" and prepare or nil)
             if rendered then
                 image = ImageWidget:new{
                     image = rendered,

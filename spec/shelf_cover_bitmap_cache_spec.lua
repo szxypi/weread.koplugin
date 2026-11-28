@@ -63,4 +63,33 @@ assert(changing.bytes == 0, "file changed during decoding must not be cached")
 local broken = Cache.new{ fingerprint = function() error("unavailable") end }
 broken:render("a", 1, 1, "crop", loader(10)):free()
 assert(broken.bytes == 0, "fingerprint errors must fall back to normal rendering")
+
+local value = "first"
+local reads, captures, file_loads, snapshot_loads = 0, 0, 0, 0
+local snapshots = Cache.new{ fingerprint = function(_path, capture)
+    reads = reads + 1
+    if capture then captures = captures + 1; return value, value end
+    return value
+end }
+local function open_snapshot()
+    return snapshots:render("thumbnail", 1, 1, "crop", function()
+        file_loads = file_loads + 1
+        return bitmap(10)
+    end, function(data)
+        snapshot_loads = snapshot_loads + 1
+        assert(data == value, "decoder did not receive the fingerprinted bytes")
+        return bitmap(10)
+    end)
+end
+open_snapshot():free()
+assert(reads == 1 and captures == 1 and snapshot_loads == 1 and file_loads == 0,
+    "cold thumbnail was read again for decode or verification")
+open_snapshot():free()
+assert(reads == 2 and captures == 1 and snapshot_loads == 1 and file_loads == 0,
+    "a prepared thumbnail retained a file snapshot or decoded again")
+value = "other"
+open_snapshot():free()
+assert(reads == 4 and snapshot_loads == 1 and file_loads == 1,
+    "a changed thumbnail reused the old prepared bitmap")
+snapshots:clear()
 print("shelf cover bitmap cache: ok")
