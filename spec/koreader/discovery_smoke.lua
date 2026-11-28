@@ -129,6 +129,20 @@ local function press(view, label)
     end
     error("missing button: " .. label)
 end
+local function batch_edge(last)
+    local view=assert(plugin.shelf_view)
+    local edge=last and view.page_count or 1
+    if view.page~=edge then view.on_page_changed(edge);flush_tasks() end
+    assert(plugin.shelf_view.page==edge)
+    return plugin.shelf_view
+end
+local function swipe_page(direction)
+    UIManager:forceRePaint()
+    local rect=assert(plugin.shelf_view.scroll.dimen)
+    UIManager:sendEvent(Event:new('Gesture',{ges='swipe',direction=direction,
+        pos=require('ui/geometry'):new{x=rect.x+math.floor(rect.w/2),y=rect.y+math.floor(rect.h/2)}}))
+    flush_tasks()
+end
 -- Keep the real scheduled controller/HTTP path and invoke native button callbacks.
 plugin.isNetworkOnline = function() return true end
 plugin.isNetworkConnected = function() return false end
@@ -184,9 +198,15 @@ plugin.startBookReading=function(_self,book) opened=book end
 local store_owner=held_book('Read now')
 assert(opened==store_owner.books[1] and not store_owner._shelf_popup, 'store hold did not read the selected book')
 plugin.startBookReading=original_read
-press(plugin.shelf_view,'Next batch');flush_tasks()
-assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6,
-    'initial public chart did not paginate')
+local last_chart_page=batch_edge(true)
+local next_footer=assert(last_chart_page._page_buttons[3])
+assert(next_footer.enabled,'bookstore footer did not enable next at a batch edge')
+next_footer.callback();flush_tasks()
+assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6 and plugin.shelf_view.page==1,
+    'footer did not turn to the first page of the next batch')
+local next_batch_view=plugin.shelf_view
+next_footer.callback();flush_tasks()
+assert(plugin.shelf_view==next_batch_view,'old footer changed the current batch')
 press(plugin.shelf_view,'Browse books');flush_tasks()
 assert(plugin._discovery_menu):onCloseAllMenus()
 plugin:closeWeReadUI();plugin.discovery_state=nil
@@ -223,11 +243,13 @@ local function verify_public_batch(expected)
     for index,book in ipairs(current.books) do assert(book.bookId==expected.books[index].bookId) end
 end
 verify_public_batch(guest_first)
-press(plugin.shelf_view,'Next batch');flush_tasks()
+batch_edge(true);swipe_page('west')
 verify_public_batch(guest_next)
+assert(plugin.shelf_view.page==1,'offline forward swipe did not enter the first page')
 paint('store-signed-in-public-chart')
-press(plugin.shelf_view,'Previous batch');flush_tasks()
+swipe_page('east')
 verify_public_batch(guest_first)
+assert(plugin.shelf_view.page==plugin.shelf_view.page_count,'offline back swipe did not enter the last page')
 plugin:closeWeReadUI();plugin.discovery_state=nil
 plugin.client.request=normal_request
 local after_guest=assert(category_cache:read())
@@ -460,16 +482,24 @@ if Device:hasKeys() then
     assert(plugin.shelf_view.page==1 and plugin.discovery_state.cursor==0,
         'page-back key did not return to the first search page')
 end
-press(plugin.shelf_view,'Next batch')
+if Device:hasKeys() then
+    batch_edge(true)
+    page_key('RPgFwd')
+else press(plugin.shelf_view,'Next batch') end
 flush_tasks()
 assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==5
     and not plugin.discovery_state.has_more and plugin.discovery_state.history[1]==0,
     'public next page: cursor='..tostring(plugin.discovery_state.cursor)..' count='..#plugin.discovery_state.books
         ..' more='..tostring(plugin.discovery_state.has_more)..' history='..tostring(plugin.discovery_state.history[1]))
-press(plugin.shelf_view,'Previous batch')
+assert(plugin.shelf_view.page==1)
+if Device:hasKeys() then page_key('LPgBack') else press(plugin.shelf_view,'Previous batch') end
 flush_tasks()
 assert(plugin.discovery_state.cursor==0 and #plugin.discovery_state.books==20
     and #plugin.discovery_state.history==0)
+if Device:hasKeys() then
+    assert(plugin.shelf_view.page==plugin.shelf_view.page_count,
+        'page-back key did not enter the last page of the previous batch')
+end
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
 dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'public_guest_smoke.lua')(plugin,flush_tasks,function(name)

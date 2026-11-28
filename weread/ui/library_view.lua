@@ -1610,36 +1610,28 @@ function LibraryView:showPageJump()
 end
 
 function LibraryView:pageBar()
-    if not self.paged or (self.page_count or 1) <= 1 then return nil end
+    if not self.paged or self.page_count <= 1 and not self.on_previous_batch and not self.on_next_batch then return nil end
     local cell_w = math.floor(self.screen_w / 3)
     local button_height = Screen:scaleBySize(54)
     local previous = Button:new{
         text = _("Previous"), width = cell_w, height = button_height,
         text_font_size = 22, text_font_bold = true, radius = 0, margin = 0, padding = 0,
-        bordersize = 0, enabled = self.page > 1, show_parent = self,
-        callback = after_tap(function()
-            if self.page > 1 and self.on_page_changed then
-                self.on_page_changed(self.page - 1)
-            end
-        end),
+        bordersize = 0, enabled = self.page > 1 or self.on_previous_batch ~= nil, show_parent = self,
+        callback = after_tap(function() self:turnShelfPage(-1) end),
     }
     local page_text = Button:new{
         text = T(_("%1/%2 pages"), tostring(self.page), tostring(self.page_count)),
         width = cell_w, height = button_height, text_font_size = 18,
         radius = 0, margin = 0, bordersize = 0, padding = 0,
-        enabled = self.on_page_changed ~= nil, show_parent = self,
+        enabled = self.page_count > 1 and self.on_page_changed ~= nil, show_parent = self,
         callback = after_tap(function() self:showPageJump() end),
     }
     local next_page = Button:new{
         text = _("Next"), width = self.screen_w - 2 * cell_w,
         height = button_height, text_font_size = 22, text_font_bold = true,
         radius = 0, margin = 0, bordersize = 0, padding = 0,
-        enabled = self.page < self.page_count, show_parent = self,
-        callback = after_tap(function()
-            if self.page < self.page_count and self.on_page_changed then
-                self.on_page_changed(self.page + 1)
-            end
-        end),
+        enabled = self.page < self.page_count or self.on_next_batch ~= nil, show_parent = self,
+        callback = after_tap(function() self:turnShelfPage(1) end),
     }
     self._page_buttons = { previous, page_text, next_page }
     return HorizontalGroup:new{ previous, page_text, next_page }
@@ -1798,7 +1790,13 @@ end
 function LibraryView:turnShelfPage(direction)
     if self.paged then
         local page = self.page + direction
-        if page >= 1 and page <= self.page_count and self.on_page_changed then self.on_page_changed(page) end
+        if page < 1 then
+            if self.on_previous_batch then self.on_previous_batch() end
+        elseif page > self.page_count then
+            if self.on_next_batch then self.on_next_batch() end
+        elseif self.on_page_changed then
+            self.on_page_changed(page)
+        end
         return true
     end
 
@@ -2066,9 +2064,9 @@ function M.getLayout(cover_mode, count, mode, extra_height, options)
         if row.free then row:free() end
         return { page_size = math.max(1, math.floor((height - reserved) / row_height)) }
     end
+    if options.show_page_bar then return layout(header_height + page_bar_height) end
     local result = layout(header_height)
-    if count > result.page_size then result = layout(header_height + page_bar_height) end
-    return result
+    return count > result.page_size and layout(header_height + page_bar_height) or result
 end
 
 function M.show(data, callbacks)
@@ -2132,6 +2130,8 @@ function M.show(data, callbacks)
         on_select = callbacks.on_select,
         on_hold = callbacks.on_hold,
         on_page_changed = callbacks.on_page_changed,
+        on_previous_batch = callbacks.on_previous_batch,
+        on_next_batch = callbacks.on_next_batch,
         on_prepare_visible_status = callbacks.on_prepare_visible_status,
         on_visible_changed = callbacks.on_visible_changed,
     }

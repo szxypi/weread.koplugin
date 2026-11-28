@@ -38,10 +38,10 @@ function M.read(host,query,cursor,continuation)
     value.account=account
     return value
 end
-function M.open(host,query,cursor,origin,continuation)
+function M.open(host,query,cursor,origin,continuation,batch_direction)
     local value=M.read(host,query,cursor,continuation)
     if not value then return false end
-    require('weread.ui.bookstore_navigation').show(host,value,origin,continuation)
+    require('weread.ui.bookstore_navigation').show(host,value,origin,continuation,batch_direction)
     return true
 end
 function M.save(host,state,previous,continuation)

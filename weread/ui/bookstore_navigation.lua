@@ -32,7 +32,7 @@ local function return_target(host, state, prior, origin)
     end
 end
 
-function M.show(host, state, origin, continuation)
+function M.show(host, state, origin, continuation, batch_direction)
     local prior = host.discovery_state
     local parents = history(host, prior)
     local target = return_target(host, state, prior, origin)
@@ -50,7 +50,7 @@ function M.show(host, state, origin, continuation)
         host._book_detail_view = nil
         UIManager:close(detail)
     end
-    host:showBookstore()
+    host:showBookstore(batch_direction)
 end
 
 function M.back(host, state)

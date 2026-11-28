@@ -51,6 +51,21 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
             layout.columns, layout.rows))
     end
 end
+local layout=LibraryView.getLayout(true,1,'books',108,{store=true,show_page_bar=true})
+local turns=0
+local single_batch=LibraryView.show({mode='books',portal=true,title='Bookstore',
+    books={{bookId='40',title='One result'}},paged=true,cover_mode=true,actions=actions,navigation=navigation,
+    page_size=layout.page_size,cover_columns=layout.columns,cover_rows=layout.rows},{
+    on_next_batch=function() turns=turns+1 end,
+})
+assert(single_batch.page_count==1 and single_batch._page_buttons[3].enabled
+    and not single_batch._page_buttons[2].enabled and not single_batch._page_buttons[1].enabled)
+assert(single_batch[1][1]:getSize().h==Screen:getHeight()
+    and single_batch.scroll[1]:getSize().h<=single_batch.scroll.dimen.h)
+single_batch:turnShelfPage(-1);single_batch:turnShelfPage(1)
+assert(turns==1,'single-page batch did not limit navigation to available directions')
+single_batch:onClose()
+
 local book={bookId='41',title='Pending book',finishReading=1}
 local view=LibraryView.show({mode='books',title='Shelf',books={book},cover_mode=true,paged=true,
     page_size=1,cover_columns=1,cover_rows=1,finish_pending={['41']={desired=false,phase='queued'}}},callbacks)

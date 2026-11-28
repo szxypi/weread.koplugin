@@ -57,12 +57,17 @@ function M:showDiscoveryPage(tab, books, options)
     local cover_mode = not home or home.view_mode ~= "list"
     if downloads then cover_mode = self.settings:get('shelf').view_mode == 'cover' end
     local extra_height=downloads and options.actions and #options.actions>0 and 162 or 108
-    local layout = LibraryView.getLayout(cover_mode, #books, "books", extra_height, { home = home, store = tab=='store' })
+    local layout = LibraryView.getLayout(cover_mode, #books, "books", extra_height, {
+        home = home, store = tab=='store',
+        show_page_bar = options.on_previous_batch ~= nil or options.on_next_batch ~= nil,
+    })
     local focus_book_index=options.focus_book_id and LibraryView.bookIndex(books,options.focus_book_id)
     local page_anchor=focus_book_index or options.rotation_anchor
-    local target_page=page_anchor and math.floor((page_anchor-1)/layout.page_size)+1 or options.page or 1
-    options.rotation_anchor,options.focus_book_id=nil,nil
-    local page = math.max(1, math.min(target_page, math.max(1, math.ceil(#books / layout.page_size))))
+    local page_count = math.max(1, math.ceil(#books / layout.page_size))
+    local target_page=options.last_page and page_count
+        or page_anchor and math.floor((page_anchor-1)/layout.page_size)+1 or options.page or 1
+    options.rotation_anchor,options.focus_book_id,options.last_page=nil,nil,nil
+    local page = math.max(1, math.min(target_page, page_count))
     options.page=page
     local cover_paths, visible = {}, {}
     local cache = cover_mode and self:getShelfCoverCache()
@@ -134,6 +139,8 @@ function M:showDiscoveryPage(tab, books, options)
         end),
         on_hold = hold and Scope.guard(current, function(book) hold(book, view, current) end),
         on_page_changed = redraw,
+        on_previous_batch = Scope.guard(current, options.on_previous_batch),
+        on_next_batch = Scope.guard(current, options.on_next_batch),
         on_back = Scope.guard(current, options.on_back),
         on_close = function()
             if self.shelf_view == view then
@@ -526,7 +533,7 @@ function M:openBookstore()
     end)
 end
 
-function M:showBookstore()
+function M:showBookstore(batch_direction)
     if self._profile_view then self:closeWeReadUI() end
     local state = self.discovery_state
     if state and state.account ~= self.library_db:accountKey() then
@@ -543,14 +550,20 @@ function M:showBookstore()
         { text = _("Search WeRead"), callback = function() self:showDiscoverySearch() end },
         { text = _("Browse books"), callback = function() self:showDiscoveryCategories() end },
     }
-    if state and state.has_more then
+    local function turn_batch(previous, direction)
+        local cursor = previous and state.history[#state.history] or state.next_cursor
+        self:loadDiscoveryBatch(state.kind, state.keyword, cursor, previous, false, state, direction)
+    end
+    local has_next = state and state.has_more
+    local has_previous = state and #state.history > 0
+    if has_next then
         actions[#actions + 1] = { text = _("Next batch"), callback = function()
-            self:loadDiscoveryBatch(state.kind, state.keyword, state.next_cursor, false, false, state)
+            turn_batch(false)
         end }
     end
-    if state and #state.history > 0 then
+    if has_previous then
         actions[#actions + 1] = { text = _("Previous batch"), callback = function()
-            self:loadDiscoveryBatch(state.kind, state.keyword, state.history[#state.history], true, false, state)
+            turn_batch(true)
         end }
     end
     local title = _("Bookstore")
@@ -561,14 +574,17 @@ function M:showBookstore()
         if state.kind == "category" then title = state.category_title end
         if state.cached or os.time() - state.loaded_at > Data.CACHE_TTL then title = _("Cached") .. " · " .. title end
     end
-    local position=state and state._browse_position
+    local position=not batch_direction and state and state._browse_position
     local view=self.shelf_view
-    if state and view and view._bookstore_state==state and not view._shelf_closed then
+    if not batch_direction and state and view and view._bookstore_state==state and not view._shelf_closed then
         position=view_position(view)
     end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
         bookstore_state=state,rotation_anchor=position and position.anchor,focus_book_id=position and position.focus,
+        last_page=batch_direction==-1,
+        on_previous_batch=has_previous and function() turn_batch(true,-1) end or nil,
+        on_next_batch=has_next and function() turn_batch(false,1) end or nil,
         on_back = state and function() return BookstoreNavigation.back(self, state) end or nil,
         empty_text = state and (state.kind == "similar" and _("No similar books found.")
             or state.kind == "search" and _("No search results.") or _("No books found."))
@@ -587,13 +603,13 @@ function M:cancelDiscoveryRequest()
     return require("weread.ui.discovery_request").cancel(self)
 end
 
-function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
+function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context, batch_direction)
     if kind=='search' and cursor==0 and not previous and not refresh then
         pcall(function()
             require('weread.lib.recent_searches').record(self,keyword,type(context)=='table' and context.public_search==true or false)
         end)
     end
-    return require("weread.ui.discovery_request").load(self, kind, keyword, cursor, previous, refresh, context)
+    return require("weread.ui.discovery_request").load(self, kind, keyword, cursor, previous, refresh, context, batch_direction)
 end
 
 return M
