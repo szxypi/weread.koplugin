@@ -11,12 +11,13 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 local UI=require('ui/uimanager');local socket=require('socket')
 local scope={vid='12345678',epoch=1}
 local connected=online
+local grant_available=true
 local settings={data_dir=home,cache_dir=home,mock_endpoint=input.mock_endpoint,
     get=function(_,_,default) return default end,get_book=function() return nil end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
 local Access=require('weread.lib.native_read_access');local original=Access.capture
 if online then
-    local store={read=function() return input.credentials,1,nil,false end}
+    local store={read=function() return grant_available and input.credentials or nil,1,nil,false end}
     Access.capture=function(s,existing)
         assert(connected,'offline navigation requested native credentials')
         return original(s,existing or store)
@@ -24,7 +25,7 @@ if online then
 else Access.capture=function() error('offline navigation requested credentials') end end
 local client=require('weread.lib.client'):new(settings);local request=client.request
 client.request=function(self,options)
-    assert(connected,'offline navigation requested network')
+    assert(connected and grant_available,'local navigation requested network')
     local url,headers=options.url,options.headers or {}
     assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
     assert((url=='https://i.weread.qq.com/book/info?bookId=42' and options.method=='GET')
@@ -394,6 +395,29 @@ else
         wait(function() return host.message or host.opened end)
         assert(not host.message and host.opened==input.missing_copy and not host._native_direct_reading and not host.busy_message,
             'a saved chapter did not open directly from the catalog after disconnecting')
+        press('chapter_list')
+        wait(function() return host.message or host._native_direct_reading and host._native_direct_reading.menu end)
+        menu=assert(host._native_direct_reading.menu)
+        grant_available=false;host.opened=nil
+        menu:onGotoPage(2)
+        menu:onMenuSelect(menu.item_table[2])
+        wait(function() return host.message or host.opened end)
+        assert(not host.message and host.opened==second and not host._native_direct_reading,
+            'the connected reader with a lost grant could not open the exact saved chapter from the catalog')
+        host.opened=nil;press('previous_chapter')
+        wait(function()
+            local nav=host._native_direct_navigation
+            return host.opened or host.message or nav and nav.menu
+        end)
+        local previous_copies=assert(host._native_direct_navigation.menu)
+        missing=nil
+        for _,candidate in ipairs(previous_copies.item_table) do
+            if candidate.text:find(tr('%1 images unavailable'):gsub('%%1','1'),1,true) then missing=candidate end
+        end
+        previous_copies:onMenuSelect(assert(missing))
+        wait(function() return host.message or host.opened end)
+        assert(not host.message and host.opened==input.missing_copy and not host._native_direct_navigation,
+            'the previous-chapter action could not reopen the valid saved copy without a grant')
     end
     if input.mode=='two' then
         host.opened=nil

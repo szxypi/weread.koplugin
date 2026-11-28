@@ -12,6 +12,7 @@ local _,T=PluginUtil.tr,PluginUtil.T
 local M={}
 local catalog_errors={http_401='auth_expired',http_429='rate_limited',transport='transport',timeout='transport',
     http_500='server_unavailable',http_502='server_unavailable',http_503='server_unavailable',http_504='server_unavailable'}
+local expired_notice='E-Ink authorization expired. Please authorize again.'
 
 local function capture(settings,store)
     local native=Access.capture(settings,store)
@@ -380,8 +381,9 @@ function M.start(host,book,view,options)
         end
         load_saved_chapters(message,try_standard)
     end
-    local function begin_open(phase)
-        ctx.phase=phase
+    local function begin_open(phase,missing_notice)
+        ctx.phase,ctx.saved_notice=phase,missing_notice
+        if phase=='saved_matches' and ctx.menu then ctx.cloud_target=nil end
         local busy
         host:showBusy(_(phase=='chapter' and 'Preparing E-Ink chapter...' or 'Checking saved E-Ink chapter...'),function()
             if host._native_direct_reading~=ctx or ctx.busy~=busy then return end
@@ -390,6 +392,11 @@ function M.start(host,book,view,options)
         end)
         busy=host.busy_message;ctx.busy=busy
         launch()
+    end
+    local function try_saved_choice(message)
+        if ctx.phase~='chapter' or not ctx.menu or not view_current() then return false end
+        begin_open('saved_matches',message)
+        return true
     end
     local function show_saved_copies(rows,complete_only)
         close_busy()
@@ -420,15 +427,20 @@ function M.start(host,book,view,options)
         end
     end
     local function renew()
+        local function unavailable()
+            if not try_saved_choice(expired_notice) then catalog_unavailable(expired_notice,true) end
+        end
         local started=Recovery.start(host,ctx,ctx.selected,{capture=capture,is_current=view_current,
-            stale=function() if host._native_direct_reading==ctx then M.cancel(host) end end,
+            stale=function()
+                if not try_saved_choice(expired_notice) and host._native_direct_reading==ctx then M.cancel(host) end
+            end,
             complete=function(ok,fresh)
                 ctx.selected=fresh
-                if not ok then catalog_unavailable('E-Ink authorization expired. Please authorize again.',true);return end
+                if not ok then unavailable();return end
                 current=Access.guard(host.settings,view_current,fresh.native)
                 launch()
             end})
-        if not started then catalog_unavailable('E-Ink authorization expired. Please authorize again.',true) end
+        if not started then unavailable() end
     end
     show_chapter_menu=function(rows,picker,saved_catalog,cloud_chapter)
         if #rows==0 then
@@ -555,7 +567,9 @@ function M.start(host,book,view,options)
                 else
                     ctx.chapter=rows[index]
                     ctx.cloud_target=index==cloud_index and cloud_chapter.target or nil
-                    begin_open(connected(host) and 'chapter' or 'saved_matches')
+                    if not connected(host) then begin_open('saved_matches')
+                    elseif current() then begin_open('chapter')
+                    else begin_open('saved_matches',expired_notice) end
                 end
             end})
         if not menu then M.cancel(host);return end
@@ -805,7 +819,10 @@ function M.start(host,book,view,options)
     launch=function()
         local phase,saved_entry=ctx.phase,ctx.entry
         local is_current=phase_guard(phase)
-        if not is_current() then M.cancel(host);return end
+        if not is_current() then
+            if not try_saved_choice(expired_notice) then M.cancel(host) end
+            return
+        end
         ctx.generation=(ctx.generation or 0)+1
         local generation=ctx.generation
         local ok,started=pcall(host._native_direct_worker.start,host._native_direct_worker,function(progress)
@@ -880,7 +897,10 @@ function M.start(host,book,view,options)
             return result and confirm_first_chapter(result) or {error=why or 'unavailable'}
         end,function(result)
             if host._native_direct_reading~=ctx or ctx.generation~=generation then return end
-            if not is_current() then M.cancel(host);return end
+            if not is_current() then
+                if not try_saved_choice(expired_notice) then M.cancel(host) end
+                return
+            end
             if phase=='batch' and type(result)=='table' and ctx.batch_store and ctx.batch_store:verified(result.batch_record,id) then
                 ctx.batch_record=result.batch_record
             end
@@ -892,6 +912,8 @@ function M.start(host,book,view,options)
             if phase=='chapter' and (ctx.menu or ctx.auto_open or ctx.target) and (reason=='transport' or reason=='timeout') then
                 begin_open('saved_matches');return
             end
+            if reason=='rate_limited' and try_saved_choice('WeRead is limiting requests. Please try again later.') then return end
+            if reason=='unavailable' and try_saved_choice('Could not prepare the E-Ink chapter. Please try again.') then return end
             if ctx.target and phase=='saved_matches' and reason then
                 load_saved_chapters('No saved copy matches this chapter. Connect to download it.',false,
                     'Chapter unavailable offline');return
@@ -1023,7 +1045,7 @@ function M.start(host,book,view,options)
             if (phase=='saved_matches' or phase=='chapter') and type(result)=='table' then
                 if phase=='saved_matches' and result.error=='not_saved' then
                     if standard_read and ctx.auto_open then fail(nil,nil,true)
-                    else fail('No saved copy matches this chapter. Connect to download it.') end
+                    else fail(ctx.saved_notice or 'No saved copy matches this chapter. Connect to download it.') end
                     return
                 end
                 if reason=='unsupported_format' then
@@ -1047,7 +1069,8 @@ function M.start(host,book,view,options)
                 or not Protocol.integer(result.missing_images,0,64) then
                 if phase=='offline_open' and reason=='damaged' and ctx.mark_unavailable then ctx.mark_unavailable() end
                 fail(reason=='damaged' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
-                    or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil,
+                    or reason=='catalog_changed' and 'The chapter list changed. Please open it again.'
+                    or phase=='saved_matches' and ctx.saved_notice or nil,
                     reason=='catalog_changed');return
             end
             local path=result.path

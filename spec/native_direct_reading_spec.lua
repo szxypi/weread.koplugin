@@ -282,10 +282,12 @@ expect(host._native_direct_reading.menu==menu and s.items==online_filtered and n
 s.select(1);cancel_prepare();stopped.callback(stopped_result)
 expect(#s.jobs==3 and s.opened==0 and host.busy_message,'late cancellation or result affected the retry')
 build_error='rate_limited';s.finish(3)
+expect(#s.jobs==4 and s.opened==0,'temporary chapter failure skipped the local lookup')
+s.finish(4)
 expect(host._native_direct_reading.menu==menu and s.items==online_filtered and not host.busy_message
     and s.message=='WeRead is limiting requests. Please try again later.',
     'a temporary chapter failure lost the filtered catalog')
-build_error=nil;s.select(1);s.finish(4)
+build_error=nil;s.select(1);s.finish(5)
 expect(s.opened==1 and not host._native_direct_reading and not host.busy_message,'the selected chapter did not open after retry')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);catalog_error='native_auth/native_catalog_info/http_401';s.finish(1)
 expect(#s.jobs==2 and renewal_count==1,'catalog 401 not renewed once')
@@ -629,6 +631,33 @@ s.select(1);s.finish(2)
 expect(s.opened==1 and s.path:find('/other.epub',1,true) and not host._native_direct_reading,
     'the online catalog could not open its matching saved chapter after disconnecting')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+selected=nil
+s.select(1)
+expect(host._native_direct_reading.phase=='saved_matches','a connected device with no grant could not use its catalog offline')
+s.finish(2)
+expect(s.opened==1 and s.path:find('/other.epub',1,true),'lost authorization blocked its matching saved copy')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+s.select(1)
+local late_online=s.jobs[2].task()
+selected=nil;s.jobs[2].callback(late_online)
+expect(host._native_direct_reading.phase=='saved_matches' and s.opened==0,'a chapter opened using replaced authorization')
+s.finish(3)
+expect(s.opened==1 and s.path:find('/other.epub',1,true),'replaced authorization prevented a fresh local lookup')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+local before=renewal_count
+build_error='auth_expired';s.select(1);s.finish(2);s.finish(3)
+expect(renewal_count==before+1 and host._native_direct_reading.phase=='saved_matches',
+    'repeated authorization failure did not stop at a local lookup')
+s.finish(4)
+expect(s.opened==1 and s.path:find('/other.epub',1,true),'failed renewal blocked the matching saved copy')
+for _,reason in ipairs({'rate_limited','unavailable'}) do
+    host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+    build_error=reason;s.select(1);s.finish(2)
+    expect(host._native_direct_reading.phase=='saved_matches','service failure skipped the matching saved copy')
+    s.finish(3)
+    expect(s.opened==1 and s.path:find('/other.epub',1,true),'service failure prevented the matching saved copy from opening')
+end
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 s.select(1)
 local remote_job=s.jobs[2]
 build_error='transport'
@@ -648,6 +677,14 @@ expect(#s.jobs==3 and s.opened==0 and not host._native_direct_reading,
     'a saved fallback opened after the account changed')
 host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
 local online_menu=host._native_direct_reading.menu
+selected=nil
+cache.list=function() return {wrong_catalog} end
+s.select(1);s.finish(2)
+expect(s.opened==0 and not host.busy_message and host._native_direct_reading.menu==online_menu
+    and s.message=='E-Ink authorization expired. Please authorize again.',
+    'an unavailable grant lost the directory or accepted a copy from a different catalog')
+host,s=fixture();UI.start(host,{book_id='456'},s.view);s.finish(1)
+online_menu=host._native_direct_reading.menu
 host.isNetworkConnected=function() return false end
 cache.list=function() return {wrong_catalog} end
 s.select(1);s.finish(2)
