@@ -320,16 +320,17 @@ function M.resume(host,owner,key,version,current,redraw)
     local start_ok,started=pcall(worker.start,worker,function()
         local entry=owner.direct_entry
         if owner.direct and entry and entry.chapter_uid==selection.chapter_uid and entry.source_sha256==selection.raw_sha256 then
-            local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
-            local function current_source() return host.settings:auth_scope_matches(owner.scope)
-                and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end
             local refs=require('weread.lib.native_direct_reference')
-            local row,reason=refs.restore_cached(host.settings,host.library_db,owner.direct_entry,source_file,
-                draft.reference_id,owner.native,owner.web,current_source)
-            if not row and reason=='offline_source_unavailable' and current_source()
-                and host:isNetworkOnline() and current_source() then
-                row=refs.restore(host.client,host.settings,owner.direct_entry,source_file,
-                    draft.reference_id,owner.native,owner.web,current_source,host.library_db)
+            local row,reason=refs.restore_cached(host.settings,host.library_db,entry,source_file,draft.reference_id,owner.scope)
+            if row or reason~='offline_source_unavailable' or not NetworkLink.available(host) then return {reference=row} end
+            local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
+            local native,web=NativeAccess.capture(host.settings),Source.capture(host.settings)
+            local function current_source() return host.settings:auth_scope_matches(owner.scope)
+                and NativeAccess.matches(host.settings,native) and Source.matches(host.settings,web) end
+            if native and not native.renewal_pending and web and web.web
+                and current_source() and host:isNetworkOnline() and current_source() then
+                row=refs.restore(host.client,host.settings,entry,source_file,
+                    draft.reference_id,native,web,current_source,host.library_db)
             end
             return {reference=row}
         end

@@ -2,10 +2,13 @@ package.path='./?.lua;'..package.path
 local live=true;local source_error;local file_ok=true;local calls=0
 local settings={data_dir='/synthetic'};local file='/synthetic/native-reader-v1/chapter.epub'
 local native={scope={vid='123'}};local web={web={cookies={wr_vid='123'}}};local entry={book_id='42',book_version=7}
+local original_web=web
+local scope=native.scope
 local row={selection=true};local input={first={},last={},text='quote'}
 local identified=entry;local library={};local cached='verified source';local reads,writes=0,0
+local switch_on_read
 local downloaded,chapter_opens,opened_account={},0
-function settings:auth_scope_matches(scope) return live and scope==native.scope end
+function settings:auth_scope_matches(candidate) return live and candidate==scope end
 package.preload['weread.lib.native_read_access']=function() return {matches=function() return live end} end
 package.preload['weread.lib.source_currentness']=function() return {capture=function() return web end,matches=function() return live end} end
 package.preload['weread.lib.native_direct_cache']=function() return {identify=function(_,account,path,current)
@@ -21,7 +24,11 @@ package.preload['weread.lib.native_direct_cache']=function() return {identify=fu
     end,
 } end
 package.preload['weread.lib.native_direct_mark_source_store']=function() return {new=function(_,db)
-    assert(db==library);return {read=function(_,e) assert(e==identified);reads=reads+1;return cached end,
+    assert(db==library);return {read=function(_,e)
+        assert(e==identified);reads=reads+1
+        if switch_on_read then live=false end
+        return cached
+    end,
         write=function(_,e,raw) assert(e==entry and raw=='verified source');writes=writes+1;return true end}
 end} end
 package.preload['weread.lib.native_direct_position']=function() return {verified_source=function(_,_,e,path,n,w,current)
@@ -53,27 +60,34 @@ expect(Direct.capture({},settings,entry,file,input,native,web,current,false,libr
 expect(Direct.restore({},settings,entry,file,'draft',native,web,current,library)==row and writes==2,
     'verified online draft did not populate the offline source cache')
 local previous=calls
-expect(Direct.capture_cached(settings,library,entry,file,input,native,web,current)==row and calls==previous and reads==1,
+web=nil
+expect(Direct.capture_cached(settings,library,entry,file,input,scope)==row and calls==previous and reads==1,
     'offline selection did not use cached verified source')
-expect(Direct.restore_cached(settings,library,entry,file,'draft',native,web,current)==row and calls==previous and reads==2,
+expect(Direct.restore_cached(settings,library,entry,file,'draft',scope)==row and calls==previous and reads==2,
     'offline draft did not use cached verified source')
-cached=nil;local no_cache,no_cache_reason=Direct.capture_cached(settings,library,entry,file,input,native,web,current)
+cached=nil;local no_cache,no_cache_reason=Direct.capture_cached(settings,library,entry,file,input,scope)
 expect(not no_cache and no_cache_reason=='offline_source_unavailable' and calls==previous,'missing cache triggered a source request')
 cached='verified source';identified={book_id='42',book_version=8}
-expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current) and calls==previous and reads==3,
+expect(not Direct.capture_cached(settings,library,entry,file,input,scope) and calls==previous and reads==3,
     'changed chapter was matched to an old cached source')
 identified=entry
+switch_on_read=true
+local switched,switch_reason=Direct.capture_cached(settings,library,entry,file,input,scope)
+expect(not switched and switch_reason=='session_changed' and calls==previous,
+    'account switch during a local chapter read produced a usable quote')
+live=true;switch_on_read=false
+web=original_web
 expect(not Direct.capture({},settings,entry,'/outside',input,native,web,current) and calls==previous,'outside path read source')
 file_ok=false;expect(not Direct.verify({},settings,native,row,file,current) and calls==previous,'invalid cache read source');file_ok=true
 web.web.cookies.wr_vid='456';local result,why=Direct.verify({},settings,native,row,file,current)
 expect(not result and why=='web_expired' and calls==previous,'foreign Web account read source');web.web.cookies.wr_vid='123'
-web.web.cookies.wr_vid='456';expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current)
-    and calls==previous,'foreign account used cached source');web.web.cookies.wr_vid='123'
+expect(not Direct.capture_cached(settings,library,entry,file,input,{vid='456'}) and calls==previous,
+    'foreign account used cached source')
 source_error='source_changed';result,why=Direct.capture({},settings,entry,file,input,native,web,current)
 expect(not result and why=='source_changed','changed source produced a selection')
 source_error=nil;live=false;expect(not Direct.restore({},settings,entry,file,'draft',native,web,current),'changed account restored a draft')
-expect(not Direct.capture_cached(settings,library,entry,file,input,native,web,current)
-    and not Direct.restore_cached(settings,library,entry,file,'draft',native,web,current),'changed account used offline source')
+expect(not Direct.capture_cached(settings,library,entry,file,input,scope)
+    and not Direct.restore_cached(settings,library,entry,file,'draft',scope),'changed account used offline source')
 live=true;entry.source_sha256=string.rep('a',64);entry.file_id=string.rep('b',64)
 downloaded={{source_sha256=string.rep('c',64)},entry}
 previous=calls

@@ -274,11 +274,13 @@ state.draft.token='v2';state.complete(state.task())
 expect(not owner.editor and not state.lease_held and state.message:find('draft changed',1,true),
     'replacement during chapter check opened an older draft')
 do
-    package.loaded['weread.lib.native_read_access']={matches=function() return true end}
-    package.loaded['weread.lib.source_currentness']={matches=function() return true end}
+    package.loaded['weread.lib.native_read_access']={
+        capture=function() return state.grant end,matches=function(_settings,value) return value==state.grant end,
+    }
+    package.loaded['weread.lib.source_currentness']={capture=function() return {web={}} end,matches=function() return true end}
     package.loaded['weread.lib.native_direct_reference']={
-        restore_cached=function(_,_,_,_,_,_,_,is_current)
-            assert(is_current())
+        restore_cached=function(_,_,_,_,_,scope)
+            assert(scope==owner.scope)
             if state.missing then return nil,state.missing end
             return row
         end,
@@ -292,10 +294,12 @@ do
             return state.downloaded_reference,state.downloaded_source
         end,
     }
-    for _,case in ipairs({{'cached'}, {'offline_source_unavailable',true},
-        {'offline_source_unavailable',false}, {'source_changed',true}}) do
+    for _,case in ipairs({{'cached'}, {'offline_source_unavailable',true,true},
+        {'offline_source_unavailable',false,true}, {'source_changed',true,true}, {'offline_source_unavailable',true,false}}) do
         host,owner,current=fixture();owner.direct=true;owner.direct_entry=entry;owner.value=nil
         state.draft.reference_id='selection';state.draft.base_hash='source';state.network_checks=0
+        state.grant=case[3] and {}
+        function host:isNetworkLinkAvailable() return true end
         if case[1]~='cached' then state.missing=case[1] end
         function host:isNetworkOnline()
             assert(state.background,'draft restore probed the network on the interface thread')
@@ -304,7 +308,7 @@ do
         expect(Editor.resume(host,owner,'draft','v1',current) and state.network_checks==0,'resume blocked on network state')
         state.background=true;local result=state.task();state.background=false
         state.complete(result)
-        local fallback=case[1]=='offline_source_unavailable'
+        local fallback=case[1]=='offline_source_unavailable' and case[3]==true
         local opened=owner.editor and owner.editor.input
         expect(state.network_checks==(fallback and 1 or 0) and (state.remote_checked==true)==(fallback and case[2] or false),
             'incorrect fallback for '..case[1])

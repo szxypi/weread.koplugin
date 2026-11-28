@@ -34,22 +34,28 @@ def run(runtime,plain_text=False):
                     native_source=Path(payload['path']).with_name(source_name)
                     native_raw=native_source.read_bytes();assert native_raw.decode()==(TXT if plain_text else BODY)
                     assert native_source.stat().st_mode & 0o077==0
-                    def reader(mode,offline,link_up=False):
-                        payload.update(mode=mode,offline=offline,link_up=link_up);server.mode=mode;server.calls=[]
+                    def reader(mode,offline,link_up=False,credential_state=None,expect_source_missing=False):
+                        payload.update(mode=mode,offline=offline,link_up=link_up,
+                                       credential_state=credential_state,expect_source_missing=expect_source_missing)
+                        server.mode=mode;server.calls=[]
                         child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_reader_probe.lua')],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                         result=frame(child,'WEREAD_POSITION_READER=');assert result['ok'] and result['mode']==mode
-                        if offline:assert not server.calls,'offline reader requested network'
+                        if offline or credential_state:assert not server.calls,'local draft requested network'
                         assert server.valid and not server.leaked
                         return list(server.calls)
                     native_source.unlink()
                     reader('selection_direct_offline_missing',True)
+                    calls=reader('selection_direct_auth_expired',False,expect_source_missing=True)
+                    assert any(path=='/book/chapterdownload' for _,_,path in calls)
                     native_source.write_bytes(native_raw)
                     reader('selection_direct_thought_offline_locked',True)
                     reader('selection_direct_thought_offline_slow_check',True)
                     reader('selection_direct_thought_offline_draft',True,link_up=True)
-                    reader('selection_direct_notebook_draft',True)
-                    reader('selection_direct_thought_offline_draft',True)
+                    reader('selection_direct_thought_offline_draft',True,credential_state='missing_native')
+                    reader('selection_direct_thought_offline_draft',True,link_up=True,credential_state='missing_web')
+                    reader('selection_direct_thought_offline_draft',True,link_up=True,credential_state='pending_renewal')
+                    reader('selection_direct_notebook_draft',True,credential_state='missing_native')
                     calls=reader('selection_direct',False)
                     assert any(path=='/book/chapterdownload' for _,_,path in calls)
                     reader('selection_direct_thought_offline_draft',True)

@@ -158,8 +158,9 @@ class Handler(BaseHTTPRequestHandler):
             uid=chapters.split(',')[-1];raw=BODY if uid=='37' else BODY2
             if server.mode in ('selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_bookmark_changed') and sum(path=='/book/chapterdownload' for _,_,path in server.calls)>=3:
                 raw=raw.replace('Unique paragraph 0001','Changed paragraph 0001')
-            if server.mode in ('selection_direct_auth_expired','selection_direct_limited'):
-                code,data=(401 if server.mode=='selection_direct_auth_expired' else 429),b''
+            if server.mode in ('selection_direct_auth_expired','selection_direct_limited','selection_direct_service_unavailable'):
+                code={'selection_direct_auth_expired':401,'selection_direct_limited':429,'selection_direct_service_unavailable':503}[server.mode]
+                data=b''
             elif plain_text:
                 text=TXT if uid=='37' else TXT2
                 if server.mode.endswith('_changed') and server.mode.startswith('selection_direct_') \
@@ -251,7 +252,7 @@ MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_chan
        'selection_direct','selection_direct_mismatch','selection_direct_move','selection_direct_mark','selection_direct_thought',
        'selection_direct_mark_changed','selection_direct_thought_changed','selection_direct_thought_draft',
        'selection_direct_bookmark','selection_direct_bookmark_quick','selection_direct_bookmark_changed','selection_direct_bookmark_no_effect','selection_direct_bookmark_roundtrip',
-       'selection_direct_auth_expired','selection_direct_web_expired','selection_direct_limited',
+       'selection_direct_auth_expired','selection_direct_web_expired','selection_direct_limited','selection_direct_service_unavailable',
        'selection_direct_mark_lost_ack','selection_direct_thought_lost_ack','selection_direct_mark_no_effect','selection_direct_thought_no_effect')
 
 def run(runtime,modes=MODES,plain_text=False):

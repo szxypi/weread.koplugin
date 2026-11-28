@@ -43,30 +43,28 @@ local function cached_source(library,pinned,file,live)
     end
     return raw,nil,format
 end
-local function cached(settings,library,entry,file,native,web,current)
-    if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current)
-        or type(native)~='table' or type(native.scope)~='table' or type(web)~='table' or type(web.web)~='table'
-        or type(web.web.cookies)~='table' or web.web.cookies.wr_vid~=native.scope.vid then return nil,'invalid' end
-    local function live() return active(settings,native,web,current) end
-    local pinned=Cache.identify(settings,native.scope.vid,file,live)
+local function cached(settings,library,entry,file,scope)
+    local function live() return settings:auth_scope_matches(scope) end
+    if type(scope)~='table' or not Path.contains(settings,file) or not live() then return nil,'invalid' end
+    local pinned=Cache.identify(settings,scope.vid,file,live)
     if type(pinned)~='table' or type(entry)~='table' then return nil,'source_changed' end
     for _,key in ipairs({'owner','book_id','chapter_uid','chapter_idx','book_version','key','copy','file_id','source_sha256'}) do
         if pinned[key]~=entry[key] then return nil,'source_changed' end
     end
     return cached_source(library,pinned,file,live)
 end
-function M.capture_cached(settings,library,entry,file,input,native,web,current)
-    local raw,why,format=cached(settings,library,entry,file,native,web,current)
+function M.capture_cached(settings,library,entry,file,input,scope)
+    local raw,why,format=cached(settings,library,entry,file,scope)
     if not raw then return nil,why end
     local row,reason=Reference.capture_direct(input,entry,file,raw,format)
-    if not active(settings,native,web,current) then return nil,'session_changed' end
+    if not settings:auth_scope_matches(scope) then return nil,'session_changed' end
     return row,reason
 end
-function M.restore_cached(settings,library,entry,file,key,native,web,current)
-    local raw,why,format=cached(settings,library,entry,file,native,web,current)
+function M.restore_cached(settings,library,entry,file,key,scope)
+    local raw,why,format=cached(settings,library,entry,file,scope)
     if not raw then return nil,why end
     local row,reason=Reference.restore_direct(entry,file,key,raw,format)
-    if not active(settings,native,web,current) then return nil,'session_changed' end
+    if not settings:auth_scope_matches(scope) then return nil,'session_changed' end
     return row,reason
 end
 -- A local draft can locate its original chapter without an open reader or

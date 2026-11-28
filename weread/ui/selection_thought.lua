@@ -16,6 +16,7 @@ local Currentness=require('weread.lib.source_currentness')
 local NetworkLink=require('weread.lib.network_link')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
+local local_fallback={auth_expired=true,web_expired=true,rate_limited=true,transport=true,unavailable=true}
 local function viewport_height(host)
     local get=host.progress_sync and host.progress_sync.get_viewport_height
     if type(get)~='function' then return nil end
@@ -32,7 +33,8 @@ local function current(host,owner)
         and (owner.mode~='scroll' or owner.viewport_height==viewport_height(host))
         and (host._translation_mode==nil or host._translation_mode=='original')
         and Context.same_location(owner.location,Context.location(owner.document,owner.mode))
-        and (not owner.direct or NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web))
+        and (not owner.direct or owner.offline_source
+            or NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web))
 end
 local function stop(host,owner)
     local notes=package.loaded['weread.ui.my_cloud_marks']
@@ -129,12 +131,13 @@ function M.open(host,selection,bookmark)
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
         epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id),direct=direct,
         offline_source=offline_source}
-    if not owner.location or not owner.account then return false end
-    if direct then
+    if not owner.location or not owner.account or not host.settings:auth_scope_matches(owner.scope) then return false end
+    if direct and not offline_source then
         owner.native=NativeAccess.capture(host.settings);owner.web=Currentness.capture(host.settings)
-        if type(owner.scope)~='table' or not owner.native or owner.native.renewal_pending or not owner.web or not owner.web.web
+        if not owner.native or owner.native.renewal_pending or not owner.web or not owner.web.web
             or not owner.web.web.cookies or owner.web.web.cookies.wr_vid~=owner.scope.vid then
-            host:showInfo(_('Sign in and authorize E-Ink access before checking this position.'));return false
+            if bookmark then host:showInfo(_('Sign in and authorize E-Ink access before checking this position.'));return false end
+            owner.offline_source=true
         end
     end
     local menu=host:showList(_(bookmark and 'Save cloud bookmark' or 'WeRead highlight or thought'),
@@ -200,14 +203,17 @@ function M.open(host,selection,bookmark)
         local started=owner.worker:start(function()
             local row,reason
             if direct then
-                local function active() return host.settings:auth_scope_matches(owner.scope)
-                    and NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web) end
+                local function active() return host.settings:auth_scope_matches(owner.scope) end
                 local refs=require('weread.lib.native_direct_reference')
                 if owner.offline_source then
-                    row,reason=refs.capture_cached(host.settings,host.library_db,owner.direct_entry,owner.source_file,input,owner.native,owner.web,active)
+                    row,reason=refs.capture_cached(host.settings,host.library_db,owner.direct_entry,owner.source_file,input,owner.scope)
                 else
                     row,reason=refs.capture(host.client,host.settings,owner.direct_entry,
                         owner.source_file,input,owner.native,owner.web,active,bookmark,host.library_db)
+                    if not row and not bookmark and local_fallback[reason] then
+                        local draft=refs.capture_cached(host.settings,host.library_db,owner.direct_entry,owner.source_file,input,owner.scope)
+                        if draft then return {reference=draft,offline=true} end
+                    end
                 end
             else row,reason=(bookmark and Bookmark or Reference).capture_native(input) end
             return {reference=row,reason=reason}
@@ -219,6 +225,7 @@ function M.open(host,selection,bookmark)
             end
             local row=type(result)=='table' and result.reference
             if not row or not (bookmark and Bookmark or Reference).valid(row,id) then unavailable(type(result)=='table' and result.reason);return end
+            owner.offline_source=owner.offline_source or result.offline==true
             owner.reference=row;render(host,owner)
         end)
         if not started then unavailable() end
@@ -229,8 +236,7 @@ function M.open(host,selection,bookmark)
     owner.worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
     local started=owner.worker:start(function()
         local entry=require('weread.lib.native_direct_cache').identify(host.settings,owner.scope.vid,owner.source_file,function()
-            return host.settings:auth_scope_matches(owner.scope) and NativeAccess.matches(host.settings,owner.native)
-                and Currentness.matches(host.settings,owner.web)
+            return host.settings:auth_scope_matches(owner.scope)
         end)
         return {entry=entry,offline=entry~=nil and (owner.offline_source or not host:isNetworkOnline())}
     end,function(result)

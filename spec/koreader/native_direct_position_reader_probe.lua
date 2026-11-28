@@ -7,18 +7,28 @@ G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua');G_de
 G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
 local Device=require('device');require('document/canvascontext'):init(Device)
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
+local credential_state=type(input.credential_state)=='string' and input.credential_state or nil
 local settings=require('weread.lib.settings'):new();assert(settings.data_dir==home..'/weread')
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-access'});settings:flush()
+settings:set('cookies',credential_state=='missing_web' and {} or {wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'})
+settings:flush()
 if input.mode:find('^interval') then
     local sync=settings:get('sync',{});sync.upload_interval_minutes=1
     sync.upload_on_close=input.mode:find('^interval_close')~=nil;settings:set('sync',sync);settings:flush()
 end
 local scope=assert(settings:get_auth_scope());assert(settings:auth_scope_matches(scope))
 local credential_store=require('weread.lib.native_credentials'):new(settings)
-local existing=credential_store:read()
+local existing,revision,_,renewal_pending=credential_store:read()
 if existing then assert(existing.vid==input.credentials.vid and existing.accessToken==input.credentials.accessToken)
-else assert(credential_store:save(input.credentials,scope,0,1)) end
+else assert(credential_store:save(input.credentials,scope,revision,1)) end
+if renewal_pending and credential_state~='pending_renewal' then
+    assert(credential_store:release_renewal(scope,revision))
+end
+if credential_state=='missing_native' then
+    local _,latest=credential_store:read();assert(credential_store:clear(scope,latest))
+elseif credential_state=='pending_renewal' then
+    local _,latest=credential_store:read();assert(credential_store:begin_renewal(scope,latest))
+end
 local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
 for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_load{item} end end
 assert(#loader.enabled_plugins==1)
@@ -38,6 +48,7 @@ active.isNetworkConnected=function() return not input.offline end
 active.isNetworkLinkAvailable=function() return not input.offline or input.link_up==true end
 local ffi=require('ffi');local interface_pid=ffi.C.getpid()
 active.isNetworkOnline=function()
+    assert(not credential_state,'saving a local draft without usable authorization probed reachability')
     if input.link_up then
         assert(ffi.C.getpid()~=interface_pid,'offline selection probed Internet reachability on the interface thread')
     end
@@ -178,6 +189,16 @@ if input.mode:find('^selection_direct') then
     local matches=assert(reader.document:findAllText(quote,false,0,3,false,0))
     assert(#matches==1 and matches[1].start and matches[1]['end'])
     local bookmark=input.mode:find('^selection_direct_bookmark')~=nil
+    local cloud_error=({
+        selection_direct_auth_expired='Authorize or renew E-Ink login in settings, then try again.',
+        selection_direct_web_expired='Log in again to verify the selected text.',
+        selection_direct_limited='WeRead is limiting requests. Please try again later.',
+        selection_direct_service_unavailable='This selection could not be matched to the original source. Try another passage or download this chapter again.',
+    })[input.mode]
+    local local_fallback=cloud_error~=nil and not input.expect_source_missing
+    local save_draft=local_fallback or input.mode=='selection_direct_thought_draft'
+        or input.mode=='selection_direct_thought_offline_draft' or input.mode=='selection_direct_thought_offline_locked'
+        or input.mode=='selection_direct_thought_offline_slow_check'
     if bookmark then
         reader.rolling:onGotoXPointer(matches[1].start);reader.document:clearSelection();UI:forceRePaint()
         if input.mode=='selection_direct_bookmark_quick' then
@@ -196,7 +217,7 @@ if input.mode:find('^selection_direct') then
         assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
     end
     wait(function() return host._selection_thought_owner~=nil or host.checked_message~=nil end)
-    local owner=assert(host._selection_thought_owner)
+    local owner=assert(host._selection_thought_owner,host.checked_message)
     if input.mode=='selection_direct_move' then
         wait(function() return owner.direct_entry and owner.worker and owner.worker.job end)
         reader.rolling:onGotoPage(2);UI:forceRePaint()
@@ -204,25 +225,22 @@ if input.mode:find('^selection_direct') then
         assert(not owner.reference and not host.checked_message,'changed page accepted a selection')
     else
         wait(function() return owner.reference or host.checked_message end)
-        if input.mode=='selection_direct_mismatch' or input.mode=='selection_direct_auth_expired'
-            or input.mode=='selection_direct_offline_missing'
-            or input.mode=='selection_direct_web_expired' or input.mode=='selection_direct_limited' then
+        if input.mode=='selection_direct_mismatch' or input.mode=='selection_direct_offline_missing'
+            or cloud_error and input.expect_source_missing then
             assert(not owner.reference and host.checked_message,'unavailable source exposed a selection')
-            local message=input.mode=='selection_direct_auth_expired' and 'Authorize or renew E-Ink login in settings, then try again.'
-                or input.mode=='selection_direct_web_expired' and 'Log in again to verify the selected text.'
-                or input.mode=='selection_direct_limited' and 'WeRead is limiting requests. Please try again later.'
+            local message=cloud_error
                 or input.mode=='selection_direct_offline_missing' and 'The offline chapter source is unavailable. Reconnect and select this text again.'
             if message then assert(host.checked_message==require('weread.lib.plugin_util').tr(message),'wrong source error') end
         else
             assert(owner.reference and require(bookmark and 'weread.lib.bookmark_reference' or 'weread.lib.selection_reference').valid(owner.reference,'42'))
-            if input.offline then
+            if input.offline or local_fallback then
                 assert(owner.offline_source)
                 for _,item in ipairs(owner.menu.item_table) do
                     assert(item.text~=require('weread.lib.plugin_util').tr('Save highlight'),'offline menu exposed cloud highlight')
                 end
             end
-            if bookmark or input.mode:find('^selection_direct_mark') or input.mode:find('^selection_direct_thought') then
-                local thought=input.mode:find('^selection_direct_thought')~=nil
+            local thought=local_fallback or input.mode:find('^selection_direct_thought')~=nil
+            if bookmark or input.mode:find('^selection_direct_mark') or thought then
                 local tr=require('weread.lib.plugin_util').tr
                 local label=tr(bookmark and 'Save cloud bookmark' or thought and 'Write private thought' or 'Save highlight');local action
                 for _,item in ipairs(owner.menu.item_table) do if item.text==label then action=item.callback;break end end
@@ -257,8 +275,7 @@ if input.mode:find('^selection_direct') then
                         local cache=require('weread.lib.native_direct_cache')
                         assert(not cache.acquire(host.settings,owner.scope.vid,owner.id),'open thought editor did not protect its chapter')
                     end
-                    if input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
-                        or input.mode=='selection_direct_thought_offline_locked' or input.mode=='selection_direct_thought_offline_slow_check' then
+                    if save_draft then
                         tap('save_thought_draft');wait(function() return not owner.editor end)
                         assert(host.checked_message==tr('Thought draft saved on this device.'));host.checked_message=nil
                         local drafts_action
@@ -289,9 +306,7 @@ if input.mode:find('^selection_direct') then
                 end
                 local changed=input.mode:find('_changed$')~=nil
                 local pending=input.mode:find('_no_effect$')~=nil
-                assert(input.mode=='selection_direct_thought_draft' or input.mode=='selection_direct_thought_offline_draft'
-                    or input.mode=='selection_direct_thought_offline_locked' or input.mode=='selection_direct_thought_offline_slow_check'
-                    or host.checked_message==tr(pending and (thought
+                assert(save_draft or host.checked_message==tr(pending and (thought
                     and 'A thought change needs checking. Use Check last thought change before submitting again.'
                     or 'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.')
                     or changed and (thought
