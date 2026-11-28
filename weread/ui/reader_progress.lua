@@ -119,11 +119,12 @@ function M.show(host,options)
         finish(function() ui:handleEvent(Event:new(direction<0 and 'GotoPrevChapter' or 'GotoNextChapter')) end)
     end
     local prev,next_chapter=options.previous,options.next
-    local can_open=type(host.openChapter)=='function' and type(options.resolve_chapter)=='function'
+    local open_target=options.open_chapter or host.openChapter
+    local can_open=type(open_target)=='function' and type(options.resolve_chapter)=='function'
     local function open_chapter(direction)
         finish(function()
             local ok,book,chapter=pcall(options.resolve_chapter,direction)
-            if ok and book and chapter then host:openChapter(book,chapter)
+            if ok and book and chapter then open_target(host,book,chapter)
             elseif type(host.showInfo)=='function' then host:showInfo(_('Chapter information changed. Open the progress panel again.')) end
         end)
     end

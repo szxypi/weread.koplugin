@@ -154,7 +154,7 @@ do
         assert(id=="book" and at_end);menu=menu+1;open_downloads=downloads;return true
     end
     host.getChapterInfoFromFile=function() assert(catalog);return 1,nil,false end
-    host.openChapter=function(_self,_book,chapter) next_open=chapter.chapterUid end
+    host.openReaderChapter=function(_self,_book,chapter) next_open=chapter.chapterUid end
     expect(host:handleEndOfBook({}) and menu==1 and lookup==0,
         "chapter-end menu duplicated its own book lookup")
     action='next_file'

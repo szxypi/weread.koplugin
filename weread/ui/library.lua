@@ -2425,14 +2425,14 @@ local function chapter_cache_lookup(host,book,downloaded_count)
     end, combined, combined and full
 end
 
-local function saved_chapter_rows(host, book, catalog)
+local function saved_chapter_rows(host, book, catalog, unavailable_chapter)
     local identity = require('weread.lib.reader_context')
     local is_cached, combined, full_path = chapter_cache_lookup(host, book)
     local rows, seen, missing_titles = {}, {}, {}
     catalog = type(catalog)=='table' and catalog or {}
     local function append(uid, title, position)
         local ok, id = pcall(identity.identifier, uid, true)
-        if not ok or seen[id] or not is_cached(id) then return end
+        if not ok or seen[id] or id==unavailable_chapter or not is_cached(id) then return end
         seen[id] = true
         if type(title)~='string' or title=='' then
             missing_titles[#missing_titles+1]=id
@@ -2473,14 +2473,14 @@ function M:showSavedChapters(book_id, detail, reader)
     if type(catalog)~='table' or #catalog==0 then
         catalog = Content.load_catalog_cache(self.client, self.settings, latest)
     end
-    local rows,missing_titles,full_path = saved_chapter_rows(self, latest, catalog)
+    local rows,missing_titles,full_path = saved_chapter_rows(self, latest, catalog, reader and reader.unavailable_chapter)
     local ChapterSearch = require('weread.ui.chapter_search')
     local filter_titles = ChapterSearch.title_filter(rows,nil,true)
     local Popup = require('weread.ui.shelf_popup')
     local Cleanup = require('weread.ui.book_cache_cleanup')
     local query, menu, visible = '', nil, nil
     local unfiltered_position,title_worker
-    local hold_hint = not reader and _('Hold a separately downloaded chapter to remove its copy') or ''
+    local subtitle = reader and (reader.subtitle or '') or _('Hold a separately downloaded chapter to remove its copy')
     local function current()
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
@@ -2521,13 +2521,13 @@ function M:showSavedChapters(book_id, detail, reader)
                 if item.chapter_id and item.chapter_id==position.focus_id then focus=index end
             end
         end
-        menu.subtitle=query~='' and T(_('Chapter filter: %1'),query) or hold_hint
+        menu.subtitle=query~='' and T(_('Chapter filter: %1'),query) or subtitle
         menu.itemnumber=focus
         menu:switchItemTable(nil,entries,focus or anchor or position and position.first,nil,menu.subtitle)
         menu.itemnumber=nil
     end
     menu = self:showList(_('Downloaded chapters'), items(), _('No downloaded chapters found.'), {
-        left_icon='appbar.search', subtitle=hold_hint, on_choice=function(entry)
+        left_icon='appbar.search', subtitle=subtitle, on_choice=function(entry)
             local chapter = visible[entry]
             if not current() or not chapter then return end
             local fresh = load_book()
@@ -3289,6 +3289,10 @@ function M:openChapter(book, chapter, on_downloaded, options)
         self:openFile(cached,nil,book)
         return true
     elseif cached_only then
+        if options.on_cache_miss then
+            if current() then return options.on_cache_miss() end
+            return false
+        end
         self:showInfo(_('The downloaded chapter is unavailable or could not be verified.'))
         return false
     elseif ambiguous then

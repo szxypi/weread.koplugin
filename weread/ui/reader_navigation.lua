@@ -57,7 +57,22 @@ function M:onShowWeReadSearch()
     return true
 end
 
-function M:showEndOfBookDialog(book_id, at_end, open_downloads)
+function M:openReaderChapter(book, chapter)
+    if not self.isNetworkLinkAvailable or self:isNetworkLinkAvailable() then
+        return self:openChapter(book, chapter)
+    end
+    return self:openChapter(book, chapter, nil, {
+        cached_only = true,
+        on_cache_miss = function()
+            return self:showEndOfBookDialog(book.book_id or book.bookId, nil, {
+                subtitle = _('Chapter unavailable offline'),
+                unavailable_chapter = tostring(chapter.chapterUid or chapter.chapterId),
+            })
+        end,
+    })
+end
+
+function M:showEndOfBookDialog(book_id, at_end, downloads)
     local reader_ui = self.ui
     local document = reader_ui and reader_ui.document
     local search = reader_ui and reader_ui.search
@@ -69,22 +84,10 @@ function M:showEndOfBookDialog(book_id, at_end, open_downloads)
 
     local book = book_id and ReadAccess.load_cached_book(self.settings, book_id) or nil
     local is_regular_weread_book = book ~= nil and not WeRead.is_mp_book(book_id)
-    local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book, true) or nil
     local has_saved_chapters = is_regular_weread_book and (
         type(book.cached_chapters) == 'table' and next(book.cached_chapters) ~= nil
         or type(book.cached_full_book) == 'string' or type(book.cached_file) == 'string')
 
-    local current_idx, current_chapter, is_full_book, partial, proof
-    if chapters then
-        book.chapters=chapters
-        current_idx,current_chapter,is_full_book,partial,proof=self:getChapterInfoFromFile(book,file_path)
-    end
-    -- The progress panel uses KOReader's own chapter navigation for combined files.
-    local next_chapter = current_idx and not is_full_book
-        and chapters[current_idx + 1] or nil
-    local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
-    local function chapter_id(ch) return ch and tostring(ch.chapterUid or ch.chapterId or '') or nil end
-    local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
     local identity={}
     for _,key in ipairs({'bookVersion','book_version','version','fileId','file_id','cache_dir'}) do
         identity[key]=book and book[key] or nil
@@ -116,13 +119,28 @@ function M:showEndOfBookDialog(book_id, at_end, open_downloads)
         self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'), 3)
     end
     local function show_downloaded_chapters()
-        self:showSavedChapters(book_id, nil, { is_current = valid_reader, load_book = load_current_book })
+        self:showSavedChapters(book_id, nil, {
+            is_current = valid_reader, load_book = load_current_book,
+            subtitle = downloads and downloads.subtitle,
+            unavailable_chapter = downloads and downloads.unavailable_chapter,
+        })
     end
-    local downloaded_only = not chapters and has_saved_chapters
-    if open_downloads and downloaded_only then
+    if downloads and (has_saved_chapters or downloads.subtitle and is_regular_weread_book) then
         show_downloaded_chapters()
         return true
     end
+    local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book, true) or nil
+    local downloaded_only = not chapters and has_saved_chapters
+    local current_idx, current_chapter, is_full_book, partial, proof
+    if chapters then
+        book.chapters=chapters
+        current_idx,current_chapter,is_full_book,partial,proof=self:getChapterInfoFromFile(book,file_path)
+    end
+    -- The progress panel uses KOReader's own chapter navigation for combined files.
+    local next_chapter = current_idx and not is_full_book and chapters[current_idx + 1] or nil
+    local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
+    local function chapter_id(ch) return ch and tostring(ch.chapterUid or ch.chapterId or '') or nil end
+    local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
     local expected_next,still_at_end=expected_chapter,nil
@@ -234,7 +252,7 @@ function M:showEndOfBookDialog(book_id, at_end, open_downloads)
             if next_chapter or still_at_end then
                 if still_at_end and not still_at_end() then return end
                 local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_next,1)
-                if ok and fresh and target and valid_reader() then self:openChapter(fresh,target)
+                if ok and fresh and target and valid_reader() then self:openReaderChapter(fresh,target)
                 elseif valid_reader() then self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
             elseif chapters then
                 self:showTransientInfo(_("You have reached the last chapter."), 1)
@@ -277,7 +295,7 @@ function M:showEndOfBookDialog(book_id, at_end, open_downloads)
                     single_chapter=current_idx~=nil and not is_full_book,
                     book=book,chapters=chapters,chapter_index=current_idx,chapter_uid=current_id,
                     native_chapters=not current_idx or is_full_book,is_current=still_current,
-                    resolve_chapter=resolve_chapter})
+                    resolve_chapter=resolve_chapter,open_chapter=self.openReaderChapter})
             end
         end,
         on_reader_typography = function()

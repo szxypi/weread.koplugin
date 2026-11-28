@@ -16,6 +16,7 @@ local original={book_id='123',bookVersion=1,cache_dir='/cache/123',chapters=cata
 local fresh={book_id='123',bookVersion=1,cache_dir='/cache/123',cached_chapters={['2']=doc.file}}
 local building_menu,lookups=false,0
 local opened,listing,details,sync,notice
+local network=true
 local host={ui={document=doc},_reader_session_gen=7,settings={}}
 function host.settings:get(key,default)
     assert(key~='books','reading navigation hydrated the whole library')
@@ -38,7 +39,8 @@ function host:getChapterInfoFromFile(book,file)
         if book.cached_chapters[tostring(row.chapterUid)]==file then return index,row,false end
     end
 end
-function host:openChapter(book,chapter) opened={book=book,chapter=chapter} end
+function host:isNetworkLinkAvailable() return network end
+function host:openChapter(book,chapter,_,opts) opened={book=book,chapter=chapter,options=opts} end
 function host:showChapterList(book) listing=book end
 local saved_picker
 function host:showSavedChapters(id, detail, reader)
@@ -56,7 +58,14 @@ local function menu(at_end,open_downloads)
     return callbacks
 end
 local c=menu();c.on_next()
-assert(opened and opened.book==fresh and opened.chapter==catalog[3],'next used a stale book or wrong chapter')
+assert(opened and opened.book==fresh and opened.chapter==catalog[3] and not opened.options,
+    'online next used a stale book, wrong chapter or restricted download')
+network=false
+c=menu();c.on_next()
+assert(opened.options.cached_only and opened.options.on_cache_miss())
+assert(saved_picker and saved_picker.load_book()==fresh and saved_picker.unavailable_chapter=='3'
+    and saved_picker.subtitle=='Chapter unavailable offline','offline cache miss did not offer the saved picker')
+network=true
 do
     fresh.chapters=catalog
     local content=require('weread.lib.content')
@@ -101,11 +110,11 @@ do
     assert(not saved_picker.is_current() and not saved_picker.load_book(),'saved picker accepted a changed session')
     epoch=1
     saved_picker=nil
-    menu(true,true)
+    menu(true,{})
     assert(saved_picker and saved_picker.load_book()==fresh,'automatic end-of-file fallback did not open the saved picker')
     original.cached_chapters={}
     saved_picker=nil
-    menu(true,true)
+    menu(true,{})
     assert(not saved_picker and not options.enable_chapter_list,'no catalog or saved chapters enabled the picker')
     original.cached_chapters={['2']=doc.file}
     original.chapters=catalog

@@ -105,7 +105,7 @@ function M:handleEndOfBook(status_self)
         local chapters = self:ensureChaptersLoaded(book,true)
         if not chapters then
             -- Chapter IDs identify files but cannot establish which chapter follows.
-            if self:showEndOfBookDialog(book_id,true,true) then return true end
+            if self:showEndOfBookDialog(book_id,true,{}) then return true end
             return self._orig_onEndOfBook(status_self)
         end
         book.chapters=chapters
@@ -116,7 +116,7 @@ function M:handleEndOfBook(status_self)
         end
         local next_ch = current_idx and chapters[current_idx + 1]
         if next_ch then
-            self:openChapter(book, next_ch)
+            self:openReaderChapter(book, next_ch)
         else
             self:showInfo(_("You have reached the last chapter."))
         end

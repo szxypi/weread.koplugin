@@ -85,11 +85,6 @@ return function(reader,host,book,id,pump,clean,set_offline)
     select_chapter(host,latest,4);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
     assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only)
     clean(reader)
-    local successor=Content.save_chapter_epub(host.settings,copy,chapters[5],
-        '<p>这是第五章的合成正文。</p>',{},'',Identity.capture(copy))
-    local saved_for_end=host.settings:get('books',{})
-    saved_for_end[id].cached_chapters['5']=successor
-    host.settings:set('books',saved_for_end);host.settings:flush()
     local action=G_reader_settings:readSetting('end_document_action')
     local UI=require('ui/uimanager')
     local function turn_past_end(mode)
@@ -97,6 +92,35 @@ return function(reader,host,book,id,pump,clean,set_offline)
         reader.rolling:onGotoPage(reader.document:getPageCount())
         reader.rolling:onGotoViewRel(1)
     end
+    local function press_end_next()
+        local dialog=assert(UI:getTopmostVisibleWidget())
+        local button=assert(dialog:getButtonById('next_chapter'))
+        assert(button.enabled~=false,'the partial combined EPUB ended before the last book chapter')
+        UI:forceRePaint();button:onTapSelectButton()
+    end
+    local function missing_successor()
+        local picker=assert(host._saved_chapter_menu,'missing successor did not open downloaded chapters')
+        assert(Reader.instance==reader and UI:getTopmostVisibleWidget()==picker and not host.downloader._active_job,
+            'missing successor replaced the current reader or started a download')
+        assert(picker.subtitle==require('weread.lib.plugin_util').tr('Chapter unavailable offline'))
+        assert(#picker.item_table==2 and picker.item_table[1].chapter_id=='2' and picker.item_table[2].chapter_id=='4')
+        return picker
+    end
+    turn_past_end('next_file')
+    local picker=missing_successor()
+    picker:onMenuSelect(picker.item_table[1])
+    pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    assert(Reader.instance==reader and host.progress_sync.file_resume.preserve_only)
+    clean(reader)
+    turn_past_end('pop-up');press_end_next()
+    pump(function() return host._saved_chapter_menu~=nil end)
+    missing_successor()
+    clean(reader)
+    local successor=Content.save_chapter_epub(host.settings,copy,chapters[5],
+        '<p>这是第五章的合成正文。</p>',{},'',Identity.capture(copy))
+    local saved_for_end=host.settings:get('books',{})
+    saved_for_end[id].cached_chapters['5']=successor
+    host.settings:set('books',saved_for_end);host.settings:flush()
     local function wait_for_successor()
         pump(function() return Reader.instance and Reader.instance.document.file==successor end)
         reader=assert(Reader.instance);host=assert(reader.weread)
@@ -104,12 +128,7 @@ return function(reader,host,book,id,pump,clean,set_offline)
         assert(after and tostring(after.chapter_uid)=='4' and after.chapter_offset==10,
             'leaving a partial combined EPUB changed its protected pending position')
     end
-    turn_past_end('pop-up')
-    local dialog=assert(UI:getTopmostVisibleWidget())
-    local next_button=assert(dialog:getButtonById('next_chapter'))
-    assert(next_button.enabled~=false,'the partial combined EPUB ended before the last book chapter')
-    UI:forceRePaint()
-    next_button:onTapSelectButton();wait_for_successor()
+    turn_past_end('pop-up');press_end_next();wait_for_successor()
     local combined_book=assert(host.settings:get_book(id));combined_book.chapters=chapters
     select_chapter(host,combined_book,4)
     pump(function() return Reader.instance and Reader.instance.document.file==combined end)
