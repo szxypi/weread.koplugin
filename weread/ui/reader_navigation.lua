@@ -170,7 +170,9 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
     local cache = self.settings:get("cache", {})
     local annotations_visible = cache.show_annotations ~= false
     local location=self._native_account_location and require('weread.lib.native_account_location')
-    local close_scope=book and self.library_db and self.library_db:accountKey() and search_scope or nil
+    local account=book and self.library_db and self.library_db:accountKey()
+    local close_scope=account and search_scope or nil
+    local shelf_id=close_scope and is_regular_weread_book and ReadAccess.display_book_id(book_id)
     EndOfBookDialog.show({
         show_chapter_nav = true,
         show_next_chapter = true,
@@ -268,6 +270,12 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
                 show_context_required()
             end
         end,
+        on_shelf_status = shelf_id and function()
+            if not self._weread_suspended and load_current_book() and self.library_db:accountKey()==account
+                and ReadAccess.display_book_id(self:detectWeReadBook())==shelf_id then
+                self:showShelfState(shelf_id)
+            end
+        end or nil,
         on_reader_progress = function()
             local function still_current()
                 local current_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()

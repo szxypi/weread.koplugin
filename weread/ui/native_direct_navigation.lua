@@ -248,6 +248,12 @@ function M.start(host,direction,notes)
                 M.cancel(host)
                 host:showBookMenu(book)
             end,
+            on_shelf_status=ctx.account and function()
+                if not current() then return end
+                local id=ctx.entry.book_id
+                M.cancel(host)
+                host:showShelfState(id)
+            end or nil,
             on_native_position_check=function()
                 if not current() then return end
                 local entry=ctx.entry;M.cancel(host)

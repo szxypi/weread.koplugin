@@ -57,10 +57,12 @@ return function(reader,plugin,pump,shot,clean_popups)
     end
     local function preview(resolving)
         clean_popups(reader)
-        local entry
-        for _i,item in ipairs(plugin:getMainMenuItems()) do if item.text==tr('Book details') then entry=item end end
-        assert(entry);entry.callback();pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
-        for _i,button in ipairs(plugin._book_detail_view._action_buttons) do if button.text==tr('Shelf status') then button.callback();break end end
+        assert(plugin:onShowWeReadQuickMenu());UI:forceRePaint()
+        local menu=assert(UI:getTopmostVisibleWidget())
+        assert(menu:getContentSize().h<=require('device').screen:getHeight(),'reader quick menu exceeded screen')
+        assert(menu:getButtonById('shelf_status')):onTapSelectButton()
+        pump(function() return plugin._shelf_state_menu~=nil end)
+        assert(not plugin._book_detail_view and not plugin.book_metadata_context,'reader status opened book details')
         row(resolving and 'Check pending finished-mark change' or 'Change finished mark').callback()
         pump(function() return plugin._finish_change_ui and plugin._finish_change_ui.dialog end)
         return plugin._finish_change_ui.dialog

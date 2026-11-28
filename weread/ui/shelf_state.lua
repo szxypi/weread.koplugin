@@ -5,12 +5,14 @@ local Util=require('weread.lib.plugin_util')
 local _=Util.tr
 local M={}
 local function scope(host)
+    local document=host.ui and host.ui.document
     return {account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,session=host._reader_session_gen,
-        document=host.ui and host.ui.document,parent=host._book_detail_view}
+        document=document,file=document and document.file,parent=host._book_detail_view}
 end
 local function current(host,owner)
-    return owner.account==host.library_db:accountKey() and owner.epoch==(host.discovery_epoch or 0)
+    return not host._weread_suspended and owner.account==host.library_db:accountKey() and owner.epoch==(host.discovery_epoch or 0)
         and owner.session==host._reader_session_gen and owner.document==(host.ui and host.ui.document)
+        and (not owner.document or owner.document.file==owner.file)
         and owner.parent==host._book_detail_view
 end
 function M.cancel(host)

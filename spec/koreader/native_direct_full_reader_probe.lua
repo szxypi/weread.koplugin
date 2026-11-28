@@ -92,6 +92,40 @@ assert(display:getButtonById('display_full_refresh')):onTapSelectButton()
 UI:forceRePaint()
 assert(not host._weread_reader_display and first.document:isXPointerInCurrentPage(anchor),
     'native display refresh did not return to the same chapter page')
+do
+    local connected=host.isNetworkConnected
+    host.isNetworkConnected=function() return false end
+    local saved_books,saved_groups=host.library_db:getShelf()
+    assert(host.library_db:cacheShelf({{bookId=entry.book_id,title='Synthetic',finishReading=0}},{}))
+    local Finished=require('weread.ui.finish_offline')
+    local labels=require('weread.lib.plugin_util').tr
+    local function row(label)
+        for _,item in ipairs(assert(host._shelf_state_menu).item_table) do
+            if item.text==labels(label) then return item end
+        end
+        error('missing reader shelf status row '..label)
+    end
+    quick(host,'shelf_status')
+    pump(function() return host._shelf_state_menu~=nil end)
+    assert(not host._native_direct_navigation and not host._book_detail_view
+        and row('Finished reading').mandatory==labels('No'),'native reader opened the wrong shelf entry')
+    row('Change finished mark').callback()
+    assert(host._finish_offline_dialog).ok_callback()
+    local queued=assert(Finished.get(host,entry.book_id))
+    assert(queued.phase=='queued' and queued.desired and row('Finished reading').mandatory:find(labels('Pending sync'),1,true),
+        'native reader did not save the pending offline mark')
+    assert(host.library_db:getShelfStatus(entry.book_id).book.finishReading==0,
+        'offline change overwrote the saved cloud flag')
+    UI:close(UI:getTopmostVisibleWidget())
+    row('Change finished mark').callback()
+    assert(host._finish_offline_dialog).ok_callback()
+    assert(not Finished.get(host,entry.book_id),'cancelling the pending change left a record')
+    UI:close(UI:getTopmostVisibleWidget());host:cancelShelfState()
+    assert(UI:getTopmostVisibleWidget()==first and first.document:isXPointerInCurrentPage(anchor),
+        'offline status change lost the native book page')
+    assert(host.library_db:cacheShelf(saved_books or {},saved_groups or {}))
+    host.isNetworkConnected=connected
+end
 quick(host,'reader_progress')
 pump(function() return host._weread_reader_progress~=nil end)
 local progress=assert(host._weread_reader_progress)

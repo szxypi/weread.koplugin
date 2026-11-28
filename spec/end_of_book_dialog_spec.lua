@@ -144,6 +144,13 @@ end end
 expect(image_action~=nil,'chapter image retry action was not shown')
 if image_action then image_action.callback() end
 expect(image_retry==1,'chapter image retry did not delegate')
+local shelf=0
+Dialog.show({},{on_shelf_status=function() shelf=shelf+1 end})
+local actions=shown.buttons[1]
+expect(#actions==3 and actions[1].text=='Book details' and actions[2].id=='shelf_status'
+    and actions[3].text=='Reading statistics','reader status displaced existing book actions')
+actions[2].callback()
+expect(shelf==1,'shelf status action did not delegate')
 
 print(string.format(
     "end_of_book_dialog_spec: %d checks, %d failure(s)", checks, failures))

@@ -24,7 +24,7 @@ local M = {}
 --   opts.enable_* : boolean — whether each context-dependent action is enabled
 --   opts.annotations_visible : boolean — current annotation visibility state
 --   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
---                             on_search_current, on_book_details, on_read_stats, on_sync_progress,
+--                             on_search_current, on_book_details, on_shelf_status, on_read_stats, on_sync_progress,
 --                             on_toggle_annotations, on_reader_progress, on_delayed_screenshot, on_close_book }
 -- Returns the dialog widget instance.
 function M.show(opts, callbacks)
@@ -76,18 +76,19 @@ function M.show(opts, callbacks)
         table.insert(buttons, nav_row)
     end
 
-    -- Row 2: book details / reading statistics
-    table.insert(buttons, {
-        {
-            text = _("Book details"),
-            enabled = opts.enable_book_details ~= false,
-            callback = function() dismiss_then(callbacks.on_book_details) end,
-        },
-        {
-            text = _("Reading statistics"),
-            callback = function() dismiss_then(callbacks.on_read_stats) end,
-        },
-    })
+    -- Row 2: information and actions for the current book, plus reading statistics.
+    local book_actions = {{
+        text = _("Book details"),
+        enabled = opts.enable_book_details ~= false,
+        callback = function() dismiss_then(callbacks.on_book_details) end,
+    }}
+    if callbacks.on_shelf_status then
+        book_actions[#book_actions + 1] = { id = 'shelf_status', text = _("Shelf status"),
+            callback = function() dismiss_then(callbacks.on_shelf_status) end }
+    end
+    book_actions[#book_actions + 1] = { text = _("Reading statistics"),
+        callback = function() dismiss_then(callbacks.on_read_stats) end }
+    table.insert(buttons, book_actions)
 
     -- Row 3: bookshelf / bookstore search
     table.insert(buttons, {

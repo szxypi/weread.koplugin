@@ -123,6 +123,7 @@ expect(dialog_options.show_chapter_nav and dialog_options.show_next_chapter
         and dialog_options.enable_search_current == true
         and dialog_options.annotations_visible == true,
     "quick menu reflects the global annotation visibility preference")
+expect(not dialog_callbacks.on_shelf_status,'unrelated document offered shelf status')
 dialog_callbacks.on_search_current()
 expect(native_searches == 1, "current file search uses KOReader's native search")
 local progress_host,progress_options
@@ -199,7 +200,23 @@ expect(searched_book==nil,'delayed whole-book search ignores a changed reader se
 local auth_epoch=1
 context_host.settings.get_auth_scope=function() return {vid='123',epoch=auth_epoch} end
 context_host.settings.auth_scope_matches=function(_self,scope) return scope.epoch==auth_epoch end
-context_host:showEndOfBookDialog('123');auth_epoch=2;dialog_callbacks.on_search_book()
+local active_id,account,status_opened='123','owner'
+context_host.library_db={accountKey=function() return account end}
+context_host.detectWeReadBook=function() return active_id end
+context_host.showShelfState=function(_self,id) status_opened=id end
+context_host:showEndOfBookDialog('123')
+local status=dialog_callbacks.on_shelf_status
+expect(type(status)=='function','signed-in reader did not offer shelf status')
+status();expect(status_opened=='123','reader status did not target the active book')
+status_opened=nil;active_id='124';status()
+expect(status_opened==nil,'reader status followed a changed file-to-book association')
+active_id='123';account='other';status()
+expect(status_opened==nil,'reader status reused an old account')
+account='owner';context_host._weread_suspended=true;status()
+expect(status_opened==nil,'suspended reader opened shelf status')
+context_host._weread_suspended=false;auth_epoch=2
+status();expect(status_opened==nil,'reader status reused a previous login')
+dialog_callbacks.on_search_book()
 expect(searched_book==nil,'delayed whole-book search ignores a changed account session')
 dialog_callbacks.on_search_cached()
 expect(cached_book==nil,'delayed downloaded search ignores a changed account session')
@@ -214,6 +231,11 @@ context_host.getChapterInfoFromFile=function() return 2,{chapterUid='2'},false e
 context_host.source_position.current=function() return {book_id='CB_Synthetic',chapter_uid='3'} end
 context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
 expect(searched_book=='CB_Synthetic' and searched_uid=='3','live CB source chapter was not passed to search')
+expect(not dialog_callbacks.on_shelf_status,'signed-out reader offered account status')
+context_host.settings.get_auth_scope=function() return {vid='123',epoch=auth_epoch} end
+context_host.settings.auth_scope_matches=function(_self,scope) return scope.epoch==auth_epoch end
+active_id='CB_Synthetic';context_host:showEndOfBookDialog(active_id);dialog_callbacks.on_shelf_status()
+expect(status_opened==active_id,'imported book could not open its verified shelf status')
 dialog_callbacks.on_search_cached()
 expect(cached_book=='CB_Synthetic','downloaded search did not support an imported book')
 context_host.source_position.current=function() return {book_id='CB_Foreign',chapter_uid='3'} end
@@ -246,6 +268,7 @@ expect(dialog_options.enable_book_details == true
         and dialog_options.enable_next_chapter == false
         and dialog_options.enable_sync_progress == false and dialog_options.enable_search_book == false,
     "public account articles only enable supported contextual actions")
+expect(not dialog_callbacks.on_shelf_status,'public account article offered book shelf status')
 notice = nil
 dialog_callbacks.on_sync_progress()
 expect(notice and notice.timeout == 1,
