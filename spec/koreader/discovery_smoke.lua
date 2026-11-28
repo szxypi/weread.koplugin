@@ -312,6 +312,27 @@ for _,offline in ipairs({false,true}) do
         and plugin.shelf_view:getFocusedBookId()==related_seed.bookId,
         'back from related books did not restore the search, page and focus')
 end
+do
+    local key=plugin.settings:get('api_key')
+    local authorization=plugin.native_authorization
+    local show_menu=authorization.showMenu
+    authorization.showMenu=function() error('saved similar books requested authorization') end
+    plugin.isNetworkConnected=function() return true end
+    plugin.settings:set('api_key','');plugin.settings:flush()
+    local selected,reason=require('weread.lib.discovery_source').capture(plugin.settings)
+    assert(not selected and reason=='native_required','the fixture still has bookstore access')
+    plugin:showBookMenu(related_seed)
+    press(plugin._book_detail_view,'Similar books');flush_tasks()
+    assert(plugin.discovery_state.kind=='similar' and plugin.discovery_state.cached
+        and not plugin.discovery_state.session_id and not plugin._book_detail_view,
+        'saved similar books did not open while connected without authorization')
+    press(plugin.shelf_view,'Next batch');flush_tasks()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.cursor==20)
+    plugin.shelf_view._header_buttons[1].callback();flush_tasks()
+    assert(plugin.discovery_state==previous_results and plugin.shelf_view.page==2)
+    authorization.showMenu=show_menu
+    plugin.settings:set('api_key',key);plugin.settings:flush()
+end
 plugin:closeWeReadUI()
 local restored_results=assert(require('weread.ui.discovery_cache').read(plugin))
 assert(restored_results.kind=='search' and restored_results.cursor==previous_results.cursor

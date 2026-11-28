@@ -53,6 +53,9 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context,batch_directio
     if kind~="category" and not public_search then
         selected,reason=Source.capture(host.settings)
         if not selected then
+            if not refresh and kind~='search' and Cache.open(host,query,cursor,origin,continuation,batch_direction) then
+                return true
+            end
             if kind=='search' and cursor==0 and not context.source_kind
                 and (reason=='native_required' or reason=='login_required' and not host.library_db:accountKey()) then
                 public_search=true
