@@ -76,5 +76,44 @@ assert(Store.save(library,settings,scope,entry,'/updated',live,latest),'full quo
 db=helper.connect(path);db:exec("UPDATE native_direct_offline_pending SET chapter_uid='99'");db:close()
 assert(not Store.read(library,settings,scope,entry,live) and not Store.save(library,settings,scope,entry,'/other',live),
     'different identity was accepted or overwritten')
+do
+    local reader=helper.connect(path)
+    reader:exec('BEGIN;DELETE FROM native_direct_offline_pending;DELETE FROM native_direct_offline_display;')
+    local pending=reader:prepare('INSERT INTO native_direct_offline_pending VALUES(?,?,?,?,?,?,?,?)')
+    local display=reader:prepare('INSERT INTO native_direct_offline_display VALUES(?,?,?,?)')
+    local ids={}
+    for index=1,Store.MAX_RECORDS do
+        local book_id=tostring(900000+index)
+        local file_id=string.format('%064x',index)
+        pending:reset():bind(file_id,index==3 and '1' or book_id,'12',7,entry.source_sha256,entry.key,0,'/p'):step()
+        display:reset():bind(book_id,file_id,index==2 and '/past-page' or '/p',index==4 and 101 or 25):step()
+        ids[index]=book_id
+    end
+    pending:close();display:close();reader:exec('COMMIT')
+    local seen=0
+    local prepare=reader.prepare
+    function reader:prepare(sql)
+        local stmt=prepare(self,sql)
+        if sql:find('JOIN native_direct_offline_pending',1,true) then
+            local step=stmt.step
+            stmt.step=function(statement)
+                local row=step(statement)
+                if row then seen=seen+1 end
+                return row
+            end
+        end
+        return stmt
+    end
+    local page={'900001','900002','900003','900004','900005','900110','missing','900110'}
+    local visible=Store.display_estimates(reader,page)
+    assert(seen==4,'visible lookup read unrelated database rows or repeated a requested book')
+    assert(visible['900001']==25 and visible['900005']==25 and visible['900110']==25
+        and not visible['900002'] and not visible['900003'] and not visible['900004'],
+        'visible lookup accepted a stale pointer, the wrong book or an invalid percent')
+    local all=Store.display_estimates(reader,ids)
+    for _,id in ipairs(page) do assert(all[id]==visible[id],'page estimate differed from the full shelf result') end
+    assert(all['900256']==25 and Store.display_estimates(reader,{})['900256']==nil)
+    reader:close()
+end
 os.remove(path);os.remove(path..'-wal');os.remove(path..'-shm')
 print('PASS: native offline reminders preserve account, identity, transaction and newer-position guards')

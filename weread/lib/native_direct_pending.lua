@@ -36,14 +36,24 @@ local function percentage(value)
     return type(value)=='number' and value>=0 and value<=100
 end
 
--- A hint only supplements the latest reminder for a book. Joining the exact
--- reminder prevents a removed or replaced position leaving a stale percentage.
+local display_query=[[SELECT d.book_id,d.percent FROM native_direct_offline_display d
+    JOIN native_direct_offline_pending p ON p.book_id=d.book_id AND p.file_id=d.file_id AND p.xpointer=d.xpointer]]
+local display_limit=' LIMIT '..(M.MAX_RECORDS+1)
+-- Typical viewports need a few IDs. A whole-shelf sort can use one capped scan.
+local DISPLAY_LOOKUP_LIMIT=32
+
+-- An exact join keeps removed or replaced reminders from leaving stale estimates.
 function M.display_estimates(db,ids)
+    if type(ids)~='table' or #ids==0 then return {} end
     local ok,value=pcall(function()
         if schema(db,display_table)~='present' then return {} end
-        local rows=query(db,[[SELECT d.book_id,d.percent FROM native_direct_offline_display d
-            JOIN native_direct_offline_pending p ON p.book_id=d.book_id AND p.file_id=d.file_id AND p.xpointer=d.xpointer
-            LIMIT 257]])
+        local rows
+        if #ids<=DISPLAY_LOOKUP_LIMIT then
+            local placeholders=string.rep('?,',#ids-1)..'?'
+            rows=query(db,display_query..' WHERE d.book_id IN ('..placeholders..')'..display_limit,unpack(ids))
+        else
+            rows=query(db,display_query..display_limit)
+        end
         if #rows==0 or #rows>M.MAX_RECORDS then return {} end
         local wanted={};for _,id in ipairs(ids) do wanted[id]=true end
         local result={}
