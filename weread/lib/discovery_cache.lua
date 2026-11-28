@@ -236,6 +236,11 @@ function M:remember(state,position,shared_public)
         commit();return true
     end)
 end
+local function decode_search(self,payload)
+    local value=self.codec:json_decode(payload)
+    local query=type(value)=='table' and value.query
+    if type(query)=='table' and query.kind=='search' then return M.validate(value) end
+end
 -- List only validated search queries already stored in this account's cache.
 -- Results remain display-only and are reopened with the ordinary cache path.
 function M:search_entries()
@@ -247,8 +252,8 @@ function M:search_entries()
             local row=stmt:bind(M.MAX_PAYLOAD,M.MAX_QUERIES):step()
             while row do
                 if type(row[1])=='string' then
-                    local valid,value=pcall(function() return M.validate(self.codec:json_decode(row[1])) end)
-                    if valid and value.query.kind=='search' then
+                    local valid,value=pcall(decode_search,self,row[1])
+                    if valid and value then
                         local key=M.key(value.query,value.source_kind=='public')
                         if not seen[key] and (key==row[2] or M.key(value.query)==row[2]) then
                             out[#out+1]={keyword=value.query.keyword,generation=value.generation,source_kind=value.source_kind}

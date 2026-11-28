@@ -10,7 +10,7 @@ local library=require('weread.lib.library_db'):new{data_dir=root,get=function(_s
 end}
 local Cache=require('weread.lib.discovery_cache');local store=Cache:new(library,codec)
 local checks=0
-local function expect(value) checks=checks+1;assert(value) end
+local function expect(value,message) checks=checks+1;assert(value,message) end
 local function state(kind,cursor)
     return {kind=kind or 'search',keyword='Synthetic',cursor=cursor or 0,next_cursor=(cursor or 0)+20,has_more=true,
         books={{bookId='900001',title='Synthetic',author='',category='',cover='',searchIdx=20}},loaded_at=100,
@@ -170,4 +170,35 @@ expect(store:read().source_kind=='public' and store:read().cursor==0)
 expect(store:remove_search('Shared search',public_second._cache_generation,'public')=='deleted'
     and store:read(native_query,20) and not store:read(public_query,0))
 expect(store:read().source_kind=='native' and store:read().cursor==20)
+
+account='900099'
+local native_search=search('native')
+local public_search=search('public')
+local old_public=search('public');old_public.keyword='Legacy public search'
+local category=state('category');category.category_id='synthetic';category.category_title='Category';category.rank=false
+local similar=state('similar');similar.book_id='900001';similar.book_title='Synthetic seed'
+local damaged_search=state();damaged_search.keyword='Damaged search'
+for _,item in ipairs({native_search,public_search,old_public,category,similar,state('recommend'),damaged_search}) do
+    item.books[1]._public_info={intro='Synthetic public description'}
+    assert(store:write(item))
+end
+rawdb=library:open()
+move=rawdb:prepare('UPDATE discovery_cache SET cache_key=? WHERE cache_key=?')
+move:bind(Cache.key(old_public),Cache.key(old_public,true)):step();move:close()
+local damage=rawdb:prepare('UPDATE discovery_cache SET payload=? WHERE cache_key=?')
+damage:bind('{"query":{"kind":"search"}}',Cache.key(damaged_search)):step();damage:close()
+rawdb:close()
+projected=0
+PublicInfo.project=function(...)
+    projected=projected+1
+    return project(...)
+end
+entries=assert(store:search_entries())
+PublicInfo.project=project
+expect(projected==3,'search history projected books from unrelated result types')
+expect(#entries==3 and entries[1].keyword==old_public.keyword and entries[1].source_kind=='public'
+    and entries[2].keyword==public_search.keyword and entries[2].source_kind=='public'
+    and entries[3].keyword==native_search.keyword and entries[3].source_kind=='native')
+expect(store:read(category,0) and store:read(similar,0) and store:read(state('recommend'),0),
+    'skipping non-search batches altered their cached results')
 print('PASS: discovery SQLite cache; '..checks..' checks')
