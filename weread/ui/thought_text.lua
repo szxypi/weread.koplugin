@@ -2,7 +2,7 @@
 -- face, metrics and fallback order; never change KOReader's shared font list.
 local M={}
 local faces=setmetatable({},{__mode='kv'})
-local Viewer, ThoughtMenu
+local Viewer, ThoughtMenu, TextWidget
 
 function M.face(base)
     if not base or not base.getFallbackFont or not base.ftsize then return base end
@@ -80,7 +80,14 @@ local function missing(widget)
             end
         end
     elseif widget._shape_start and widget._shape_end then
-        local shaped=widget._xtext:shapeLine(widget._shape_start,widget._shape_end,widget._shape_idx_to_substitute_with_ellipsis)
+        local native=widget.paintTo==TextWidget.paintTo and widget._measureWithXText
+            and widget._measureWithXText==TextWidget._measureWithXText
+        local shaped=native and widget._xshaping
+        if not shaped then
+            shaped=widget._xtext:shapeLine(widget._shape_start,widget._shape_end,widget._shape_idx_to_substitute_with_ellipsis)
+            -- Native TextWidget paints this same span and clears its cache when remeasured.
+            if native then widget._xshaping=shaped end
+        end
         for _,glyph in ipairs(shaped or {}) do if glyph.glyph==0 and not glyph.no_drawing then return true end end
     end
     return false
@@ -144,6 +151,7 @@ function M.menu(options)
     local Parent=require('ui/widget/menu')
     if not Parent.extend then return Parent:new(options) end
     if not ThoughtMenu then
+        TextWidget=require('ui/widget/textwidget')
         ThoughtMenu=Parent:extend{}
         function ThoughtMenu:updateItems(...)
             Parent.updateItems(self,...)

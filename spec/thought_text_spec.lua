@@ -60,13 +60,29 @@ function menu_parent:extend(child) return setmetatable(child,{__index=self}) end
 function menu_parent:new(options) setmetatable(options,{__index=self});options:updateItems();return options end
 function menu_parent:updateItems() self.updates=(self.updates or 0)+1 end
 package.preload['ui/widget/menu']=function() return menu_parent end
+local NativeText={}
+function NativeText:_measureWithXText()
+    self._xshaping=nil
+    self._xtext={shapeLine=function()
+        self.shape_calls=(self.shape_calls or 0)+1
+        return {{glyph=self.has_missing and self.face==base and 0 or 7,font_num=0}}
+    end}
+end
+function NativeText:paintTo()
+    self:updateSize()
+    self._xshaping=self._xshaping or self._xtext:shapeLine()
+    return self._xshaping[1].glyph
+end
+package.preload['ui/widget/textwidget']=function() return NativeText end
 local menu_resets=0
 local function row_widget(fail_new,has_missing)
-    local text={text='sample',face=base,use_xtext=true,_shape_start=1,_shape_end=1}
+    local text=setmetatable({text='sample',face=base,use_xtext=true,_shape_start=1,_shape_end=1,has_missing=has_missing},
+        {__index=NativeText})
     function text:free() self._xtext=nil end
     function text:updateSize()
+        if self._xtext then return end
         if fail_new and self.face==face then error('unavailable font') end
-        self._xtext={shapeLine=function() return {{glyph=has_missing and self.face==base and 0 or 7,font_num=0}} end}
+        self:_measureWithXText()
     end
     text:updateSize()
     local mandatory={getWidth=function() return 20 end,use_xtext=false}
@@ -78,12 +94,16 @@ local row,fake_text=row_widget(false,true)
 local group={row,resetLayout=function() menu_resets=menu_resets+1 end}
 local menu=Text.menu{item_group=group}
 expect(fake_text.face==face and fake_text.max_width==270 and menu_resets==2,'scoped menu did not rebuild missing text within its row')
-menu:updateItems();expect(menu.updates==2 and menu_resets==2,'menu reused or duplicated its fallback')
+expect(fake_text:paintTo()==7 and fake_text.shape_calls==2,'fallback paint reused glyphs from the original face')
+menu:updateItems();expect(menu.updates==2 and menu_resets==2 and fake_text.shape_calls==2,'menu reused or duplicated its fallback')
 row,fake_text=row_widget(true,true);group={row,resetLayout=function() menu_resets=menu_resets+1 end}
 Text.menu{item_group=group}
 expect(fake_text.face==base and fake_text.max_width==nil and fake_text._xtext~=nil,'failed font rebuild did not restore native text')
 row,fake_text=row_widget(false,false);group={row,resetLayout=function() menu_resets=menu_resets+1 end}
 Text.menu{item_group=group}
 expect(fake_text.face==base and fake_text.max_width==nil,'ordinary menu row was modified')
+expect(fake_text:paintTo()==7 and fake_text.shape_calls==1,'ordinary paint reshaped the already checked text')
+fake_text:free()
+expect(fake_text:paintTo()==7 and fake_text.shape_calls==2,'remeasurement reused glyphs from the old layout')
 expect(Text.menu{item_group={{text='unknown layout'}}}~=nil,'unknown menu layout did not fall back')
 print('thought_text_spec: '..checks..' checks')
