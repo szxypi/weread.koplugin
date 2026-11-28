@@ -145,6 +145,36 @@ do
     expect(opened==nil and not source.saved_note_open and host._my_marks_owner==prior,'closed source opened a stale notebook')
     Marks.cancel(host)
 end
+do
+    local host,state=fixture(snapshot())
+    local opened
+    expect(Marks.open(host,'900001','bookmarks',{on_open=function(owner) opened=owner end})
+        and not host._my_marks_owner and not state.reads,'standard notes menu read its cache on the UI thread')
+    expect(host._my_marks_loading_source==host,'standard notes read did not bind to the host')
+    state.complete(state.task())
+    expect(opened==host._my_marks_owner and opened.bookmarks and state.reads==1 and not state.link_checks,
+        'saved notes open did not retain the saved view offline')
+    local previous=opened
+    expect(Marks.open(host,'900001','thoughts'),'worker failure case could not start')
+    state.complete(nil)
+    expect(host._my_marks_owner==previous and not state.link_checks and #state.notices==1,
+        'worker failure affected the previous menu or started network recovery')
+    state.saved=nil
+    expect(Marks.open(host,'900001','thoughts'),'cache-miss case could not start')
+    state.complete(state.task())
+    expect(host._my_marks_owner.thoughts and not host._my_marks_owner.value and state.link_checks==1 and state.started==3,
+        'unsaved notes did not open their offline state')
+    state.saved=snapshot();state.online=true
+    expect(Marks.open(host,'900001'),'first read could not start')
+    local stale=state.complete
+    expect(Marks.open(host,'900001','bookmarks'),'second read could not start')
+    stale{read=true,snapshot=state.saved}
+    expect(host._my_marks_owner.thoughts and host._my_marks_loading_source==host,'superseded read displaced the latest view')
+    Marks.cancel(host)
+    state.complete{read=true,snapshot=state.saved}
+    expect(not host._my_marks_loading_source and not host._my_marks_owner and not host.busy_message,
+        'closing plugin notes left an active read or accepted its late result')
+end
 local host,value=fixture(snapshot())
 expect(Marks.show(host,'900001'),'saved marks did not open offline')
 local menu=host._my_marks_menu

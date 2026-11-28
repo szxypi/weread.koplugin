@@ -268,6 +268,10 @@ local function check_cb_notes(reader,current,seed)
     for _i,case in ipairs({{'My cloud highlights','synthetic-highlight'},
         {'My cloud bookmarks','synthetic-bookmark'},{'My cloud thoughts','synthetic-thought'}}) do
         local item=assert(entries[tr(case[1])]);item.callback()
+        local done_by=socket.gettime()+10
+        while current._my_marks_loading_source do
+            assert(socket.gettime()<done_by,'saved notes did not open');tick()
+        end
         local owner=assert(current._my_marks_owner);assert(owner.value and not owner.writable and not owner.context)
         local selected
         for _j,row in ipairs(owner.menu.item_table) do if row.my_note_id==case[2] then selected=row end end

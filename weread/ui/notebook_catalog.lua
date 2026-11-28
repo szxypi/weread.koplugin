@@ -19,6 +19,8 @@ local function current(host,owner)
         and owner.document==(host.ui and host.ui.document) and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    local notes=package.loaded['weread.ui.my_cloud_marks']
+    if notes then notes.cancel_saved(host,owner.menu) end
     require('weread.ui.notebook_bulk').cancel(host,owner)
     require('weread.ui.notebook_image_bulk').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
@@ -131,8 +133,11 @@ local function open_book(host,owner,book,saved_menu)
                     end)
                 return
             end
-            host[method](host,book.bookId)
-            if valid() then owner.child=host._my_marks_owner end
+            host[method](host,book.bookId,{
+                source=parent,
+                current=function() return valid() and not parent._shelf_popup end,
+                on_open=function(child) owner.child=child end,
+            })
         end}
     end
     local buttons={}

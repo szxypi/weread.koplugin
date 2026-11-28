@@ -380,7 +380,7 @@ function M.start(host,direction,notes)
                     notes=='cloud' and {cloud=true} or {upload=true})
             else
                 local method=notes=='marks' and 'showMyCloudMarks' or notes=='bookmarks' and 'showMyCloudBookmarks' or 'showMyCloudThoughts'
-                if type(host[method])=='function' then host[method](host,id) end
+                if type(host[method])=='function' then host[method](host,id,{}) end
             end
         elseif direction==1 or direction==-1 then close_busy();step(direction) else menu() end
     end)

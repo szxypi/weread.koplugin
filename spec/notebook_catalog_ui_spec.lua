@@ -26,7 +26,10 @@ local function fixture(saved)
     host.closeWeReadUI=function(self) Catalog.cancel(self);self.discovery_epoch=(self.discovery_epoch or 0)+1 end
     host.cancelMyCloudMarks=function(self) self._my_marks_owner=nil;value.child_closed=true end
     for _,entry in ipairs({'showMyCloudMarks','showMyCloudThoughts','showMyCloudBookmarks'}) do
-        host[entry]=function(self,id) value.opened={entry,id};self._my_marks_owner={} end
+        host[entry]=function(self,id,options)
+            assert(options.current() and options.source==self._notebook_menu)
+            value.opened={entry,id};self._my_marks_owner={};options.on_open(self._my_marks_owner)
+        end
     end
     host.isNetworkOnline=function() return value.online end
     host.isNetworkLinkAvailable=function()

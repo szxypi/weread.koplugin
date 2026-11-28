@@ -46,6 +46,8 @@ local function stop(host,owner)
     if context.busy and host.busy_message==context.busy then host:closeBusy() end
 end
 function M.cancel(host)
+    local source=host._my_marks_loading_source
+    if source then M.cancel_saved(host,source) end
     local owner=host._my_marks_owner;host._my_marks_owner=nil
     local menu=host._my_marks_menu;host._my_marks_menu=nil
     if owner then stop(host,owner) end
@@ -572,28 +574,29 @@ function M.cancel_saved(host,source)
     local job=source.saved_note_open
     if not job then return end
     source.saved_note_open=nil
+    if host._my_marks_loading_source==source then host._my_marks_loading_source=nil end
     UI:unschedule(job.show_busy)
     job.worker:cancel()
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 
-local function open_saved(host,id,variant,note_id,source,valid,done)
+local function load_snapshot(host,owner,source,valid,done)
     if source.saved_note_open or not valid() then return false end
-    if not Data.display_id(id) or not host.library_db then done(false);return false end
-    local owner=new_owner(host,id,variant)
-    if not owner then done(false);return false end
     local ok,worker=pcall(function()
         return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,
             max_bytes=Store.MAX_PAYLOAD+65536,fast_start=true}
     end)
-    if not ok or not worker then done(false);return false end
+    if not ok or not worker then done(nil,false);return false end
+    if host._my_marks_loading_source then M.cancel_saved(host,host._my_marks_loading_source) end
     local job={worker=worker,previous=host._my_marks_owner};source.saved_note_open=job
+    host._my_marks_loading_source=source
     local function still_current()
         return valid() and same_scope(host,owner) and host._my_marks_owner==job.previous
     end
     job.show_busy=function()
         if source.saved_note_open~=job then return end
         if not still_current() then M.cancel_saved(host,source);return end
+        if host.busy_message then return end
         host:showBusy(_('Opening saved notes…\nTap or press a key to cancel.'),function()
             if source.saved_note_open==job then M.cancel_saved(host,source) end
         end)
@@ -601,19 +604,53 @@ local function open_saved(host,id,variant,note_id,source,valid,done)
     end
     -- A quick local read needs no extra dialog or e-ink repaint.
     UI:scheduleIn(.35,job.show_busy)
-    local function complete(snapshot)
+    local function complete(result)
         if source.saved_note_open~=job then return end
         M.cancel_saved(host,source)
         if not still_current() then return end
-        -- The worker uses the same bounded, validating reader as the normal
-        -- notes menu. Passing its snapshot avoids a second read or validation.
-        if type(snapshot)~='table' or snapshot.book_id~=id then done(false);return end
-        owner.value=snapshot
-        done(present(host,owner,nil,note_id))
+        if type(result)~='table' or result.read~=true then done(nil,false);return end
+        local snapshot=result.snapshot
+        if snapshot~=nil and (type(snapshot)~='table' or snapshot.book_id~=owner.id) then
+            done(nil,false);return
+        end
+        done(snapshot,true)
     end
-    local started,active=pcall(worker.start,worker,function() return owner.store:read(id) end,complete)
+    -- An empty cache is a valid read. An unsuccessful worker must not trigger
+    -- the automatic cloud refresh used when a book has no saved notes yet.
+    local started,active=pcall(worker.start,worker,function()
+        return {read=true,snapshot=owner.store:read(owner.id)}
+    end,complete)
     if not started or not active then complete();return false end
     return true
+end
+
+function M.open(host,id,variant,options)
+    if not Data.display_id(id) or not host.library_db
+        or variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    local owner=new_owner(host,id,variant)
+    if not owner then host:showInfo(_('Please scan the QR code to log in first.'));return false end
+    options=options or {}
+    local source=options.source or host
+    local function valid() return not options.current or options.current() end
+    if not valid() then return false end
+    M.cancel_saved(host,source)
+    return load_snapshot(host,owner,source,valid,function(snapshot,ok)
+        if not ok then host:showInfo(_('Could not open saved notes.'));return end
+        owner.value=snapshot
+        if present(host,owner) and options.on_open then options.on_open(owner) end
+    end)
+end
+
+local function open_saved(host,id,variant,note_id,source,valid,done)
+    if not valid() then return false end
+    if not Data.display_id(id) or not host.library_db then done(false);return false end
+    local owner=new_owner(host,id,variant)
+    if not owner then done(false);return false end
+    return load_snapshot(host,owner,source,valid,function(snapshot)
+        if not snapshot then done(false);return end
+        owner.value=snapshot
+        done(present(host,owner,nil,note_id))
+    end)
 end
 
 function M.open_saved(host,id,note_kind,note_id,source,valid,done)

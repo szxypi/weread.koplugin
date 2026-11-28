@@ -255,7 +255,7 @@ function M:getMainMenuItems()
                 reader_items[#reader_items+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
                     if session==self._reader_session_gen and document==self.ui.document
                         and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
-                        self:showMyCloudMarks(book_id)
+                        self:showMyCloudMarks(book_id,{})
                     end
                 end)}
                 reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
@@ -267,7 +267,7 @@ function M:getMainMenuItems()
                 reader_items[#reader_items+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
                     if session==self._reader_session_gen and document==self.ui.document
                         and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
-                        self:showMyCloudBookmarks(book_id)
+                        self:showMyCloudBookmarks(book_id,{})
                     end
                 end)}
             end
@@ -277,7 +277,7 @@ function M:getMainMenuItems()
                 reader_items[#reader_items+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
                     if session==self._reader_session_gen and document==self.ui.document
                         and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
-                        self:showMyCloudThoughts(book_id)
+                        self:showMyCloudThoughts(book_id,{})
                     end
                 end)}
             end

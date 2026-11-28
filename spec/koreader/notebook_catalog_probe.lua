@@ -211,8 +211,11 @@ local ok,reason=pcall(function()
     for index,variant in ipairs({'highlights','thoughts','bookmarks'}) do
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(menu.item_table[position])
         local popup=assert(menu._shelf_popup);assert(#popup.buttons==3)
-        popup.buttons[index][1].callback();local child=assert(plugin._my_marks_owner)
-        assert(child.id==chosen.bookId and not child.context and (variant~='thoughts' or child.thoughts)
+        popup.buttons[index][1].callback()
+        assert(menu.saved_note_open and plugin._my_marks_loading_source==menu)
+        wait(function() return not menu.saved_note_open end)
+        local child=assert(plugin._my_marks_owner)
+        assert(owner.child==child and child.id==chosen.bookId and not child.context and (variant~='thoughts' or child.thoughts)
             and (variant~='bookmarks' or child.bookmarks));plugin:cancelMyCloudMarks()
     end
     plugin.isNetworkOnline=plugin.isNetworkConnected

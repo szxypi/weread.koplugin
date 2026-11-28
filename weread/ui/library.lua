@@ -1875,7 +1875,7 @@ function M:showBookMenu(book, options)
         actions[#actions+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
             if self._book_detail_view==view and account==self.library_db:accountKey()
                 and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
-                self:showMyCloudMarks(tostring(book_id))
+                self:showMyCloudMarks(tostring(book_id),{})
             end
         end)}
     end
@@ -1885,7 +1885,7 @@ function M:showBookMenu(book, options)
         actions[#actions+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
             if self._book_detail_view==view and account==self.library_db:accountKey()
                 and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
-                self:showMyCloudThoughts(tostring(book_id))
+                self:showMyCloudThoughts(tostring(book_id),{})
             end
         end)}
     end
@@ -1895,7 +1895,7 @@ function M:showBookMenu(book, options)
         actions[#actions+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
             if self._book_detail_view==view and account==self.library_db:accountKey()
                 and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
-                self:showMyCloudBookmarks(tostring(book_id))
+                self:showMyCloudBookmarks(tostring(book_id),{})
             end
         end)}
     end
@@ -3685,15 +3685,21 @@ function M:cancelMPArticleExport()
     return require('weread.ui.mp_export').cancel(self)
 end
 
-function M:showMyCloudMarks(book_id)
-    return require('weread.ui.my_cloud_marks').show(self,book_id)
+local function show_my_cloud_notes(host,book_id,variant,options)
+    local Notes=require('weread.ui.my_cloud_marks')
+    return (options and Notes.open or Notes.show)(host,book_id,variant,options)
 end
 
-function M:showMyCloudThoughts(book_id)
-    return require('weread.ui.my_cloud_marks').show(self,book_id,'thoughts')
+function M:showMyCloudMarks(book_id,options)
+    return show_my_cloud_notes(self,book_id,nil,options)
 end
-function M:showMyCloudBookmarks(book_id)
-    return require('weread.ui.my_cloud_marks').show(self,book_id,'bookmarks')
+
+function M:showMyCloudThoughts(book_id,options)
+    return show_my_cloud_notes(self,book_id,'thoughts',options)
+end
+
+function M:showMyCloudBookmarks(book_id,options)
+    return show_my_cloud_notes(self,book_id,'bookmarks',options)
 end
 
 function M:cancelMyCloudMarks()

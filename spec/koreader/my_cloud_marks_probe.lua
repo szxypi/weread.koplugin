@@ -168,11 +168,46 @@ local ok,reason=pcall(function()
         return true
     end
     report.phase='open'
-    plugin:showBookMenu{book_id=input.book_id,title='所选书籍',chapters={}}
-    local detail=assert(plugin._book_detail_view);local tr=require('weread.lib.plugin_util').tr
-    local open
-    for _i,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then open=button.callback end end
-    assert(open);plugin.isNetworkOnline=unexpected_probe;open();plugin.isNetworkOnline=online
+    local tr=require('weread.lib.plugin_util').tr
+    local function detail_action()
+        plugin:showBookMenu{book_id=input.book_id,title='所选书籍',chapters={}}
+        local detail=assert(plugin._book_detail_view)
+        for _,button in ipairs(detail._action_buttons) do
+            if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then return detail,button.callback end
+        end
+        error('missing notes action')
+    end
+    local detail,open=detail_action()
+    local Cache=require('weread.lib.my_cloud_marks_store')
+    local read=Cache.read
+    plugin.isNetworkOnline=unexpected_probe
+    if synthetic and mode=='reopen' then
+        Cache.read=function(store,id)
+            if id==input.book_id then
+                assert(tonumber(ffi.C.getpid())~=parent,'the book detail read cached notes on the interface thread')
+                counters[3]=counters[3]+1
+                while counters[4]==0 do socket.sleep(.01) end
+            end
+            return read(store,id)
+        end
+        open()
+        local job=assert(plugin.saved_note_open)
+        local pid=job.worker.job.pid
+        assert(not plugin.busy_message and not plugin._my_marks_owner)
+        local beat=false;UI:scheduleIn(.1,function() beat=true end)
+        wait(function() return beat and counters[3]==1 and plugin.busy_message~=nil end)
+        detail:onClose()
+        assert(not plugin.saved_note_open and not plugin._my_marks_loading_source and not plugin.busy_message)
+        wait(function() return job.worker.runner.done(pid) end)
+        open();assert(not plugin._my_marks_loading_source,'old detail started a new local read')
+        detail,open=detail_action()
+        counters[4]=1
+    end
+    open()
+    wait(function() return not plugin._my_marks_loading_source end)
+    if synthetic and mode=='reopen' then assert(counters[3]==2,'each detail action must read the cache once in a worker') end
+    Cache.read=read
+    plugin.isNetworkOnline=online
     local owner=assert(plugin._my_marks_owner);local menu=assert(plugin._my_marks_menu)
     if mode=='live' then
         assert(owner.context and owner.worker.job)
@@ -362,7 +397,8 @@ local ok,reason=pcall(function()
         wait(function() return plugin._excerpt_card_editor~=nil end)
         plugin:cancelMyCloudMarks()
         assert(not plugin._excerpt_card_editor and not plugin._my_marks_owner,'closing notes left card open')
-        open();owner=assert(plugin._my_marks_owner);menu=assert(plugin._my_marks_menu)
+        open();wait(function() return not plugin._my_marks_loading_source end)
+        owner=assert(plugin._my_marks_owner);menu=assert(plugin._my_marks_menu)
         assert(same(owner.value,expected),'reopening notes changed the saved snapshot')
         assert(png_count()==1 and counters[0]==original_requests,'excerpt changed cache or used network')
     end
@@ -525,7 +561,7 @@ local ok,reason=pcall(function()
             report.export_ui_checked=true
         end
     end
-    local Cache=require('weread.lib.my_cloud_marks_store');assert(same(Cache:new(plugin.library_db,plugin.client,input.variant):read(input.book_id),expected))
+    assert(same(Cache:new(plugin.library_db,plugin.client,input.variant):read(input.book_id),expected))
     local db=assert(plugin.library_db:open());local _,name,path=db:rowexec('PRAGMA database_list')
     assert(name=='main' and path==plugin.library_db:databasePath());local payload=db:rowexec('SELECT payload FROM '..(thoughts and 'my_cloud_thoughts' or 'my_cloud_marks'));db:close()
     for _,field in ipairs({'accessToken','refreshToken','source_revision','synckey','userVid'}) do assert(not payload:find('"'..field..'"',1,true)) end

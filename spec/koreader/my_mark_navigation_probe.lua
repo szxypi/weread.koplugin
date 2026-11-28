@@ -285,6 +285,7 @@ local ok,reason=pcall(function()
             local detail=assert(plugin._book_detail_view);local entry
             for _j,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or bookmarks and 'My cloud bookmarks' or 'My cloud highlights') then entry=button end end
             assert(entry);entry.callback()
+            wait(function() return not plugin._my_marks_loading_source end)
         else assert(require('weread.ui.my_cloud_marks').show(plugin,id,thoughts and 'thoughts' or bookmarks and 'bookmarks' or nil)) end
         local owner=assert(plugin._my_marks_owner);assert(not owner.context)
         local menu=owner.menu;local index

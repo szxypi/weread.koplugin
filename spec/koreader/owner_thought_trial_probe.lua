@@ -112,7 +112,8 @@ local ok,reason=pcall(function()
         plugin:showBookMenu{book_id=id,title='所选测试书籍',chapters={}}
         local detail=assert(plugin._book_detail_view)
         for _i,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then
-            button.callback();return assert(plugin._my_marks_owner)
+            button.callback();wait(function() return not plugin._my_marks_loading_source end)
+            return assert(plugin._my_marks_owner)
         end end;error('native_trial/missing_entry',0)
     end
     local function operate(owner,operation,target,text)
