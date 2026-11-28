@@ -206,8 +206,9 @@ host,value=fixture();Catalog.show(host);menu=host._notebook_menu
 host.settings.book_lookup=function()
     return function(id) if id=='900099' then return {book_id=id,title='Local book',author='Local author'} end end
 end
-Notes.open_saved_book=function(self,id,variant)
-    value.opened={id,variant};self._my_marks_owner={};return true
+Notes.open_saved_book=function(self,id,variant,source,valid,done)
+    expect(source==menu._shelf_popup and valid(),'saved notebook lost its source menu')
+    value.opened={id,variant};self._my_marks_owner={};done(true);return true
 end
 row(menu,'Browse saved notes by book').callback()
 expect(value.started==1 and host.busy_message,'saved notebooks did not load in the worker')

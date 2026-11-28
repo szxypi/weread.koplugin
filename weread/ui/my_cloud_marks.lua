@@ -13,12 +13,15 @@ local _=require('weread.lib.plugin_util').tr
 local M={}
 local MAX_PREVIEWS=128
 local INLINE_SEARCH_ROWS,INLINE_SEARCH_BYTES=128,64*1024
-local function current(host,owner)
-    return host._my_marks_owner==owner and host._my_marks_menu==owner.menu and not owner.menu._shelf_closed
-        and owner.account==host.library_db:accountKey() and owner.account~=nil
+local function same_scope(host,owner)
+    return owner.account==host.library_db:accountKey() and owner.account~=nil
         and owner.epoch==(host.discovery_epoch or 0) and owner.session==host._reader_session_gen
         and owner.document==(host.ui and host.ui.document) and owner.parent==host._book_detail_view
         and host.settings:auth_scope_matches(owner.scope)
+end
+local function current(host,owner)
+    return host._my_marks_owner==owner and host._my_marks_menu==owner.menu
+        and not owner.menu._shelf_closed and same_scope(host,owner)
 end
 local function cancel_search(host,owner)
     local job=owner.note_search_job
@@ -487,22 +490,20 @@ refresh=function(host,owner,resume_draft,automatic)
     end
     return launch()
 end
-local function show(host,id,variant,request,saved_note_id,saved_only)
-    if not Data.display_id(id) or not host.library_db then return false end
+local function new_owner(host,id,variant)
     local scope=host.settings:get_auth_scope()
     local account=host.library_db:accountKey()
-    if not account or not scope or not host.settings:auth_scope_matches(scope) then
-        if not saved_note_id and not saved_only then host:showInfo(_('Please scan the QR code to log in first.')) end
-        return false
-    end
-    if not saved_note_id and not saved_only then M.cancel(host) end
+    if not account or not scope or not host.settings:auth_scope_matches(scope) then return nil end
     local thoughts=variant=='thoughts'
-    local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=Data.display_id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,sort='original',
+    return {id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=true,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,sort='original',
         data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=account,epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
         store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}
-    local read_ok,value=pcall(owner.store.read,owner.store,id);owner.value=read_ok and value or nil
-    if saved_only and not owner.value then return false end
+end
+
+local function present(host,owner,request,saved_note_id)
+    if not same_scope(host,owner) then return false end
+    local thoughts=owner.thoughts
     if saved_note_id then
         local found=false
         for _,row in ipairs(owner.value and (thoughts and owner.value.reviews or owner.value.updated) or {}) do
@@ -510,8 +511,7 @@ local function show(host,id,variant,request,saved_note_id,saved_only)
         end
         if not found then return false end
     end
-    if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
-    if saved_note_id or saved_only then M.cancel(host) end
+    M.cancel(host)
     owner.labels=thoughts and {title='My cloud thoughts',refresh='Refresh my cloud thoughts',saved='Saved cloud thoughts',
         empty='No thoughts in this view.',missing='No saved thoughts. Refresh while online.',failed='Could not update my thoughts. Saved thoughts are kept.',
         loading='Loading my thoughts…\nTap or press a key to cancel.',save_failed='Could not save my thoughts. The previous saved copy is kept.'}
@@ -519,7 +519,7 @@ local function show(host,id,variant,request,saved_note_id,saved_only)
             missing='No saved cloud marks. Refresh while online.',failed='Could not update my cloud marks. Saved marks are kept.',
             loading='Loading my cloud marks…\nTap or press a key to cancel.',save_failed='Could not save my cloud marks. The previous saved copy is kept.'}
     if owner.bookmarks then owner.labels.title='My cloud bookmarks';owner.labels.empty='No cloud bookmarks in this view.' end
-    if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
+    if not same_scope(host,owner) then return false end
     local menu=host:showList(_(owner.labels.title),{{text=_(owner.labels.missing),select_enabled=false}},nil,{thought_text=true})
     if not menu then return false end
     owner.menu=menu;host._my_marks_owner=owner;host._my_marks_menu=menu
@@ -552,23 +552,77 @@ local function show(host,id,variant,request,saved_note_id,saved_only)
 end
 
 function M.show(host,id,variant,options)
-    if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    if not Data.display_id(id) or not host.library_db
+        or variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
     local request=type(options)=='table' and options.resume_draft or nil
     if options~=nil and (type(request)~='table' or request.book_id~=id
         or not require('weread.lib.thought_edit_contract').hash(request.key)
         or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
         or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
         or (request.operation=='edit')~=(variant=='thoughts')) then return false end
-    return show(host,id,variant,request)
+    local owner=new_owner(host,id,variant)
+    if not owner then host:showInfo(_('Please scan the QR code to log in first.'));return false end
+    M.cancel(host)
+    local ok,value=pcall(owner.store.read,owner.store,id)
+    owner.value=ok and value or nil
+    return present(host,owner,request)
 end
 
-function M.open_saved(host,id,note_kind,note_id)
+function M.cancel_saved(host,source)
+    local job=source.saved_note_open
+    if not job then return end
+    source.saved_note_open=nil
+    UI:unschedule(job.show_busy)
+    job.worker:cancel()
+    if job.busy and host.busy_message==job.busy then host:closeBusy() end
+end
+
+local function open_saved(host,id,variant,note_id,source,valid,done)
+    if source.saved_note_open or not valid() then return false end
+    if not Data.display_id(id) or not host.library_db then done(false);return false end
+    local owner=new_owner(host,id,variant)
+    if not owner then done(false);return false end
+    local ok,worker=pcall(function()
+        return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,
+            max_bytes=Store.MAX_PAYLOAD+65536,fast_start=true}
+    end)
+    if not ok or not worker then done(false);return false end
+    local job={worker=worker,previous=host._my_marks_owner};source.saved_note_open=job
+    local function still_current()
+        return valid() and same_scope(host,owner) and host._my_marks_owner==job.previous
+    end
+    job.show_busy=function()
+        if source.saved_note_open~=job then return end
+        if not still_current() then M.cancel_saved(host,source);return end
+        host:showBusy(_('Opening saved notes…\nTap or press a key to cancel.'),function()
+            if source.saved_note_open==job then M.cancel_saved(host,source) end
+        end)
+        job.busy=host.busy_message
+    end
+    -- A quick local read needs no extra dialog or e-ink repaint.
+    UI:scheduleIn(.35,job.show_busy)
+    local function complete(snapshot)
+        if source.saved_note_open~=job then return end
+        M.cancel_saved(host,source)
+        if not still_current() then return end
+        -- The worker uses the same bounded, validating reader as the normal
+        -- notes menu. Passing its snapshot avoids a second read or validation.
+        if type(snapshot)~='table' or snapshot.book_id~=id then done(false);return end
+        owner.value=snapshot
+        done(present(host,owner,nil,note_id))
+    end
+    local started,active=pcall(worker.start,worker,function() return owner.store:read(id) end,complete)
+    if not started or not active then complete();return false end
+    return true
+end
+
+function M.open_saved(host,id,note_kind,note_id,source,valid,done)
     if note_kind~='marks' and note_kind~='thoughts' then return false end
     if not Data.valid_text(note_id,256) or note_id:find('%s') then return false end
-    return show(host,id,note_kind=='thoughts' and 'thoughts' or nil,nil,note_id)
+    return open_saved(host,id,note_kind=='thoughts' and 'thoughts' or nil,note_id,source,valid,done)
 end
-function M.open_saved_book(host,id,variant)
+function M.open_saved_book(host,id,variant,source,valid,done)
     if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
-    return show(host,id,variant,nil,nil,true)
+    return open_saved(host,id,variant,nil,source,valid,done)
 end
 return M

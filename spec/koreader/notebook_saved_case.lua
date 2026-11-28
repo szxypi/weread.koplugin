@@ -48,6 +48,7 @@ return function(host,mode,catalog,counters,wait,tick)
     local choices=assert(saved._shelf_popup)
     assert(#choices.buttons==3)
     choices.buttons[2][1].callback()
+    wait(function() return not saved.saved_note_open end)
     local opened=assert(host._my_marks_owner)
     assert(opened.id==id and opened.thoughts and not opened.context)
     local thought=assert(find(opened.menu,'my_note_id','saved-extra-review'))
@@ -57,6 +58,7 @@ return function(host,mode,catalog,counters,wait,tick)
     saved:onMenuSelect(saved.item_table[1])
     choices=assert(saved._shelf_popup)
     choices.buttons[3][1].callback()
+    wait(function() return not saved.saved_note_open end)
     opened=assert(host._my_marks_owner)
     assert(opened.id==id and opened.bookmarks and not opened.context)
     local bookmark=assert(find(opened.menu,'my_note_id','saved-point-extra'),'bookmark without preview was lost')
@@ -70,13 +72,36 @@ return function(host,mode,catalog,counters,wait,tick)
             markText='合成示例 😀 filterword '..index,createTime=index}
     end
     assert(marks:write{schema=1,book_id=id,fetched_at=1000,chapters=previous.chapters,updated=many})
-    saved:onMenuSelect(saved.item_table[1])
-    assert(saved._shelf_popup).buttons[1][1].callback()
+    local ffi=require('ffi')
+    local parent=tonumber(ffi.C.getpid())
+    local read,interface_reads=Notes.read,0
+    counters[82]=0
+    Notes.read=function(self,book_id)
+        if book_id==id then
+            if tonumber(ffi.C.getpid())==parent then interface_reads=interface_reads+1
+            else require('socket').sleep(.8);counters[82]=counters[82]+1 end
+        end
+        return read(self,book_id)
+    end
+    local function open_marks()
+        saved:onMenuSelect(saved.item_table[1])
+        assert(saved._shelf_popup).buttons[1][1].callback()
+    end
+    open_marks()
+    assert(saved.saved_note_open.worker.job and not host.busy_message and not host._my_marks_owner)
+    local read_heartbeat=false;UI:scheduleIn(.1,function() read_heartbeat=true end)
+    wait(function() return read_heartbeat end)
+    assert(saved.saved_note_open and counters[82]==0,'the interface did not process a timer during the local read')
+    wait(function() return host.busy_message~=nil end)
+    host.busy_message:onTapClose()
+    assert(not saved.saved_note_open and not host._my_marks_owner and menu._shelf_popup==saved)
+    open_marks()
+    wait(function() return not saved.saved_note_open end)
+    Notes.read=read
+    assert(interface_reads==0 and counters[82]==1,'the successful open did not read exactly once in the worker')
     local notes=assert(host._my_marks_menu)
     local function choose(label) notes:onMenuSelect(assert(find(notes,'text',tr(label)))) end
     local Search=require('weread.lib.shelf_search')
-    local ffi=require('ffi')
-    local parent=tonumber(ffi.C.getpid())
     local original_find,checked,delayed=Search.find,0,false
     counters[80]=0
     Search.find=function(value,...)

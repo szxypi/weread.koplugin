@@ -1,6 +1,8 @@
 package.path='./?.lua;'..package.path
 local UI={close=function(_self,view) view.closed=true;if view.onCloseWidget then view:onCloseWidget() end end,
-    show=function(self,view) self.top=view end,nextTick=function(_self,callback) callback() end}
+    show=function(self,view) self.top=view end,nextTick=function(_self,callback) callback() end,
+    scheduleIn=function(self,_,callback) self.scheduled=callback end,
+    unschedule=function(self,callback) if self.scheduled==callback then self.scheduled=nil end end}
 -- Capture popup ownership through the actual helper.
 package.preload['ui/uimanager']=function() return UI end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
@@ -85,32 +87,62 @@ end
 do
     local host,state=fixture(snapshot())
     local initial_note='synthetic-1'
-    expect(Marks.open_saved(host,'900001','marks',initial_note) and state.reads==1,
-        'opening a saved result reread the note cache')
+    local source,opened={},nil
+    local function valid() return not source.closed end
+    local function done(result) opened=result end
+    local function select(note) opened=nil;return Marks.open_saved(host,'900001','marks',note,source,valid,done) end
+    expect(select(initial_note) and not state.reads and not host.busy_message,'saved result read on the UI thread or showed an immediate dialog')
+    state.complete(state.task())
+    expect(opened and state.reads==1 and not UI.scheduled,'opening a saved result reread the note cache or queued a dialog')
     local menu=host._my_marks_menu
     expect(menu._shelf_popup.text=='合成章节\n\n合成引用','saved result opened the wrong note')
     state.online=true
-    expect(not Marks.open_saved(host,'900001','marks','missing') and not state.link_checks
+    expect(select('missing'),'missing saved result did not start its check')
+    state.complete(state.task())
+    expect(opened==false and not state.link_checks
         and host._my_marks_menu==menu,'missing result replaced the active view or checked the network')
     Marks.cancel(host)
     state.saved=nil
-    expect(not Marks.open_saved(host,'900001','marks',initial_note) and not state.link_checks
+    expect(select(initial_note),'absent saved result did not start its check')
+    state.complete(state.task())
+    expect(opened==false and not state.link_checks
         and not host._my_marks_owner,'an absent saved cache started a refresh or opened an empty view')
-    expect(not Marks.open_saved(host,'900001','marks','bad id') and state.reads==3,
+    expect(not select('bad id') and state.reads==3,
         'an invalid note identity read the cache')
     state.saved=snapshot()
+    expect(select(initial_note),'stale-scope check did not start')
     state.on_read=function() state.account='different' end
-    expect(not Marks.open_saved(host,'900001','marks',initial_note) and not host._my_marks_owner,
+    state.complete(state.task())
+    expect(opened==nil and not host._my_marks_owner and not source.saved_note_open,
         'an account change during the cache read opened a stale result')
 end
 do
     local host,state=fixture(snapshot());state.online=true
-    expect(Marks.open_saved_book(host,'900001','bookmarks') and host._my_marks_owner.bookmarks
-        and not state.link_checks and not state.started,'saved book did not open its local bookmark snapshot')
+    local source,opened={},nil
+    local function valid() return not source.closed end
+    local function done(result) opened=result end
+    local function open(variant) opened=nil;return Marks.open_saved_book(host,'900001',variant,source,valid,done) end
+    expect(open('bookmarks') and open('bookmarks')==false and state.started==1,'saved notebook started duplicate reads')
+    local complete,task=state.complete,state.task
+    UI.scheduled()
+    local cancel=host.busy_message.cancel
+    cancel()
+    expect(open('bookmarks'),'cancelled notebook could not be retried')
+    cancel();complete(task())
+    expect(not host._my_marks_owner and opened==nil and source.saved_note_open,'an old reading job altered a retry')
+    state.complete(state.task())
+    expect(opened and host._my_marks_owner.bookmarks and not state.link_checks and not host.busy_message,
+        'saved book did not open its local bookmark snapshot')
     local prior=host._my_marks_owner
     state.saved=nil
-    expect(not Marks.open_saved_book(host,'900001','thoughts') and host._my_marks_owner==prior
-        and not state.link_checks and not state.started,'missing saved book started a cloud refresh')
+    expect(open('thoughts'),'missing saved notebook did not start its check')
+    state.complete(state.task())
+    expect(opened==false and host._my_marks_owner==prior and not state.link_checks,'missing saved book started a cloud refresh')
+    expect(open('bookmarks'),'saved notebook close check did not start')
+    source.closed=true
+    Marks.cancel_saved(host,source)
+    state.complete(snapshot())
+    expect(opened==nil and not source.saved_note_open and host._my_marks_owner==prior,'closed source opened a stale notebook')
     Marks.cancel(host)
 end
 local host,value=fixture(snapshot())

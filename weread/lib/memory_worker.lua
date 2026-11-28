@@ -54,7 +54,8 @@ function Worker:new(options)
     assert(type(timeout) == "number" and timeout >= 1 and timeout <= 3600 and timeout % 1 == 0,
         "invalid memory worker timeout")
     return setmetatable({ scheduler = assert(options.scheduler), codec = assert(options.codec),
-        runner = options.runner or runner(), now = options.now or os.time, limit = limit, timeout = timeout }, self)
+        runner = options.runner or runner(), now = options.now or os.time, limit = limit, timeout = timeout,
+        first_poll = options.fast_start and ACTIVE_POLL or IDLE_POLL }, self)
 end
 
 function Worker:_collect(job)
@@ -162,7 +163,7 @@ function Worker:start(task, callback, on_progress)
         -- workers keep the lower-frequency poll to avoid needless wakeups.
         self.scheduler:scheduleIn(received and ACTIVE_POLL or IDLE_POLL, job.poll)
     end
-    self.scheduler:scheduleIn(IDLE_POLL, job.poll)
+    self.scheduler:scheduleIn(self.first_poll, job.poll)
     return true
 end
 

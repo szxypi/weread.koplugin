@@ -61,8 +61,9 @@ local function show(host,owner,current,catalog,result,paging)
     end
     if #result.items==0 then rows[#rows+1]={text=_('No matching saved notes.'),select_enabled=false} end
     local menu
+    local function valid() return current(host,owner) and owner.value==catalog and Popup.current(owner.menu,menu) end
     local function move(page,cursor)
-        if not current(host,owner) or owner.value~=catalog or not Popup.current(owner.menu,menu) then return end
+        if not valid() then return end
         Popup.close(owner.menu)
         paging.page=page;paging.cursors[page]=cursor
         M.start(host,owner,current,paging.query,paging)
@@ -77,17 +78,21 @@ local function show(host,owner,current,catalog,result,paging)
         local record=item
         rows[#rows+1]={text=record.preview,saved_note_id=record.item_id,saved_book_id=record.book_id,
             mandatory=_(record.kind=='thoughts' and 'Thought' or 'Cloud mark')..' · '..title(record.book_id),callback=function()
-            if not current(host,owner) or owner.value~=catalog or not Popup.current(owner.menu,menu) then return end
-            Popup.close(owner.menu)
-            if not current(host,owner) or owner.value~=catalog then return end
-            local opened=require('weread.ui.my_cloud_marks').open_saved(host,record.book_id,record.kind,record.item_id)
-            if not current(host,owner) then return end
-            if opened then owner.child=host._my_marks_owner
-            else host:showInfo(_('This saved note is no longer available. Search again.')) end
+            require('weread.ui.my_cloud_marks').open_saved(host,record.book_id,record.kind,record.item_id,menu,valid,function(opened)
+                if opened then
+                    owner.child=host._my_marks_owner
+                    Popup.close(owner.menu)
+                else host:showInfo(_('This saved note is no longer available. Search again.')) end
+            end)
         end}
     end
     menu=host:showList(_('Saved note search results'),rows,nil,{thought_text=true})
     if not menu then return end
+    local on_close=menu.onCloseWidget
+    menu.onCloseWidget=function(widget,...)
+        require('weread.ui.my_cloud_marks').cancel_saved(host,widget)
+        if on_close then return on_close(widget,...) end
+    end
     Popup.show(owner.menu,menu,function() end)
 end
 function M.start(host,owner,current,query,paging)

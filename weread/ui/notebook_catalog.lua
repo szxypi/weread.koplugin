@@ -112,7 +112,8 @@ end
 local function open_book(host,owner,book,saved_menu)
     local parent=saved_menu or owner.menu
     local function valid()
-        return current(host,owner) and (not saved_menu or Popup.current(owner.menu,saved_menu))
+        return current(host,owner) and (not saved_menu or
+            not saved_menu._shelf_closed and Popup.current(owner.menu,saved_menu))
     end
     if not valid() then return end
     if not Marks.display_id(book.bookId) then host:showInfo(_('This book type is not supported for cloud notes.'));return end
@@ -122,11 +123,15 @@ local function open_book(host,owner,book,saved_menu)
             if not valid() or not Popup.current(parent,dialog) then return end
             Popup.close(parent)
             if saved_menu then
-                if not require('weread.ui.my_cloud_marks').open_saved_book(host,book.bookId,variant) then
-                    if valid() then host:showInfo(_('These saved notes are unavailable.')) end
-                    return
-                end
-            else host[method](host,book.bookId) end
+                require('weread.ui.my_cloud_marks').open_saved_book(host,book.bookId,variant,saved_menu,
+                    function() return valid() and not saved_menu._shelf_popup end,
+                    function(opened)
+                        if opened then owner.child=host._my_marks_owner
+                        else host:showInfo(_('These saved notes are unavailable.')) end
+                    end)
+                return
+            end
+            host[method](host,book.bookId)
             if valid() then owner.child=host._my_marks_owner end
         end}
     end
@@ -165,16 +170,23 @@ local function show_saved_books(host,owner,books)
     menu=host:showList(_('Books with saved notes'),items(),nil,{
         thought_text=true,left_icon='appbar.search',on_choice=function(item)
             local index=item.notebook_index
-            if valid() and index and menu.item_table[index]==item then open_book(host,owner,visible[index],menu) end
+            if valid() and index and menu.item_table[index]==item then
+                require('weread.ui.my_cloud_marks').cancel_saved(host,menu)
+                open_book(host,owner,visible[index],menu)
+            end
         end,
     })
     if not menu then return end
     menu.onLeftButtonTap=function()
-        if valid() then search_dialog(host,menu,view,valid,function() menu:switchItemTable(nil,items()) end) end
+        if valid() then
+            require('weread.ui.my_cloud_marks').cancel_saved(host,menu)
+            search_dialog(host,menu,view,valid,function() menu:switchItemTable(nil,items()) end)
+        end
         return true
     end
     local on_close=menu.onCloseWidget
     menu.onCloseWidget=function(widget,...)
+        require('weread.ui.my_cloud_marks').cancel_saved(host,widget)
         widget._shelf_closed=true;Popup.close(widget);close_child(host,owner)
         if on_close then return on_close(widget,...) end
     end

@@ -339,16 +339,19 @@ local ok,reason=pcall(function()
         FontSmoke.menu_emoji(results,'😀')
         local saved_store=require('weread.lib.my_cloud_marks_store')
         local original_read=saved_store.read
-        local selection_reads=0
+        local selection_reads=0;counters[81]=0
         saved_store.read=function(self,id)
             if self.table_name=='my_cloud_thoughts' and id=='900002' then
-                selection_reads=selection_reads+1
+                if tonumber(ffi.C.getpid())==parent then selection_reads=selection_reads+1
+                else counters[81]=counters[81]+1 end
             end
             return original_read(self,id)
         end
         results:onMenuSelect(found_notes['saved-thought-b'])
+        assert(results.saved_note_open and menu._shelf_popup==results,'saved result dismissed the source before it loaded')
+        wait(function() return not results.saved_note_open end)
         saved_store.read=original_read
-        assert(selection_reads==1,'selecting a result should read the saved thought once')
+        assert(selection_reads==0 and counters[81]==1,'selecting a result should read the saved thought once in the worker')
         local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
         assert(child.id=='900002' and child.thoughts and child_menu._shelf_popup)
         assert(child_menu._shelf_popup.text:find('Synthetic needle in a thought',1,true))
@@ -406,6 +409,7 @@ local ok,reason=pcall(function()
             for _,row in ipairs(results.item_table) do if row.saved_note_id==id and row.saved_book_id==sample.snapshot.book_id then chosen_result=row end end
             assert(chosen_result and counters[0]==before_search)
             results:onMenuSelect(chosen_result)
+            wait(function() return not results.saved_note_open end)
             local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
             assert(child.id==sample.snapshot.book_id and child_menu._shelf_popup)
             assert(child_menu._shelf_popup.text:find(target_text,1,true))

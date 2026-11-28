@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local Worker = require("weread.lib.memory_worker")
 local checks = 0
 local function expect(value, label) checks = checks + 1 assert(value, label) end
-local function fixture(max_bytes, timeout, read_size)
+local function fixture(max_bytes, timeout, read_size, fast_start)
     local queue, pending, bytes, completed, terminated, closed, now = {}, nil, "", false, false, false, 0
     local delays={}
     local scheduler = {
@@ -25,7 +25,7 @@ local function fixture(max_bytes, timeout, read_size)
         terminate = function() terminated, completed = true, true end,
     }
     local worker = Worker:new{ scheduler = scheduler, codec = codec, runner = runner, now = function() return now end,
-        max_bytes = max_bytes, timeout = timeout }
+        max_bytes = max_bytes, timeout = timeout, fast_start = fast_start }
     return { worker = worker, run = function() pending(43) end,
         tick = function() local fn = table.remove(queue, 1) if fn then fn() end end,
         idle = function() while #queue > 0 do table.remove(queue, 1)() end end,
@@ -41,6 +41,12 @@ f.run(); f.idle()
 expect(got and #got.private == 20000, "large pipe payload drained without waiting for EOF")
 local _, closed = f.state()
 expect(closed and not f.worker.job, "completed descriptor closed and job released")
+expect(f.delays[1]==0.2,"default poll delayed unnecessary wakeups")
+local fast=fixture(nil,nil,nil,true)
+expect(fast.worker:start(function() return "quick" end,function() end),"interactive worker did not start")
+fast.tick()
+expect(fast.delays[1]==0.02 and fast.delays[2]==0.2,"interactive worker did not check early then return to idle polling")
+fast.worker:cancel()
 f = fixture(); got = nil
 f.worker:start(function() return "private-value" end, function(value) got = value end)
 f.worker:cancel(); f.idle()

@@ -24,7 +24,10 @@ package.preload['weread.lib.my_cloud_marks_store']=function()
     return store
 end
 package.preload['weread.ui.my_cloud_marks']=function()
-    return {open_saved=function(host,book,kind,note) return host:open_saved(book,kind,note) end}
+    return {open_saved=function(host,book,kind,note,_,valid,done)
+        if not valid() then return false end
+        done(host:open_saved(book,kind,note));return true
+    end,cancel_saved=function() end}
 end
 local Search=require('weread.ui.notebook_search')
 local function setup()
@@ -68,7 +71,7 @@ menu.item_table[5].callback();assert(state.opened=='2' and state.opened_note=='t
 menu.item_table[4].callback();assert(state.opened=='2','closed results callback opened stale note')
 host,owner,state,current=setup();menu=start(host,owner,state,current,'needle')
 snapshots.marks['1']=nil;menu.item_table[4].callback()
-assert(not state.opened and #state.notices==1 and not owner.menu._shelf_popup,'removed cache triggered a stale open')
+assert(not state.opened and #state.notices==1 and owner.menu._shelf_popup==menu,'removed cache replaced the results or triggered a stale open')
 snapshots.marks['1']=mark
 host,owner,state,current=setup();assert(Search.prompt(host,owner,current));local dialog=owner.menu._shelf_popup
 dialog.input='   ';dialog.buttons[1][2].callback();assert(owner.menu._shelf_popup==dialog and #state.notices==1)
