@@ -3,6 +3,7 @@
 local UI=require('ui/uimanager')
 local Popup=require('weread.ui.shelf_popup')
 local Service=require('weread.lib.mark_edit_service')
+local NetworkLink=require('weread.lib.network_link')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 local function display(host,action,value)
@@ -65,7 +66,7 @@ function M.start(host,owner,operation,reference,current,redraw,style,color)
         style=require('weread.lib.mark_style').default(host.settings)
         color=require('weread.lib.mark_color').default(host.settings)
     end
-    if not host:isNetworkOnline() then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end
+    if not NetworkLink.available(host) then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end
     local ctx=context(host,owner,current,redraw)
     busy(ctx,bookmark and 'Checking bookmark position…' or 'Checking this highlight…')
     local started,reason=ctx.service:prepare({book_id=owner.id,operation=operation,reference=reference,style=style,color=color,
@@ -88,6 +89,7 @@ function M.start(host,owner,operation,reference,current,redraw,style,color)
             or operation=='bookmark_delete' and 'Delete cloud bookmark' or operation=='create' and 'Save highlight' or operation=='style' and 'Change highlight style'
             or operation=='color' and 'Change highlight color' or 'Delete highlight'),callback=function()
             if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
+            if not NetworkLink.available(host) then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return end
             busy(ctx,bookmark and 'Saving cloud bookmark…' or 'Saving this highlight…')
             local sent,err=ctx.service:commit(plan,function(result,finished)
                 if not alive(ctx) then return end
@@ -102,7 +104,7 @@ function M.start(host,owner,operation,reference,current,redraw,style,color)
 end
 function M.check(host,owner,current,redraw)
     if not current(host,owner) then return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Cloud mark'));return false end
+    if not NetworkLink.available(host) then host:showOffline(_('Cloud mark'));return false end
     local ctx=context(host,owner,current,redraw);busy(ctx,'Checking cloud mark change…')
     local started,reason=ctx.service:prepare({},function() return alive(ctx) end,function(plan,why)
         if not alive(ctx) then return end

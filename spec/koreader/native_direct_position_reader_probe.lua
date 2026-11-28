@@ -35,7 +35,14 @@ end
 local function configure(active)
 active.settings.mock_endpoint=input.mock_endpoint
 active.isNetworkConnected=function() return not input.offline end
-active.isNetworkOnline=function() return not input.offline end
+active.isNetworkLinkAvailable=function() return not input.offline or input.link_up==true end
+local ffi=require('ffi');local interface_pid=ffi.C.getpid()
+active.isNetworkOnline=function()
+    if input.link_up then
+        assert(ffi.C.getpid()~=interface_pid,'offline selection probed Internet reachability on the interface thread')
+    end
+    return not input.offline
+end
 local requests=active.client.request
 active.client.request=function(self,options)
     assert(not input.offline,'offline selection attempted a network request')

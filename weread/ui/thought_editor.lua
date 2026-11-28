@@ -4,6 +4,7 @@ local UI=require('ui/uimanager')
 local Popup=require('weread.ui.shelf_popup')
 local Contract=require('weread.lib.thought_edit_contract')
 local Store=require('weread.lib.thought_edit_store')
+local NetworkLink=require('weread.lib.network_link')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 function M.can_create(row)
@@ -101,9 +102,13 @@ local function reload(ctx)
 end
 local function submit(ctx)
     if not alive(ctx) then return end
-    if not ctx.host:isNetworkOnline() then ctx.host:showOffline(_('Thought'));return end
     if ctx.operation~='delete' and not save(ctx,ctx.input:getInputText()) then
         ctx.host:showInfo(_('Enter thought text, then save a local draft before submitting. Draft storage may be full.'));return
+    end
+    if not NetworkLink.available(ctx.host) then
+        if ctx.operation=='delete' then done(ctx);ctx.host:showOffline(_('Thought'))
+        else ctx.host:showInfo(_('Thought draft saved on this device. Connect to Wi-Fi to continue.')) end
+        return
     end
     busy(ctx,'Checking this thought…')
     local input={book_id=ctx.owner.id,operation=ctx.operation,reference=ctx.reference,content=ctx.text,draft=ctx.draft,source_file=ctx.source_file}
@@ -125,6 +130,7 @@ local function submit(ctx)
         dialog=require('weread.ui.thought_text').viewer{title=_(title),text=text,add_default_buttons=true,
             buttons_table={{{id='confirm_thought_change',text=_(ctx.operation=='delete' and 'Delete this thought' or 'Save thought'),callback=function()
                 if not alive(ctx) or not Popup.current(ctx.owner.menu,dialog) then return end
+                if not NetworkLink.available(ctx.host) then ctx.host:showOffline(_('Thought'));return end
                 busy(ctx,'Saving this thought…')
                 local sent,err=ctx.service:commit(plan,function(result,finished)
                     if not alive(ctx) then return end
@@ -235,7 +241,18 @@ end
 function M.check(host,owner,current,redraw)
     if not current(host,owner) then return false end
     local ctx=new_context(host,owner,current,redraw)
-    if not host:isNetworkOnline() then done(ctx);host:showOffline(_('Thought'));return false end
+    local record,read_error=ctx.journal:read()
+    if not record then failure(ctx,read_error);return false end
+    if record.phase=='idle' then message(ctx,'No thought change needs checking.');return false end
+    if record.phase=='prepared' then
+        -- The atomic phase check refuses cancellation once a worker has
+        -- claimed dispatch. A prepared operation is safe to clear offline.
+        if local_current(ctx) and ctx.journal:finish(record,'prepared') then
+            message(ctx,'The unsent change was cancelled. Your local draft is kept.');return true
+        end
+        failure(ctx,'pending');return false
+    end
+    if not NetworkLink.available(host) then done(ctx);host:showOffline(_('Thought'));return false end
     busy(ctx,'Checking last thought change…')
     local started,reason=ctx.service:prepare({},function() return alive(ctx) end,function(plan,why)
         if not alive(ctx) then return end

@@ -8,7 +8,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     local origin=reader.document:getXPointer();local annotations=Json.decode(Json.encode(reader.annotation.annotations))
     local function bytes() local f=assert(io.open(reader.document.file,'rb'));local b=f:read('*a');f:close();return b end
     local original_file=bytes()
-    local online=plugin.isNetworkOnline;local owner
+    local link=plugin.isNetworkLinkAvailable;local owner
     local transport=plugin.client.request;local parent=tonumber(require('ffi').C.getpid())
     function plugin.client:request(options)
         local op=({['https://i.weread.qq.com/book/addBookmark']='create',['https://i.weread.qq.com/book/removeBookmark']='delete',['https://i.weread.qq.com/book/updateBookmark']='style'})[options.url]
@@ -29,13 +29,18 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
         pump(function() return not owner.mark_editor end)
         local top=UI:getTopmostVisibleWidget();if top~=owner.menu then UI:close(top) end
     end
-    plugin.isNetworkOnline=function() return false end
+    plugin.isNetworkLinkAvailable=function() return false end
     owner=open(true);row(owner,'Save highlight');assert(not owner.mark_editor and request('/__state').highlight_posts==0)
-    Selection.cancel(plugin);clean_popups(reader);plugin.isNetworkOnline=online
+    Selection.cancel(plugin);clean_popups(reader);plugin.isNetworkLinkAvailable=link
     local extra=dofile('/source/spec/koreader/default_highlight_style_smoke.lua')(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     owner=open(true);row(owner,'Save highlight');wait_preview()
     assert(Text.emoji(owner.mark_editor.dialog.box_widget,{['😀']=true,['🙂']=true})>=2)
-    shot('highlight-native-confirmation');tap(owner,'confirm_highlight_change');notice()
+    shot('highlight-native-confirmation')
+    plugin.isNetworkLinkAvailable=function() return false end
+    tap(owner,'confirm_highlight_change')
+    assert(owner.mark_editor.service.preview and Journal:read().phase=='idle' and request('/__state').highlight_posts==extra)
+    UI:close(UI:getTopmostVisibleWidget());plugin.isNetworkLinkAvailable=link
+    tap(owner,'confirm_highlight_change');notice()
     local state=request('/__state');local created,created_row
     for key,value in pairs(state.selection_marks) do if not original[key] then
         assert(not created and value.markText==owner.reference.markText and value.range==owner.reference.range);created=key;created_row=value

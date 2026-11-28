@@ -13,6 +13,13 @@ package.preload['weread.lib.thought_edit_contract']=function() return {
 local state
 local function copy(value) local out={};for k,v in pairs(value) do out[k]=v end;return out end
 package.preload['weread.lib.thought_edit_store']=function() return {new=function() return {
+    read=function() return copy(state.record) end,
+    finish=function(_self,record,phase)
+        assert(record.revision==state.record.revision and phase=='prepared')
+        if state.claim_on_finish then state.record.phase='pending' end
+        if state.record.phase~=phase then return false end
+        state.record.phase='idle';return true
+    end,
     draft=function(_self,key)
         state.draft_reads=(state.draft_reads or 0)+1
         if state.error then return nil,'storage' end
@@ -26,13 +33,16 @@ package.preload['weread.lib.thought_edit_store']=function() return {new=function
         end
         return values
     end,
-    save_draft=function(_self,_book,_operation,_reference,_base,_content,expected)
+    save_draft=function(_self,_book,_operation,_reference,_base,content,expected)
         if state.require_lease then assert(state.lease_held,'chapter lease missing while saving draft') end
-        state.save_expected=expected;if state.save_failed then return nil end;return {token='new'} end,
+        state.save_expected=expected;if state.save_failed then return nil end
+        state.saved_body=content;return {token='new'} end,
     delete_draft=function() return false end,
 } end,draft_key=function() return 'draft' end} end
 package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return {} end} end
-package.preload['weread.lib.thought_edit_service']=function() return {new=function() return {cancel=function() end} end} end
+package.preload['weread.lib.thought_edit_service']=function() return {new=function() return {
+    cancel=function() end,prepare=function() error('local action started cloud work') end,
+} end} end
 package.preload['weread.ui.mark_editor']=function() return {cancel=function() end} end
 package.preload['weread.lib.my_cloud_marks']=function() return {id=function(id) return id end} end
 package.preload['weread.lib.my_mark_target']=function() return {can_locate=function(row) return row and row.bookmarkId~=nil end} end
@@ -65,6 +75,9 @@ local function fixture()
     function host.settings:auth_scope_matches() return true end
     function host.settings:get_book() return {book_id='42'} end
     function host:showInfo(message) state.message=message end
+    function host:showOffline(label) state.offline_label=label end
+    function host:isNetworkLinkAvailable() return false end
+    function host:isNetworkOnline() error('local action probed Internet reachability') end
     function host:showInputDialog(widget) UI:show(widget) end
     local owner={id='42',account='account',scope={},thoughts=false,menu={},value={updated={{bookmarkId='mark',markText='quote',hash='original'}}}}
     host.owner=owner
@@ -82,6 +95,21 @@ expect(Editor.resume(host,owner,'draft','v1',current),'matching draft did not re
 expect(owner.editor and owner.editor.input.input=='Saved draft','draft text not restored')
 owner.editor.input.buttons[1][1].callback()
 expect(state.save_expected=='v1' and not owner.editor,'resumed draft did not save against the observed version')
+host,owner,current=fixture();Editor.resume(host,owner,'draft','v1',current)
+owner.editor.input.input='Changed while offline';owner.editor.input.buttons[1][2].callback()
+expect(owner.editor and owner.editor.input.input=='Changed while offline' and state.saved_body=='Changed while offline'
+    and state.save_expected=='v1' and state.message:find('saved on this device',1,true),'offline Continue did not save the current draft')
+host,owner,current=fixture();state.record={phase='idle',revision=1}
+expect(not Editor.check(host,owner,current) and not owner.editor and state.message=='No thought change needs checking.',
+    'idle recovery required a connection')
+host,owner,current=fixture();state.record={phase='prepared',revision=2}
+expect(Editor.check(host,owner,current) and state.record.phase=='idle' and state.draft.token=='v1'
+    and state.message:find('unsent change was cancelled',1,true),'offline check failed to clear the unsent intent without touching the draft')
+host,owner,current=fixture();state.record={phase='prepared',revision=3};state.claim_on_finish=true
+expect(not Editor.check(host,owner,current) and state.record.phase=='pending' and state.draft.token=='v1'
+    and state.message:find('needs checking',1,true),'cancelling a prepared intent cleared a concurrently claimed dispatch')
+expect(not Editor.check(host,owner,current) and state.record.phase=='pending' and state.offline_label=='Thought',
+    'offline check of a pending dispatch attempted cloud work or lost the pending operation')
 host,owner,current=fixture();state.draft=nil
 expect(Editor.start(host,owner,'create',owner.value.updated[1],current),'new draft editor did not open')
 owner.editor.input.input='New draft';owner.editor.input.buttons[1][1].callback()

@@ -13,6 +13,7 @@ local Identity=require('weread.lib.book_file_identity')
 local DirectPath=require('weread.lib.native_direct_path')
 local NativeAccess=require('weread.lib.native_read_access')
 local Currentness=require('weread.lib.source_currentness')
+local NetworkLink=require('weread.lib.network_link')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
 local function viewport_height(host)
@@ -120,7 +121,7 @@ function M.open(host,selection,bookmark)
         ) or bookmark and host.ui.highlight and host.ui.highlight.selected_text
         or host._translation_mode and host._translation_mode~='original' then return false end
     if not bookmark and #selection.text>4096 then host:showInfo(_('Select less text to write a WeRead thought.'));return false end
-    local offline_source=direct and not host:isNetworkOnline()
+    local offline_source=direct and not NetworkLink.available(host)
     if offline_source and bookmark then host:showOffline(_('Bookmark'));return false end
     local mode=host.ui.view and host.ui.view.view_mode or 'page'
     local owner={id=id,document=document,source_file=document.file,mode=mode,location=Context.location(document,mode),
@@ -227,10 +228,11 @@ function M.open(host,selection,bookmark)
     if not direct then return begin_capture() end
     owner.worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
     local started=owner.worker:start(function()
-        return {entry=require('weread.lib.native_direct_cache').identify(host.settings,owner.scope.vid,owner.source_file,function()
+        local entry=require('weread.lib.native_direct_cache').identify(host.settings,owner.scope.vid,owner.source_file,function()
             return host.settings:auth_scope_matches(owner.scope) and NativeAccess.matches(host.settings,owner.native)
                 and Currentness.matches(host.settings,owner.web)
-        end)}
+        end)
+        return {entry=entry,offline=entry~=nil and (owner.offline_source or not host:isNetworkOnline())}
     end,function(result)
         if not current(host,owner) then
             if host._selection_thought_owner==owner then M.cancel(host) end
@@ -238,6 +240,8 @@ function M.open(host,selection,bookmark)
         end
         local e=type(result)=='table' and result.entry
         if not e or e.book_id~=id or not require('weread.lib.native_direct_cache').valid_entry(e,id,owner.scope.vid) then unavailable();return end
+        owner.offline_source=result.offline==true
+        if owner.offline_source and bookmark then M.cancel(host);host:showOffline(_('Bookmark'));return end
         owner.direct_entry=e;begin_capture()
     end)
     if not started then unavailable();return false end

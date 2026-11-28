@@ -101,7 +101,12 @@ local ok,reason=pcall(function()
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
     expect(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);plugin=assert(FM.instance.weread)
-    local online=true;plugin.isNetworkOnline=function() return online end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    local online=true;plugin.isNetworkConnected=function() return online end
+    plugin.isNetworkLinkAvailable=plugin.isNetworkConnected
+    plugin.isNetworkOnline=function()
+        assert(tonumber(ffi.C.getpid())~=parent,'thought editing probed Internet reachability on the interface thread')
+        return online
+    end
     local Cache=require('weread.lib.my_cloud_marks_store');local cache=Cache:new(plugin.library_db,plugin.client,'thoughts')
     local Journal=require('weread.lib.thought_edit_store');local journal=Journal:new(plugin.library_db,plugin.client)
     if mode=='live' then
@@ -226,9 +231,14 @@ local ok,reason=pcall(function()
         online=true
         owner.editor.input:setInputText('合成私密想法 😀\n原生编辑器第二行。')
         online=false;tap(owner,'submit_thought');expect(owner.editor~=nil and state().posts==0)
+        expect(journal:drafts()[1].content==owner.editor.input:getInputText())
         UI:close(UI:getTopmostVisibleWidget());online=true
         tap(owner,'submit_thought');local heart=false;UI:scheduleIn(.1,function() heart=true end);wait(function() return heart end)
-        expect(owner.editor~=nil);confirm(owner);notice(owner)
+        expect(owner.editor~=nil)
+        wait(function() return owner.editor.service.preview end)
+        online=false;local request_count=state().requests;confirm(owner)
+        expect(owner.editor.service.preview and journal:read().phase=='idle' and state().requests==request_count)
+        UI:close(UI:getTopmostVisibleWidget());online=true;confirm(owner);notice(owner)
         expect(state().posts==1 and #state().snapshot.reviews==2 and journal:read().phase=='idle' and #journal:drafts()==0)
         report.phase='edit'
         owner=open(true);select(owner,'synthetic-created');tap(owner,'thought_edit');owner.editor.input:setInputText('合成编辑后想法 😀\n第二行仍完整。')
@@ -251,6 +261,10 @@ local ok,reason=pcall(function()
         owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create');owner.editor.input:setInputText('合成未确认的想法')
         tap(owner,'submit_thought');wait(function() return owner.editor.service.preview end);fault('no_change');confirm(owner);notice(owner)
         expect(state().posts==4 and journal:read().phase=='pending' and #journal:drafts()==1)
+        online=false;local pending_requests=state().requests
+        select(owner,'Check last thought change');notice(owner)
+        expect(journal:read().phase=='pending' and #journal:drafts()==1 and state().requests==pending_requests)
+        online=true
         select(owner,'Check last thought change');wait(function() return owner.editor and owner.editor.service.preview end)
         expect(not owner.editor.service.preview.confirmed);tap(owner,'accept_thought_state')
         local accept=owner.menu._shelf_popup;expect(type(accept.ok_callback)=='function');accept.ok_callback();notice(owner)
@@ -259,7 +273,14 @@ local ok,reason=pcall(function()
         report.phase='cancel-unsent'
         owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create');owner.editor.input:setInputText('合成未提交草稿')
         tap(owner,'submit_thought');wait(function() return owner.editor.service.preview end);local stale=owner.menu._shelf_popup
+        local unsent=owner.editor.service.preview_job
         UI:close(stale);expect(not owner.editor and journal:read().phase=='idle' and #journal:drafts()==1 and state().posts==4)
+        local prepared=assert(journal:begin(unsent.metadata,unsent.access.scope,unsent.revision,unsent.input.draft))
+        online=false;local unsent_requests=state().requests
+        select(owner,'Check last thought change');notice(owner)
+        expect(journal:read().phase=='idle' and journal:drafts()[1].token==unsent.input.draft.token
+            and state().requests==unsent_requests and not journal:claim(prepared))
+        online=true
         report.phase='cancel-sent'
         select(owner,'synthetic-mark');tap(owner,'thought_create');owner.editor.input:setInputText('合成中断提交后的想法')
         tap(owner,'submit_thought');wait(function() return owner.editor.service.preview end);fault('cancel_after_send');confirm(owner)
