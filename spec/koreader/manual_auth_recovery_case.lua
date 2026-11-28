@@ -80,13 +80,20 @@ return function(host,kind,pump,tick)
         end
         if previous_page_size then G_reader_settings:saveSetting('items_per_page',previous_page_size)
         else G_reader_settings:delSetting('items_per_page') end
+        menu:onMenuSelect(menu.item_table[bulk[2]])
+        assert(menu._shelf_popup).buttons[3][1].callback()
+        pump(function() return menu._shelf_popup==nil end)
+        assert(menu.item_table[1].text==Util.tr('Choose the first chapter to download')
+            and menu.item_group[1].text==Util.tr('Choose the first chapter to download')
+            and menu.item_group[2].text==Util.tr('Cancel range'), 'visible range actions were not updated')
         for _,title in ipairs({'第6章','第5章'}) do
             filter(title)
-            assert(menu.subtitle:find(title,1,true) and #menu.item_table==2,'download filter showed the wrong chapters')
-            local item=menu.item_table[2]
+            assert(menu.subtitle:find(title,1,true) and #menu.item_table==3,'download filter showed the wrong chapters')
+            local item=menu.item_table[3]
             assert(item.text:find(title,1,true),'filtered download row did not retain the chapter title')
             menu:onMenuSelect(item)
-            assert(item.mandatory==Util.tr('Selected'))
+            local expected=title=='第6章' and 'Range start' or 'Selected'
+            assert(item.mandatory==Util.tr(expected) and menu.item_group[3].mandatory==Util.tr(expected))
         end
         assert(menu.item_table[1].text==Util.T(Util.tr('[Download] Selected chapters (%1)'),'2'),
             'selection across two queries was lost')

@@ -542,6 +542,7 @@ local zh = {
     ["Download all"] = "下载全部",
     ["Choose the first chapter to download"] = "选择下载起始章节",
     ["Choose the last chapter to download"] = "选择下载结束章节",
+    ["Choose the last chapter (start: %1)"] = "选择结束章节（起点：目录第 %1 项）",
     ["Chapter %1 selected first"] = "已选择目录第 %1 项作为起点",
     ["Unavailable chapters in the range will be skipped."] = "范围内不可读的章节会跳过。",
     ["No readable E-Ink chapters in this range."] = "这个范围内没有可读的墨水屏章节。",

@@ -2674,6 +2674,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     local menu, current_items
     local search = ""
     local unfiltered_item
+    local selecting_range, range_start
     local chapter_view=self._chapter_list_view
     local page_current=require('weread.ui.page_scope').capture(self,self.shelf_view)
     local function current()
@@ -2711,6 +2712,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
             local row = rows[item.chapter_index]
             local checked = selected[row.uid]
             if key == "text" then return (checked and "[✓] " or "[  ] ") .. item.label end
+            if item.chapter_index == range_start then return _("Range start") end
             if checked then return _("Selected") end
             if row.cached == nil then row.cached = is_chapter_cached(row.uid) end
             return row.cached and _("Cached")
@@ -2718,8 +2720,17 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         end
     end }
     local download_entry = { __index = function(_item, key)
-        if key == "text" then return T(_("[Download] Selected chapters (%1)"), tostring(selected_count)) end
-        if key == "select_enabled" then return selected_count > 0 end
+        if key == "text" then
+            if range_start then return T(_("Choose the last chapter (start: %1)"), range_start) end
+            if selecting_range then return _("Choose the first chapter to download") end
+            return T(_("[Download] Selected chapters (%1)"), tostring(selected_count))
+        end
+        if key == "select_enabled" then return not selecting_range and selected_count > 0 end
+    end }
+    local selection_entry = { __index = function(item, key)
+        if key ~= "text" then return end
+        if selecting_range then return _("Cancel range") end
+        return item.matches and _("Matching chapters…") or _("Select range")
     end }
     local function update_visible_items()
         if require("weread.ui.chapter_download_rows").update(menu) then return end
@@ -2729,6 +2740,25 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
             if widget == focused then position = index; break end
         end
         menu:updateItems(position, not menu.items_max_lines)
+    end
+    local function setRangeMode(active)
+        selecting_range, range_start = active, nil
+        update_visible_items()
+    end
+    local function chooseChapter(index)
+        if not selecting_range then
+            local uid = rows[index].uid
+            selectChapter(uid, not selected[uid])
+        elseif not range_start then
+            range_start = index
+        else
+            for number = math.min(range_start, index), math.max(range_start, index) do
+                selectChapter(rows[number].uid, true)
+            end
+            setRangeMode(false)
+            return
+        end
+        update_visible_items()
     end
     local function download()
         local targets = selectedChapters()
@@ -2751,59 +2781,63 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     local function chooseMatching(matches, items)
         if items ~= current_items or not current() or menu._shelf_popup then return end
         local dialog
-        local function action(checked)
+        local function action(callback)
             return function()
                 UIManager:nextTick(function()
                     if items ~= current_items or not current() or not Popup.current(menu, dialog) then return end
                     Popup.close(menu)
-                    if checked == nil then return end
-                    local changed
-                    for _, index in ipairs(matches) do
-                        if selectChapter(rows[index].uid, checked) then changed = true end
-                    end
-                    if changed then update_visible_items() end
+                    if callback then callback() end
                 end)
             end
         end
+        local function selectMatching(checked)
+            local changed
+            for _, index in ipairs(matches) do
+                if selectChapter(rows[index].uid, checked) then changed = true end
+            end
+            if changed then update_visible_items() end
+        end
         dialog = require('ui/widget/buttondialog'):new{
             title = _("Matching chapters"), buttons = {
-                {{text = _("Select matching chapters"), callback = action(true)}},
-                {{text = _("Deselect matching chapters"), callback = action(false)}},
+                {{text = _("Select matching chapters"), callback = action(function() selectMatching(true) end)}},
+                {{text = _("Deselect matching chapters"), callback = action(function() selectMatching(false) end)}},
+                {{text = _("Select range"), callback = action(function() setRangeMode(true) end)}},
                 {{text = _("Cancel"), callback = action()}},
             },
         }
         Popup.show(menu, dialog)
     end
     local choose = self:safeCallback(_("Select chapters to download"), function(item)
-        if type(item) ~= "table" or current_items[item.idx] ~= item or not current() then return end
+        if type(item) ~= "table" or current_items[item.idx] ~= item or not current() or menu._shelf_popup then return end
         if item.download then
-            download()
-        elseif item.matches then
-            chooseMatching(item.matches, current_items)
+            if not selecting_range then download() end
+        elseif item.selection_options then
+            if selecting_range then setRangeMode(false)
+            elseif item.matches then chooseMatching(item.matches, current_items)
+            else setRangeMode(true) end
         elseif item.chapter_index then
-            local uid = rows[item.chapter_index].uid
-            selectChapter(uid, not selected[uid])
-            update_visible_items()
+            chooseChapter(item.chapter_index)
         end
     end)
     local function buildItems()
         local matches, counts = filter_titles(search)
-        local bulk_selection = matches and #matches > 1
-        local chapters_per_page = math.max(1, perpage - (bulk_selection and 2 or 1))
+        local range_available = #rows > 1
+        local chapters_per_page = math.max(1, perpage - (range_available and 2 or 1))
         local items = {}
         current_items = items
-        local function appendDownloadAction()
+        local function appendActions()
             items[#items + 1] = setmetatable({
                 idx = #items + 1, download = true, bold = true, separator = true,
             }, download_entry)
+            if range_available then
+                items[#items + 1] = setmetatable({
+                    idx = #items + 1, selection_options = true, separator = true,
+                    matches = matches and #matches > 1 and matches or nil,
+                }, selection_entry)
+            end
         end
         for number = 1, (matches and #matches or #rows) do
-            if (number - 1) % chapters_per_page == 0 then
-                appendDownloadAction()
-                if bulk_selection then
-                    items[#items + 1] = {idx = #items + 1, text = _("Matching chapters…"), separator = true, matches = matches}
-                end
-            end
+            if (number - 1) % chapters_per_page == 0 then appendActions() end
             local chapter_index = matches and matches[number] or number
             local row = rows[chapter_index]
             local label = ChapterSearch.label(row.title, chapter_index, counts)
@@ -2812,7 +2846,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
             }, chapter_entry)
         end
         if matches and #matches == 0 then
-            appendDownloadAction()
+            appendActions()
             items[#items + 1] = { text = _("No matching chapters."), select_enabled = false }
         end
         return items

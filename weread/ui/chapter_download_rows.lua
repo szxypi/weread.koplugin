@@ -28,7 +28,7 @@ function M.update(menu)
     local changes = {}
     for _, widget in ipairs(menu.item_group) do
         local entry = widget.entry
-        if entry and (entry.download or entry.chapter_index) then
+        if entry and (entry.download or entry.selection_options or entry.chapter_index) then
             local text, mandatory = entry.text, entry.mandatory
             if text ~= widget.text or mandatory ~= widget.mandatory then
                 local region = widget[1] and widget[1].dimen
