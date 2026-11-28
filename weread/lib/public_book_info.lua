@@ -1,28 +1,25 @@
 -- Bounded public catalogue fields, never reader state or credentials.
 local Protocol=require('weread.lib.protocol')
 local Data=require('weread.lib.discovery_data')
+local UTF8=require('weread.lib.utf8_text')
 local M={INTRO_LIMIT=2048,TEXT_LIMIT=512}
-
-local function valid_text(value,limit,multiline)
-    return type(value)=='string' and value~='' and #value<=limit
-        and not value:find(multiline and '[%z\1-\8\11-\31\127]' or '[%z%c]')
-        and Protocol.utf8_substr(value,#value+1)==value
-end
+local intro_controls={[9]=true,[10]=true}
+local label_fields={'publisher','translator'}
 local function number(value,limit)
     return type(value)=='number' and value==value and value>=0 and value<=limit
 end
 function M.project(value)
     if type(value)~='table' then return nil end
     local result={}
-    if valid_text(value.intro,65536,true) then
+    if UTF8.valid(value.intro,65536,false,intro_controls) then
         local intro=value.intro
         if #intro>M.INTRO_LIMIT then
             intro=Protocol.utf8_substr(intro:sub(1,M.INTRO_LIMIT-3),M.INTRO_LIMIT)..'…'
         end
         result.intro=intro
     end
-    for _,key in ipairs({'publisher','translator'}) do
-        if valid_text(value[key],M.TEXT_LIMIT,false) then result[key]=value[key] end
+    for _,key in ipairs(label_fields) do
+        if UTF8.valid(value[key],M.TEXT_LIMIT) then result[key]=value[key] end
     end
     if number(value.newRating,1000) and number(value.newRatingCount,1e10) and value.newRatingCount%1==0 then
         result.newRating,result.newRatingCount=value.newRating,value.newRatingCount

@@ -3,7 +3,9 @@
 -- AGPL-3.0-only, Copyright (C) 2026 MiuRead contributors.
 local Access=require('weread.lib.native_read_access')
 local Crypto=require('weread.lib.crypto')
+local UTF8=require('weread.lib.utf8_text')
 local M={MAX_ROWS=5000}
+local line_controls={[9]=true,[10]=true,[13]=true}
 local function fail(reason) error('my_marks/'..reason,0) end
 function M.id(value)
     return type(value)=='string' and #value<=20 and value:match('^[1-9]%d*$') and value or nil
@@ -14,38 +16,8 @@ function M.display_id(value)
     return type(value)=='string' and require('weread.lib.read_access').display_book_id(value) or nil
 end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
-local function continuation(byte)
-    return byte and byte >= 0x80 and byte <= 0xbf
-end
-
--- Check controls and UTF-8 together. Single-line labels also reject tab, CR and LF.
 function M.valid_text(value, max, allow_empty, single_line)
-    if type(value) ~= 'string' or not allow_empty and value == '' or #value > max then return false end
-    local position, size = 1, #value
-    while position <= size do
-        local lead = value:byte(position)
-        if lead < 0x80 then
-            if lead == 0x7f or lead < 0x20 and (single_line or lead ~= 9 and lead ~= 10 and lead ~= 13) then return false end
-            position = position + 1
-        else
-            local second = value:byte(position + 1)
-            if lead < 0xc2 or lead > 0xf4 or not continuation(second) then return false end
-            if lead < 0xe0 then
-                position = position + 2
-            elseif lead < 0xf0 then
-                -- Reject overlong encodings and UTF-16 surrogates.
-                if not continuation(value:byte(position + 2))
-                    or lead == 0xe0 and second < 0xa0 or lead == 0xed and second >= 0xa0 then return false end
-                position = position + 3
-            else
-                -- Four-byte scalars run from U+10000 through U+10FFFF.
-                if not continuation(value:byte(position + 2)) or not continuation(value:byte(position + 3))
-                    or lead == 0xf0 and second < 0x90 or lead == 0xf4 and second >= 0x90 then return false end
-                position = position + 4
-            end
-        end
-    end
-    return true
+    return UTF8.valid(value,max,allow_empty,not single_line and line_controls)
 end
 local text=M.valid_text
 
