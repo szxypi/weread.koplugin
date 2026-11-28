@@ -29,7 +29,8 @@ function M.title_filter(rows, empty_title, match_chapter_id)
         local matches, counts = {}, {}
         for index, row in ipairs(rows) do
             local title = row.title == "" and empty_title or row.title
-            if match_chapter_id and row.chapterUid and row.chapterUid:lower()==needle
+            local id = match_chapter_id and (row.chapterUid or row.chapter_uid)
+            if type(id)=='string' and type(title)=='string' and id:lower()==needle
                 or matches_title(title, needle, terms, normalize) then
                 matches[#matches + 1] = index
                 counts[title] = (counts[title] or 0) + 1

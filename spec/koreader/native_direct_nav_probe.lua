@@ -70,6 +70,33 @@ local function press(id)
     local action=assert(dialog:getButtonById(id))
     assert(action.enabled~=false);action:onTapSelectButton()
 end
+local function saved_menu()
+    return host._native_direct_reading and host._native_direct_reading.menu
+end
+if input.mode=='copies' then
+    local perpage=G_reader_settings:readSetting('items_per_page')
+    G_reader_settings:saveSetting('items_per_page',2)
+    press('saved_chapters');wait(saved_menu)
+    local saved=assert(saved_menu())
+    assert(#saved.item_table==3 and saved.page==1)
+    for row,items in ipairs(saved.layout) do
+        if items[1] and items[1].entry and items[1].entry.chapter_index==2 then
+            saved:moveFocusTo(1,row,require('ui/widget/focusmanager').FORCED_FOCUS)
+            break
+        end
+    end
+    assert(saved:getFocusItem().entry.chapter_index==2)
+    saved:onLeftButtonTap()
+    local search=assert(saved._shelf_popup)
+    search:setInputText('３８');search.buttons[1][2].callback()
+    assert(#saved.item_table==2 and saved.item_table[1].chapter_index==2 and saved.item_table[2].chapter_index==3
+        and saved.item_table[1].text~=saved.item_table[2].text,'exact ID search merged different saved copies')
+    saved:onLeftButtonTap();assert(saved._shelf_popup).buttons[1][1].callback()
+    assert(saved.page==1 and saved:getFocusItem().entry.chapter_index==2,'clearing search lost the original row focus')
+    saved:onClose()
+    if perpage then G_reader_settings:saveSetting('items_per_page',perpage)
+    else G_reader_settings:delSetting('items_per_page') end
+end
 if online then
     local interrupted=home..'/interrupt-catalog'
     assert(assert(io.open(interrupted,'wb')):close())
@@ -93,9 +120,6 @@ if online then
         'cancelling the adjacent download did not keep the current chapter')
 end
 press('next_chapter')
-local function saved_menu()
-    return host._native_direct_reading and host._native_direct_reading.menu
-end
 wait(function() return host.opened or host.message or saved_menu()
     or host._native_direct_navigation and host._native_direct_navigation.menu end)
 if input.mode=='copies' then

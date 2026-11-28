@@ -122,15 +122,22 @@ do
     assert(ctx.offline and menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1
         and not menu.item_table[1].text:find(prefix,1,true) and second.document.file==input.second,
         'offline reader did not open the catalog at its current chapter file')
+    menu:onGotoPage(1)
     menu:onLeftButtonTap()
     local input_dialog=assert(menu._shelf_popup)
+    input_dialog:setInputText('３８')
+    input_dialog.buttons[1][2].callback()
+    assert(#menu.item_table==1 and menu.item_table[1].chapter_index==2
+        and menu.item_table[1].text:find(prefix,1,true)==1,'chapter ID search did not find the same chapter')
+    menu:onLeftButtonTap()
+    input_dialog=assert(menu._shelf_popup)
     input_dialog:setInputText('no matching synthetic chapter')
     input_dialog.buttons[1][2].callback()
     assert(menu.page==1 and not menu.item_table[1].select_enabled)
     menu:onLeftButtonTap()
     assert(menu._shelf_popup).buttons[1][1].callback()
-    assert(menu.page==2 and menu.item_table[2].text:find(prefix,1,true)==1,
-        'clearing offline chapter search did not return to the current chapter')
+    assert(menu.page==1 and menu.item_table[2].text:find(prefix,1,true)==1,
+        'clearing offline chapter search did not restore the page before searching')
     menu:onClose()
     assert(not host._book_detail_view and not host._native_direct_reading and not host.busy_message
         and UI:getTopmostVisibleWidget()==second and second.document:isXPointerInCurrentPage(second_point),

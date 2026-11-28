@@ -30,6 +30,11 @@ assert(table.concat(filter('A\0B'),',')=='5')
 assert(table.concat(filter('\255'),',')=='6')
 assert(#filter('\226\128\139')==0,'an ignorable-only query matched everything')
 assert(#filter('foo absent')==0 and #filter('42')==0,'search expanded beyond the chapter title')
+local copies={{title='First copy',chapter_uid='38'},{title='Second copy',chapterUid='38'},
+    {title='Another chapter',chapter_uid='138'},{chapter_uid='38'}}
+assert(table.concat(ChapterSearch.title_filter(copies,nil,true)('38'),',')=='1,2',
+    'chapter ID search lost an exact copy or matched part of another ID')
+assert(#ChapterSearch.title_filter(copies)('38')==0,'title-only search matched a chapter ID')
 rows[1].title='Edited'
 assert(table.concat(filter('edited'),',')=='1','a changed title kept an obsolete normalization')
 local new_filter=ChapterSearch.title_filter({{title='ÉLAN foo'}})

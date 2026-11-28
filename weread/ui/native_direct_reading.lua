@@ -444,7 +444,7 @@ function M.start(host,book,view,options)
         elseif not offline then sections,depths,headings=chapter_outline(rows) end
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
-        local filter_titles=ChapterSearch.title_filter(rows,empty_title)
+        local filter_titles=ChapterSearch.title_filter(rows,empty_title,offline)
         local subtitle=picker and picker.subtitle
             or offline_notice and _(offline_notice)
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
@@ -466,7 +466,7 @@ function M.start(host,book,view,options)
         -- as wide as the screen, leaving no room for chapter titles.
         local shortcut_width=screen:scaleBySize(24)
         local search=''
-        local by_index,menu
+        local by_index,menu,unfiltered_position
         local function items()
             local matches,counts=filter_titles(search)
             local result={}
@@ -526,14 +526,27 @@ function M.start(host,book,view,options)
         local function menu_current()
             return ctx.menu==menu and not ctx.busy and not ctx.copy_menu and view_current()
         end
-        local function filter(query,index)
+        local function filter(query,index,focus)
             search=query
             menu.subtitle=search~='' and T(_('Chapter filter: %1'),search) or subtitle
-            menu:switchItemTable(nil,items(),index,nil,menu.subtitle)
+            menu.itemnumber=focus
+            menu:switchItemTable(nil,items(),focus or index,nil,menu.subtitle)
+            menu.itemnumber=nil
+            if search=='' then unfiltered_position=nil end
         end
         local function search_titles()
             ChapterSearch.prompt(host,menu,search,menu_current,function(query)
-                filter(query,query=='' and initial_index or nil)
+                if query=='' then
+                    local position=unfiltered_position
+                    filter(query,position and position.index,position and position.focus)
+                    return
+                end
+                if search=='' then
+                    local focused=menu:getFocusItem()
+                    unfiltered_position={index=menu:getFirstVisibleItemIndex(),
+                        focus=focused and focused.entry and focused.entry.chapter_index}
+                end
+                filter(query)
             end)
         end
         local function select_section()

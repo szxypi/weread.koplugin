@@ -96,8 +96,10 @@ local function fixture()
         showInputDialog=function(_,dialog) state.input=dialog end,
         showList=function(_,title,items,_,options)
             local menu={item_table=items,getPageNumber=function(_,index) return index end,
+                getFirstVisibleItemIndex=function() return state.page or 1 end,
+                getFocusItem=function(self) return state.focus and {entry=self.item_table[state.focus]} end,
                 onGotoPage=function(_,page) state.page=page end,switchItemTable=function(self,_,rows,index)
-                self.item_table=rows;state.items=rows;state.page=index or 1
+                self.item_table=rows;state.items=rows;state.page=index or 1;state.focus=self.itemnumber
             end}
             state.title=title;state.items=items;state.subtitle=options.subtitle;state.icon=options.left_icon
             state.select=function(index) options.on_choice(menu.item_table[index]) end
@@ -444,6 +446,9 @@ expect(s.items and s.items[1].text:find('Offline position to review',1,true),
 host._native_direct_reading.menu:onLeftButtonTap();s.input.input='Saved';s.input.buttons[1][2].callback()
 expect(#s.items==1 and s.items[1].text:find('Offline position to review',1,true) and #s.jobs==1,
     'offline filter lost the pending position or reloaded the catalog')
+host._native_direct_reading.menu:onLeftButtonTap();s.input.input='1';s.input.buttons[1][2].callback()
+expect(#s.items==1 and s.items[1].select_enabled and #s.jobs==1,
+    'offline chapter ID search missed the saved file')
 local other_copy={};for key,value in pairs(saved_entry) do other_copy[key]=value end
 other_copy.copy=1
 for _,mode in ipairs({'open','cancel','account','missing','other_book','other_owner'}) do
