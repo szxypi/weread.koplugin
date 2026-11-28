@@ -3224,6 +3224,7 @@ function M:openChapter(book, chapter, on_downloaded, options)
     local file=document and document.file
     local session=self._reader_session_gen
     local view=self._chapter_list_view
+    if view and view._catalog_closed then view=nil end
     local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
     local sync=self.progress_sync
     local navigation=sync and sync.navigation_generation

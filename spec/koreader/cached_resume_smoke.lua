@@ -191,11 +191,13 @@ local function check_saved_chapter_picker(reader, with_standalone)
     if previous_size then G_reader_settings:saveSetting('items_per_page',previous_size)
     else G_reader_settings:delSetting('items_per_page') end
     shot('downloaded-chapter-picker')
+    local original_reader=reader
     menu:onMenuSelect(menu.item_table[1])
     pump(function() return Reader.instance and Reader.instance.document.file==full end)
     reader=assert(Reader.instance)
     local target=assert(Dom.chapter_start(reader.document,id,'4'))
     pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    assert(with_standalone or reader==original_reader,'same-file chapter choice reopened the reader')
     assert(reader.weread.progress_sync.file_resume and reader.weread.progress_sync.file_resume.preserve_only,
         'unindexed whole-book position must not replace pending progress')
     print(with_standalone and 'PASS: downloaded chapter picker, offline single and catalog-free combined'
