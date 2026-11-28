@@ -44,6 +44,7 @@ local function read_members(path, wanted, batch, zip_probe, discard_data)
             or lib.archive_read_support_filter_all(archive) ~= lib.ARCHIVE_OK then return nil end
         if lib.archive_read_open_filename(archive, path, 10240) ~= lib.ARCHIVE_OK then return nil end
         local members, found, used = {}, 0, 0
+        local unreadable
         local buffer = ffi.new('char[?]', 65536)
         for _i = 1, M.MAX_ENTRIES do
             local status = lib.archive_read_next_header2(archive, entry)
@@ -54,7 +55,8 @@ local function read_members(path, wanted, batch, zip_probe, discard_data)
             local name = ffi.string(pointer)
             local maximum = wanted[name]
             if maximum then
-                if members[name] ~= nil or lib.archive_entry_filetype(entry) ~= lib.AE_IFREG then return nil end
+                if members[name] ~= nil or unreadable and unreadable[name]
+                    or lib.archive_entry_filetype(entry) ~= lib.AE_IFREG then return nil end
                 local size = tonumber(lib.archive_entry_size(entry))
                 limit_exceeded = size and size > maximum
                 if not size or size < 0 or size > maximum or size % 1 ~= 0 then return nil end
@@ -63,15 +65,25 @@ local function read_members(path, wanted, batch, zip_probe, discard_data)
                 local chunks, total = not discard_data and {} or nil, 0
                 while true do
                     local read = tonumber(lib.archive_read_data(archive, buffer, 65536))
-                    if not read or read < 0 then return nil end
+                    if not read then return nil end
+                    if read < 0 then
+                        if not batch or read < lib.ARCHIVE_FAILED then return nil end
+                        -- A recoverable member error invalidates all bytes of that
+                        -- member. Continue only if subsequent headers reach EOF.
+                        unreadable = unreadable or {}
+                        unreadable[name] = true
+                        break
+                    end
                     if read == 0 then break end
                     total = total + read
                     if total > maximum or total > size then return nil end
                     if chunks then chunks[#chunks + 1] = ffi.string(buffer, read) end
                 end
-                if total ~= size then return nil end
-                members[name], found = chunks and table.concat(chunks) or total, found + 1
-                if zip_probe and found == count then return members end
+                if not unreadable or not unreadable[name] then
+                    if total ~= size then return nil end
+                    members[name], found = chunks and table.concat(chunks) or total, found + 1
+                    if zip_probe and found == count then return members end
+                end
             end
         end
         return nil
@@ -106,8 +118,8 @@ function M.epub_chapter_readable(path, member)
     return members ~= nil and members[member] > 0
 end
 
--- Missing members are checked by each snapshot consumer. Ambiguous, invalid
--- or oversized members stop the batch before any hits can be accepted.
+-- Missing members and recoverable data errors are checked per snapshot.
+-- Ambiguous names, invalid headers and budget violations still stop the batch.
 function M.read_batch(path, wanted)
     return read_members(path, wanted, true)
 end

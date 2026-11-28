@@ -6,6 +6,7 @@ local signed_out=os.getenv('WEREAD_TEST_CACHED_SIGNED_OUT')=='1'
 local no_catalog=os.getenv('WEREAD_TEST_CACHED_NO_CATALOG')=='1'
 local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
 local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
+local damaged=os.getenv('WEREAD_TEST_CACHED_DAMAGED')=='1'
 local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
 local ignore_case=os.getenv('WEREAD_TEST_CACHED_IGNORE_CASE')=='1'
 local unicode_case=os.getenv('WEREAD_TEST_CACHED_UNICODE_CASE')=='1'
@@ -223,8 +224,24 @@ book.cached_file=book.cached_chapters['1']
 if full then
     local full_sources=incomplete and {['1']=sources['1']} or sources
     local full_chapters=long_full and chapters or {chapters[1],chapters[2]}
+    if damaged then
+        local middle=chapters[3]
+        local uid=middle.chapterUid
+        local raw='<html><body><p>Searchable amberneedle in the damaged synthetic chapter</p></body></html>'
+        bodies[uid]=raw
+        sources[uid]=assert(Source.capture(book,middle,raw,'web_xhtml'))
+        full_chapters={chapters[1],middle,chapters[2]}
+    end
     book.cached_full_book=assert(Content.save_book_epub(settings,book,full_chapters,bodies,
         'cached-search-full',{},nil,nil,Identity.capture(book),full_sources))
+    if damaged then
+        local fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))..'epub_member_damage.lua'
+        local path=book.cached_full_book
+        local broken=path:gsub('%.epub$','-damaged.epub')
+        assert(broken~=path)
+        dofile(fixture)(path,broken,'OEBPS/text/chapter-002.xhtml',false)
+        book.cached_full_book=broken
+    end
     book.cached_file=book.cached_full_book
     if not dual then book.cached_chapters={} end
 end
@@ -251,7 +268,7 @@ local ffi=require('ffi')
 pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
 local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
 local requests=ffi.cast('int *',memory);requests[0]=0
-if long_full then
+if long_full or damaged then
     requests[1]=0
     local Archive=require('weread.lib.source_archive')
     local read_batch=Archive.read_batch
@@ -321,6 +338,13 @@ wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
 assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=original_discover
+if damaged then
+    Search.scan=function(input,read_archive)
+        local index=read_archive and 2 or 3
+        requests[index]=requests[index]+1
+        return original(input,read_archive)
+    end
+end
 local menu_rebuilds,busy_menu_rebuilds=0,0
 local switch_items=owner.menu.switchItemTable
 owner.menu.switchItemTable=function(menu,...)
@@ -336,6 +360,11 @@ owner.menu.switchItemTable=switch_items
 local count=incomplete and 1 or 2
 local unavailable=(no_catalog or long_full) and 0 or #chapters-2
 local checked=long_full or (limit_test and 1 or count)
+if damaged then
+    unavailable,checked=1,3
+    assert(requests[1]==1 and requests[2]==3 and requests[3]==0,
+        'one damaged chapter caused independent rereads of the archive')
+end
 assert(#owner.value==count and owner.checked==checked and owner.missing==unavailable)
 if limit_test then
     local _=require('weread.lib.i18n').tr
@@ -444,7 +473,8 @@ if restore_catalog then
     os.exit(0)
 end
 if full and no_catalog then
-    assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[long_full or count].uid==target_uid)
+    assert(owner.discovered and owner.discovery_incomplete==incomplete
+        and owner.queue[long_full or checked].uid==target_uid)
     if incomplete then
         local found=false
         for _i,item in ipairs(owner.menu.item_table) do

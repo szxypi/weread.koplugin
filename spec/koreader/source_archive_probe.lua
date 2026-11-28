@@ -86,6 +86,14 @@ for _,case in ipairs(request.byte_cases or {}) do
         assert(Archive.verify_members(case.path,{['body.bin']={maximum=65537,validate=function(raw) return raw==value end}})==case.success,
             'bounded validator accepted duplicate, corrupt or mismatched content')
     end
+    local wanted={['body.bin']=8*1024*1024,['after.bin']=64}
+    if case.path:match('/byte%-crc%.zip$') then
+        local partial=assert(Archive.read_batch(case.path,wanted),'damaged member aborted reads of healthy members')
+        assert(not partial['body.bin'] and partial['after.bin']=='healthy member after damaged data')
+        assert(not Archive.read(case.path,wanted),'strict read accepted a corrupt required member')
+    elseif case.path:match('/byte%-crc%-duplicate%.zip$') then
+        assert(not Archive.read_batch(case.path,wanted),'damaged member hid a duplicate name')
+    end
 end
 -- A runtime without the C byte comparator must retain the bounded Lua
 -- comparison and the same duplicate and CRC rejection behavior.

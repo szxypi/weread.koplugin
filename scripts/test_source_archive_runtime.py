@@ -64,6 +64,8 @@ def main():
                 output.writestr('body.bin', body)
                 if duplicate:
                     output.writestr('body.bin', body)
+                if bad_crc:
+                    output.writestr('after.bin', b'healthy member after damaged data')
         if bad_crc:
             data = bytearray(path.read_bytes())
             central = data.find(b'PK\x01\x02')
@@ -81,6 +83,7 @@ def main():
     byte_archive('byte-fallback-mismatch', 65537, mismatch=65537)
     byte_archive('byte-duplicate', 65537, duplicate=True)
     byte_archive('byte-crc', 65537, bad_crc=True)
+    byte_archive('byte-crc-duplicate', 65536, duplicate=True, bad_crc=True)
     metadata_cases=[]
     def metadata_archive(name,entries,success,truncate=False,uniform=None):
         path=root/(name+'.zip')

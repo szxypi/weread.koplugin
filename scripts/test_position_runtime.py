@@ -161,6 +161,7 @@ def main():
     parser.add_argument('--cached-full', action='store_true')
     parser.add_argument('--cached-long-full', action='store_true', help='Discover and search 20,000 chapters in one EPUB')
     parser.add_argument('--cached-incomplete', action='store_true')
+    parser.add_argument('--cached-damaged', action='store_true', help='Search an EPUB with one damaged chapter')
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
     parser.add_argument('--cached-unicode-case', action='store_true')
@@ -205,8 +206,9 @@ def main():
         parser.error('local interruption fixture requires local download')
     if args.search_local_restart and not args.search_local_interrupt:
         parser.error('local restart fixture requires local interruption')
-    if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
-            or args.cached_ignore_case or args.cached_restore_catalog or args.cached_limit or args.cached_large_uid) and args.probe!='cached-search':
+    if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete
+            or args.cached_damaged or args.cached_dual or args.cached_ignore_case or args.cached_restore_catalog
+            or args.cached_limit or args.cached_large_uid) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
     if args.cached_restore_catalog and (not args.cached_no_catalog or args.cached_signed_out or args.cached_full or args.search_cb):
         parser.error('catalog restore fixture requires signed-in ordinary cached search without a catalog')
@@ -223,6 +225,8 @@ def main():
         parser.error('--cached-long-full requires the complete cached-search EPUB fixture')
     if args.cached_incomplete and not args.cached_full:
         parser.error('--cached-incomplete requires --cached-full')
+    if args.cached_damaged and (not args.cached_full or args.cached_incomplete or args.cached_dual or args.cached_long_full):
+        parser.error('--cached-damaged requires the dedicated whole-book fixture')
     if args.cached_dual and not args.cached_full:
         parser.error('--cached-dual requires --cached-full')
     if (args.cb_sync_noack or args.cb_sync_cloud or args.cb_sync_timer or args.cb_sync_timer_unknown or args.cb_sync_close or args.cb_sync_time) and args.probe!='cb-sync':parser.error('CB sync option requires cb-sync')
@@ -316,6 +320,7 @@ def main():
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
                                         WEREAD_TEST_CACHED_LONG_FULL=str(LONG_CATALOG_SIZE) if args.cached_long_full else '',
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
+                                        WEREAD_TEST_CACHED_DAMAGED='1' if args.cached_damaged else '0',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         WEREAD_TEST_CACHED_UNICODE_CASE='1' if args.cached_unicode_case else '0',
@@ -395,7 +400,7 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_CACHED_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline downloaded chapter reopen failed; inspect isolated runtime log'
-                if not args.cached_long_full:
+                if not (args.cached_long_full or args.cached_damaged):
                     with (root / 'evidence/stale.log').open('w') as out:
                         stale=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                             env=environment | {'WEREAD_TEST_CACHED_STALE':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
@@ -500,6 +505,8 @@ def main():
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 unavailable = 0 if args.cached_no_catalog or args.cached_long_full else LONG_CATALOG_SIZE-2 if args.search_long_catalog else 1
+                if args.cached_damaged:
+                    unavailable = 1
                 assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=unavailable,
                                    navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
                                    imported=args.search_cb,no_catalog=args.cached_no_catalog,full=args.cached_full,
@@ -513,7 +520,7 @@ def main():
                     assert reopened.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened
                     value=json.loads(reopened.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',file_position=True,pending_preserved=True), 'offline reopen result mismatch'
-                    if not args.cached_long_full:
+                    if not (args.cached_long_full or args.cached_damaged):
                         stale=(root/'evidence/stale.log').read_bytes();marker=b'\nWEREAD_CACHED_SEARCH_STALE='
                         assert stale.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in stale
                         value=json.loads(stale.split(marker,1)[1].splitlines()[0])
