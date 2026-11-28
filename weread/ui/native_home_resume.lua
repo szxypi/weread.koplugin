@@ -152,7 +152,7 @@ local function record(host,opened_at)
         if entry and host._native_direct_reconnect then
             pending=require('weread.lib.native_direct_pending').read(host.library_db,host.settings,scope,entry,current)
             local catalog=require('weread.lib.native_direct_catalog_store')
-            weights=catalog.weights(catalog.read(host.library_db,host.settings,host.client,scope,entry,current),entry)
+            weights=catalog.read_weights(host.library_db,host.settings,host.client,scope,entry,current)
         end
         return {entry=entry,pending=pending,weights=weights}
     end,function(value)

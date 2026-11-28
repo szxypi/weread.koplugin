@@ -1,7 +1,11 @@
 package.path='./?.lua;'..package.path
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
-package.preload['ui/uimanager']=function() return {close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end} end
+local scheduled
+package.preload['ui/uimanager']=function() return {
+    close=function(_,widget) if widget.onCloseWidget then widget:onCloseWidget() end end,
+    scheduleIn=function(_,_,task) scheduled[#scheduled+1]=task end,
+} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(pattern,value) return (pattern:gsub('%%1',value)) end} end
 local source={book_id='42',chapter_uid='37',book_version=1,source_sha256=string.rep('c',64),key=string.rep('a',64),copy=0,
@@ -48,9 +52,20 @@ package.preload['weread.ui.book_search']=function() return {open=function(_,id,c
 local auto_target
 package.preload['weread.ui.native_direct_reading']=function() return {start=function(_,book,view,options)
     auto_target={book=book,view=view,options=options};return true end} end
+local progress_options
+package.preload['weread.ui.reader_progress']=function() return {show=function(_,options) progress_options=options end} end
+local catalog=require('weread.lib.native_direct_catalog_store')
+local weights,reads
+catalog.read=function() error('navigation read the complete catalog') end
+catalog.read_weights=function(_,_,_,_,entry,current)
+    assert(in_worker and entry==source and current(),'estimate left the chapter worker or the reader session')
+    reads=reads+1
+    return weights
+end
 local Nav=require('weread.ui.native_direct_navigation')
 local function fixture()
     shown=nil;auto_target=nil;refresh_entry=nil;position_entry=nil;manual_entry=nil;rows={next_entry};source_ok=true;can_open=true;page=1
+    progress_options=nil;scheduled={};reads=0;weights={before=100,chapter=200,total=1000}
     local s={jobs={},opened=0,online=false,account='owner',scope={vid='123',epoch=1}}
     local document={file='/tmp/x/native-reader-v1/current.epub',identity={book_id='42',file_id=source.file_id,book_version=1}}
     local host={ui={document=document},client={},_reader_session_gen=1,
@@ -82,6 +97,32 @@ expect(shown and shown.opts.show_previous_chapter and shown.opts.show_next_chapt
 shown.callbacks.on_next();s.finish(2)
 expect(s.opened==1 and s.path:find('/native%-reader%-v1/next.epub') and listed_uid=='38',
     'adjacent saved chapter not found through its targeted lookup')
+expect(reads==0,'quick menu and adjacent navigation read catalog weights')
+host,s=fixture();Nav.start(host);s.finish(1)
+shown.callbacks.on_reader_progress();shown.callbacks.on_reader_progress()
+expect(not progress_options and #s.jobs==2 and not host.busy_message,'reading progress skipped or repeated deferred lookup')
+s.finish(2);scheduled[1]()
+expect(reads==1 and progress_options.chapter_number==2 and progress_options.chapter_count==3
+    and progress_options.estimate(50)==20 and not host.busy_message,'verified progress estimate did not open without an extra notice')
+host,s=fixture();weights=nil;Nav.start(host);s.finish(1)
+shown.callbacks.on_reader_progress();scheduled[1]()
+expect(host.busy_message,'slow storage did not offer cancellation')
+s.finish(2)
+expect(progress_options and not progress_options.estimate(50) and not host.busy_message
+    and type(progress_options.next_action)=='function','missing weights blocked chapter progress')
+host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_reader_progress();scheduled[1]()
+local loading=s.jobs[2];in_worker=true;local loaded=loading.task();in_worker=false
+s.cancel();loading.callback(loaded)
+expect(not progress_options and not host.busy_message and s.cancelled,'cancelled weights lookup reopened the panel')
+host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_reader_progress()
+host._weread_suspended=true;scheduled[1]();s.jobs[2].callback({weights=weights})
+expect(not progress_options and not host._native_direct_navigation and not host.busy_message,
+    'suspended reader opened a delayed notice or progress panel')
+host,s=fixture();Nav.start(host);s.finish(1)
+host._native_direct_navigation_worker.start=function() return false end
+shown.callbacks.on_reader_progress();scheduled[1]()
+expect(progress_options and not progress_options.estimate(50) and not host.busy_message,
+    'unable to start an optional worker blocked chapter progress')
 host,s=fixture();Nav.start(host);s.finish(1)
 shown.callbacks.on_book_details()
 expect(host._book_detail_view and not host._native_direct_navigation and not auto_target,

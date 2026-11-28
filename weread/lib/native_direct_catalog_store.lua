@@ -117,8 +117,7 @@ function M.saved_orders(value,entries)
     end
     return next(orders) and orders or nil
 end
-function M.weights(value,entry)
-    if not M.matches(value,entry) then return nil end
+local function matched_weights(value,entry)
     local before,total,current=0,0,nil
     for index,row in ipairs(value.chapters) do
         if row.words==nil then return nil end
@@ -129,10 +128,19 @@ function M.weights(value,entry)
     if not current or current==0 or total==0 then return nil end
     return {before=before,chapter=current,total=total}
 end
+function M.weights(value,entry)
+    if M.matches(value,entry) then return matched_weights(value,entry) end
+end
+function M.estimate_from_weights(weights,percent)
+    local max_words=M.MAX_CHAPTERS*100000000
+    if type(percent)~='number' or not (percent>=0 and percent<=100) or type(weights)~='table'
+        or not Protocol.integer(weights.total,1,max_words)
+        or not Protocol.integer(weights.before,0,weights.total)
+        or not Protocol.integer(weights.chapter,1,weights.total-weights.before) then return nil end
+    return (weights.before+weights.chapter*percent/100)/weights.total*100
+end
 function M.estimate(value,entry,percent)
-    if type(percent)~='number' or not (percent>=0 and percent<=100) then return nil end
-    local weights=M.weights(value,entry)
-    return weights and (weights.before+weights.chapter*percent/100)/weights.total*100 or nil
+    return M.estimate_from_weights(M.weights(value,entry),percent)
 end
 local function query(db,sql,...)
     local statement=db:prepare(sql);local args={...}
@@ -174,7 +182,7 @@ function M.save(library,settings,codec,scope,catalog,current)
     pcall(db.close,db)
     return ok
 end
-function M.read(library,settings,codec,scope,entry,current)
+local function read(library,settings,codec,scope,entry,current,weights_only)
     if not scope_current(library,settings,scope,current) or type(library.openRead)~='function'
         or type(codec)~='table' or type(codec.json_decode)~='function'
         or not Cache.valid_entry(entry,entry and entry.book_id,scope.vid) or not entry.catalog_sha256 then return nil end
@@ -190,9 +198,17 @@ function M.read(library,settings,codec,scope,entry,current)
             or Crypto.sha256_hex(rows[1][1])~=rows[1][2] then return nil end
         local decoded,value=pcall(codec.json_decode,codec,rows[1][1])
         if not decoded or not M.matches(value,entry) or not scope_current(library,settings,scope,current) then return nil end
+        if weights_only then return matched_weights(value,entry) end
         return value
     end)
     pcall(db.close,db)
     return ok and result or nil
 end
+
+M.read=read
+
+function M.read_weights(library,settings,codec,scope,entry,current)
+    return read(library,settings,codec,scope,entry,current,true)
+end
+
 return M

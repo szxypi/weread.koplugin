@@ -74,7 +74,7 @@ function M.checkpoint(host,replace_conflict,force)
     if ctx.weights then
         local viewport=require('weread.lib.reader_progress_context').capture(host)
         if viewport then
-            estimate=(ctx.weights.before+ctx.weights.chapter*viewport.percent/100)/ctx.weights.total*100
+            estimate=require('weread.lib.native_direct_catalog_store').estimate_from_weights(ctx.weights,viewport.percent)
         end
     end
     local ok,saved=pcall(require('weread.lib.native_direct_pending').save,host.library_db,host.settings,ctx.scope,

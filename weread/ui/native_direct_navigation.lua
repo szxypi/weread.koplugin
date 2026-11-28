@@ -96,15 +96,18 @@ function M.start(host,direction,notes)
         host._native_direct_navigation_worker=worker
     end
     local worker=host._native_direct_navigation_worker
-    local function run(task,done)
+    local function run(task,done,optional)
         ctx.generation=(ctx.generation or 0)+1
         local generation=ctx.generation
-        local called,started=pcall(worker.start,worker,task,function(value)
+        local function complete(value)
             if host._native_direct_navigation~=ctx or ctx.generation~=generation then return end
             if not current() or not page_current() then M.cancel(host);return end
             done(value)
-        end)
-        if not called or not started then fail('Could not check this saved E-Ink chapter.') end
+        end
+        local called,started=pcall(worker.start,worker,task,complete)
+        if not called or not started then
+            if optional then complete(nil) else fail('Could not check this saved E-Ink chapter.') end
+        end
     end
     local function step(which)
         if not current() then M.cancel(host);return end
@@ -229,6 +232,35 @@ function M.start(host,direction,notes)
             finish(value)
         end)
     end
+    local function show_progress()
+        if not current() or ctx.busy or ctx.progress_pending then return end
+        local entry=ctx.entry
+        local catalog=require('weread.lib.native_direct_catalog_store')
+        local function show(weights)
+            require('weread.ui.reader_progress').show(host,{is_current=current,single_chapter=true,
+                chapter_number=entry.catalog_order,chapter_count=entry.catalog_count,
+                previous_action=entry.catalog_prev and function() step(-1) end or nil,
+                next_action=entry.catalog_next and function() step(1) end or nil,
+                estimate=function(percent) return catalog.estimate_from_weights(weights,percent) end})
+        end
+        if not entry.catalog_sha256 or not ctx.account then show();return end
+        local pending={}
+        ctx.progress_pending=pending
+        -- Most reads finish on the first worker poll. Avoid painting a notice
+        -- between the two panels unless the storage read actually takes time.
+        UI:scheduleIn(.4,function()
+            if ctx.progress_pending==pending and current() then busy('Checking saved E-Ink chapter...') end
+        end)
+        run(function()
+            local weights=catalog.read_weights(host.library_db,host.settings,host.client,scope,entry,current)
+            return {weights=weights}
+        end,function(value)
+            if ctx.progress_pending~=pending then return end
+            ctx.progress_pending=nil
+            close_busy()
+            show(type(value)=='table' and value.weights or nil)
+        end,true)
+    end
     local function menu()
         close_busy()
         local known_order=ctx.entry.catalog_sha256~=nil
@@ -313,17 +345,7 @@ function M.start(host,direction,notes)
                 require('weread.ui.native_direct_search').open(host,entry)
             end,
             on_read_stats=function() if current() then M.cancel(host);host:showReadStats() end end,
-            on_reader_progress=function()
-                if not current() then return end
-                local entry=ctx.entry
-                require('weread.ui.reader_progress').show(host,{is_current=current,single_chapter=true,
-                    chapter_number=entry.catalog_order,chapter_count=entry.catalog_count,
-                    previous_action=entry.catalog_prev and function() step(-1) end or nil,
-                    next_action=entry.catalog_next and function() step(1) end or nil,
-                    estimate=function(percent)
-                        return require('weread.lib.native_direct_catalog_store').estimate(ctx.progress_catalog,entry,percent)
-                    end})
-            end,
+            on_reader_progress=show_progress,
             on_reader_typography=function() if current() then require('weread.ui.reader_typography').show(host) end end,
             on_reader_display=function() if current() then require('weread.ui.reader_display').show(host,{is_current=current}) end end,
             on_delayed_screenshot=function() if current() then host:onShowWeReadDelayedScreenshot() end end,
@@ -339,18 +361,13 @@ function M.start(host,direction,notes)
     run(function()
         local entry=Cache.identify(host.settings,scope.vid,path,current)
         if not entry then return {error='invalid'} end
-        local ok,catalog=pcall(require('weread.lib.native_direct_catalog_store').read,
-            host.library_db,host.settings,host.client,scope,entry,current)
-        return {entry=entry,progress_catalog=ok and catalog or nil}
+        return {entry=entry}
     end,function(value)
         if type(value)~='table' or type(value.entry)~='table'
             or not Cache.valid_entry(value.entry,value.entry.book_id,scope.vid) then
             fail('The saved chapter changed or could not be verified. Existing files were kept.');return
         end
         ctx.entry=value.entry
-        if require('weread.lib.native_direct_catalog_store').matches(value.progress_catalog,value.entry) then
-            ctx.progress_catalog=value.progress_catalog
-        end
         if notes then
             local id=ctx.entry.book_id
             local identity=require('weread.lib.book_file_identity').read_document(document,id)

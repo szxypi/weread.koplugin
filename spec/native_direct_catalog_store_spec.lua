@@ -25,9 +25,13 @@ local entry={owner=Crypto.sha256_hex('native-direct-account\0'..scope.vid),book_
     source_sha256=string.rep('c',64),key=string.rep('d',64),copy=0,catalog_sha256=digest,
     catalog_order=2,catalog_count=3,catalog_prev='11',catalog_next='13'}
 assert(not Store.read(library,settings,codec,scope,entry,live),'missing table returned a catalog')
+assert(not Store.read_weights(library,settings,codec,scope,entry,live),'missing table returned weights')
 assert(Store.save(library,settings,codec,scope,catalog,live),'catalog save failed')
 local first=assert(Store.read(library,settings,codec,scope,entry,live))
 assert(first.chapters[2].words==200 and math.abs(Store.estimate(first,entry,50)-20)<1e-9)
+local weights=assert(Store.read_weights(library,settings,codec,scope,entry,live))
+assert(weights.before==100 and weights.chapter==200 and weights.total==1000 and weights.chapters==nil)
+assert(Store.estimate_from_weights(weights,50)==Store.estimate(first,entry,50))
 assert(first.schema==1 and not Store.saved_orders(first,{entry}),'an older snapshot implied chapter levels')
 local calls=0;catalog.chapters[2].wordCount=201
 assert(not Store.save(library,settings,codec,scope,catalog,function() calls=calls+1;return calls<3 end),
@@ -43,8 +47,10 @@ local outline=assert(Store.read(library,settings,codec,scope,entry,live))
 assert(outline.schema==2 and outline.chapters[1].title=='First section' and outline.chapters[2].level==3
     and not outline.chapters[2].words and not Store.estimate(outline,entry,50),
     'saved outline required every word count or supplied an unsupported estimate')
+assert(not Store.read_weights(library,settings,codec,scope,entry,live),'unknown word count returned weights')
 local stale={};for key,value in pairs(entry) do stale[key]=value end
 stale.catalog_prev='99'
+assert(not Store.read_weights(library,settings,codec,scope,stale,live),'unverified catalog order returned weights')
 local orders=assert(Store.saved_orders(outline,{stale,entry}))
 assert(orders[1]==nil and orders[2]==2,'saved order accepted an inconsistent chapter reference')
 outline.chapters[1].title='invalid\nline'
@@ -55,6 +61,7 @@ assert(math.abs(Store.estimate(assert(Store.read(library,settings,codec,scope,en
 current_scope={vid='456',epoch=2}
 assert(not Store.read(library,settings,codec,scope,entry,live) and not Store.save(library,settings,codec,scope,catalog,live),
     'changed account could access old catalog')
+assert(not Store.read_weights(library,settings,codec,scope,entry,live),'old account could read catalog weights')
 current_scope=scope
 local db=helper.connect(db_path);db:exec('BEGIN IMMEDIATE')
 assert(not Store.save(library,settings,codec,scope,catalog,live),'concurrent writer was ignored')
@@ -72,5 +79,6 @@ local query=db:prepare('SELECT COUNT(*) FROM native_direct_catalog_estimate WHER
 assert(tonumber(query:bind('42'):step()[1])==Store.MAX_PER_BOOK);query:close()
 db:exec("UPDATE native_direct_catalog_estimate SET payload='corrupt'");db:close()
 assert(not Store.read(library,settings,codec,scope,entry,live),'damaged catalog was accepted')
+assert(not Store.read_weights(library,settings,codec,scope,entry,live),'damaged catalog returned weights')
 os.remove(db_path);os.remove(db_path..'-wal');os.remove(db_path..'-shm')
 print('PASS: native catalog cache protects account, transactions, quota and integrity')
