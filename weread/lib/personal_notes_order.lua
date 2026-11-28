@@ -12,18 +12,20 @@ local function key(row, mode)
 end
 function M.rows(rows, mode)
     assert(type(rows) == 'table' and modes[mode], 'personal_notes_order/invalid')
-    local entries = {}
-    for index, row in ipairs(rows) do entries[#entries + 1] = {row = row, index = index, value = key(row, mode)} end
-    if mode ~= 'original' then
-        table.sort(entries, function(a, b)
-            if a.value == b.value then return a.index < b.index end
-            if a.value == nil then return false end
-            if b.value == nil then return true end
-            if mode == 'newest' then return a.value > b.value end
-            return a.value < b.value
-        end)
-    end
     local result = {}
+    if mode == 'original' then
+        for index, row in ipairs(rows) do result[index] = row end
+        return result
+    end
+    local entries = {}
+    for index, row in ipairs(rows) do entries[index] = {row = row, index = index, value = key(row, mode)} end
+    table.sort(entries, function(a, b)
+        if a.value == b.value then return a.index < b.index end
+        if a.value == nil then return false end
+        if b.value == nil then return true end
+        if mode == 'newest' then return a.value > b.value end
+        return a.value < b.value
+    end)
     for index, entry in ipairs(entries) do result[index] = entry.row end
     return result
 end

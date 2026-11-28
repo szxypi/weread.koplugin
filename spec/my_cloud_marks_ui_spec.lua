@@ -48,8 +48,32 @@ local function fixture(saved)
     return host,value
 end
 local function row(menu,label)
-    for _,item in ipairs(menu.item_table) do if item.text==label then return item end end
+    for _,item in ipairs(menu.item_table) do
+        local text=item.text_func and item.text_func() or item.text
+        if text==label then return item end
+    end
     error('missing row '..label)
+end
+do
+    local notes=snapshot()
+    local prefix=string.rep('字',77)
+    notes.updated[1].markText=prefix..'\t😀\n'..'完整正文'
+    local host=fixture(notes)
+    local protocol=require('weread.lib.protocol')
+    local substr=protocol.utf8_substr
+    local previews=0
+    protocol.utf8_substr=function(value,limit)
+        if limit==80 then previews=previews+1 end
+        return substr(value,limit)
+    end
+    expect(Marks.show(host,'900001') and previews==0,'building the list eagerly formatted note labels')
+    local menu=host._my_marks_menu
+    local item=assert(row(menu,prefix..' 😀 '))
+    expect(item.text_func()==prefix..' 😀 ' and previews==1,'preview split Unicode, kept controls, or recomputed the label')
+    item.callback()
+    expect(menu._shelf_popup.text:find(notes.updated[1].markText,1,true),'truncated label replaced the original note')
+    Marks.cancel(host)
+    protocol.utf8_substr=substr
 end
 local host,value=fixture(snapshot())
 expect(Marks.show(host,'900001'),'saved marks did not open offline')

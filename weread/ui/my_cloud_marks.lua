@@ -51,7 +51,7 @@ local function chapter(owner,row)
     return chapter_title(owner,row) or _('Chapter unavailable')
 end
 local function preview(value)
-    return Protocol.utf8_substr(value:gsub('[%z%c]',' '),80)
+    return (Protocol.utf8_substr(value,80):gsub('[%z%c]',' '))
 end
 local function search_summary(value)
     local text=preview(value);local short=Protocol.utf8_substr(text,16)
@@ -155,7 +155,11 @@ render=function(host,owner)
                     local content=owner.thoughts and row.content or row.markText
                     if not content or content=='' then content=row.abstract end
                     if not content or content=='' then content=chapter(owner,row) end
-                    items[#items+1]={text=preview(content or chapter(owner,row)),mandatory=kind(row,owner),
+                    local label
+                    items[#items+1]={text_func=function()
+                        if label==nil then label=preview(content) end
+                        return label
+                    end,mandatory=kind(row,owner),
                         my_note_id=owner.thoughts and row.reviewId or row.bookmarkId,callback=function()
                         if not current(host,owner) or owner.generation~=generation then return end
                         local parts={chapter(owner,row)}
