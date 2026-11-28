@@ -289,6 +289,9 @@ legacy_single.chapters={{chapterId=1}}
 legacy_index,legacy_chapter,legacy_full=host:getChapterInfoFromFile(legacy_single,'/cache/one.epub')
 expect(legacy_index==1 and legacy_chapter==legacy_single.chapters[1] and not legacy_full,
     'chapterId-only legacy catalog lost its chapter mapping')
+legacy_single.cached_chapters='malformed mapping'
+expect(host:getFullBookCachePath(legacy_single)==nil,
+    'a malformed map was treated as proof that the legacy file was a full book')
 
 notices = {}
 expect(not host:onWeReadSyncProgress(),

@@ -69,4 +69,37 @@ files['/single.epub']={
 assert(Claims.usable(book,'/single.epub','2',{},true),'saved list did not verify a matching single chapter')
 files['/single.epub']['OEBPS/content.opf']=opf(Protocol.reader_url('123','4'),'<itemref idref="chapter"/>')
 assert(not Claims.usable(book,'/single.epub','2',{},true),'saved list trusted an unrelated single-chapter file')
+
+local Context=require('weread.lib.reader_context')
+local original_identifier=Context.identifier
+local checked=0
+Context.identifier=function(...)
+    checked=checked+1
+    return original_identifier(...)
+end
+local many={cached_chapters={}}
+for i=1,1000 do many.cached_chapters[tostring(i)]='/cache/'..i..'.epub' end
+many.cached_chapters[999]='/cache/999.epub'
+local shared,mapped=Claims.shared(many,'/cache/999.epub')
+assert(not shared and mapped and checked==2,'a file lookup checked unrelated chapter identifiers')
+checked=0
+local uid
+uid,shared=Claims.mapped_chapter(many,'/cache/999.epub')
+assert(uid=='999' and not shared and checked==2,'numeric alias changed the known chapter')
+checked=0
+shared,mapped=Claims.shared(many,'/missing.epub')
+assert(not shared and not mapped and checked==0,'an absent path checked unrelated chapter identifiers')
+many.cached_full_book='/cache/999.epub'
+assert(Claims.shared(many,'/cache/999.epub'),'the full-book field made a single mapping ambiguous')
+many.cached_full_book=nil
+many.cached_chapters['1000']='/cache/999.epub'
+uid,shared=Claims.mapped_chapter(many,'/cache/999.epub')
+assert(not uid and shared,'multiple chapters sharing one path were treated as one chapter')
+
+checked=0
+local lookup={}
+assert(Claims.shared(many,'/cache/999.epub',lookup))
+assert(not Claims.shared(many,'/cache/1.epub',lookup) and checked==1001,
+    'the index for multiple paths was not reused')
+Context.identifier=original_identifier
 print('chapter_cache_claim_spec: shared single, combined and unknown EPUB identities passed')

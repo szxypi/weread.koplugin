@@ -7,23 +7,59 @@ local Crypto=require('weread.lib.crypto')
 local M={}
 local counts_key={}
 
+local function cached_chapters(book)
+    return type(book.cached_chapters)=='table' and book.cached_chapters or {}
+end
+
+local function chapter_key(key)
+    local ok,id=pcall(Context.identifier,key,true)
+    return ok and id or 'invalid:'..tostring(key)
+end
+
+local function scan_path(book,path)
+    local reference,chapter
+    for key,value in pairs(cached_chapters(book)) do
+        if value==path then
+            local id=chapter_key(key)
+            if reference and reference~=id then return true end
+            reference,chapter=id,tostring(key)
+        end
+    end
+    return reference,chapter
+end
+
+local function shared_reference(book,path,reference)
+    return reference==true or reference~=nil and book.cached_full_book==path
+end
+
+-- The reader needs the mapped chapter and the ambiguity check for one file.
+function M.mapped_chapter(book,path)
+    if type(book)~='table' or type(path)~='string' then return nil,false end
+    local reference,chapter=scan_path(book,path)
+    return chapter,shared_reference(book,path,reference)
+end
+
 function M.shared(book,path,cache)
-    if type(book)~='table' or type(path)~='string' then return false end
-    local counts=cache and cache[counts_key]
+    if type(book)~='table' or type(path)~='string' then return false,false end
+    if not cache then
+        local reference=scan_path(book,path)
+        return shared_reference(book,path,reference),reference~=nil
+    end
+    -- Callers checking many paths can build the index once for their action.
+    local counts=cache[counts_key]
     if not counts then
         counts={}
-        for key,value in pairs(type(book.cached_chapters)=='table' and book.cached_chapters or {}) do
+        for key,value in pairs(cached_chapters(book)) do
             if type(value)=='string' then
-                local ok,id=pcall(Context.identifier,key,true)
-                if not ok then id='invalid:'..tostring(key) end
+                local id=chapter_key(key)
                 if counts[value]==nil then counts[value]=id
                 elseif counts[value]~=id then counts[value]=true end
             end
         end
-        if cache then cache[counts_key]=counts end
+        cache[counts_key]=counts
     end
     local reference=counts[path]
-    return reference==true or reference~=nil and book.cached_full_book==path
+    return shared_reference(book,path,reference),reference~=nil
 end
 
 local function inspect(book,path)

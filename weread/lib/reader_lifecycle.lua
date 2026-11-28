@@ -495,18 +495,6 @@ function M:showPrefetchNotice(text, timeout)
     self:showTransientInfo(text, timeout or 1)
 end
 
-local function mapped_chapter(book, file)
-    local current
-    for uid, path in pairs(type(book.cached_chapters) == "table" and book.cached_chapters or {}) do
-        if path == file then
-            local key = tostring(uid)
-            if current and current ~= key then return nil, true end
-            current = key
-        end
-    end
-    return current, false
-end
-
 local function chapter_in_catalog(chapters, uid)
     if uid then
         uid = tostring(uid)
@@ -539,9 +527,10 @@ function M:maybePrefetchNextChapter(book_id, recovered)
         self.downloader:cancelPrefetch("prefetch_context_missing")
         return false
     end
-    local current_uid, shared = mapped_chapter(book, file)
-    if shared or current_uid and book.cached_full_book == file then
-        local info = require("weread.lib.chapter_cache_claim").inspect(book, file, nil, true)
+    local Claims=require('weread.lib.chapter_cache_claim')
+    local current_uid, shared = Claims.mapped_chapter(book, file)
+    if shared then
+        local info = Claims.inspect(book, file, nil, true)
         current_uid = info.kind == "single" and info.uid or nil
     end
     if not current_uid or current_uid == "" then
@@ -934,16 +923,14 @@ function M:getFullBookCachePath(book, exists, claim_cache)
     if type(book.cached_full_book) == "string"
         and book.cached_full_book ~= "" and (exists or file_exists)(book.cached_full_book) then
         if not Claims.shared(book,book.cached_full_book,claim_cache)
-            or Claims.inspect(book,book.cached_full_book,claim_cache).kind=='combined' then return book.cached_full_book end
+            or Claims.inspect(book,book.cached_full_book,claim_cache,true).kind=='combined' then return book.cached_full_book end
     end
     local legacy = book.cached_file
     if type(legacy) ~= "string" or legacy == "" then return nil end
-    local mapped = false
-    for _uid, path in pairs(book.cached_chapters or {}) do
-        if path == legacy then mapped = true;break end
-    end
-    if Claims.shared(book,legacy,claim_cache) then
-        return Claims.inspect(book,legacy,claim_cache).kind=='combined' and legacy or nil
+    if book.cached_chapters and type(book.cached_chapters) ~= "table" then return nil end
+    local shared,mapped=Claims.shared(book,legacy,claim_cache)
+    if shared then
+        return Claims.inspect(book,legacy,claim_cache,true).kind=='combined' and legacy or nil
     end
     if mapped then return nil end
     return legacy
@@ -965,9 +952,8 @@ function M:getChapterInfoFromFile(book, file_path)
         return nil, nil, false
     end
 
-    local current_uid = mapped_chapter(book, file_path)
-
     local Claims=require('weread.lib.chapter_cache_claim')
+    local current_uid,shared=Claims.mapped_chapter(book,file_path)
     local function complete(info)
         local document=self.ui and self.ui.document
         return Claims.document_complete(info,document,book.book_id or book.bookId,book.chapters)
@@ -978,16 +964,15 @@ function M:getChapterInfoFromFile(book, file_path)
         return nil,nil,true,not complete(info)
     end
 
-    local is_full_book = false
-    if Claims.shared(book,file_path) then
-        local info=Claims.inspect(book,file_path)
+    if shared then
+        local info=Claims.inspect(book,file_path,nil,true)
         if info.kind=='combined' then return nil,nil,true,not complete(info) end
         if info.kind~='single' then return nil,nil,false end
         current_uid=info.uid
     end
 
     local index, chapter = chapter_in_catalog(book.chapters, current_uid)
-    return index, chapter, is_full_book
+    return index, chapter, false
 end
 
 function M:onFlushSettings()
