@@ -275,6 +275,7 @@ function M.start(host,book,view,options)
         ctx.chapter=nil
         ctx.cloud_target=nil
         ctx.recovery_attempted=nil
+        ctx.mark_unavailable=nil
         host._native_direct_worker:cancel()
         close_busy()
     end
@@ -499,6 +500,7 @@ function M.start(host,book,view,options)
         -- as wide as the screen, leaving no room for chapter titles.
         local shortcut_width=screen:scaleBySize(24)
         local search=''
+        local unavailable={}
         local by_index,menu,unfiltered_position
         local function items()
             local matches,counts=filter_titles(search)
@@ -516,7 +518,8 @@ function M.start(host,book,view,options)
                 elseif index==adjacent_index then label=_(adjacent_direction==1 and 'Next chapter' or 'Previous chapter')..' · '..label
                 elseif index==cloud_index then label=_('Cloud reading chapter')..' · '..label end
                 local order=not offline and index or orders and orders[index]
-                local item={text=label,select_enabled=picker~=nil or offline or row.downloadable,chapter_index=index,
+                local item={text=label,select_enabled=not unavailable[index] and (picker~=nil or offline or row.downloadable),
+                    chapter_index=index,mandatory=unavailable[index] and _('Unavailable offline') or nil,
                     bold=order and headings and headings[order],indent=order and depths and depths[order] and depths[order]*indent,
                     shortcut_icon_width=shortcut_width}
                 result[number],by_index[index]=item,item
@@ -543,6 +546,11 @@ function M.start(host,book,view,options)
                 Popup.close(menu)
                 if offline then
                     ctx.entry=rows[index]
+                    ctx.mark_unavailable=function()
+                        if ctx.menu~=menu or by_index[index]~=item then return end
+                        unavailable[index]=true
+                        ChapterSearch.mark_unavailable(menu,item)
+                    end
                     begin_open('offline_open')
                 else
                     ctx.chapter=rows[index]
@@ -1037,6 +1045,7 @@ function M.start(host,book,view,options)
             if type(result)~='table' or not require('weread.lib.native_direct_path').contains(host.settings,result.path)
                 or not hash(result.source_sha256) or result.book_version~=version
                 or not Protocol.integer(result.missing_images,0,64) then
+                if phase=='offline_open' and reason=='damaged' and ctx.mark_unavailable then ctx.mark_unavailable() end
                 fail(reason=='damaged' and 'The saved E-Ink chapter is damaged or has changed. The file was kept.'
                     or reason=='catalog_changed' and 'The chapter list changed. Please open it again.' or nil,
                     reason=='catalog_changed');return

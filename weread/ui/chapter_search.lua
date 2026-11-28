@@ -48,6 +48,14 @@ function M.label(title, index, counts, label)
     return label
 end
 
+function M.mark_unavailable(menu, entry)
+    entry.select_enabled = false
+    entry.mandatory = _('Unavailable offline')
+    local focus = menu:getFocusItem()
+    menu.itemnumber = focus and focus.idx
+    menu:updateItems(1, true)
+end
+
 function M.prompt(host, view, query, current, apply)
     if not current() then return end
     local dialog

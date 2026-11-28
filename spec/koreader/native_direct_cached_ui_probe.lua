@@ -9,7 +9,8 @@ local UI=require('ui/uimanager');local socket=require('socket');local home=asser
 local test=assert(arg[2]);local path=assert(arg[3]);local scope={vid=test=='other' and '87654321' or '12345678',epoch=1}
 local settings={data_dir=home,cache_dir=home,get=function(_,_,default) return default end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,value) return value==scope end}
-require('weread.lib.native_read_access').capture=function() error('offline lookup requested credentials') end
+local Access=require('weread.lib.native_read_access')
+Access.capture=function() return nil end
 local client=require('weread.lib.client'):new(settings)
 client.request=function() error('offline lookup attempted a network request') end
 local Common=require('weread.ui.common')
@@ -28,6 +29,7 @@ local function wait(predicate)
     end
 end
 host:showBookMenu({book_id='42',title='Synthetic native book',author='Fixture',chapters={}})
+Access.capture=function() error('offline lookup requested credentials') end
 local detail=assert(host._book_detail_view);local action
 local tr=require('weread.lib.plugin_util').tr
 local damage_message=tr('The saved E-Ink chapter is damaged or has changed. The file was kept.')
@@ -59,7 +61,15 @@ else
         assert(not host.opened and host.message==damage_message and not host.busy_message)
         assert(ctx.menu==menu and menu.item_table==items and menu.subtitle==subtitle and menu.page==page,
             'failed copy lost the active filtered chapter list')
+        assert(items[1].select_enabled==false and items[1].mandatory==tr('Unavailable offline'),
+            'failed native copy remained selectable')
         host.message=nil
+        menu:onMenuSelect(items[1])
+        assert(not host.message and not host._native_direct_worker.job,'disabled native copy was checked again')
+        assert(menu.title_bar.left_button).callback()
+        assert(menu._shelf_popup).buttons[1][1].callback()
+        assert(menu.item_table[1].select_enabled==false and menu.item_table[2].select_enabled,
+            'clearing a filter did not keep the unavailable status on the failed copy only')
     else assert(#menu.item_table==1) end
     if test=='damage' then local file=assert(io.open(path,'ab'));assert(file:write('corrupt'));assert(file:close()) end
     if test=='switch' then scope={vid='87654321',epoch=2} end
@@ -77,6 +87,8 @@ else
         wait(function() return host.opened or host.message end)
         if test=='damage' or test=='bad-receipt' then
             assert(not host.opened and host.message==damage_message and ctx.menu==menu and not host.busy_message)
+            assert(menu.item_table[1].select_enabled==false and menu.item_table[1].mandatory==tr('Unavailable offline'),
+                'damaged native chapter remained selectable')
             assert(require('libs/libkoreader-lfs').attributes(path))
         else assert(host.opened==path and not host._native_direct_reading and not host.busy_message) end
     end

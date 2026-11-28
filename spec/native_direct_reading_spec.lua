@@ -97,7 +97,8 @@ local function fixture()
         showList=function(_,title,items,_,options)
             local menu={item_table=items,getPageNumber=function(_,index) return index end,
                 getFirstVisibleItemIndex=function() return state.page or 1 end,
-                getFocusItem=function(self) return state.focus and {entry=self.item_table[state.focus]} end,
+                getFocusItem=function(self) return state.focus and {entry=self.item_table[state.focus],idx=state.focus} end,
+                updateItems=function(self) state.focus=self.itemnumber;self.itemnumber=nil end,
                 onGotoPage=function(_,page) state.page=page end,switchItemTable=function(self,_,rows,index)
                 self.item_table=rows;state.items=rows;state.page=index or 1;state.focus=self.itemnumber
             end}
@@ -544,6 +545,9 @@ expect(#s.jobs==2,'a second choice replaced an in-flight saved-file check')
 s.finish(2)
 expect(host._native_direct_reading.menu==chooser and s.items==filtered and s.page==2
     and not host.busy_message and s.message:find('file was kept',1,true),'failed check discarded the chapter list')
+s.select(1)
+expect(not filtered[1].select_enabled and filtered[1].mandatory=='Unavailable offline'
+    and filtered[2].select_enabled and #s.jobs==2,'failed save was checked again or blocked another copy')
 s.select(2)
 local cancelled_job=s.jobs[3]
 local cancelled_result=cancelled_job.task()

@@ -2599,11 +2599,7 @@ function M:showSavedChapters(book_id, detail, reader)
                 on_cache_miss = function()
                     if not current() or visible[entry] ~= chapter then return false end
                     chapter.unavailable = true
-                    entry.select_enabled = false
-                    entry.mandatory = unavailable_label
-                    local focus = menu:getFocusItem()
-                    menu.itemnumber = focus and focus.idx
-                    menu:updateItems(1, true)
+                    ChapterSearch.mark_unavailable(menu, entry)
                     self:showInfo(_('The downloaded chapter is unavailable or could not be verified.'))
                     return false
                 end,
