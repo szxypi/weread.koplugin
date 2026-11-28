@@ -130,8 +130,6 @@ render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
-        owner.generation=(owner.generation or 0)+1
-        local generation=owner.generation
         local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end},
             {text=_('Search all saved notes'),callback=function()
                 if current(host,owner) then require('weread.ui.notebook_search').prompt(host,owner,current) end
@@ -139,6 +137,7 @@ render=function(host,owner)
             {text=_('Local thought drafts'),callback=function()
                 if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
             end}}
+        local books,book_offset
         if owner.value then
             items[#items+1]={text=_('Save all notebook notes for offline use'),callback=function()
                 if current(host,owner) then
@@ -175,14 +174,15 @@ render=function(host,owner)
             local stamp=owner.value.fetched_at
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
             items[#items+1]={text=_('Saved notebooks'),mandatory=date,select_enabled=false}
-            local books=ordered_books(owner)
-            for _,book in ipairs(books) do
-                items[#items+1]={text=book.title,mandatory=book.author,notebook_id=book.bookId,callback=function()
-                    if owner.generation==generation then open_book(host,owner,book) end
-                end}
+            books=ordered_books(owner)
+            book_offset=#items
+            for index,book in ipairs(books) do
+                local item_index=book_offset+index
+                items[item_index]={text=book.title,mandatory=book.author,notebook_id=book.bookId,notebook_index=item_index}
             end
             if #books==0 then items[#items+1]={text=_(owner.needle and 'No matching notebooks.' or 'No notebooks yet.'),select_enabled=false} end
         else items[#items+1]={text=_('No saved notebooks. Refresh while online.'),select_enabled=false} end
+        owner.visible_books,owner.book_offset=books,book_offset
         owner.menu:switchItemTable(nil,items)
     end)
 end
@@ -256,7 +256,19 @@ function M.show(host,options)
         document=host.ui and host.ui.document,store=Store:new(host.library_db,host.client,account)}
     local ok,value=pcall(owner.store.read,owner.store);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
-    local menu=host:showList(_('My notebooks'),{{text=_('No saved notebooks. Refresh while online.'),select_enabled=false}},nil,{thought_text=true})
+    local menu=host:showList(_('My notebooks'),{{text=_('No saved notebooks. Refresh while online.'),select_enabled=false}},nil,{
+        thought_text=true,on_choice=function(item)
+            local index=item.notebook_index
+            if index then
+                -- An old widget can still hold a row from before a redraw.
+                if owner.menu.item_table[index]==item then
+                    open_book(host,owner,owner.visible_books[index-owner.book_offset])
+                end
+            elseif item.callback then
+                item.callback()
+            end
+        end,
+    })
     if not menu then return false end
     owner.menu=menu;host._notebook_owner=owner;host._notebook_menu=menu
     local on_close=menu.onCloseWidget

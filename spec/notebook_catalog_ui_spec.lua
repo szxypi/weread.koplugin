@@ -32,7 +32,12 @@ local function fixture(saved)
     end
     host.showInfo=function(_self,text) value.notices[#value.notices+1]=text end;host.showOffline=host.showInfo
     host.showInputDialog=function(_self,dialog) UI:show(dialog) end
-    host.showList=function(_self,title,items) return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end} end
+    host.showList=function(_self,title,items,_empty,options)
+        return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end,
+            onMenuSelect=function(_menu,item)
+                if item.select_enabled~=false then options.on_choice(item) end
+            end}
+    end
     host.showBusy=function(self,_text,cancel) self.busy_message={cancel=cancel} end
     host.closeBusy=function(self) self.busy_message=nil end
     Store.new=function() return {read=function() return value.saved end,write=function(_self,row)
@@ -54,7 +59,7 @@ local host,value=fixture(snapshot());expect(Catalog.show(host),'cached catalog d
 local menu=host._notebook_menu
 expect(not value.link_checks and not value.started and row(menu,'Synthetic book').mandatory=='Author','cached catalog not shown offline')
 expect(row(menu,'Save all notebook notes for offline use'),'offline notebook-save entry missing')
-row(menu,'Save all notebook notes for offline use').callback()
+menu:onMenuSelect(row(menu,'Save all notebook notes for offline use'))
 expect(not value.started and #value.notices==1 and not menu._shelf_popup,'offline save attempted a request')
 row(menu,'Save only missing notebook notes').callback()
 expect(not value.started and #value.notices==2 and not menu._shelf_popup,'offline missing-only save attempted a request')
@@ -63,7 +68,9 @@ expect(not value.started and #value.notices==3 and not menu._shelf_popup,'offlin
 row(menu,'Clear saved thought and review images').callback();local clear=assert(menu._shelf_popup)
 expect(clear.text:find('review images',1,true) and not value.started,'image clear skipped confirmation')
 UI:close(clear)
-row(menu,'Synthetic book').callback();local popup=menu._shelf_popup
+local book_row=row(menu,'Synthetic book')
+menu:onMenuSelect(book_row);local popup=menu._shelf_popup
+expect(not book_row.callback,'book row allocated its own callback')
 expect(popup.buttons[1][1].text=='My cloud highlights (2)' and popup.buttons[2][1].text=='My cloud thoughts (1)' and popup.buttons[3][1].text=='My cloud bookmarks (3)','counts or actions missing')
 popup.buttons[2][1].callback();expect(value.opened[1]=='showMyCloudThoughts' and value.opened[2]=='900001','thought action wrong')
 Catalog.cancel(host);expect(value.child_closed and not host._notebook_menu,'owned child not closed')
@@ -73,12 +80,14 @@ expect(host._notebook_menu._shelf_popup and host._notebook_menu._shelf_popup.tit
     and not value.started,'direct search was displaced by an automatic refresh')
 Catalog.cancel(host)
 host,value=fixture(snapshot());Catalog.show(host);menu=host._notebook_menu
-row(menu,'Unsupported').callback();expect(#value.notices==1 and not menu._shelf_popup,'unsupported book opened')
+menu:onMenuSelect(row(menu,'Unsupported'));expect(#value.notices==1 and not menu._shelf_popup,'unsupported book opened')
 value.online=true;row(menu,'Refresh my notebooks').callback();local old=menu.item_table
-row(menu,'Synthetic book').callback();local changed=snapshot();changed.books[1].title='Updated';value.complete(changed)
+local old_book=row(menu,'Synthetic book')
+menu:onMenuSelect(old_book);local changed=snapshot();changed.books[1].title='Updated';value.complete(changed)
 expect(value.writes==1 and menu.item_table==old and menu._shelf_popup,'refresh disturbed popup')
 UI:close(menu._shelf_popup);expect(row(menu,'Updated'),'deferred refresh missing')
-local stale=row(menu,'Updated').callback;Catalog.cancel(host);stale();expect(not menu._shelf_popup,'stale row opened')
+menu:onMenuSelect(old_book);expect(not menu._shelf_popup,'replaced book row opened after refresh')
+local stale=row(menu,'Updated');Catalog.cancel(host);menu:onMenuSelect(stale);expect(not menu._shelf_popup,'stale row opened')
 local search_snapshot={schema=1,fetched_at=1000,books={
     {bookId='900001',title='Alpha book',author='Other',noteCount=1,reviewCount=0,bookmarkCount=0},
     {bookId='900002',title='Beta book',author='ALPHA author',noteCount=0,reviewCount=3,bookmarkCount=0},
@@ -86,7 +95,7 @@ local search_snapshot={schema=1,fetched_at=1000,books={
     {bookId='900004',title='Unknown count',author='Writer'},
 }}
 host,value=fixture(search_snapshot);Catalog.show(host);menu=host._notebook_menu
-local hidden_callback=row(menu,'Gamma book').callback
+local hidden_row=row(menu,'Gamma book')
 local function search(text)
     row(menu,'Search notebooks').callback();local dialog=menu._shelf_popup
     dialog.input=text;dialog.buttons[1][2].callback()
@@ -100,10 +109,14 @@ function Search.matches(...)
 end
 search('  alpha  ')
 expect(row(menu,'Alpha book') and row(menu,'Beta book') and not pcall(row,menu,'Gamma book'),'search missed title/author or retained unrelated book')
-hidden_callback();expect(not menu._shelf_popup,'stale row escaped search filter')
+menu:onMenuSelect(hidden_row);expect(not menu._shelf_popup,'stale row escaped search filter')
 expect(not value.started and value.writes==0,'offline search accessed network or saved query')
+local old_alpha=row(menu,'Alpha book')
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
 expect(listed(menu)=='Beta book,Alpha book','sort did not compose with search')
+menu:onMenuSelect(old_alpha);expect(not menu._shelf_popup,'retired row opened after sort')
+menu:onMenuSelect(row(menu,'Alpha book'));expect(menu._shelf_popup.title=='Alpha book','sorted row routed to another title')
+UI:close(menu._shelf_popup)
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
 expect(listed(menu)=='Alpha book,Beta book','sort did not restore filtered original order')
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
