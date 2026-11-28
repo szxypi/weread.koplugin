@@ -41,10 +41,35 @@ return function(host, view, book, pump, tick, press)
     assert(saved[1] and not saved[2], 'completed chapter was not retained')
     assert(not book(host).cached_full_book, 'partial book was published')
     request('/__control',{match='',times=0,skip=0})
-    while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=view do UI:close(UI:getTopmostVisibleWidget()) end
-    tick();press(view,'⇩ Download full book')
+    local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,host.settings:get_auth_scope(),'standard')
+    local id=tostring(job.book.book_id or job.book.bookId)
+    local function current() return true end
+    if expired then
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=view do UI:close(UI:getTopmostVisibleWidget()) end
+        tick();press(view,'⇩ Download full book')
+    else
+        local plan=assert(store:read(id,current),'paused full EPUB did not leave a resume record')
+        assert(plan.count==#job.chapters and plan.first==1 and plan.last==plan.count,'resume scope did not cover the full book')
+        host:closeWeReadUI()
+        require('weread.ui.download_library').show(host)
+        pump(function() return host.shelf_view and host.shelf_view._discovery_tab=='downloads' end)
+        local downloads=host.shelf_view
+        local queue=assert(downloads._action_buttons and downloads._action_buttons[1],'missing unfinished downloads entry')
+        UI:forceRePaint();queue:onTapSelectButton()
+        pump(function() return downloads._shelf_popup and downloads._shelf_popup.item_table end)
+        local menu=downloads._shelf_popup
+        local row=assert(menu.item_table[1]);assert(#menu.item_table==1 and row.text:find('EPUB',1,true))
+        menu:onMenuSelect(row)
+        local action=assert(menu._shelf_popup)
+        assert(action.buttons[1][1].text==require('weread.lib.i18n').tr('Continue download'))
+        action.buttons[1][1].callback()
+        local before_catalog=count('/web/book/chapterInfos')
+        pump(function() return host.downloader._active_job~=nil end)
+        assert(count('/web/book/chapterInfos')>before_catalog,'resume used the stale local catalog')
+    end
     return function()
         assert(count(path)-before==7, 'resume redownloaded a completed chapter or skipped a remaining chapter')
+        assert(not store:read(id,current),'completed full EPUB remained in unfinished downloads')
         return {reason=expired and 'login_expired' or 'rate_limited',limited_after_one=true,no_automatic_retry=true,checkpoint_reused=true,complete_book_only=true}
     end
 end

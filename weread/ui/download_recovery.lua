@@ -9,6 +9,23 @@ local Reading = require('weread.ui.book_reading')
 local Scope = require('weread.ui.page_scope')
 local _ = require('weread.lib.plugin_util').tr
 local M = {}
+local resume_changed='The saved download or its catalog changed. Refresh the list or start a new full-book download.'
+local Plan=require('weread.lib.native_direct_batch_plan')
+
+local function matches_plan(store,plan,catalog,current)
+    if not store or not catalog or not store:range(plan,catalog) then return false end
+    local latest=store:read(catalog.book_id,current)
+    return latest and latest.revision==plan.revision and store:range(latest,catalog)~=nil
+end
+
+function M.canResume(host,book,chapters,plan)
+    local scope=host.settings:get_auth_scope()
+    local catalog=Plan.standard_catalog(Access.display_book_id(book.book_id or book.bookId),
+        FileIdentity.version(book.bookVersion),Reading.catalog(chapters))
+    local store=scope and host.library_db and Plan:new(host.library_db,scope,'standard')
+    if matches_plan(store,plan,catalog,function() return host.settings:auth_scope_matches(scope) end) then return true end
+    host:showInfo(_(resume_changed));return false
+end
 
 local function same_catalog(left,right)
     if not left or not right or #left~=#right then return false end
@@ -64,6 +81,7 @@ function M.start(host,book,chapters,suffix,options)
     local catalog=Reading.catalog(chapters)
     local scope=host.settings:get_auth_scope()
     if not id or not catalog or not scope or not Source.web_access(host.settings) then
+        if options.resume_plan then host:showInfo(_(resume_changed));return false end
         return host.downloader:start(book,chapters,suffix,options)
     end
     local targets={}
@@ -73,6 +91,8 @@ function M.start(host,book,chapters,suffix,options)
     end
     local page_current=Scope.capture(host,host.shelf_view)
     local full=suffix=='full' and not options.single_chapter and not options.separate_chapters
+    local plan_store=full and host.library_db and Plan:new(host.library_db,scope,'standard')
+    local resume=options.resume_plan
     local ctx={scope=scope,catalog=catalog,version=FileIdentity.version(book.bookVersion),
         fingerprint=WorkerSettings.fingerprint(host.settings),api_key=host.settings:get('api_key',''),
         owner=options.recovery_owner or (not full and host._chapter_list_view or nil),
@@ -90,6 +110,7 @@ function M.start(host,book,chapters,suffix,options)
     local function finish(ok,value,message)
         if host._full_download_recovery~=ctx then return end
         local valid=current()
+        if valid and ok and ctx.plan then plan_store:remove(id,ctx.plan,current) end
         M.cancel(host,not ctx.paused_selection)
         if valid and type(options.on_complete)=='function' then pcall(options.on_complete,ok,value) end
         if valid and message then host:showInfo(_(message)) end
@@ -219,8 +240,28 @@ function M.start(host,book,chapters,suffix,options)
         else finish(ok,value) end
     end
     launch=function()
+        if resume and not ctx.plan and not matches_plan(plan_store,resume,
+            Plan.standard_catalog(id,FileIdentity.version(download_book.bookVersion),catalog),current) then
+            finish(false,'catalog_changed',resume_changed);return false
+        end
         local copy={};for key,value in pairs(options) do copy[key]=value end
         copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
+        if plan_store then
+            copy.on_start=function()
+                if not current() then return end
+                if not ctx.plan then
+                    local identity=Plan.standard_catalog(id,FileIdentity.version(download_book.bookVersion),catalog)
+                    if not resume or matches_plan(plan_store,resume,identity,current) then
+                        ctx.plan=plan_store:begin(identity,nil,resume or plan_store:read(id,current),current)
+                    end
+                    if resume and not ctx.plan then
+                        host.downloader:cancelRequest(ctx.complete,'catalog_changed')
+                        finish(false,'catalog_changed',resume_changed);return
+                    end
+                end
+                if type(options.on_start)=='function' then options.on_start() end
+            end
+        end
         if options.separate_chapters then
             copy.on_selected_expired=function(job)
                 if ctx.attempted or not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then

@@ -2415,7 +2415,7 @@ function M:loadChapters(book, callback, force_refresh, read_only_cache)
         local same_id,current_id=pcall(reader_context.book_id,book)
         if not same_id or current_id~=requested_id or not current()
             or chapter_view and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return end
-        require('weread.ui.catalog_request').start(self,book,function(chapters)
+        require('weread.ui.catalog_request').start(self,book,function(chapters,version)
             local indexes = self.settings:get_book_indexes()
             local index, conflict = ReadAccess.cached_book_for_update(indexes, requested_id)
             local latest = index and ReadAccess.load_cached_book(self.settings, requested_id)
@@ -2443,7 +2443,7 @@ function M:loadChapters(book, callback, force_refresh, read_only_cache)
             end
             book.cache_dir = target.cache_dir
             book.chapters = chapters
-            callback(chapters)
+            callback(chapters,version)
         end,{current=current,chapter_view=chapter_view})
     end)
 end
@@ -3431,12 +3431,20 @@ function M:downloadChapterAndRead(book, chapter, on_downloaded, current, confirm
     })
 end
 
-function M:confirmDownloadAllChapters(book)
-    self:loadChapters(book, function(chapters)
-        self:confirmAndDownloadChapters(book, chapters, "full", {
-            confirmation_text = T(_("Download all %1 chapters as one EPUB?"), tostring(#chapters)),
+function M:confirmDownloadAllChapters(book, resume_plan, on_complete)
+    self:loadChapters(book, function(chapters,version)
+        local target=book
+        if version~=nil then
+            target={};for key,value in pairs(book) do target[key]=value end
+            target.bookVersion=require('weread.lib.book_file_identity').version(version)
+        end
+        if resume_plan and not require('weread.ui.download_recovery').canResume(self,target,chapters,resume_plan) then return end
+        local prompt=resume_plan and _('Continue downloading all %1 chapters as one EPUB?')
+            or _('Download all %1 chapters as one EPUB?')
+        self:confirmAndDownloadChapters(target, chapters, "full", {
+            confirmation_text = T(prompt, tostring(#chapters)), resume_plan=resume_plan, on_complete=on_complete,
         })
-    end)
+    end,resume_plan~=nil)
 end
 
 -- Annotation matching is a reading action, shared by all download forms.

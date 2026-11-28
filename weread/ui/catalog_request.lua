@@ -104,9 +104,9 @@ function M.start(host,book,callback,options)
                 local copy={book_id=id,title=book.title,author=book.author,reader_url=book.reader_url}
                 local client=require('weread.lib.book_reading_client').wrap(host.client,copy)
                 Content.ensure_reader_state(client,copy)
-                local chapters=Content.fetch_catalog(client,copy)
+                local chapters,version=Content.fetch_catalog(client,copy)
                 if not valid_catalog(chapters) then error('invalid_catalog',0) end
-                return {book_id=id,chapters=chapters,auth=auth_result()}
+                return {book_id=id,chapters=chapters,version=version,auth=auth_result()}
             end)
             if good then return value end
             return {error=value=='book_reading/web_expired' and 'web_expired'
@@ -122,7 +122,7 @@ function M.start(host,book,callback,options)
             if result.auth and not WorkerSettings.merge(host.settings,ctx.fingerprint,result.auth) then fail();return end
             local chapters=result.chapters
             M.cancel(host)
-            if not pcall(callback,chapters) then
+            if not pcall(callback,chapters,result.version) then
                 host:showInfo(_('Could not load this book’s chapter list. Check your connection and login, then try again.'))
             end
         end)

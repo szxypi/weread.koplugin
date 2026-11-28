@@ -1,17 +1,19 @@
--- A local download range. A new process must verify the current catalog and
--- obtain a fresh confirmation before using it.
+-- Local resume plans for E-Ink chapter ranges and standard full-book EPUBs.
+-- A new process verifies the current catalog before offering confirmation.
 local Contract=require('weread.lib.native_position_contract')
 local Protocol=require('weread.lib.native_position_protocol')
 local M={}
 M.__index=M
-local PREFIX='eink_batch_v1:'
+local PREFIX={eink='eink_batch_v1:',standard='standard_full_v1:'}
 
 local function hex(value,length)
     return type(value)=='string' and #value==length and value:match('^[a-f0-9]+$')~=nil
 end
 
-local function key(id)
-    if type(id)=='string' and Protocol.id(id)==id then return PREFIX..id end
+local function key(kind,id)
+    if type(id)~='string' then return end
+    local valid=kind=='eink' and Protocol.id(id) or kind=='standard' and require('weread.lib.read_access').display_book_id(id)
+    if valid==id then return PREFIX[kind]..id end
 end
 
 local fields={schema=true,account=true,book_id=true,version=true,digest=true,count=true,first=true,last=true,revision=true}
@@ -33,8 +35,9 @@ local function revision()
     return (bytes:gsub('.',function(char) return string.format('%02x',char:byte()) end))
 end
 
-function M:new(library,scope)
-    return setmetatable({library=library,account=Contract.account_key(scope.vid)},self)
+function M:new(library,scope,kind)
+    kind=kind or 'eink'
+    return setmetatable({library=library,account=Contract.account_key(scope.vid),kind=kind},self)
 end
 
 function M:_current(guard)
@@ -45,11 +48,12 @@ function M:_current(guard)
 end
 
 function M:verified(record,id)
-    return key(id)~=nil and self.account~=nil and valid(record,id,self.account)
+    return key(self.kind,id)~=nil and self.account~=nil and valid(record,id,self.account)
+        and (self.kind~='standard' or record.first==1 and record.last==record.count)
 end
 
 function M:read(id,guard)
-    local name=key(id)
+    local name=key(self.kind,id)
     if not name or not self:_current(guard) or type(self.library.getProfileState)~='function' then return end
     local ok,value=pcall(self.library.getProfileState,self.library,name)
     if ok and self:verified(value,id) and self:_current(guard) then return value end
@@ -64,12 +68,13 @@ function M:list(guard)
         local json=require('json')
         statement=db:prepare([[SELECT name,CASE WHEN length(CAST(payload AS BLOB))<=1024 THEN payload END
             FROM profile_state WHERE name GLOB ? ORDER BY name]])
-        statement:bind(PREFIX..'*')
+        local prefix=PREFIX[self.kind]
+        statement:bind(prefix..'*')
         local result={}
         while true do
             local row=statement:step()
             if not row then break end
-            local id=row[1]:sub(#PREFIX+1)
+            local id=row[1]:sub(#prefix+1)
             if type(row[2])=='string' then
                 local decoded,record=pcall(json.decode,row[2])
                 if decoded and self:verified(record,id) then result[#result+1]=record end
@@ -83,13 +88,28 @@ function M:list(guard)
 end
 
 function M:range(record,catalog)
-    if self:verified(record,catalog.book_id) and record.version==catalog.version and record.digest==catalog.reading_digest
+    if self:verified(record,catalog.book_id)
+        and (record.version==catalog.version or self.kind=='standard' and (record.version==0 or catalog.version==0))
+        and record.digest==catalog.reading_digest
         and record.count==#catalog.chapters then return {first=record.first,last=record.last} end
+end
+
+-- The ordered UIDs and ordinals define the whole EPUB's chapter scope.
+-- The downloader still validates each staged chapter's content and version.
+function M.standard_catalog(id,version,chapters)
+    if not key('standard',id) or not chapters then return end
+    local rows={}
+    for i,row in ipairs(chapters) do
+        rows[i]=row.chapterUid..':'..tostring(row.chapterIdx or '')
+    end
+    return {book_id=id,version=version,chapters=chapters,
+        reading_digest=require('weread.lib.crypto').sha256_hex(table.concat(rows,'\n'))}
 end
 
 function M:begin(catalog,range,expected,guard)
     local id=catalog.book_id
-    if not key(id) or not self:_current(guard) or type(self.library.compareProfileState)~='function'
+    local name=key(self.kind,id)
+    if not name or not self:_current(guard) or type(self.library.compareProfileState)~='function'
         or range~=nil and type(range)~='table'
         or expected~=nil and not self:verified(expected,id) then return end
     local first,last=1,#catalog.chapters
@@ -97,14 +117,14 @@ function M:begin(catalog,range,expected,guard)
     local record={schema=1,account=self.account,book_id=id,version=catalog.version,digest=catalog.reading_digest,
         count=#catalog.chapters,first=first,last=last,revision=revision()}
     if not self:verified(record,id) or expected and expected.revision==record.revision then return end
-    local ok,saved=pcall(self.library.compareProfileState,self.library,key(id),expected,record)
+    local ok,saved=pcall(self.library.compareProfileState,self.library,name,expected,record)
     if ok and saved==true and self:_current(guard) then return record end
 end
 
 function M:remove(id,record,guard)
     if not self:verified(record,id) or not self:_current(guard)
         or type(self.library.deleteProfileStateIf)~='function' then return false end
-    local ok,removed=pcall(self.library.deleteProfileStateIf,self.library,key(id),record)
+    local ok,removed=pcall(self.library.deleteProfileStateIf,self.library,key(self.kind,id),record)
     return ok and removed==true and self:_current(guard)
 end
 return M

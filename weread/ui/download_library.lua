@@ -3,6 +3,7 @@ local Browse = require('weread.lib.download_browse')
 local ReadAccess = require('weread.lib.read_access')
 local Search = require('weread.lib.shelf_search')
 local Query = require('weread.lib.search_query')
+local Plan = require('weread.lib.native_direct_batch_plan')
 local ShelfSnapshot = require('weread.lib.shelf_snapshot')
 local Popup = require('weread.ui.shelf_popup')
 local Scope = require('weread.ui.page_scope')
@@ -27,11 +28,15 @@ local function collect(host, current)
     local scope=host.settings.get_auth_scope and host.settings:get_auth_scope()
     local records={}
     if scope then
-        local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
-        records=store:list(current) or {}
+        for _,kind in ipairs({'eink','standard'}) do
+            local store=Plan:new(host.library_db,scope,kind)
+            for _,record in ipairs(store:list(current) or {}) do
+                records[#records+1]={kind=kind,record=record}
+            end
+        end
     end
     local rows, seen, books = {}, {}, {}
-    for _,record in ipairs(records) do books[record.book_id]=false end
+    for _,entry in ipairs(records) do books[entry.record.book_id]=false end
     local function append(id, source, saved_native)
         if not id or seen[id] then return end
         local row = Data.book(source)
@@ -83,12 +88,12 @@ local function collect(host, current)
         return titles[a] < titles[b]
     end)
     local plans={}
-    for _,record in ipairs(records) do
-        local id=record.book_id
+    for _,entry in ipairs(records) do
+        local id=entry.record.book_id
         local book=books[id]
         if not book and host.library_db.getBook then book=Data.book(host.library_db:getBook(id)) end
         if not book or book.bookId~=id or book.title=='' then book={bookId=id,title=T(_('Book ID: %1'),id)} end
-        plans[#plans+1]={book=book,record=record}
+        plans[#plans+1]={book=book,kind=entry.kind,record=entry.record}
     end
     return rows,plans
 end
@@ -177,7 +182,7 @@ local function confirm_remove_plan(host, entry, view, menu, current, removed)
             run(host,current,_('Removing resume record…'),function()
                 local scope=host.settings:get_auth_scope()
                 if not scope then return {removed=false} end
-                local store=require('weread.lib.native_direct_batch_plan'):new(host.library_db,scope)
+                local store=Plan:new(host.library_db,scope,entry.kind)
                 return {removed=store:remove(entry.book.bookId,entry.record,current)}
             end,function(result)
                 if not Popup.current(view,menu) then return end
@@ -189,7 +194,7 @@ local function confirm_remove_plan(host, entry, view, menu, current, removed)
     Popup.show(menu,dialog)
 end
 
-local function show_plan_actions(host, entry, view, menu, current, removed)
+local function show_plan_actions(host, entry, view, menu, current, removed, reload)
     if menu._shelf_popup then return end
     local dialog
     local function action(callback)
@@ -209,33 +214,43 @@ local function show_plan_actions(host, entry, view, menu, current, removed)
             if detail then require('weread.ui.native_direct_reading').start(host,entry.book,detail,options) end
         end
     end
-    dialog=require('ui/widget/buttondialog'):new{
-        title=entry.book.title,buttons={
+    local buttons
+    if entry.kind=='standard' then
+        buttons={{{text=_('Continue download'),callback=action(function()
+            Popup.close(view)
+            if current() then host:confirmDownloadAllChapters(entry.book,entry.record,function(ok)
+                if ok and current() then reload(view:getBrowsePosition()) end
+            end) end
+        end)}}}
+    else
+        buttons={
             {{text=_('Continue download'),callback=action(open({batch=true,resume_plan=entry.record}))}},
             {{text=_('Saved E-Ink chapters'),callback=action(open({cached=true}))}},
-            {{text=_('Remove resume record'),callback=action(function()
-                confirm_remove_plan(host,entry,view,menu,current,removed)
-            end)}},
-            {{text=_('Cancel'),callback=action()}},
-        },
-    }
+        }
+    end
+    buttons[#buttons+1]={{text=_('Remove resume record'),callback=action(function()
+        confirm_remove_plan(host,entry,view,menu,current,removed)
+    end)}}
+    buttons[#buttons+1]={{text=_('Cancel'),callback=action()}}
+    dialog=require('ui/widget/buttondialog'):new{title=entry.book.title,buttons=buttons}
     Popup.show(menu,dialog)
 end
 
-local function show_plans(host,plans,removed,page)
+local function show_plans(host,plans,removed,reload,page)
     local view=host.shelf_view
     if not view or view._shelf_popup then return end
     local page_current=Scope.capture(host,view)
     local function current() return not host._weread_suspended and page_current() end
     local items,menu={}
     for index,entry in ipairs(plans) do
-        local text=T(_('Chapters %1–%2'),entry.record.first,entry.record.last)
+        local text=entry.kind=='standard' and T(_('Full EPUB · %1 chapters'),entry.record.count)
+            or T(_('Chapters %1–%2'),entry.record.first,entry.record.last)
         items[index]={text=text..' · '..entry.book.title,index=index}
     end
     menu=host:showList(_('Unfinished downloads'),items,nil,{on_choice=function(item)
         if type(item)~='table' or not item.index or items[item.index]~=item or not current()
             or not Popup.current(view,menu) then return end
-        show_plan_actions(host,plans[item.index],view,menu,current,removed)
+        show_plan_actions(host,plans[item.index],view,menu,current,removed,reload)
     end})
     if not menu then return end
     local closed=menu.onCloseWidget
@@ -282,7 +297,7 @@ local function render(host, rows, plans, browse, plan_page, normalize)
             local previous_page=menu.page
             Popup.close(view)
             render(host,rows,remaining,at(view:getBrowsePosition()),previous_page,normalize)
-        end,plan_page)
+        end,reload,plan_page)
     end
     local anchor = position and position.anchor
     if position and position.book_id then
