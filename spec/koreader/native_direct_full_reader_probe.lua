@@ -172,6 +172,28 @@ assert(host:handleEndOfBook({}))
 pump(function() return Reader.instance and Reader.instance~=reopened and Reader.instance.document.file==input.second end)
 local before_search=Reader.instance;host=assert(before_search.weread)
 assert(not host:detectWeReadBook())
+do
+    local current_point=assert(before_search.document:getXPointer())
+    local is_connected=host.isNetworkConnected
+    host.isNetworkConnected=function() return false end
+    local function cancel_saved_fallback()
+        pump(function() return host._native_direct_reading and host._native_direct_reading.menu end)
+        local ctx=host._native_direct_reading
+        assert(Reader.instance==before_search and before_search.document:getXPointer()==current_point
+            and ctx.offline and #ctx.menu.item_table==2 and ctx.menu.subtitle==util.tr('Chapter unavailable offline'),
+            'missing next chapter did not preserve the open native reader')
+        ctx.menu:onClose()
+        assert(not host._native_direct_reading and not host.busy_message and UI:getTopmostVisibleWidget()==before_search)
+    end
+    quick(host,'reader_progress')
+    pump(function() return host._weread_reader_progress~=nil end)
+    local next_saved=assert(host._weread_reader_progress.dialog:getButtonById('progress_next_chapter'))
+    UI:forceRePaint();assert(next_saved.enabled~=false);next_saved:onTapSelectButton()
+    cancel_saved_fallback()
+    assert(host:handleEndOfBook({}))
+    cancel_saved_fallback()
+    host.isNetworkConnected=is_connected
+end
 quick(host,'search_cached')
 pump(function() return host._native_direct_search and host._native_direct_search.input end)
 local owner=host._native_direct_search

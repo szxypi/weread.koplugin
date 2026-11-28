@@ -5,6 +5,11 @@ local Path=require('weread.lib.native_direct_path')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 
+local function connected(host)
+    return host.isNetworkConnected and host:isNetworkConnected()
+        or not host.isNetworkConnected and host:isNetworkOnline()
+end
+
 function M.cancel(host)
     local ctx=host._native_direct_navigation
     if not ctx then return end
@@ -40,7 +45,8 @@ function M.start(host,direction,notes)
     end
     host._native_direct_navigation=ctx
     local function current()
-        return host._native_direct_navigation==ctx and host.ui==reader and reader.document==document and document.file==path
+        return not host._weread_suspended and host._native_direct_navigation==ctx
+            and host.ui==reader and reader.document==document and document.file==path
             and (host._reader_session_gen or 0)==ctx.session and host.settings:auth_scope_matches(scope)
             and (not host.library_db or host.library_db:accountKey()==ctx.account)
     end
@@ -80,6 +86,9 @@ function M.start(host,direction,notes)
         M.cancel(host)
         require('weread.ui.native_direct_reading').start(host,book,reader,options)
     end
+    local function choose_saved(notice,failed_copy)
+        choose_chapter({anchor=ctx.entry,cached=true,offline_notice=notice,failed_copy=failed_copy})
+    end
     if not host._native_direct_navigation_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{
             scheduler=UI,codec=host.client,max_bytes=8*1024*1024,timeout=180} end)
@@ -101,7 +110,12 @@ function M.start(host,direction,notes)
         if not current() then M.cancel(host);return end
         local entry=ctx.entry
         if not entry.catalog_sha256 then
-            fail('Chapter order is unavailable. Reopen this chapter online to update it.');return
+            if connected(host) then
+                fail('Chapter order is unavailable. Reopen this chapter online to update it.')
+            else
+                choose_saved('Chapter order is unavailable offline')
+            end
+            return
         end
         local uid=entry[which==1 and 'catalog_next' or 'catalog_prev']
         if not uid then
@@ -146,17 +160,16 @@ function M.start(host,direction,notes)
             end
             if #choices>1 then return {choices=choices} end
             if #choices==1 then
-                return Cache.open(host.settings,scope.vid,entry.book_id,choices[1],current) or {error='copy_changed'}
+                return Cache.open(host.settings,scope.vid,entry.book_id,choices[1],current)
+                    or {error='copy_changed',failed_copy=choices[1]}
             end
             return {error='not_saved'}
         end,function(value)
             close_busy()
             local reason=type(value)=='table' and value.error
             if reason=='not_saved' or reason=='copy_changed' then
-                local online=host.isNetworkConnected and host:isNetworkConnected()
-                    or not host.isNetworkConnected and host:isNetworkOnline()
-                if not online then
-                    fail(reason=='copy_changed' and cannot_verify or 'The adjacent chapter is not saved. Connect to download it.')
+                if not connected(host) then
+                    choose_saved('Chapter unavailable offline',value.failed_copy)
                     return
                 end
                 local target={uid=uid,from_uid=entry.chapter_uid,catalog_sha256=entry.catalog_sha256,

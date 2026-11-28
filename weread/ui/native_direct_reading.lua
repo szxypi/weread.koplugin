@@ -193,6 +193,7 @@ function M.start(host,book,view,options)
     local id=Protocol.id(book.book_id or book.bookId)
     if not id then return false end
     local cached=type(options)=='table' and options.cached==true
+    local offline_notice=cached and from_reader and options.offline_notice
     local offline=cached or not connected(host)
     local repair_images=type(options)=='table' and options.repair_images==true
     local batch=repair_images or type(options)=='table' and options.batch==true
@@ -310,7 +311,7 @@ function M.start(host,book,view,options)
         show_confirmation(dialog)
     end
     local function cached_standard_copy()
-        if not failed_copy or not view_current() then return end
+        if from_reader or not failed_copy or not view_current() then return end
         local record=require('weread.lib.read_access').load_cached_book(host.settings,id)
         if record and (not record._library_account_key or record._library_account_key==ctx.account)
             and host:bookRecordHasDownload(record) then return record end
@@ -416,7 +417,7 @@ function M.start(host,book,view,options)
                     cached_standard_copy,function(record) host:readCachedCopy(record,view) end)
                 return
             end
-            fail(fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.',
+            fail(offline_notice or fallback_reason or 'No usable saved E-Ink chapters for this book and account. Existing files are kept.',
                 nil,offer_standard);return
         end
         close_busy()
@@ -445,6 +446,7 @@ function M.start(host,book,view,options)
         local empty_title=_('Untitled chapter')
         local filter_titles=ChapterSearch.title_filter(rows,empty_title)
         local subtitle=picker and picker.subtitle
+            or offline_notice and _(offline_notice)
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')

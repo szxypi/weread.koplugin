@@ -155,17 +155,24 @@ expect(not manual_entry and not host._native_direct_navigation,'old account open
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_native_offline_reminder();source_ok=false;s.finish(2)
 expect(not manual_entry and s.message:find('could not be verified',1,true),'changed source opened the offline reminder')
 host,s=fixture();Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)
-expect(s.opened==0 and s.message=='The adjacent chapter is not saved. Connect to download it.','offline missing chapter was guessed')
+expect(s.opened==0 and not s.message and auto_target and auto_target.options.cached
+    and auto_target.options.anchor==source and auto_target.options.offline_notice=='Chapter unavailable offline'
+    and not auto_target.options.target and not host._native_direct_navigation,
+    'offline missing chapter did not offer saved chapters without skipping')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)
 expect(auto_target and auto_target.options.target.uid=='38' and auto_target.options.target.from_uid=='37'
     and auto_target.options.target.order==3 and auto_target.options.target.catalog_sha256==source.catalog_sha256,
     'online missing chapter was not tied to verified catalog')
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next();local result=s.jobs[2].task();s.account='other';s.jobs[2].callback(result)
 expect(s.opened==0 and not host._native_direct_navigation,'old account opened a chapter')
+host,s=fixture();Nav.start(host,1);s.finish(1);rows={};result=s.jobs[2].task();host._weread_suspended=true;s.jobs[2].callback(result)
+expect(not auto_target and not host._native_direct_navigation and not host.busy_message,
+    'a suspended reader opened a saved chapter list')
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next();source_ok=false;s.finish(2)
 expect(s.opened==0 and s.message:find('could not be verified',1,true),'changed source file was accepted')
 host,s=fixture();Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_next();s.finish(2)
-expect(s.opened==0 and s.message:find('could not be verified',1,true),'unverified destination reported as missing or opened')
+expect(s.opened==0 and auto_target and auto_target.options.cached and auto_target.options.failed_copy==next_entry,
+    'unverified destination was opened or offered again')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_next();s.finish(2)
 expect(s.opened==0 and auto_target and auto_target.options.target.uid=='38','online corrupt copy could not be downloaded again')
 host,s=fixture();Nav.start(host,1);s.finish(1);expect(#s.jobs==2,'end-of-book did not navigate');s.finish(2)
@@ -186,6 +193,10 @@ expect(s.message=='You have reached the first chapter.' and #s.jobs==1 and s.ope
 source.catalog_order=2;source.catalog_prev='36'
 local sha=source.catalog_sha256;source.catalog_sha256=nil
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next()
+expect(s.opened==0 and auto_target and auto_target.options.cached and auto_target.options.anchor==source
+    and auto_target.options.offline_notice=='Chapter order is unavailable offline',
+    'offline chapter without a known order did not offer saved chapters')
+host,s=fixture();s.online=true;Nav.start(host);s.finish(1);shown.callbacks.on_next()
 expect(s.opened==0 and s.message=='Chapter order is unavailable. Reopen this chapter online to update it.',
     'unverified chapter order did not explain how to recover')
 source.catalog_sha256=sha

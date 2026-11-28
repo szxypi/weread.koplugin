@@ -690,6 +690,7 @@ function M:onSuspend()
     self._weread_suspended=true
     local downloads=package.loaded['weread.ui.download_library'];if downloads then downloads.cancel(self) end
     local native_direct=package.loaded['weread.ui.native_direct_reading'];if native_direct then native_direct.cancel(self) end
+    local direct_navigation=package.loaded['weread.ui.native_direct_navigation'];if direct_navigation then direct_navigation.cancel(self) end
     local native_cleanup=package.loaded['weread.ui.native_direct_cleanup'];if native_cleanup then native_cleanup.cancel(self) end
     local copy_resume=package.loaded['weread.ui.native_direct_copy_resume'];if copy_resume then copy_resume.cancel(self) end
     local image_refresh=package.loaded['weread.ui.native_direct_image_refresh'];if image_refresh then image_refresh.cancel(self) end

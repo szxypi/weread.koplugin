@@ -93,7 +93,11 @@ if online then
         'cancelling the adjacent download did not keep the current chapter')
 end
 press('next_chapter')
-wait(function() return host.opened or host.message or host._native_direct_navigation and host._native_direct_navigation.menu end)
+local function saved_menu()
+    return host._native_direct_reading and host._native_direct_reading.menu
+end
+wait(function() return host.opened or host.message or saved_menu()
+    or host._native_direct_navigation and host._native_direct_navigation.menu end)
 if input.mode=='copies' then
     local ctx=assert(host._native_direct_navigation)
     local menu=assert(ctx.menu)
@@ -123,12 +127,18 @@ if input.mode=='copies' then
     assert(not host.message and host.opened==(input.choose=='complete' and input.second or input.missing_copy))
 end
 if input.mode=='gap' then
-    assert(not host.opened and host.message==tr('The adjacent chapter is not saved. Connect to download it.'))
-    host.message=nil
+    local menu=assert(saved_menu())
+    assert(not host.opened and not host.message and host.ui.document.file==input.first
+        and menu.subtitle==tr('Chapter unavailable offline') and #menu.item_table==2)
+    menu:onClose()
     local first=quick_menu()
     assert(first:getButtonById('previous_chapter').enabled==false)
     UI:close(first)
-    host.ui.document={file=assert(input.last)};host._reader_session_gen=host._reader_session_gen+1
+    press('next_chapter');wait(saved_menu)
+    menu=assert(saved_menu());menu:onMenuSelect(menu.item_table[2])
+    wait(function() return host.opened or host.message end)
+    assert(not host.message and host.opened==input.last,'explicit selection did not open the later saved chapter')
+    host.opened=nil
     local last=quick_menu()
     assert(last:getButtonById('next_chapter').enabled==false and last:getButtonById('previous_chapter').enabled~=false)
     UI:close(last)
@@ -283,8 +293,21 @@ else
         host.opened=nil;host.ui.document={file=second};host._reader_session_gen=host._reader_session_gen+1
         G_reader_settings:saveSetting('end_document_action','next_file')
         assert(require('weread.lib.reader_lifecycle').handleEndOfBook(host,{}))
-        wait(function() return host.opened or host.message end)
-        assert(not host.opened and host.message==tr('The adjacent chapter is not saved. Connect to download it.'))
+        wait(function() return saved_menu() or host.opened or host.message end)
+        local menu=assert(saved_menu())
+        assert(not host.opened and not host.message and host.ui.document.file==second
+            and menu.subtitle==tr('Chapter unavailable offline') and #menu.item_table==2)
+        menu:onClose()
+        local file=assert(io.open(input.first,'rb'));local original_bytes=assert(file:read('*a'));assert(file:close())
+        file=assert(io.open(input.first,'ab'));assert(file:write('corrupt'));assert(file:close())
+        press('previous_chapter');wait(function() return saved_menu() or host.message end)
+        menu=assert(saved_menu())
+        assert(not host.opened and not host.message and #menu.item_table==1
+            and menu.subtitle==tr('Chapter unavailable offline'),'damaged adjacent copy was offered again')
+        assert(menu.item_table[1].text:find(tr('Current chapter'),1,true)==1)
+        menu:onClose()
+        file=assert(io.open(input.first,'rb'));assert(file:read('*a')==original_bytes..'corrupt');assert(file:close())
+        file=assert(io.open(input.first,'wb'));assert(file:write(original_bytes));assert(file:close())
     end
 end
 print('WEREAD_DIRECT_NAV_RESULT='..json.encode{ok=true,mode=input.mode,path=host.opened or ''})
