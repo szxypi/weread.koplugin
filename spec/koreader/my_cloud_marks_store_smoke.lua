@@ -39,11 +39,19 @@ expect(not cache:valid_ids({'940001','940001'}) and not cache:valid_ids({[1]='94
 local other=snapshot('940130');other.updated[1].markText='should-not-overwrite'
 expect(cache:writeIfMissing(other)=='exists' and cache:read('940130').updated[1].markText=='bulk-130-only')
 expect(cache:writeIfMissing(snapshot('940131'))==true and cache:writeIfMissing(snapshot('940131'))=='exists')
-local corrupt=assert(library:open());local raw130=corrupt:rowexec("SELECT payload FROM my_cloud_marks WHERE book_id='940130'")
-corrupt:exec("UPDATE my_cloud_marks SET payload='{}' WHERE book_id='940130'");corrupt:close()
-expect(cache:valid_ids({'940130'})==nil and cache:writeIfMissing(other)==nil and cache:read('940130')==nil)
-corrupt=assert(library:open());local restore=corrupt:prepare('UPDATE my_cloud_marks SET payload=? WHERE book_id=?')
-restore:bind(raw130,'940130'):step();restore:close();corrupt:close()
+local db130=assert(library:open());local raw130=db130:rowexec("SELECT payload FROM my_cloud_marks WHERE book_id='940130'")
+db130:close()
+local function replace130(payload)
+    local db=assert(library:open());local stmt=db:prepare('UPDATE my_cloud_marks SET payload=? WHERE book_id=?')
+    stmt:bind(payload,'940130'):step();stmt:close();db:close()
+end
+local invalid_utf8=raw130:gsub('bulk%-130%-only','bad-\237\160\128')
+assert(invalid_utf8~=raw130)
+for _,damaged in ipairs({'{}',invalid_utf8}) do
+    replace130(damaged)
+    expect(cache:valid_ids({'940130'})==nil and cache:writeIfMissing(other)==nil and cache:read('940130')==nil)
+end
+replace130(raw130)
 expect(cache:read('940130').updated[1].markText=='bulk-130-only')
 account='900011'
 local empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))

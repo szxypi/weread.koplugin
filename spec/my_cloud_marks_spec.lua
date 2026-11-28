@@ -22,6 +22,15 @@ expect(Data.project(client,lines,'900001','900000',1).updated[1].markText==lines
 for _i,char in ipairs({'\0','\8','\11','\12','\14','\31','\127'}) do
     lines.updated[1].markText='Text'..char;reject(lines)
 end
+local boundary_text='\194\128\223\191\224\160\128\237\159\191\238\128\128\239\191\191'
+    ..'\240\144\128\128\244\143\191\191'
+lines.updated[1].markText=boundary_text
+expect(Data.project(client,lines,'900001','900000',1).updated[1].markText==boundary_text,
+    'valid UTF-8 at a scalar boundary changed')
+for _,invalid in ipairs({'\128','\192\128','\224\159\191','\237\160\128','\240\143\191\191',
+    '\244\144\128\128','\245\128\128\128','\226\130','\240\144\128','\224\160x'}) do
+    lines.updated[1].markText='prefix '..invalid;reject(lines)
+end
 for _,key in ipairs({'bookId','vid','hasMore','errcode','succ','updated','chapters'}) do
     local raw=source();raw[key]=({bookId='900002',vid='900002',hasMore=1,errcode=false,succ=false,updated={},chapters=null})[key];reject(raw)
 end

@@ -3,7 +3,6 @@
 -- AGPL-3.0-only, Copyright (C) 2026 MiuRead contributors.
 local Access=require('weread.lib.native_read_access')
 local Crypto=require('weread.lib.crypto')
-local Protocol=require('weread.lib.protocol')
 local M={MAX_ROWS=5000}
 local function fail(reason) error('my_marks/'..reason,0) end
 function M.id(value)
@@ -15,10 +14,41 @@ function M.display_id(value)
     return type(value)=='string' and require('weread.lib.read_access').display_book_id(value) or nil
 end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
-local function text(value,max,empty)
-    return type(value)=='string' and (empty or value~='') and #value<=max
-        and not value:find('[%z\1-\8\11\12\14-\31\127]') and Protocol.utf8_substr(value,#value)==value
+local function continuation(byte)
+    return byte and byte >= 0x80 and byte <= 0xbf
 end
+
+-- Check controls and UTF-8 together without creating a prefix of the text.
+function M.valid_text(value, max, allow_empty)
+    if type(value) ~= 'string' or not allow_empty and value == '' or #value > max then return false end
+    local position, size = 1, #value
+    while position <= size do
+        local lead = value:byte(position)
+        if lead < 0x80 then
+            if lead == 0x7f or lead < 0x20 and lead ~= 9 and lead ~= 10 and lead ~= 13 then return false end
+            position = position + 1
+        else
+            local second = value:byte(position + 1)
+            if lead < 0xc2 or lead > 0xf4 or not continuation(second) then return false end
+            if lead < 0xe0 then
+                position = position + 2
+            elseif lead < 0xf0 then
+                -- Reject overlong encodings and UTF-16 surrogates.
+                if not continuation(value:byte(position + 2))
+                    or lead == 0xe0 and second < 0xa0 or lead == 0xed and second >= 0xa0 then return false end
+                position = position + 3
+            else
+                -- Four-byte scalars run from U+10000 through U+10FFFF.
+                if not continuation(value:byte(position + 2)) or not continuation(value:byte(position + 3))
+                    or lead == 0xf0 and second < 0x90 or lead == 0xf4 and second >= 0x90 then return false end
+                position = position + 4
+            end
+        end
+    end
+    return true
+end
+local text=M.valid_text
+
 function M.project(client,source,id,owner,now)
     if not M.display_id(id) or not integer(now,2^53-1) or now==0 then fail('scope') end
     local null=client:json_decode('null');local mt=getmetatable(client:json_decode('[]'))
