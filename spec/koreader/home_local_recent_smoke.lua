@@ -513,6 +513,80 @@ require('weread.ui.download_library').show(plugin)
 replace_download_view()
 assert(#downloads.books==1 and downloads.books[1].bookId==id and downloads:getFocusedBookId()==id,
     'reopening after offline reading lost the downloaded search or focus')
+do
+    local Cache=require('weread.lib.native_direct_cache')
+    local Crypto=require('weread.lib.crypto')
+    local scope=assert(plugin.settings:get_auth_scope())
+    local function live() return plugin.settings:auth_scope_matches(scope) end
+    local native_id='900096'
+    local native_paths={}
+    for _,book_id in ipairs({id,native_id}) do
+        local book={book_id=book_id,title='Synthetic E-Ink '..book_id,author='Fixture'}
+        local row={chapterUid='1',chapterIdx=1,title='Synthetic E-Ink chapter',catalog_order=1,catalog_count=1}
+        local xhtml='<html><body><p>Synthetic offline download inventory.</p></body></html>'
+        local digest=Crypto.sha256_hex('synthetic download catalog '..book_id)
+        local prepared={book_id=book_id,chapter_uid='1',book_version=1,catalog_sha256=digest,
+            reading_catalog_sha256=digest,source_sha256=Crypto.sha256_hex(xhtml),source_channel='eink',
+            coordinate_source_authoritative=false,missing_images=0,xhtml=xhtml,css='',assets={}}
+        native_paths[book_id]=assert(Cache.publish(plugin.settings,scope.vid,book,row,prepared,live)).path
+    end
+    local function expect(expected)
+        assert(#downloads.books==#expected,'unexpected number of filtered downloads')
+        for _,book_id in ipairs(expected) do
+            assert(LibraryView.bookIndex(downloads.books,book_id),'missing download '..book_id)
+        end
+    end
+    local function choose(filter)
+        UI:forceRePaint();assert(downloads.settings_button):onTapSelectButton()
+        pump(function() return downloads._shelf_popup end)
+        local popup=downloads._shelf_popup
+        local button
+        for _,row in ipairs(popup.buttons) do if row[1].text==tr(filter) then button=row[1];break end end
+        assert(button and not button.checked_func(),'could not select the expected download filter')
+        button.callback()
+        replace_download_view()
+        assert(not plugin._download_library_job,'filter reopened the disk inventory')
+    end
+    local function hold(book_id, label)
+        downloads.on_hold(downloads.books[assert(LibraryView.bookIndex(downloads.books,book_id))])
+        for _,row in ipairs(assert(downloads._shelf_popup).buttons) do
+            if row[1].text==tr(label) then row[1].callback();return end
+        end
+        error('missing download action '..label)
+    end
+    downloads.on_refresh();replace_download_view();search_downloads('')
+    expect({id,native_id,'900001'})
+    choose('Standard downloads');expect({id,'900001'})
+    choose('Saved E-Ink chapters');expect({id,native_id})
+    search_downloads('900096');expect({native_id})
+    choose('Both download types');expect({})
+    search_downloads('');expect({id})
+    hold(id,'Clear standard download cache')
+    pump(function() return plugin.book_cache_cleanup_job and plugin.book_cache_cleanup_job.dialog end)
+    local cleanup=plugin.book_cache_cleanup_job
+    assert(cleanup.files>0 and cleanup.items[1].id==id,'preview targeted the wrong standard download')
+    UI:close(cleanup.dialog)
+    assert(not plugin.book_cache_cleanup_job and require('libs/libkoreader-lfs').attributes(path,'mode')=='file',
+        'cancelled cleanup removed the standard download')
+    focus_download()
+    downloads.on_select(downloads.books[1]);assert(plugin._book_detail_view):onClose()
+    replace_download_view();expect({id})
+    assert(downloads:getFocusedBookId()==id and downloads.title==tr('Both download types'),
+        'returning from details lost the download type or book focus')
+    choose('Saved E-Ink chapters');expect({id,native_id})
+    hold(native_id,'Clear unused E-Ink chapters')
+    pump(function() return plugin._native_cleanup and plugin._native_cleanup.dialog end)
+    assert(plugin._native_cleanup.id==native_id,'preview targeted the wrong E-Ink download')
+    UI:close(plugin._native_cleanup.dialog)
+    assert(not plugin._native_cleanup and require('libs/libkoreader-lfs').attributes(native_paths[native_id],'mode')=='file',
+        'cancelled cleanup removed the E-Ink download')
+    assert(plugin._book_detail_view):onClose();replace_download_view();expect({id,native_id})
+    require('weread.ui.download_library').show(plugin);replace_download_view();expect({id,native_id})
+    UI:forceRePaint();Device.screen:shot(evidence..'/downloaded-books-filtered.png')
+    for _,file in pairs(native_paths) do assert(os.remove(file)) end
+    downloads.on_refresh();replace_download_view();expect({})
+    assert(downloads.empty_text==tr('No downloads match this filter.'),'empty filter lost its explanation')
+end
 downloads.on_refresh()
 local previous_job=assert(plugin._download_library_job)
 plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},

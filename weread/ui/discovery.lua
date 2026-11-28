@@ -125,7 +125,9 @@ function M:showDiscoveryPage(tab, books, options)
         on_refresh = Scope.guard(current, downloads and function()
             options.on_refresh(view:getBrowsePosition())
         end or options.on_refresh),
-        on_settings = home and Scope.guard(current, function() self:showHomeQuickSettings() end) or nil,
+        on_settings = Scope.guard(current, downloads and options.on_settings and function()
+            options.on_settings(view, current)
+        end or home and function() self:showHomeQuickSettings() end),
         on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
         on_select = Scope.guard(current, function(book)
             if options.on_select then options.on_select(book)

@@ -11,6 +11,12 @@ local _, T = Util.tr, Util.T
 local M = {}
 local run
 local remembered
+local copy_types = {
+    {key='all', label='All'},
+    {key='standard', label='Standard downloads'},
+    {key='eink', label='Saved E-Ink chapters'},
+    {key='both', label='Both download types'},
+}
 
 local function owned(record, account)
     return record and account and (record._library_account_key == account
@@ -38,7 +44,7 @@ local function collect(host, current)
         local record, conflict = ReadAccess.cached_book(saved, id)
         if conflict then return end
         local downloaded = host:bookRecordHasDownload(record)
-        local native_cached = not downloaded and (saved_native or host:nativeChapterCachePresent(id, current))
+        local native_cached = saved_native or host:nativeChapterCachePresent(id, current)
         if not (downloaded or native_cached or books[id]~=nil) then return end
         row.bookId = id
         if row.title == '' then row.title = id end
@@ -46,7 +52,8 @@ local function collect(host, current)
         if books[id]~=nil then books[id]=row end
         if downloaded or native_cached then
             row._cached = true
-            row._native_cached_hint = native_cached or nil
+            row._download_standard = downloaded or nil
+            row._download_eink = native_cached or nil
             rows[#rows + 1] = row
         end
     end
@@ -93,7 +100,7 @@ end
 local function downloaded_copies(host,book)
     local record, conflict = ReadAccess.load_cached_book(host.settings, book.bookId)
     if conflict then return false,false end
-    return host:bookRecordHasDownload(record),book._native_cached_hint or host:nativeChapterCachePresent(book.bookId),record
+    return host:bookRecordHasDownload(record),book._download_eink or host:nativeChapterCachePresent(book.bookId),record
 end
 
 local function show_detail(host, book, choose_native)
@@ -106,14 +113,14 @@ local function show_detail(host, book, choose_native)
     if owned(record, host.library_db:accountKey()) then
         for key,value in pairs(record) do detail[key] = value end
     end
-    for key,value in pairs(book) do if key~='_native_cached_hint' then detail[key] = value end end
+    for key,value in pairs(Data.book(book)) do detail[key] = value end
     local owner = host.shelf_view
     local menu = host:showBookMenu(detail,{read_saved_native=native_cached and (choose_native or not downloaded)})
     if menu and owner then owner._download_detail_book_id=book.bookId end
     return menu
 end
 
-local function show_actions(host, book, view, current)
+local function show_actions(host, book, view, current, reload)
     if view._shelf_popup then return end
     local dialog
     local function action(callback)
@@ -128,7 +135,7 @@ local function show_actions(host, book, view, current)
     local standard,native=downloaded_copies(host,book)
     local both=standard and native
     local buttons={{{text=_(both and 'Continue reading' or 'Read downloaded copy'),callback=action(function()
-        host:readFromBookList(Data.book(book),view,current,true,book._native_cached_hint)
+        host:readFromBookList(Data.book(book),view,current,true,book._download_eink)
     end)}}}
     if both then
         buttons[#buttons+1]={{text=_('Read standard download'),callback=action(function()
@@ -142,6 +149,22 @@ local function show_actions(host, book, view, current)
         end)}}
     end
     buttons[#buttons+1]={{text=_('Book details'),callback=action(function() show_detail(host,book) end)}}
+    if standard then
+        buttons[#buttons+1]={{text=_('Clear standard download cache'),callback=action(function()
+            local latest,conflict=ReadAccess.load_cached_book(host.settings,book.bookId)
+            if not conflict and host:bookRecordHasDownload(latest) then
+                host:confirmClearBookCache(book.bookId,book.title,function()
+                    if current() then reload(view:getBrowsePosition()) end
+                end)
+            else host:showInfo(_('No cached file.')) end
+        end)}}
+    end
+    if native then
+        buttons[#buttons+1]={{text=_('Clear unused E-Ink chapters'),callback=action(function()
+            local detail=show_detail(host,book,true)
+            if detail then require('weread.ui.native_direct_cleanup').start(host,book,detail) end
+        end)}}
+    end
     buttons[#buttons+1]={{text=_('Cancel'),callback=action()}}
     dialog = require('ui/widget/buttondialog'):new{title=book.title,buttons=buttons}
     Popup.show(view, dialog)
@@ -230,17 +253,26 @@ local function show_plans(host,plans,removed,page)
 end
 
 local load
-local function render(host, rows, plans, browse, plan_page)
+local function render(host, rows, plans, browse, plan_page, normalize)
     local query, position = browse.query, browse.position
+    local copy_type = browse.copy_type or copy_types[1]
     local account = host.library_db and host.library_db:accountKey()
-    local needle = Search.prepare(query)
-    local terms = Search.terms(needle)
-    local books = {}
-    for _, row in ipairs(rows) do
-        if Search.matches(row, needle, terms) then books[#books+1] = row end
+    normalize = normalize or Search.cached_fold()
+    local books = rows
+    local key = copy_type.key
+    if query ~= '' or key ~= 'all' then
+        local needle = Search.prepare(query)
+        local terms = Search.terms(needle)
+        books = {}
+        for _, row in ipairs(rows) do
+            local matches_type = key == 'all' or key == 'standard' and row._download_standard
+                or key == 'eink' and row._download_eink
+                or key == 'both' and row._download_standard and row._download_eink
+            if matches_type and Search.matches(row, needle, terms, normalize) then books[#books+1] = row end
+        end
     end
     local function at(next_position)
-        return {query=query,position=next_position,unfiltered=browse.unfiltered}
+        return {query=query,position=next_position,unfiltered=browse.unfiltered,copy_type=copy_type}
     end
     local function reload(next_position) load(host, at(next_position)) end
     local function open_plans()
@@ -251,22 +283,24 @@ local function render(host, rows, plans, browse, plan_page)
             end
             local previous_page=menu.page
             Popup.close(view)
-            render(host,rows,remaining,at(view:getBrowsePosition()),previous_page)
+            render(host,rows,remaining,at(view:getBrowsePosition()),previous_page,normalize)
         end,plan_page)
     end
     local anchor = position and position.anchor
     if position and position.book_id then
         anchor = require('weread.ui.library_view').bookIndex(books,position.book_id) or anchor
     end
+    local title = key == 'all' and _('Downloaded books') or _(copy_type.label)
     host:showDiscoveryPage('downloads', books, {
-        title = query == '' and _('Downloaded books') or T(_('Downloaded books · %1'), query),
+        title = query == '' and title or T(_('%1 · %2'), title, query),
         rotation_anchor = anchor,
         focus_book_id = position and position.focus_book_id,
         remember_position = function(next_position)
             if account then remembered={account=account,browse=at(next_position)} end
         end,
         actions = #plans>0 and {{text=T(_('Unfinished downloads · %1'),#plans),callback=open_plans}} or nil,
-        empty_text = query == '' and _('No downloaded books for this account.') or _('No matching books.'),
+        empty_text = query ~= '' and _('No matching books.')
+            or key ~= 'all' and _('No downloads match this filter.') or _('No downloaded books for this account.'),
         on_refresh = reload,
         on_return = function(next_position)
             local view = host.shelf_view
@@ -280,6 +314,27 @@ local function render(host, rows, plans, browse, plan_page)
             -- The detail close callback runs before KOReader removes its widget.
             UI:nextTick(function() if current() then reload(next_position) end end)
         end,
+        on_settings = function(view, current)
+            if view._shelf_popup then return end
+            local dialog
+            local buttons = {}
+            for _index,choice in ipairs(copy_types) do
+                buttons[#buttons+1] = {{ text = _(choice.label),
+                    checked_func = function() return choice == copy_type end,
+                    callback = function()
+                        UI:nextTick(function()
+                            if not current() or not Popup.current(view,dialog) then return end
+                            Popup.close(view)
+                            if choice ~= copy_type then
+                                render(host,rows,plans,{query=query,copy_type=choice},nil,normalize)
+                            end
+                        end)
+                    end,
+                }}
+            end
+            dialog = require('ui/widget/buttondialog'):new{title=_('Filter by download type'),buttons=buttons}
+            Popup.show(view,dialog)
+        end,
         on_search = function(view, current)
             local dialog
             local function submit(value)
@@ -290,7 +345,7 @@ local function render(host, rows, plans, browse, plan_page)
                 if next_query ~= query then
                     local unfiltered = query == '' and view:getBrowsePosition() or browse.unfiltered
                     render(host, rows, plans, {query=next_query,position=next_query=='' and unfiltered or nil,
-                        unfiltered=next_query~='' and unfiltered or nil})
+                        unfiltered=next_query~='' and unfiltered or nil,copy_type=copy_type},nil,normalize)
                 end
             end
             dialog = require('ui/widget/inputdialog'):new{
@@ -303,7 +358,7 @@ local function render(host, rows, plans, browse, plan_page)
         end,
         on_select = function(book) show_detail(host, book) end,
         on_hold = function(book, view, current)
-            show_actions(host, book, view, current)
+            show_actions(host, book, view, current, reload)
         end,
     })
     if plan_page and #plans>0 then open_plans() end

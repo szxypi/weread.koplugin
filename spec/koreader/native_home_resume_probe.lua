@@ -141,7 +141,8 @@ else
             local view=host.shelf_view
             local book=assert(view.books[1])
             assert(#view.books==1 and book.bookId==id and book.title=='Synthetic' and book.author=='Fixture'
-                and book._native_cached_hint,'unindexed native book is missing or lacks its EPUB metadata')
+                and book._download_eink and not book._download_standard,
+                'unindexed native book is missing or lacks its EPUB metadata')
             assert(not view._action_buttons,'cached book unexpectedly appeared as an unfinished plan')
             return view
         end
