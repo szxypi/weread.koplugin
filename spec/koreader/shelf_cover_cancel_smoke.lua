@@ -18,6 +18,21 @@ return function(plugin,flush,evidence)
     local factory=Settings.new;Settings.new=function() return settings end
     local class=getmetatable(plugin);local created,host=pcall(class.new,class,{ui=plugin.ui});Settings.new=factory
     assert(created and host,'isolated cover host initialization failed')
+    local ffi=require('ffi');require('ffi/posix_h')
+    local parent_pid=tonumber(ffi.C.getpid())
+    local trace_path=root..'/prune-processes'
+    local cache=host:getShelfCoverCache()
+    local prune=cache.prune
+    function cache:prune(...)
+        local file=assert(io.open(trace_path,'ab'))
+        assert(file:write(tonumber(ffi.C.getpid())==parent_pid and 'P' or 'W'));assert(file:close())
+        return prune(self,...)
+    end
+    local function prune_trace()
+        local file=io.open(trace_path,'rb');if not file then return '' end
+        local trace=file:read('*a');file:close();return trace
+    end
+    local prunes_checked=0
     host.isNetworkOnline=function() return true end
     host.prepareShelfProgress=function() end;host.refreshVisibleShelfProgress=function() end
     local client,endpoint=host.client,settings.mock_endpoint
@@ -53,6 +68,9 @@ return function(plugin,flush,evidence)
         local ok,reason=pcall(pump,function() return not host.shelf_cover_job end)
         UIManager.widgetRepaint,UIManager.setDirty=repaint,dirty
         assert(ok,reason)
+        local traced=prune_trace()
+        assert(#traced>prunes_checked and not traced:find('P',1,true),'cover batch did not prune in its last child')
+        prunes_checked=#traced
         assert(host.shelf_view==view and view._item_rows[1].frame==frame and view._item_rows[1]._has_cover,
             'cover completion replaced the page or did not fill this cell')
         assert(cells==1 and #regions==1 and regions[1].x==frame.dimen.x and regions[1].y==frame.dimen.y

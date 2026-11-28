@@ -27,6 +27,7 @@ local function fixture()
         isNetworkLinkAvailable=function() link_checks=link_checks+1;return link_online end}
     for key,value in pairs(Library) do host[key]=value end
     local count,reads,redraws,downloads=0,0,0,0
+    local worker_prunes,ui_prunes,in_worker=0,0,false
     local runner={}
     runner.run=function(task)
         for _,worker in pairs(workers) do assert(worker.reaped,'new cover overlapped a retiring child') end
@@ -48,7 +49,10 @@ local function fixture()
             if sources[book] then files[book]='/cache/'..book.bookId end
             return files[book]
         end,
-        store=function(_self,book) files[book]='/cache/'..book.bookId;return files[book] end,prune=function() end}
+        store=function(_self,book) files[book]='/cache/'..book.bookId;return files[book] end,
+        prune=function()
+            if in_worker then worker_prunes=worker_prunes+1 else ui_prunes=ui_prunes+1 end
+        end}
     host.getShelfCoverCache=function() return cache end
     host.client={get_binary=function() downloads=downloads+1;return 'synthetic bitmap' end}
     local function view() return {page=1,page_size=2} end
@@ -60,12 +64,17 @@ local function fixture()
         return host.shelf_cover_job
     end
     local function finish(job,success)
-        if success then workers[job.pid].task(job.pid,job.read_fd) end
+        if success then
+            in_worker=true
+            workers[job.pid].task(job.pid,job.read_fd)
+            in_worker=false
+        end
         workers[job.pid].done=true;tick()
     end
     return {host=host,workers=workers,files=files,sources=sources,start=start,finish=finish,view=view,first=first,tail=tail,
         set_link=function(value) link_online=value end,
-        stats=function() return {runs=count,reads=reads,redraws=redraws,downloads=downloads,link_checks=link_checks} end}
+        stats=function() return {runs=count,reads=reads,redraws=redraws,downloads=downloads,link_checks=link_checks,
+            worker_prunes=worker_prunes,ui_prunes=ui_prunes} end}
 end
 
 local cached=fixture();cached.files[cached.first]='/cached/first';cached.files[cached.tail]='/cached/tail'
@@ -76,6 +85,7 @@ offline.sources[offline.first]='/cached/full-size'
 local conversion=offline.start(offline.view(),{offline.first});expect(conversion,'offline cover conversion did not start')
 offline.finish(conversion,true)
 expect(offline.stats().downloads==0 and offline.stats().redraws==1,'offline source conversion requested network or missed redraw')
+expect(offline.stats().worker_prunes==1 and offline.stats().ui_prunes==0,'offline conversion pruned on the UI thread')
 
 local f=fixture();local host=f.host;local job=f.start(f.view())
 host:closeWeReadUI()
@@ -98,6 +108,20 @@ f.finish(job);local next_job=host.shelf_cover_job
 expect(next_job and next_job~=job and f.stats().runs==2,'reopen did not start newest queued page')
 f.finish(next_job,true)
 expect(f.stats().downloads==1 and f.stats().redraws==1 and f.files[f.tail],'reopened cover did not render through the new batch')
+
+f=fixture();host=f.host;job=f.start(f.view())
+f.finish(job,true)
+expect(f.stats().worker_prunes==0 and f.stats().redraws==0,'nonfinal cover pruned or redrew the batch early')
+host.client.get_binary=function() error('synthetic final download failure') end
+f.finish(host.shelf_cover_job,true)
+expect(f.stats().worker_prunes==1 and f.stats().ui_prunes==0 and f.stats().redraws==1,
+    'failed last download did not prune earlier successful covers in the worker')
+
+f=fixture();host=f.host;job=f.start(f.view())
+f.finish(job,true)
+f.finish(host.shelf_cover_job)
+expect(f.stats().worker_prunes==0 and f.stats().ui_prunes==1 and f.stats().redraws==1,
+    'lost last worker receipt skipped the cleanup fallback')
 
 f=fixture();host=f.host;job=f.start(f.view());local second=f.view();f.start(second,{f.tail})
 local third=f.view();f.start(third,{f.tail})
