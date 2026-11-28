@@ -13,6 +13,7 @@ local function next_task()
     local task=assert(table.remove(tasks,1));now=task.at;task.run()
 end
 package.preload['ui/uimanager']=function() return UI end
+package.preload['ui/time']=function() return {now=function() return now end,ms=function(value) return value/1000 end} end
 package.preload['ui/widget/inputdialog']=function() return {new=function(_,value)
     function value:onShowKeyboard() end
     function value:getInputText() return self.input end
@@ -36,11 +37,12 @@ local rows={one,copy,two,old}
 package.preload['weread.lib.native_direct_cache']=function() return {MAX_ENTRIES=2000,
     valid_entry=function(e,id,account) return type(e)=='table' and e.book_id==id and account=='123' end,
     list=function(_,_,_,current) assert(current());return rows end} end
-local scans,match_counts={},{b=1,c=1}
+local scans,match_counts,seconds_per_scan={},{b=1,c=1},0
+local damaged_key
 package.preload['weread.lib.native_direct_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,
     scan=function(_,_,entry,_,from,_,current,options)
-        assert(current());scans[#scans+1]=entry.key
-        if entry==one then return {error='damaged'} end
+        assert(current());scans[#scans+1]=entry.key;now=now+seconds_per_scan
+        if entry==one or entry.key==damaged_key then return {error='damaged'} end
         local hits,total={},match_counts[entry.key]
         local last=math.min(total,from+options.max_hits-1)
         for byte=from,last do
@@ -57,8 +59,8 @@ package.preload['weread.ui.native_direct_search_open']=function() return {
     cancel=function() open_cancels=(open_cancels or 0)+1 end,
 } end
 package.preload['weread.lib.memory_worker']=function() return {new=function()
-    local worker={};workers[#workers+1]=worker
-    function worker:start(task,callback) self.task,self.callback=task,callback;return true end
+    local worker={starts=0};workers[#workers+1]=worker
+    function worker:start(task,callback) self.task,self.callback=task,callback;self.starts=self.starts+1;return true end
     function worker:cancel() self.cancelled=true end
     function worker:complete() local task,callback=self.task,self.callback;self.task=nil;callback(task()) end
     return worker
@@ -94,7 +96,7 @@ expect(not Search.open(host,one,'bad\nquery'),'downloaded fallback accepted a co
 local owner=start();local worker=workers[#workers];finish(worker)
 expect(owner.finished and owner.checked==2 and owner.unavailable==0 and #owner.value==2,'search missed available chapters')
 expect(table.concat(scans,',')=='a,b,c','failed copy or old version was searched incorrectly')
-expect(owner.menu.redraws==2 and #tasks==0,'fast chapter results redrew before completion')
+expect(owner.menu.redraws==2 and #tasks==0 and worker.starts==3,'copy fallback did not share the following worker or repainted')
 local result
 for _,item in ipairs(owner.menu.item_table) do if item.text=='Second · match c' then result=item end end
 expect(result~=nil,'second chapter result missing');result.callback()
@@ -115,19 +117,22 @@ owner.menu.item_table[4].callback()
 UI:close(owner.menu)
 expect(open_cancels==1 and not host._native_direct_search and not navigated.callbacks.is_current(),
     'closing results left their pending navigation active')
+seconds_per_scan=.36
 owner=start();worker=workers[#workers]
 worker:complete();next_task();worker:complete();next_task();worker:complete();next_task()
-expect(owner.menu.redraws==1 and owner.checked==1 and #owner.value==1,'partial result redrew immediately')
-next_task()
-expect(owner.menu.redraws==2 and owner.menu.item_table[1].text:find('1 of 2',1,true)
-    and owner.menu.item_table[3].text=='First · match b','progress redraw missed the latest partial results')
-worker:complete()
+expect(owner.menu.redraws==1 and owner.checked==1 and #owner.value==1 and #tasks==0,
+    'worker ran past the time limit or repainted the waiting list')
+local pending_task,pending_callback=worker.task,worker.callback
 host.busy_message.cancel()
-expect(not owner.finished and not owner.job and owner.menu.redraws==3 and #tasks==0
+worker.task=nil;pending_callback(pending_task())
+expect(not owner.finished and not owner.job and owner.menu.redraws==2 and #tasks==0
     and owner.menu.item_table[1].text=='Continue searching downloaded chapters'
-    and owner.menu.item_table[5].text=='Second · match c','cancel did not show completed results immediately')
+    and owner.menu.item_table[2].text:find('1 of 2',1,true)
+    and owner.menu.item_table[4].text=='First · match b','cancel did not show only the committed results immediately')
 owner.menu.item_table[1].callback();finish(worker)
-expect(owner.finished and owner.menu.redraws==4 and #tasks==0,'resumed search kept an older progress redraw')
+expect(owner.finished and owner.menu.redraws==3 and #tasks==0 and owner.value[2].entry==two,
+    'resumed search did not show all results once')
+seconds_per_scan=0
 local previous_limit=Search.MAX_RESULTS;Search.MAX_RESULTS=1
 local function action(text)
     for _,item in ipairs(owner.menu.item_table) do if item.text==text then return item.callback end end
@@ -162,11 +167,37 @@ expect(#owner.value==3 and owner.value[1].hit.byte==2 and owner.value[3].hit.byt
 next_batch();finish(workers[#workers])
 expect(owner.finished and not owner.limit and #owner.value==1 and owner.value[1].hit.byte==5,
     'partial last batch lost its final result')
-Search.MAX_RESULTS=previous_limit;match_counts={b=1,c=1}
+Search.MAX_RESULTS=previous_limit
+Search.cancel(host)
+local normal_rows=rows;rows={};match_counts={};scans={}
+for index=1,9 do
+    local uid=tostring(index)
+    rows[index]={book_id='42',chapter_uid=uid,book_version=1,source_sha256=uid,title=uid,key=uid}
+    match_counts[uid]=1
+end
+owner=start();worker=workers[#workers];worker:complete();next_task();worker:complete()
+expect(owner.checked==4 and owner.menu.redraws==1 and worker.starts==2,'one scan worker did not collect four chapters')
+finish(worker)
+expect(owner.finished and #owner.value==9 and worker.starts==4 and table.concat(scans,',')=='1,2,3,4,5,6,7,8,9',
+    'batched workers lost, duplicated, or reordered chapters')
+Search.cancel(host)
+scans={};damaged_key='3';owner=start();finish(workers[#workers]);damaged_key=nil
+expect(owner.finished and owner.checked==8 and owner.unavailable==1 and #owner.value==8
+    and owner.value[2].entry.chapter_uid=='2' and owner.value[3].entry.chapter_uid=='4'
+    and table.concat(scans,',')=='1,2,3,4,5,6,7,8,9','a damaged chapter lost a valid prefix or skipped the following chapter')
+Search.cancel(host)
+scans={};owner=start();worker=workers[#workers];worker:complete();next_task()
+local bad_callback=worker.callback;worker.task=nil;bad_callback(nil);next_task();worker:complete()
+expect(owner.checked==1 and #owner.value==1 and scans[1]=='1' and #scans==1,
+    'failed batch transport did not retry the same chapter in a single scan')
+finish(worker)
+expect(owner.finished and #owner.value==9 and table.concat(scans,',')=='1,2,3,4,5,6,7,8,9',
+    'single scan recovery lost or repeated a chapter')
+rows=normal_rows;match_counts={b=1,c=1}
 Search.cancel(host)
 owner=start();worker=workers[#workers];local callback,task=worker.callback,worker.task;account='other';callback(task())
 expect(not host._native_direct_search and not owner.menu,'old account produced results');account='owner'
 owner=start();local menu=owner.menu;workers[#workers]:complete();page=2;Search.on_view_changed(host)
 expect(not host._native_direct_search and worker~=workers[#workers] and workers[#workers].cancelled
-    and menu.redraws==1 and #tasks==0,'page change did not stop the search and its deferred redraw')
+    and menu.redraws==1 and #tasks==0,'page change did not stop the search and its scheduled continuation')
 page=1;tasks={};print(('native_direct_search_ui_spec: %d checks'):format(checks))

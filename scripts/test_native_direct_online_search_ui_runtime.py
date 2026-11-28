@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise installed native-reader online search against loopback services."""
+"""Exercise installed native-reader search with loopback and local fixtures."""
 import argparse
 from http.server import ThreadingHTTPServer
 import json
@@ -14,7 +14,7 @@ from run_persistent_ui_probe import extract_candidate
 import test_native_direct_position_runtime as fixture
 
 REPO=Path(__file__).resolve().parent.parent
-CASES=('same','cached','download','cancel','denied','mismatch','offline','fallback')
+CASES=('same','cached','download','cancel','denied','mismatch','offline','fallback','offline_scan')
 
 
 class Handler(fixture.Handler):
@@ -73,17 +73,22 @@ def main():
                         payload=dict(credentials=credentials,mock_endpoint='http://127.0.0.1:'+str(server.server_port),case=case,
                             mode='cross_cached' if case=='cached' else 'cross_denied' if case=='denied' else 'cross_download')
                         server.mode='cross_denied' if case=='denied' else 'match';server.calls=[];server.valid=True;server.leaked=False
-                        prepare=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
-                            input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
-                        ready=frame(prepare,'WEREAD_POSITION_PREPARED=');payload.update(path=ready['path'],second=ready.get('second'))
+                        if case!='offline_scan':
+                            prepare=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_prepare.lua'),str(REPO)],
+                                input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=120)
+                            ready=frame(prepare,'WEREAD_POSITION_PREPARED=');payload.update(path=ready['path'],second=ready.get('second'))
                         uid='37' if case in ('same','mismatch','offline') else '38'
                         keyword='Unique paragraph 0100' if uid=='37' else 'Target paragraph 0100'
                         payload.update(uid=uid,keyword=keyword);server.uid,server.keyword=uid,keyword
                         server.mode='cross_denied' if case=='denied' else 'mismatch' if case=='mismatch' else 'match';server.calls=[]
-                        child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_online_search_ui_probe.lua')],
+                        child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_online_search_ui_probe.lua'),str(REPO)],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=240)
                         result=frame(child,'WEREAD_NATIVE_ONLINE_UI=');assert result['ok'] and result['case']==case
-                        if case in ('offline','fallback'):
+                        if case=='offline_scan':
+                            assert result['chapters']==40 and result['cancel_resume'] and result['last_hit_visible'] and not server.calls
+                            print(json.dumps(dict(width=width,height=height,**result),sort_keys=True),flush=True)
+                            assert 1<result['workers']<41 and result['redraws']==1 and result['busy_redraws']==0
+                        elif case in ('offline','fallback'):
                             assert result['offline_fallback']
                             if case=='offline':assert not server.calls
                         elif case=='cancel':assert result['cancelled']
@@ -94,7 +99,7 @@ def main():
                         assert not any(path in ('/web/book/read','/book/read','/book/addBookmark','/review/add') for _,_,path in server.calls)
                         if case in ('cancel','denied'):
                             assert not any(path=='/book/chapterdownload' for _,_,path in server.calls)
-        print('PASS: installed native-reader online search at both screen sizes')
+        print('PASS: installed native-reader search at both screen sizes')
     finally:server.shutdown();server.server_close();thread.join()
 
 

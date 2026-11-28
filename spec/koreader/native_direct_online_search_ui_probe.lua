@@ -1,4 +1,4 @@
--- Full installed-plugin online search flow against loopback-only services.
+-- Installed-plugin search against loopback services and local chapter copies.
 require('jit').off();require('ffi').log=function() end;require('setupkoenv')
 assert(os.getenv('WEREAD_SYNTHETIC')=='1')
 local home=assert(os.getenv('KO_HOME'));local plugin=home..'/plugins/weread.koplugin'
@@ -13,7 +13,29 @@ settings:set('cookies',{wr_vid = input.credentials.vid,wr_skey='synthetic-web-ac
 local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
 local cache=settings:get('cache');cache.show_annotations=false;cache.auto_prefetch_next_chapter=false;settings:set('cache',cache)
 local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report);settings:flush()
-local scope=assert(settings:get_auth_scope());assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
+local scope=assert(settings:get_auth_scope())
+local chapters,paths=40,{}
+if input.case=='offline_scan' then
+    assert(dofile(assert(arg[1])..'/spec/koreader/offline_network_guard.lua')())
+    local Cache=require('weread.lib.native_direct_cache')
+    local Crypto=require('weread.lib.crypto')
+    local book={book_id='4242',title='Synthetic offline search',author='Fixture'}
+    local digest=Crypto.sha256_hex('synthetic chapter list')
+    local live=function() return settings:auth_scope_matches(scope) end
+    for index=1,chapters do
+        local uid=tostring(index)
+        local xhtml='<html><body>'..string.rep('<p>Synthetic filler paragraph for the native reader.</p>',50)
+            ..'<p>cobaltneedle of chapter '..uid..'</p></body></html>'
+        local row={chapterUid=uid,chapterIdx=index,title='Synthetic chapter '..uid}
+        local prepared={book_id=book.book_id,chapter_uid=uid,book_version=1,catalog_sha256=digest,
+            reading_catalog_sha256=digest,source_sha256=Crypto.sha256_hex(xhtml),source_channel='eink',
+            coordinate_source_authoritative=false,missing_images=0,xhtml=xhtml,css='',assets={}}
+        paths[index]=assert(Cache.publish(settings,scope.vid,book,row,prepared,live)).path
+    end
+    input.path=paths[1]
+else
+    assert(require('weread.lib.native_credentials'):new(settings):save(input.credentials,scope,0,1))
+end
 local loader=require('pluginloader');loader.enabled_plugins,loader.disabled_plugins,loader.loaded_plugins={},{},{}
 for _,item in ipairs(loader:_discover()) do if item.name=='weread' then loader:_load{item} end end
 assert(#loader.enabled_plugins==1)
@@ -24,6 +46,65 @@ local function wait(predicate)
 end
 Reader:showReader(input.path);wait(function() return Reader.instance and Reader.instance.weread end)
 local reader=Reader.instance;local host=reader.weread
+if input.case=='offline_scan' then
+    local function search()
+        assert(host:onShowWeReadQuickMenu())
+        wait(function()
+            local top=UI:getTopmostVisibleWidget()
+            return top and type(top.getButtonById)=='function' and top:getButtonById('search_cached')
+        end)
+        UI:getTopmostVisibleWidget():getButtonById('search_cached'):onTapSelectButton()
+        wait(function() return host._native_direct_search and host._native_direct_search.input end)
+        local owner=host._native_direct_search
+        owner.input:setInputText('cobaltneedle');owner.input.buttons[1][2].callback()
+        return owner
+    end
+    local before=socket.gettime()
+    local owner=search()
+    local workers,redraws,busy_redraws=1,0,0
+    local start,switch=owner.worker.start,owner.menu.switchItemTable
+    owner.worker.start=function(worker,...)
+        workers=workers+1;return start(worker,...)
+    end
+    owner.menu.switchItemTable=function(menu,...)
+        redraws=redraws+1
+        if owner.job then busy_redraws=busy_redraws+1 end
+        return switch(menu,...)
+    end
+    wait(function() return owner.finished and not owner.job end)
+    local search_ms=math.floor((socket.gettime()-before)*1000+.5)
+    assert(owner.checked==chapters and #owner.value==chapters and owner.unavailable==0)
+    local original=owner.value
+    owner.menu:onClose()
+    owner=search()
+    wait(function() return owner.checked>0 and owner.worker.job end)
+    local checked=owner.checked
+    assert(checked<chapters and #owner.value==checked)
+    assert(host.busy_message):onTapClose()
+    assert(not owner.job and not owner.finished and owner.checked==checked)
+    local resume=owner.menu.item_table[1]
+    assert(resume.text==require('weread.lib.plugin_util').tr('Continue searching downloaded chapters'))
+    owner.menu:onMenuSelect(resume)
+    wait(function() return owner.finished and not owner.job end)
+    assert(owner.checked==chapters and #owner.value==chapters)
+    for index,value in ipairs(owner.value) do
+        assert(value.entry.chapter_uid==tostring(index) and value.hit.byte==original[index].hit.byte)
+    end
+    local selected=owner.value[chapters]
+    for _,row in ipairs(owner.menu.item_table) do
+        if row.text==selected.title..' · '..selected.hit.context then owner.menu:onMenuSelect(row);break end
+    end
+    wait(function() return Reader.instance and Reader.instance~=reader and Reader.instance.document.file==paths[chapters] end)
+    local target=Reader.instance
+    wait(function() return not target.weread._native_direct_search_incoming and not target.weread._native_direct_search_open end)
+    local found=false
+    for _,match in ipairs(assert(target.document:findAllText('cobaltneedle',false,0,64,false,0))) do
+        if match.start and target.document:isXPointerInCurrentPage(match.start) then found=true;break end
+    end
+    assert(found)
+    print('WEREAD_NATIVE_ONLINE_UI='..json.encode{ok=true,case=input.case,chapters=chapters,workers=workers,
+        redraws=redraws,busy_redraws=busy_redraws,search_ms=search_ms,cancel_resume=true,last_hit_visible=true});return
+end
 local requests=0
 local function configure(active)
     active.settings.mock_endpoint=input.mock_endpoint

@@ -1,13 +1,14 @@
 -- Reader-owned, offline search over verified native chapter copies.
 local UI=require('ui/uimanager')
+local Time=require('ui/time')
 local Popup=require('weread.ui.shelf_popup')
 local Cache=require('weread.lib.native_direct_cache')
 local Search=require('weread.lib.native_direct_search')
 local Context=require('weread.lib.source_context')
 local _=require('weread.lib.plugin_util').tr
 local T=require('ffi/util').template
-local M={MAX_RESULTS=300}
-local REDRAW_INTERVAL=.5
+local M={MAX_RESULTS=300,MAX_SCANS_PER_WORKER=4}
+local BATCH_TIME=Time.ms(350)
 local function location(reader,doc) return Context.location(doc,reader.view and reader.view.view_mode) end
 local function current(host,owner)
     local reader=host.ui
@@ -21,7 +22,6 @@ end
 local function stop(host,owner)
     local job=owner.job;owner.job=nil
     if owner.task then UI:unschedule(owner.task);owner.task=nil end
-    if job and job.redraw then UI:unschedule(job.redraw);job.redraw=nil end
     if owner.worker then owner.worker:cancel() end
     if job and job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
@@ -117,6 +117,7 @@ end
 local function valid_result(result,entry,from,room)
     if type(result)~='table' or result.error or type(result.hits)~='table' or #result.hits>room
         or type(result.unresolved)~='number' or result.unresolved%1~=0 or result.unresolved<0 or result.unresolved>Search.MAX_EXAMINED
+        or type(result.complete)~='boolean'
         or result.complete~=true and (type(result.next_byte)~='number' or result.next_byte%1~=0 or result.next_byte<=from)
         or result.complete==true and result.next_byte~=nil then return false end
     local last=from-1
@@ -130,6 +131,19 @@ local function valid_result(result,entry,from,room)
     end
     return true
 end
+local function scan_batch(settings,vid,keyword,ignore_case,is_current,requests,room)
+    local deadline=Time.now()+BATCH_TIME
+    local results={}
+    for index,request in ipairs(requests) do
+        local result=Search.scan(settings,vid,request.entry,keyword,request.from,ignore_case,is_current,
+            {max_hits=math.min(Search.MAX_HITS,room)})
+        results[index]=type(result)=='table' and result or {error='unavailable'}
+        if type(result)~='table' or result.error or type(result.hits)~='table' then break end
+        room=room-#result.hits
+        if result.complete~=true or room<=0 or Time.now()>=deadline then break end
+    end
+    return {results=results}
+end
 start=function(host,owner)
     if not current(host,owner) or owner.job or owner.navigation or owner.finished or owner.limit or owner.show_previous then return end
     local ok,worker=pcall(function() return owner.worker or require('weread.lib.memory_worker'):new{
@@ -139,14 +153,7 @@ start=function(host,owner)
     host:showBusy(_('Searching downloaded chapters…\nTap or press a key to stop.'),function()
         if owner.job==job then stop(host,owner);render(host,owner) end
     end);job.busy=host.busy_message
-    local function progress()
-        if job.redraw then return end
-        job.redraw=function()
-            job.redraw=nil
-            if owner.job==job then render(host,owner) end
-        end
-        UI:scheduleIn(REDRAW_INTERVAL,job.redraw)
-    end
+    local function auth_current() return host.settings:auth_scope_matches(owner.scope) end
     local step
     local function later()
         local task;task=function() if owner.task==task then owner.task=nil;step() end end
@@ -157,14 +164,13 @@ start=function(host,owner)
         if not current(host,owner) then M.cancel(host);return end
         if not owner.loaded then
             local called,started=pcall(worker.start,worker,function()
-                return {rows=Cache.list(host.settings,owner.scope.vid,owner.entry.book_id,
-                    function() return host.settings:auth_scope_matches(owner.scope) end)}
+                return {rows=Cache.list(host.settings,owner.scope.vid,owner.entry.book_id,auth_current)}
             end,function(result)
                 if owner.job~=job then return end
                 if not current(host,owner) then M.cancel(host);return end
                 local queue=type(result)=='table' and group(result.rows,owner.entry,owner.scope.vid)
                 if not queue then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return end
-                owner.queue,owner.loaded=queue,true;progress();later()
+                owner.queue,owner.loaded=queue,true;later()
             end)
             if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
             return
@@ -173,33 +179,50 @@ start=function(host,owner)
         if not chapter then
             owner.finished=true;owner.next_batch=nil;stop(host,owner);render(host,owner);return
         end
-        local entry=chapter.copies[owner.copy];local from=owner.from
+        local requests={{entry=chapter.copies[owner.copy],from=owner.from}}
+        if not job.single_scan then
+            local last=math.min(#owner.queue,owner.index+M.MAX_SCANS_PER_WORKER-1)
+            for index=owner.index+1,last do requests[#requests+1]={entry=owner.queue[index].copies[1],from=1} end
+        end
         local used=owner.next_batch and 0 or #owner.value
-        local room=math.min(Search.MAX_HITS,M.MAX_RESULTS-used)
+        local room=M.MAX_RESULTS-used
         local called,started=pcall(worker.start,worker,function()
-            return Search.scan(host.settings,owner.scope.vid,entry,owner.keyword,from,owner.ignore_case,
-                function() return host.settings:auth_scope_matches(owner.scope) end,{max_hits=room})
+            return scan_batch(host.settings,owner.scope.vid,owner.keyword,owner.ignore_case,auth_current,requests,room)
         end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
-            if not valid_result(result,entry,from,room) then
-                if owner.from==1 and owner.copy<#chapter.copies then owner.copy=owner.copy+1
-                else owner.unavailable=owner.unavailable+1;owner.index=owner.index+1;owner.copy=1;owner.from=1 end
-            else
-                owner.unresolved=owner.unresolved+result.unresolved
-                if owner.next_batch and #result.hits>0 then
+            local results=type(result)=='table' and result.results
+            if type(results)~='table' or #results==0 or #results>#requests then
+                if #requests>1 then job.single_scan=true;later();return end
+                results={{error='unavailable'}}
+            end
+            for index,scan in ipairs(results) do
+                local request=requests[index]
+                local current_chapter=owner.queue[owner.index]
+                if not valid_result(scan,request.entry,request.from,math.min(Search.MAX_HITS,room)) then
+                    if owner.from==1 and owner.copy<#current_chapter.copies then owner.copy=owner.copy+1
+                    else owner.unavailable=owner.unavailable+1;owner.index=owner.index+1;owner.copy=1;owner.from=1 end
+                    break
+                end
+                owner.unresolved=owner.unresolved+scan.unresolved
+                if owner.next_batch and #scan.hits>0 then
                     owner.previous,owner.value=owner.value,{}
                     owner.next_batch=nil;owner.batch=owner.batch+1
                 end
-                for _,hit in ipairs(result.hits) do owner.value[#owner.value+1]={entry=entry,hit=hit,title=chapter.title} end
-                if result.complete then owner.checked=owner.checked+1;owner.index=owner.index+1;owner.copy=1;owner.from=1
-                else owner.from=result.next_byte end
+                for _,hit in ipairs(scan.hits) do
+                    owner.value[#owner.value+1]={entry=request.entry,hit=hit,title=current_chapter.title}
+                end
+                room=room-#scan.hits
+                if scan.complete then owner.checked=owner.checked+1;owner.index=owner.index+1;owner.copy=1;owner.from=1
+                else owner.from=scan.next_byte;break end
+                if room<=0 then break end
             end
             if not owner.next_batch and #owner.value>=M.MAX_RESULTS then
                 owner.finished=not owner.queue[owner.index];owner.limit=not owner.finished
                 stop(host,owner);render(host,owner);return
             end
-            progress();later()
+            -- The modal stop dialog owns input until accepted results can be shown.
+            later()
         end)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
     end
