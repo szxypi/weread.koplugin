@@ -139,6 +139,21 @@ for _, name in ipairs({
 }) do
     package.preload[name] = widget_module
 end
+package.preload["ui/widget/verticalgroup"] = function()
+    local VerticalGroup = widget_module()
+    function VerticalGroup:getSize()
+        local width, height = 0, 0
+        self._offsets = {}
+        for index, child in ipairs(self) do
+            local size = child:getSize()
+            self._offsets[index] = { x = size.w, y = height }
+            width = math.max(width, size.w)
+            height = height + size.h
+        end
+        return { w = width, h = height }
+    end
+    return VerticalGroup
+end
 package.preload["ui/widget/button"] = function()
     local Button = Widget:extend{}
     function Button:init()

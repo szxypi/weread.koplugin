@@ -23,6 +23,9 @@ def main():
     parser.add_argument('--rtl', action='store_true')
     parser.add_argument('--no-xtext', action='store_true')
     parser.add_argument('--flash-ui', action='store_true', help='Exercise native flashing press feedback')
+    parser.add_argument('--check-prepaint-press', action='store_true')
+    parser.add_argument('--max-initial-previews', type=int)
+    parser.add_argument('--max-row-layout-updates', type=int)
     parser.add_argument('--candidate', type=Path, help='Use an existing packaged plugin')
     parser.add_argument('--screenshots', type=Path, help='Save synthetic frames for comparison')
     args = parser.parse_args()
@@ -43,7 +46,8 @@ def main():
                    EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                    WEREAD_REVIEW_SHOTS=str(shots), WEREAD_REVIEW_RTL='1' if args.rtl else '0',
                    WEREAD_REVIEW_NO_XTEXT='1' if args.no_xtext else '0',
-                   WEREAD_REVIEW_FLASH='1' if args.flash_ui else '0')
+                   WEREAD_REVIEW_FLASH='1' if args.flash_ui else '0',
+                   WEREAD_REVIEW_PREPAINT_PRESS='1' if args.check_prepaint_press else '0')
         code, output, repaint = run_child([str(runtime / 'luajit'), str(repo / 'spec/koreader/eink_review_list_benchmark.lua')],
                                           env, b'', runtime, timeout=150)
         if code or repaint or output.count(FRAME) != 1:
@@ -56,6 +60,10 @@ def main():
         if (report['result'] != 'PASS' or report['original'] != 804 or report['optimized'] >= report['original']
                 or report['event_visits'] != 200 or report['original_event_visits'] <= report['event_visits']):
             raise AssertionError(report)
+        for limit, field in ((args.max_initial_previews, 'initial_previews'),
+                             (args.max_row_layout_updates, 'review_layout_updates')):
+            if limit is not None and report[field] > limit:
+                raise AssertionError(f'{field} exceeds limit')
         if args.screenshots:
             args.screenshots.mkdir(parents=True, exist_ok=True)
             for frame in shots.glob('*.png'):

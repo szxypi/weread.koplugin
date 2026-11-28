@@ -1,6 +1,7 @@
 -- Full-screen, e-ink-friendly book review list with Recommended / Latest tabs.
 -- This is a presentation-only widget; network loading is handled by main.lua.
 
+local BD = require("ui/bidi")
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local Device = require("device")
@@ -27,12 +28,9 @@ local I18n = require("weread.lib.i18n")
 local ListPaint = require("weread.lib.shelf_list_paint")
 local ListEvents = require("weread.lib.shelf_list_events")
 
--- Keep every button's position available to focus navigation while avoiding
--- text rendering for review rows that cannot appear on the screen.
 local ReviewListGroup = VerticalGroup:extend{}
 function ReviewListGroup:paintTo(bb, x, y)
-    ListPaint.paint(self, bb, x, y, require('ui/bidi').mirroredUILayout())
-    self._review_rows_positioned = true
+    self._painted_rows = ListPaint.paint(self, bb, x, y, BD.mirroredUILayout(), true)
 end
 
 -- Fixed-size rows retain their input geometry but build the native Button's
@@ -54,6 +52,7 @@ end
 function ReviewRow:_ensureButton()
     if self.frame then return end
     local geometry = self.dimen
+    if not self.text then self.text = self.show_parent:reviewText(self.review) end
     Button.init(self)
     local measured = self.dimen
     -- Geometry is fixed by the configured width and reference height. Keep
@@ -91,7 +90,7 @@ function ReviewRow:onTapSelectButton(...)
     return Button.onTapSelectButton(self, ...)
 end
 function ReviewListGroup:propagateEvent(event)
-    local routed, consumed = ListEvents.dispatch(self._review_rows, self._review_rows_positioned, event)
+    local routed, consumed = ListEvents.dispatchPainted(self._painted_rows, event)
     if routed then return consumed end
     return VerticalGroup.propagateEvent(self, event)
 end
@@ -195,7 +194,6 @@ function BookReviewsView:buildContent()
         HorizontalSpan:new{ width = self.content_width },
     }
     self._review_buttons = {}
-    content._review_rows = self._review_buttons
     if self.incomplete_text and not self.latest_only then
         table.insert(content, TextWidget:new{
             text = self.incomplete_text, face = Font:getFace("cfont", 16), max_width = self.content_width,
@@ -214,7 +212,7 @@ function BookReviewsView:buildContent()
 
     for _i, review in ipairs(items) do
         local button = ReviewRow:new{
-            text = self:reviewText(review),
+            review = review,
             width = self.content_width,
             height = Screen:scaleBySize(66),
             align = "left",
@@ -265,6 +263,11 @@ function BookReviewsView:buildContent()
             face = Font:getFace("cfont", 16), max_width = self.content_width,
         })
     end
+    -- Use the native layout's offsets, including any warning above the rows.
+    content:getSize()
+    for index, child in ipairs(content) do
+        if child._shelf_list_row then child._focus_content_top = self.outer_margin + content._offsets[index].y end
+    end
     self._review_content = content
     return content
 end
@@ -308,14 +311,18 @@ function BookReviewsView:init()
         },
     }
     self._review_scroll = scroll
-    if self.scroll_offset then scroll:setScrolledOffset(self.scroll_offset) end
+    if self.scroll_offset then
+        scroll:initState()
+        scroll:setScrolledOffset(self.scroll_offset)
+        scroll:_scrollBy(0, 0)
+    end
     local rows = { self._tab_buttons }
     for _i, review_button in ipairs(self._review_buttons) do
         rows[#rows + 1] = { review_button }
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._tab_buttons) do outside_scroll[button] = true end
-    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
+    FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll, windowed = true })
     -- Reviews follow the tab row.
     FocusNav.initialFocus(self, 1, math.min(#rows, self.focus_row or (#rows > 1 and 2 or 1)))
 
