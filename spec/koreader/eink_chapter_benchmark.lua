@@ -36,17 +36,58 @@ local function measure_download_selection(chapter_count)
             if type(item[name])=='function' then callbacks=callbacks+1 end
         end
     end
-    local item=assert(menu.item_table[2])
+    local item=assert(menu.item_table[10])
+    local previous={}
+    for index,widget in ipairs(menu.item_group) do previous[index]={widget,widget[1]} end
+    local region_count,total_area,full_refresh=0,0,false
+    local set_dirty=UI.setDirty
+    UI.setDirty=function(self,widget,kind,region,...)
+        if widget==menu then
+            if region then
+                region_count=region_count+1
+                total_area=total_area+region.w*region.h
+            else
+                full_refresh=true
+            end
+        end
+        return set_dirty(self,widget,kind,region,...)
+    end
     start=os.clock()
     menu:onMenuSelect(item)
+    local prepare=(os.clock()-start)*1000
     UI:forceRePaint()
     local toggle=(os.clock()-start)*1000
+    UI.setDirty=set_dirty
+    local changed_rows=0
+    for index,widget in ipairs(menu.item_group) do
+        local row=previous[index]
+        if widget~=row[1] or widget[1]~=row[2] then changed_rows=changed_rows+1 end
+    end
     assert(Menu.getMenuText(item):find('[✓]',1,true)==1
         and (item.mandatory_func and item.mandatory_func() or item.mandatory)==tr('Selected'),
         'chapter selection did not update both indicators')
     if screenshots then Device.screen:shot(screenshots..'/download-selected.png') end
+    menu:onMenuSelect(item);UI:forceRePaint()
+    assert(Menu.getMenuText(item):find('[  ]',1,true)==1,'deselecting did not restore the chapter row')
+    if screenshots then Device.screen:shot(screenshots..'/download-deselected.png') end
+    if changed_rows==2 and not full_refresh then
+        local focused=menu.item_group[10]
+        for index,widgets in ipairs(menu.layout) do
+            if widgets[1]==focused then
+                menu:moveFocusTo(1,index,require('ui/widget/focusmanager').FORCED_FOCUS)
+                break
+            end
+        end
+        UI:forceRePaint()
+        local underline=focused._underline_container.color
+        menu:onPress();UI:forceRePaint()
+        assert(menu:getFocusItem()==focused and focused._underline_container.color==underline
+            and Menu.getMenuText(item):find('[✓]',1,true)==1,'the native Press action lost the row focus or selection')
+    end
     UI:close(menu)
-    return {item_functions=callbacks,retained_kib=retained,opening_cpu_ms=opening,toggle_cpu_ms=toggle}
+    return {item_functions=callbacks,retained_kib=retained,opening_cpu_ms=opening,toggle_cpu_ms=toggle,
+        changed_rows=changed_rows,refresh_regions=region_count,refresh_area=total_area,full_refresh=full_refresh,
+        screen_area=Device.screen:getWidth()*Device.screen:getHeight(),toggle_prepare_cpu_ms=prepare}
 end
 
 local function measure_title_search(chapter_count)

@@ -2722,6 +2722,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         if key == "select_enabled" then return selected_count > 0 end
     end }
     local function update_visible_items()
+        if require("weread.ui.chapter_download_rows").update(menu) then return end
         local focused = menu.getFocusItem and menu:getFocusItem()
         local position
         for index, widget in ipairs(menu.item_group or {}) do
