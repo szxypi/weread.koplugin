@@ -62,6 +62,52 @@ function M.shared(book,path,cache)
     return shared_reference(book,path,reference),reference~=nil
 end
 
+-- Superseded single-chapter downloads remain registered for their local notes.
+local function registered_single(book,path)
+    local documents=type(book)=='table' and book.annotation_documents
+    local descriptor=type(documents)=='table' and documents[path]
+    local chapters=type(descriptor)=='table' and descriptor.clean==true and descriptor.chapters
+    if type(chapters)~='table' or #chapters~=1 or type(chapters[1])~='table' then return nil end
+    local chapter=chapters[1]
+    local ok,uid=pcall(Context.identifier,chapter.chapterUid or chapter.chapterId,true)
+    if ok and (chapter.chapterUid==nil or chapter.chapterId==nil
+        or tostring(chapter.chapterUid)==tostring(chapter.chapterId)) then return uid end
+end
+
+function M.retained_single(book,path)
+    local uid=registered_single(book,path)
+    if not uid or book.cached_full_book==path then return nil end
+    if book.cached_file~=path then return uid end
+    -- Older downloads used cached_file for both books and individual chapters.
+    local replacement=require('weread.lib.read_access').cached_chapter(book.cached_chapters,uid)
+    if type(replacement)=='string' and replacement~='' and replacement~=path then return uid end
+end
+
+local function spine_claim(opf,identity)
+    if type(opf)~='string' or #opf>Catalog.MAX_PACKAGE_BYTES then return end
+    local source,count=opf:match('<dc:source>([^<]+)</dc:source>'),0
+    for _ in opf:gmatch('<dc:source>') do count=count+1 end
+    local spine=opf:match('<spine[^>]*>(.-)</spine>')
+    if count~=1 or not source or not spine then return end
+    local items,order,n={},{},0
+    for ref in spine:gmatch('<itemref%s+idref="([^"]+)"%s*/>') do
+        if items[ref] then return end
+        if ref~='cover' then n=n+1;order[n]=ref end
+        if n>20000 then return end
+        items[ref]=true
+    end
+    if n>0 and (not identity or identity.chapter_count==n) then return source,items,order end
+end
+
+function M.document_single(document,id,uid)
+    local identity=Identity.read_document(document,id)
+    if identity.book_id~=tostring(id) or identity.chapter_count~=1 or identity.file_id=='' then return false end
+    local ok,opf=pcall(document.getDocumentFileContent,document,'OEBPS/content.opf')
+    if not ok then return false end
+    local source,items=spine_claim(opf,identity)
+    return source==Protocol.reader_url(id,uid) and items.chapter==true
+end
+
 local function inspect(book,path)
     local ok,result=pcall(function()
         local id=Context.book_id(book)
@@ -71,18 +117,9 @@ local function inspect(book,path)
         if members and not identity then return {kind='unknown'} end
         if not members then members=Archive.read(path,{['OEBPS/content.opf']=Catalog.MAX_PACKAGE_BYTES}) end
         local opf=members and members['OEBPS/content.opf']
-        if type(opf)~='string' or identity and identity.book_id~=id then return {kind='unknown'} end
-        local source,count=opf:match('<dc:source>([^<]+)</dc:source>'),0
-        for _ in opf:gmatch('<dc:source>') do count=count+1 end
-        local spine=opf:match('<spine[^>]*>(.-)</spine>')
-        if count~=1 or not source or not spine then return {kind='unknown'} end
-        local items,order,n={},{},0
-        for ref in spine:gmatch('<itemref%s+idref="([^"]+)"%s*/>') do
-            if items[ref] then return {kind='unknown'} end
-            if ref~='cover' then n=n+1;order[n]=ref end
-            if n>20000 then return {kind='unknown'} end;items[ref]=true
-        end
-        if n==0 or identity and identity.chapter_count~=n then return {kind='unknown'} end
+        if identity and identity.book_id~=id then return {kind='unknown'} end
+        local source,items,order=spine_claim(opf,identity)
+        if not source then return {kind='unknown'} end
         if source==Protocol.reader_url(id) and not items.chapter then
             for ref in pairs(items) do
                 if ref~='cover' and not ref:match('^chapter_[%w_-]+$') then return {kind='unknown'} end
@@ -90,7 +127,7 @@ local function inspect(book,path)
             return {kind='combined',items=items,order=order,opf_hash=Crypto.sha256_hex(opf),
                 file_id=identity and identity.file_id or nil,book_version=identity and identity.book_version or nil}
         end
-        if n~=1 or not items.chapter then return {kind='unknown'} end
+        if #order~=1 or not items.chapter then return {kind='unknown'} end
         local matching
         for key,value in pairs(book.cached_chapters or {}) do
             if value==path then

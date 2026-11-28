@@ -164,6 +164,10 @@ expect(not saw_legacy,'cache lookup scanned past first matching candidate')
 saved={cached_chapters={[uid]='/single'},cached_full_book='/full'}
 resolved=Cloud.resolve(client,input,target,selected,candidates)
 expect(resolved.file=='/single','requested chapter cache did not take priority')
+attempts={}
+local history_input=copy(input);history_input.retained=true
+resolved=Cloud.resolve(client,history_input,target,selected,candidates)
+expect(resolved.file=='/single' and attempts[1]=='/single','explicit cloud selection tried to jump inside a retained copy')
 saved={cached_chapters={[tonumber(uid)]='/numeric'}}
 resolved=Cloud.resolve(client,input,target,selected,candidates)
 expect(resolved.file=='/numeric','legacy numeric chapter cache was not resolved')

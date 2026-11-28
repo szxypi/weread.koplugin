@@ -142,4 +142,24 @@ local cyclic=copy(c.data.weread_account_locations);cyclic.legacy={xpointer='/old
 expect(not Location.map_valid(cyclic,'900001'),'cyclic legacy metadata was accepted')
 host.ui.doc_settings=c;book.cached_file='/another/book.epub';c:saveSetting('last_xpointer','/unrelated')
 Location.load(host,c,document);expect(c.data.last_xpointer=='/unrelated','unrelated file was changed')
+local chapter='99'
+local Protocol=require('weread.lib.protocol')
+identity.chapter_count=1
+document.getDocumentFileContent=function() return '<dc:source>'..Protocol.reader_url('900001',chapter)
+    ..'</dc:source><spine><itemref idref="chapter"/></spine>' end
+book.annotation_documents={[document.file]={clean=true,chapters={{chapterUid=chapter}}}}
+book.cached_chapters={[chapter]='/another/chapter.epub'}
+local older=config({last_xpointer='/from-a',weread_account_locations=copy(saved)})
+older.data.weread_account_locations.entries={[a]={xpointer='/from-a'}}
+host.ui.doc_settings=older;account=b
+Location.load(host,older,document);navigated=nil
+host.ui.rolling.onGotoXPointer=function(_self,value) navigated=value;return true end
+Location.ready(host,'900001')
+expect(host._weread_retained_chapter==document and older.data.last_xpointer==nil and not navigated,
+    'another account inherited the old chapter position')
+account=a;Location.load(host,older,document);Location.ready(host,'900001')
+expect(navigated=='/from-a','old chapter lost its account position')
+book.annotation_documents[document.file].chapters[1].chapterUid='101'
+Location.load(host,older,document);navigated=nil;Location.ready(host,'900001')
+expect(not navigated and not host._native_account_location.allowed,'unrelated chapter proof restored a saved position')
 print('native_account_location_spec: '..checks..' checks')

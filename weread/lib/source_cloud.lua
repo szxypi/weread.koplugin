@@ -194,7 +194,7 @@ end
 function M.resolve(client,input,remote,selected,read_archive)
     remote=M.remote(remote)
     if type(input)~='table' or not valid_path(input.file) or not remote or remote.book_id~=input.book_id then return {error='target_invalid'} end
-    local bound=M.bind(input,remote,read_archive)
+    local bound=input.retained and {error='source_changed'} or M.bind(input,remote,read_archive)
     if bound.position then return bound end
     local saved=book(client.settings,input.book_id) or {}
     local visited={[input.file]=true}

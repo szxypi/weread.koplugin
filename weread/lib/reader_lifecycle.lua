@@ -81,6 +81,10 @@ function M:onWeReadSyncProgress()
             _("This action requires an open WeRead book."), 1)
         return false
     end
+    if self:isRetainedChapter() then
+        self.progress_sync:sync_now()
+        return true
+    end
     if not self:requireLogin(true, false) then
         return false
     end
@@ -136,6 +140,10 @@ end
 
 function M:onDocSettingsLoad(config,document)
     require('weread.lib.native_account_location').load(self,config,document)
+end
+
+function M:isRetainedChapter()
+    return self._weread_retained_chapter~=nil and self.ui and self.ui.document==self._weread_retained_chapter
 end
 
 function M:onSaveSettings()
@@ -213,7 +221,7 @@ function M:onReaderReady()
         FileIdentity.read_document(self.ui.document, weread_book_id)
         require('weread.lib.native_account_location').ready(self,weread_book_id)
     end
-    if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
+    if weread_book_id and self.recordRecentReading and not self:isRetainedChapter() then self:recordRecentReading(weread_book_id) end
     if not weread_book_id and require('weread.lib.native_direct_path').contains(self.settings,local_file) then
         require('weread.ui.native_direct_reconnect').ready(self)
         require('weread.ui.native_home_resume').record(self)
@@ -949,6 +957,7 @@ function M:getFullBookCachePath(book, exists, claim_cache)
         return Claims.inspect(book,legacy,claim_cache,true).kind=='combined' and legacy or nil
     end
     if mapped then return nil end
+    if Claims.retained_single(book,legacy) then return nil end
     return legacy
 end
 
@@ -987,6 +996,11 @@ function M:getChapterInfoFromFile(book, file_path)
         if info.kind=='combined' then return nil,nil,true,not complete(info),info end
         if info.kind~='single' then return nil,nil,false end
         current_uid=info.uid
+    elseif not current_uid then
+        local retained=Claims.retained_single(book,file_path)
+        local document=self.ui and self.ui.document
+        if retained and document and document.file==file_path
+            and Claims.document_single(document,book.book_id or book.bookId,retained) then current_uid=retained end
     end
 
     local index, chapter = chapter_in_catalog(book.chapters, current_uid)

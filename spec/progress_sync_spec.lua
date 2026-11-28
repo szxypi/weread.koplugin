@@ -2466,6 +2466,26 @@ test("reconnect respects source navigation and session ownership", function()
     eq(#f.choices, 0, "account mismatch did not create a decision")
 end)
 
+test("retained chapter keeps the active copy's progress during open, reconnect and close", function()
+    local f=fixture({bookId='book',chapterUid=22,chapterIdx=2,chapterOffset=110,progress=25})
+    f.sync.is_retained_chapter=function() return true end
+    local saved=f.values.books.book
+    saved.last_local_position={chapter_uid='22',chapter_offset=230}
+    saved.pending_upload_position={chapter_uid='22',chapter_offset=240}
+    saved.verified_source='active_copy'
+    f.sync:on_reader_ready();f.drain()
+    f.sync:on_page_update()
+    eq(f.sync:on_network_disconnected(),false,'old copy revoked the current book verification')
+    eq(f.sync:on_network_connected(),false,'old copy started a cloud comparison')
+    f.sync:on_suspend();f.sync:on_resume();f.drain()
+    eq(f.sync:sync_now(),false,'old copy accepted manual sync')
+    f.sync:on_close_document();f.drain()
+    eq(saved.last_local_position.chapter_offset,230,'old copy rewrote the active reading position')
+    eq(saved.pending_upload_position.chapter_offset,240,'old copy overwrote the protected pending position')
+    eq(saved.verified_source,'active_copy','old copy changed active sync metadata')
+    eq(#f.jumps+#f.uploads+#f.choices,0,'old copy moved to or wrote cloud progress')
+end)
+
 test("failed cloud navigation preserves the checkpoint while revoking its queued write", function()
     local callbacks = {}
     local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })

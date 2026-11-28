@@ -142,7 +142,8 @@ function M.start(host,resume,options)
         if not ok then finish('worker_unavailable');return false end
         host.cloud_source_worker=worker
     end
-    local input={file=job.file,identity=identity,book_id=id,request_id=job.sequence}
+    local input={file=job.file,identity=identity,book_id=id,request_id=job.sequence,
+        retained=host.isRetainedChapter and host:isRetainedChapter() or false}
     local handle,run
     local function scoped()
         return current(host,job,false,true) and job.auth_scope

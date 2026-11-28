@@ -2,6 +2,7 @@
 -- Unknown legacy locations remain untouched until their ownership is proven.
 local Identity=require('weread.lib.book_file_identity')
 local Access=require('weread.lib.read_access')
+local Claims=require('weread.lib.chapter_cache_claim')
 local SourceView=require('weread.lib.source_view')
 local ReaderPosition=require('weread.lib.reader_position')
 local _=require('weread.lib.i18n').tr
@@ -45,11 +46,12 @@ end
 M.map_valid=map_valid
 local function cached(book,path)
     if type(book)~='table' or type(path)~='string' then return false end
-    if book.cached_file==path or book.cached_full_book==path then return true end
+    if book.cached_full_book==path then return true end
     for _uid,filename in pairs(type(book.cached_chapters)=='table' and book.cached_chapters or {}) do
         if filename==path then return true end
     end
-    return false
+    local retained=Claims.retained_single(book,path)
+    return retained~=nil or book.cached_file==path,retained
 end
 local function scope(host)
     local key=host.library_db and host.library_db.accountKey and host.library_db:accountKey()
@@ -118,12 +120,15 @@ local function saved_claim(host,session,identity)
 end
 function M.load(host,config,document)
     host._native_account_location=nil
+    host._weread_retained_chapter=nil
     if not config or not document or not host.settings or not host.settings.get_book then return end
     local id=host:detectWeReadBook();id=Access.display_book_id(id)
     local account=scope(host)
     if not id or not owner(account) then return end
     local book=host.settings:get_book(id)
-    if not cached(book,document.file) then return end
+    local known,retained=cached(book,document.file)
+    if not known then return end
+    if retained then host._weread_retained_chapter=document end
     local current_stat=stat(document.file)
     if not current_stat then return end
     local raw=config:readSetting(KEY)
@@ -135,7 +140,7 @@ function M.load(host,config,document)
     local old_page=config:readSetting('last_page')
     local session={id=id,owner=account,document=document,config=config,original=original,map=raw and copy(raw),
         original_percent=old_percent,original_page=old_page,book=book,stat=current_stat,path=document.file,
-        auth=host.settings.get_auth_scope and host.settings:get_auth_scope()}
+        retained=retained,auth=host.settings.get_auth_scope and host.settings:get_auth_scope()}
     host._native_account_location=session
     if raw then
         -- Identity is only safe to inspect after ReaderReady. Start at the
@@ -163,6 +168,7 @@ function M.ready(host,id)
         session.auth=host.settings.get_auth_scope and host.settings:get_auth_scope()
     end
     local identity=Identity.read_document(session.document,id)
+    if session.retained and not Claims.document_single(session.document,id,session.retained) then return end
     local function restore_legacy(force)
         if (session.map or force) and session.original and host.ui.rolling then
             local ok,valid=pcall(session.document.isXPointerInDocument,session.document,session.original)

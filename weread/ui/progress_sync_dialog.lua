@@ -110,6 +110,8 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "local_unavailable" then
         if data.error=='partial_combined_book' then
             text=_("This combined file cannot be verified against the complete book. Progress sync is paused for this reading session; the previous position is kept.")
+        elseif data.error=='retained_chapter' then
+            text=_("This is a previous chapter copy. Its position is saved on this device. Open the current download from your bookshelf to sync.")
         elseif data.error=='source_preparation_timeout' or data.error=='source_position_unavailable' then
             text=_("Reading position is temporarily unavailable. Please try again shortly.")
         else

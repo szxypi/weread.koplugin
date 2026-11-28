@@ -342,20 +342,29 @@ close_info()
 -- Different original bytes cannot use cloud offsets, even in the same chapter.
 clear_candidates();reader:onClose()
 local changed_book={book_id='900001',bookId='900001',bookVersion=7,title='Cloud changed fixture',chapters=chapters}
-local changed=Content.save_chapter_epub(settings,changed_book,chapters[6],'<html><body><p>Different source fixture.</p></body></html>',{},nil,
+local changed_body='<html><body>'..string.rep('<p>Different local revision with enough words for a saved page.</p>',160)..'</body></html>'
+local changed=Content.save_chapter_epub(settings,changed_book,chapters[6],changed_body,{},nil,
     Identity.capture(changed_book),assert(Source.capture(changed_book,chapters[6],source.raw..'\n','web_xhtml')))
+local old_record={cached_chapters={['6']=changed}}
+Content.register_annotation_document(old_record,changed,{chapters[6]})
+assert(plugin.settings:record_download('900001',plugin.settings:get_book('900001'),old_record))
 open(changed)
 local function file_bytes(path)
     local file=assert(io.open(path,'rb'));local value=assert(file:read('*a'));file:close();return value
 end
 local original_bytes=file_bytes(changed)
 local original_settings=reader.doc_settings
+reader.rolling:onGotoPage(2)
+local origin=document:getXPointer()
+local last=assert(document:getNextVisibleChar(origin))
+local note_text='Previous copy local note'
+reader.annotation:addItem{page=origin,pos0=origin,pos1=last,drawer='underscore',text='Local source',
+    note=note_text,datetime='2026-11-11 12:00:00'}
+reader.annotation:onSaveSettings()
 original_settings:saveSetting('synthetic_cloud_original','kept');assert(original_settings:flush())
-local saved=plugin.settings:get_book('900001')
-assert(plugin.settings:record_download('900001',saved,{cached_chapters={['6']=changed}}))
 assert(plugin:showCloudSourcePosition())
 pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
-assert(document.file==changed and document:getCurrentPage()==1 and not plugin.source_navigation.job,'different source guessed a position')
+assert(document.file==changed and document:isXPointerInCurrentPage(origin) and not plugin.source_navigation.job,'different source guessed a position')
 local function wait_for_staged()
     local staged
     pump(function()
@@ -371,7 +380,7 @@ control{match='/web/book/getProgress',times=1,status=429}
 plugin.cloud_source_request.confirm.ok_callback()
 local discarded=wait_for_staged()
 pump(function() return not plugin.cloud_source_request end)
-assert(not io.open(discarded,'rb') and document.file==changed and document:getCurrentPage()==1
+assert(not io.open(discarded,'rb') and document.file==changed and document:isXPointerInCurrentPage(origin)
     and plugin.settings:get_book('900001').cached_chapters['6']==changed,'failed verification replaced the active chapter')
 close_info();control{match='',times=0,delay=0}
 assert(plugin:showCloudSourcePosition())
@@ -386,7 +395,53 @@ assert(not io.open(published,'rb') and document.file~=changed
 assert(require('util').partialMD5(changed)~=require('util').partialMD5(document.file)
     and require('docsettings'):open(changed):readSetting('synthetic_cloud_original')=='kept',
     'the new download reused the old reading record')
+local preferred=document.file
 reader:onClose()
+local original_on_disk=require('docsettings'):open(changed)
+local scope=plugin.library_db:accountKey()
+local map=assert(original_on_disk:readSetting('weread_account_locations'))
+assert(map.entries[scope] and map.entries[scope].xpointer==origin,'old account page was not saved before replacing the cache mapping')
+local protected={book_id='900001',chapter_uid='6',chapter_offset=1234}
+assert(plugin.settings:patch_reading_state('900001',{pending_upload_position=protected,pending_upload_account=scope}))
+local History=require('readhistory')
+History:reload(true)
+local history_entry=assert(History.hist[assert(History:getIndexByFile(changed))])
+local Reader=require('apps/reader/readerui')
+local reads_before_history=count('/web/book/getProgress')
+Reader:showReader(history_entry.file)
+pump(function() return Reader.instance and Reader.instance.document.file==changed and Reader.instance.weread end)
+reader=Reader.instance;plugin=reader.weread;document=reader.document
+assert(plugin:isRetainedChapter() and document:isXPointerInCurrentPage(origin),
+    'reading history did not restore the old account page')
+assert(reader.annotation.annotations[1] and reader.annotation.annotations[1].note==note_text,
+    'reading history lost the original local note')
+local previous=plugin.settings:get_book('900001');previous.chapters=chapters
+local old_index,old_chapter=plugin:getChapterInfoFromFile(previous,changed)
+assert(old_index==6 and old_chapter.chapterUid==chapters[6].chapterUid,
+    'retained EPUB lost its verified chapter context')
+reader.rolling:onGotoPage(3)
+plugin:onNetworkDisconnected();plugin:onNetworkConnected()
+pump(function() return plugin.progress_sync.state=='unverified' end)
+assert(not plugin.progress_sync:sync_now(),'manual sync accepted a previous chapter copy')
+close_info();reader:onClose()
+local after_history=plugin.settings:get_book('900001')
+assert(after_history.cached_chapters['6']==preferred and after_history.pending_upload_position.chapter_offset==1234
+    and count('/web/book/getProgress')==reads_before_history,'old chapter overwrote active progress or started cloud sync')
+local previous_settings_new=Settings.new
+Settings.new=function(class,...)
+    local fresh=previous_settings_new(class,...)
+    fresh:set('account',{user_vid='90009999',name='Other fixture'});fresh:flush()
+    return fresh
+end
+Reader:showReader(history_entry.file)
+pump(function() return Reader.instance and Reader.instance.document.file==changed and Reader.instance.weread end)
+reader=Reader.instance;plugin=reader.weread;document=reader.document
+Settings.new=previous_settings_new
+assert(plugin.library_db:accountKey()~=scope and plugin:isRetainedChapter()
+    and document:getCurrentPage()==1 and not document:isXPointerInCurrentPage(origin),
+    'the other account inherited the previous copy’s last page')
+reader:onClose()
+assert(count('/web/book/getProgress')==reads_before_history,'the other account synchronized a retained chapter')
 assert(count('/web/book/read')==writes,'cross-file continuation wrote progress or reading time')
 local report={result='PASS',synthetic_only=true,source_target_visible=true,cross_chapter_full_book=true,
     background_http=true,independent_archive=true,retained_original_offset=true,upload_verified=false,
@@ -395,6 +450,7 @@ local report={result='PASS',synthetic_only=true,source_target_visible=true,cross
     cached_full_handoff=true,cached_chapter_handoff=true,startup_pull_superseded=true,download_declined=true,
     owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,
     existing_epub_preserved=true,failed_recheck_kept_original_mapping=true,
+    retained_chapter_history=true,retained_progress_isolated=true,retained_account_location_isolated=true,
     expired_download_recovered=recovery,renewal_cancelled=cancelled_renewal,read_renewal=read_recovery,reading_writes=0}
 local file=assert(io.open(evidence..'/cloud-source.json','w'));file:write(client:json_encode(report));file:close()
 print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/cached full/cached chapter/confirmed download/cancel; no reading writes')

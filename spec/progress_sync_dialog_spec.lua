@@ -13,6 +13,8 @@ assert(shown and shown.text=='微信读书已记录本书的阅读、听书或�
 dialog.notify('local_unavailable',{error='partial_combined_book'})
 assert(shown.text=='无法确认此合并文件与完整书籍一致，本次阅读暂不进行进度同步，原有位置已保留。',
     'partial combined-book synchronization restriction was not explained')
+dialog.notify('local_unavailable',{error='retained_chapter'})
+assert(shown.text:find('以前下载的章节副本',1,true),'the previous chapter notice was not displayed')
 package.loaded.gettext.current_lang='en'
 dialog.notify('upload_failed',{error='source_initial_time_unverified'})
 assert(shown.text:find('no chapter position',1,true) and shown.text:find('nothing was uploaded',1,true),

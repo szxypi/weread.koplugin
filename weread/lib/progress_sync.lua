@@ -79,6 +79,7 @@ function ProgressSync:new(options)
         get_chapters = options.get_chapters,
         refresh_catalog = options.refresh_catalog,
         get_file_context = options.get_file_context,
+        is_retained_chapter = options.is_retained_chapter,
         run_online = options.run_online,
         upload_position = options.upload_position,
         prepare_upload = options.prepare_upload,
@@ -555,6 +556,7 @@ function ProgressSync:current_source_target()
 end
 
 function ProgressSync:capture_local()
+    if self.is_retained_chapter and self.is_retained_chapter() then return nil,'retained_chapter' end
     local book_id = self.detect_book()
     if not book_id or is_mp_book(book_id) then
         return nil, "document_not_weread"
@@ -1554,6 +1556,10 @@ end
 
 function ProgressSync:_pull(options)
     options = options or {}
+    if self.is_retained_chapter and self.is_retained_chapter() then
+        if options.manual then self.notify('local_unavailable',{error='retained_chapter'}) end
+        return false
+    end
     if self.file_resume and self.file_resume.local_only then
         if options.manual then self.notify('local_unavailable',{error=self.file_resume.preserve_only and 'partial_combined_book' or 'catalog_unavailable'}) end
         return false
@@ -1794,6 +1800,7 @@ function ProgressSync:on_reader_ready()
             self.state = "unsupported"
             return
         end
+        if self.is_retained_chapter and self.is_retained_chapter() then self.state='unverified';return end
         book_id = tostring(book_id)
         self.current_book_id = book_id
         if self.file_resume then self.state='unverified';return end

@@ -64,7 +64,7 @@ function WeReadPlugin:init()
         settings = self.settings, library_db = self.library_db, scheduler = UIManager,
         get_context = function()
             local document = self.ui and self.ui.document
-            if not document then return nil end
+            if not document or self:isRetainedChapter() then return nil end
             local visible=UIManager:getTopmostVisibleWidget() == self.ui
             if require('weread.lib.native_direct_path').contains(self.settings,document.file) then
                 return require('weread.lib.native_direct_offline_time').context(self,visible)
@@ -287,6 +287,7 @@ function WeReadPlugin:init()
         get_file_context = function(book, path)
             return self:getChapterInfoFromFile(book, path)
         end,
+        is_retained_chapter = function() return self:isRetainedChapter() end,
         run_online = function(_kind, callback, run_options)
             return self:runOnlineTask(
                 _("Sync progress"), callback, nil, run_options)

@@ -83,6 +83,12 @@ assert(Claims.usable(book,'/single.epub','2',{},true),'saved list did not verify
 files['/single.epub']['OEBPS/content.opf']=opf(Protocol.reader_url('123','4'),'<itemref idref="chapter"/>')
 assert(not Claims.usable(book,'/single.epub','2',{},true),'saved list trusted an unrelated single-chapter file')
 
+local historical={book_id='123',cached_file='/older.epub',
+    annotation_documents={['/older.epub']={clean=true,chapters={{chapterUid='4'}}}}}
+assert(not Claims.retained_single(historical,'/older.epub'),'legacy file without a replacement was assumed superseded')
+historical.cached_chapters={['4']='/new.epub'}
+assert(Claims.retained_single(historical,'/older.epub')=='4','legacy file with a replacement lost its chapter')
+
 local function toc(entries)
     return '<nav epub:type="toc">'..entries..'</nav>'
 end
