@@ -48,6 +48,34 @@ return function(reader,host,book,id,path,dir,pump)
         'verified legacy combined book was rejected')
     shadow.cached_full_book=combined
     assert(host:getFullBookCachePath(shadow)==combined,'verified full-book cache was rejected')
+    local archive=require('weread.lib.source_archive')
+    local read_archive=archive.read
+    local proof_reads=0
+    function archive.read(candidate,wanted,...)
+        if candidate==combined and wanted['OEBPS/content.opf'] then proof_reads=proof_reads+1 end
+        return read_archive(candidate,wanted,...)
+    end
+    local combined_index,combined_chapter,is_combined,partial=host:getChapterInfoFromFile(shadow,combined)
+    assert(not combined_index and not combined_chapter and is_combined and partial and proof_reads==1,
+        'the reader reread the combined archive or skipped checking the opened document')
+    proof_reads=0
+    local navigation=require('weread.ui.combined_chapter_navigation')
+    local open_combined=navigation.open
+    local selected_combined
+    navigation.open=function(_,_,target,candidate,_current,proof)
+        selected_combined=candidate==combined and target==chapters[2] and proof.items.chapter_2
+        return selected_combined
+    end
+    assert(host:openChapter(shadow,chapters[2]) and selected_combined and proof_reads==1,
+        'opening a combined chapter reread the archive or lost the verified target')
+    navigation.open=open_combined
+    proof_reads=0
+    host:showSavedChapters(id,nil,{is_current=function() return true end,load_book=function() return shadow end})
+    local downloaded=assert(host._saved_chapter_menu)
+    assert(#downloaded.item_table==2 and proof_reads==1,
+        'the downloaded chapter list reread the archive or showed an absent chapter')
+    require('ui/uimanager'):close(downloaded)
+    archive.read=read_archive
     shadow.chapter_uid=5;shadow.chapter_idx=5;opened=nil
     available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
     assert(not available and reason=='resume_not_cached' and uid=='5' and not opened,

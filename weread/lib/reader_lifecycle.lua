@@ -920,15 +920,18 @@ end
 function M:getFullBookCachePath(book, exists, claim_cache)
     if type(book) ~= "table" then return nil end
     local Claims=require('weread.lib.chapter_cache_claim')
-    if type(book.cached_full_book) == "string"
-        and book.cached_full_book ~= "" and (exists or file_exists)(book.cached_full_book) then
-        if not Claims.shared(book,book.cached_full_book,claim_cache)
-            or Claims.inspect(book,book.cached_full_book,claim_cache,true).kind=='combined' then return book.cached_full_book end
-    end
+    local full = book.cached_full_book
     local legacy = book.cached_file
+    -- Sharing checks here only need the two candidate paths. Share any EPUB
+    -- proof with the caller without building a map of all downloaded files.
+    if type(full) == "string" and full ~= "" and (exists or file_exists)(full) then
+        if not Claims.shared(book,full)
+            or Claims.inspect(book,full,claim_cache,true).kind=='combined' then return full end
+        if legacy == full then return nil end
+    end
     if type(legacy) ~= "string" or legacy == "" then return nil end
     if book.cached_chapters and type(book.cached_chapters) ~= "table" then return nil end
-    local shared,mapped=Claims.shared(book,legacy,claim_cache)
+    local shared,mapped=Claims.shared(book,legacy)
     if shared then
         return Claims.inspect(book,legacy,claim_cache,true).kind=='combined' and legacy or nil
     end
@@ -958,9 +961,10 @@ function M:getChapterInfoFromFile(book, file_path)
         local document=self.ui and self.ui.document
         return Claims.document_complete(info,document,book.book_id or book.bookId,book.chapters)
     end
-    local full_book_path = self:getFullBookCachePath(book)
+    local claim_cache = shared and {} or nil
+    local full_book_path = self:getFullBookCachePath(book,nil,claim_cache)
     if full_book_path == file_path then
-        local info=Claims.combined(book,file_path)
+        local info=Claims.combined(book,file_path,claim_cache)
         return nil,nil,true,not complete(info)
     end
 

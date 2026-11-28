@@ -2408,8 +2408,8 @@ local function chapter_cache_lookup(host,book)
     local claims=require('weread.lib.chapter_cache_claim')
     local identity=require('weread.lib.reader_context')
     local cache={}
-    local full=host.getFullBookCachePath and host:getFullBookCachePath(book) or book.cached_full_book
-    local combined=full and file_exists(full) and claims.combined(book,full)
+    local full=host.getFullBookCachePath and host:getFullBookCachePath(book,nil,cache) or book.cached_full_book
+    local combined=full and file_exists(full) and claims.combined(book,full,cache)
     return function(uid)
         local cached=ReadAccess.cached_chapter(book.cached_chapters,uid)
         if cached and file_exists(cached) and claims.usable(book,cached,uid,cache) then return true end
@@ -3089,12 +3089,12 @@ function M:openChapter(book, chapter, on_downloaded, options)
     local cached = ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
     local claims=require('weread.lib.chapter_cache_claim')
     local cached_exists=cached and file_exists(cached)
-    local full=self:getFullBookCachePath(book)
-    local combined,proof
     local claim_cache={}
+    local full=self:getFullBookCachePath(book,nil,claim_cache)
+    local combined,proof
     local cached_only=options and options.cached_only
     if full and file_exists(full) and document and document.file==full then
-        local info=claims.combined(book,full)
+        local info=claims.combined(book,full,claim_cache)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end
     if not combined and cached_exists then
@@ -3103,7 +3103,7 @@ function M:openChapter(book, chapter, on_downloaded, options)
     end
     local ambiguous=not combined and cached_exists and not claims.usable(book,cached,chapter_uid,claim_cache,cached_only)
     if not combined and (not cached_exists or ambiguous) and full and file_exists(full) then
-        local info=claims.combined(book,full)
+        local info=claims.combined(book,full,claim_cache)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end
     if combined then

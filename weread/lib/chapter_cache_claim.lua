@@ -118,9 +118,11 @@ function M.inspect(book,path,cache,verify_source)
 end
 
 -- Explicit full-book paths need the same EPUB proof even without mappings.
-function M.combined(book,path)
-    local result=inspect(book,path)
-    return result.kind=='combined' and result or nil
+function M.combined(book,path,cache)
+    local result=cache and cache[path] or inspect(book,path)
+    if result.kind~='combined' then return nil end
+    if cache then cache[path]=result end
+    return result
 end
 
 -- File percentages describe a whole book only when its spine and the current

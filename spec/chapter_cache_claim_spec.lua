@@ -1,6 +1,7 @@
 package.path='./?.lua;'..package.path
-local files={}
+local files,reads={},0
 package.preload['weread.lib.source_archive']=function() return {read=function(path,wanted)
+    reads=reads+1
     local source=files[path];if not source then return nil end
     local out={}
     for key in pairs(wanted) do if not source[key] then return nil end;out[key]=source[key] end
@@ -32,9 +33,21 @@ assert(Claims.complete(combined,{{chapterUid='2'},{chapterUid='4'}}))
 local actual={};function actual:getDocumentFileContent(path) return files['/shared.epub'][path] end
 assert(Claims.document_complete(combined,actual,'123',{{chapterUid='2'},{chapterUid='4'}}),
     'matching open archive was not recognized')
+reads=0
+local action={}
+local proof=assert(Claims.combined(book,'/shared.epub',action))
+assert(Claims.inspect(book,'/shared.epub',action,true)==proof and reads==1,
+    'the same operation reread a verified combined archive')
+local old_opf=files['/shared.epub']['OEBPS/content.opf']
+files['/shared.epub']['OEBPS/content.opf']='broken'
+local next_action={}
+assert(not Claims.combined(book,'/shared.epub',next_action) and reads==2,
+    'a new operation accepted an old archive proof')
+files['/shared.epub']['OEBPS/content.opf']=old_opf
+assert(Claims.combined(book,'/shared.epub',next_action) and reads==3,
+    'an unsuccessful combined check was cached')
 assert(not Claims.complete(combined,{{chapterUid='4'},{chapterUid='2'}}),
     'reordered catalog was treated as the same book')
-local old_opf=files['/shared.epub']['OEBPS/content.opf']
 files['/shared.epub']['OEBPS/content.opf']=old_opf..'changed'
 assert(not Claims.document_complete(combined,actual,'123',{{chapterUid='2'},{chapterUid='4'}}),
     'changed open manifest was accepted')
