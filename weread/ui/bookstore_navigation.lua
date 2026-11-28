@@ -1,9 +1,12 @@
 local UIManager = require('ui/uimanager')
+local ShelfSnapshot = require('weread.lib.shelf_snapshot')
 local M = {}
 local MAX_PARENTS = 4
 
 function M.position(view)
-    return { anchor = (view.page - 1) * view.page_size + 1, focus = view:getFocusedBookId() }
+    local anchor = (view.page - 1) * view.page_size + 1
+    return { anchor = anchor, book_id = view.books and ShelfSnapshot.persisted_id(view.books[anchor]),
+        focus = view.getFocusedBookId and view:getFocusedBookId() }
 end
 
 local function history(host, state)
@@ -22,7 +25,7 @@ local function return_target(host, state, prior, origin)
     elseif origin._discovery_tab == 'home' and origin._browse_account == state.account then
         local position = M.position(origin)
         position.account = state.account
-        position.book_id = state.book_id
+        position.book_id = state.book_id or position.book_id
         return { state = prior, home = position }
     elseif origin._shelf_return_position then
         local position = origin._shelf_return_position()

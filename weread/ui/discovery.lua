@@ -8,9 +8,42 @@ local ReadAccess = require("weread.lib.read_access")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local VolatileShelf = require("weread.lib.volatile_shelf")
 local BookstoreNavigation = require("weread.ui.bookstore_navigation")
+local HomeBrowse = require("weread.lib.home_browse")
 local _ = PluginUtil.tr
 local M = {}
 local view_position = BookstoreNavigation.position
+
+local function remember_home(host, view, account)
+    if #view.books == 0 then return end
+    local position = view_position(view)
+    position.account = account
+    host._home_browse_position = position
+    local db = host.library_db
+    if not account or type(db.putProfileState) ~= 'function' or VolatileShelf.get(host) then return end
+    local saved = host._home_saved_browse
+    local normalized = HomeBrowse.normalize(position)
+    if not normalized or saved and saved.account == account and HomeBrowse.same(saved.position, normalized) then return end
+    local ok, written = pcall(db.putProfileState, db, HomeBrowse.KEY, normalized)
+    if ok and written == true and db:accountKey() == account then
+        host._home_saved_browse = { account = account, position = normalized }
+    end
+end
+
+local function restore_home(host, account, preferences)
+    if not account then return nil end
+    local db = host.library_db
+    local value
+    if preferences and preferences.account == account and type(preferences.values) == 'table' then
+        value = preferences.values[HomeBrowse.KEY]
+    elseif db.getProfileState then
+        local ok, stored = pcall(db.getProfileState, db, HomeBrowse.KEY)
+        if ok then value = stored end
+    end
+    local position = HomeBrowse.normalize(value)
+    if not position or db:accountKey() ~= account then return nil end
+    host._home_saved_browse = { account = account, position = position }
+    return position
+end
 
 local function home_recent(host,account,limit)
     local settings=host.settings
@@ -162,17 +195,18 @@ function M:showDiscoveryPage(tab, books, options)
     local state=options.bookstore_state
     if home or state or options.remember_position then
         local account=self.library_db and self.library_db:accountKey()
+        local auth=self.settings.get_auth_scope and self.settings:get_auth_scope()
         view._bookstore_state=state
         view._browse_account=account
         local flush=view.onFlushSettings
         local function remember(widget)
-            if not widget._shelf_closed and not widget._discovery_redrawing
+            if self.shelf_view==widget and not widget._shelf_closed and not widget._discovery_redrawing
                 and (self.library_db and self.library_db:accountKey())==account
+                and (auth and self.settings:auth_scope_matches(auth)
+                    or not auth and (not self.settings.get_auth_scope or not self.settings:get_auth_scope()))
                 and (home or options.remember_position or self.discovery_state==state and state.account==account) then
                 if home then
-                    local position=view_position(widget)
-                    position.account=account
-                    self._home_browse_position=position
+                    remember_home(self,widget,account)
                 elseif options.remember_position then
                     options.remember_position(widget:getBrowsePosition())
                 else
@@ -189,11 +223,7 @@ function M:showDiscoveryPage(tab, books, options)
             remember(widget)
             if flush then return flush(widget,...) end
         end
-        if options.remember_position then
-            view._shelf_checkpoint=function()
-                if self.shelf_view==view then remember(view) end
-            end
-        end
+        view._shelf_checkpoint=function() remember(view) end
     end
     scope = Scope.capture(self, view)
     view._rotation_redraw=function()
@@ -300,6 +330,7 @@ function M:showHome(refresh_progress, refreshed_shelf)
     elseif self.library_db then
         cached, archives, shelf_preferences = self.library_db:getShelfSnapshot(true)
     end
+    position = position or restore_home(self, account, shelf_preferences)
     self:applyShelfSnapshot(cached or {}, archives,
         volatile ~= nil and volatile.books == cached and volatile.archives == archives, shelf_preferences)
     local preferences = self:homePreferences()

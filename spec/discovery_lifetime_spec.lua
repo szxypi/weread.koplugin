@@ -1,6 +1,7 @@
 package.path='./?.lua;./?/init.lua;'..package.path
 local checks,queue,shown=0,{},{}
 local function expect(value,message) checks=checks+1;assert(value,message) end
+local HomeBrowse=require('weread.lib.home_browse')
 local UI={}
 function UI:nextTick(callback) queue[#queue+1]=callback end
 function UI:show(widget) shown[#shown+1]=widget end
@@ -14,6 +15,9 @@ package.preload['ui/widget/inputdialog']=function() return {new=function(_self,d
 end} end
 package.preload['weread.ui.library_view']=function() return {
     getLayout=function() return {page_size=6,columns=3,rows=2} end,
+    bookIndex=function(books,id)
+        for index,book in ipairs(books) do if book.bookId==id then return index end end
+    end,
     show=function(data,callbacks)
         local view={page=data.page,page_size=data.page_size,home_layout=data.home_layout,books=data.books,data=data,callbacks=callbacks}
         view.onCloseWidget=function(self) self._shelf_closed=true;require('weread.ui.shelf_popup').close(self) end
@@ -52,9 +56,18 @@ expect(state.calls==0 and not plugin.shelf_view,'closed home navigation reopened
 
 plugin,state=host();view=state.open();view.page=2
 view.getFocusedBookId=function() return '8' end
+local row,writes
+writes=0
+plugin.library_db.putProfileState=function(_self,key,value)
+    expect(key==HomeBrowse.KEY,'home wrote another profile setting')
+    row=value;writes=writes+1;return true
+end
 view:onFlushSettings()
 expect(plugin._home_browse_position.anchor==7 and plugin._home_browse_position.focus=='8',
     'leaving home did not remember the page and book')
+view._shelf_checkpoint()
+expect(writes==1 and row.anchor==7 and row.book_id=='7' and row.focus=='8' and not row.account,
+    'home did not save a bounded browsing position exactly once')
 local restored
 plugin.library_db.getShelfSnapshot=function() return {},{} end
 plugin.applyShelfSnapshot=function() end
@@ -64,8 +77,15 @@ plugin.showDiscoveryPage=function(_,_,_,options) restored=options end
 plugin.shelf_view=nil
 Discovery.showHome(plugin)
 expect(restored.rotation_anchor==7 and restored.focus_book_id=='8','home did not restore its own account position')
+plugin._home_browse_position=nil
+plugin.library_db.getProfileState=function(_self,key)
+    assert(key==HomeBrowse.KEY);if state.account=='account-a' then return row end
+end
+Discovery.showHome(plugin)
+expect(restored.rotation_anchor==7 and restored.focus_book_id=='8','fresh home ignored its saved page')
+plugin._home_browse_position={account='account-a',anchor=7,focus='8'}
 state.account='account-b';view:onFlushSettings()
-expect(plugin._home_browse_position.account=='account-a','stale home saved a position for a different account')
+expect(plugin._home_browse_position.account=='account-a' and writes==1,'stale home saved a position for a different account')
 Discovery.showHome(plugin)
 expect(not restored.rotation_anchor and not restored.focus_book_id,'home opened using another account position')
 

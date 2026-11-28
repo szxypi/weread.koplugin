@@ -26,6 +26,7 @@ local function flush_actions()
     UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
 end
 local Cache=require('weread.ui.discovery_cache')
+local HomeBrowse=require('weread.lib.home_browse')
 local account
 local function switch_account(vid)
     host.settings:set('account',vid and {name='Synthetic',user_vid=vid,login_method='qr'} or {})
@@ -35,6 +36,19 @@ local function switch_account(vid)
     assert((account~=nil)==(vid~=nil))
 end
 if personal or shared and stage~='write' and stage~='replace' then switch_account('900000') end
+
+local home_writes,put_profile=0,host.library_db.putProfileState
+host.library_db.putProfileState=function(self,key,value)
+    if key==HomeBrowse.KEY then home_writes=home_writes+1 end
+    return put_profile(self,key,value)
+end
+local function seed_home(skip)
+    local books={}
+    for i=skip+1,24 do
+        books[#books+1]={bookId=tostring(920000+i),title='Recent fixture '..i,readUpdateTime=1700000000-i}
+    end
+    assert(host.library_db:cacheShelf(books,{}))
+end
 
 local function batch(query,cursor)
     local state={account=account,source_kind=account and 'native' or 'public',source_revision='synthetic',
@@ -68,6 +82,12 @@ local function press(label)
     error('offline batch unavailable: '..label)
 end
 if stage=='write' then
+    if personal then
+        local preferences=host.settings:get('home')
+        preferences.recent_limit=24;preferences.view_mode='cover'
+        host.settings:set('home',preferences);assert(host.settings:flush())
+        seed_home(0)
+    end
     local first=batch(query,0);assert(Cache.save(host,first))
     assert(Cache.save(host,batch(query,20),first,true))
     local other=personal and account_fallback or {kind='category',category_id='different',category_title='Newer rank',rank=true}
@@ -114,17 +134,48 @@ if stage=='write' then
     local view=host.shelf_view
     view._navigation_buttons[1].callback();flush_actions()
     assert(host.shelf_view._discovery_tab=='home' and writes==1,'leaving the bookstore did not save once')
+    if personal then
+        host.shelf_view:turnShelfPage(1);flush_actions()
+        local second=host.shelf_view
+        assert(second.page==2 and home_writes==0,'turning a home page wrote its position')
+        focus(2)
+        local focused=assert(second:getFocusedBookId())
+        host:onSuspend()
+        local position=assert(host.library_db:getProfileState(HomeBrowse.KEY))
+        assert(home_writes==1 and position.focus==focused and position.book_id==second:getVisibleBooks()[1].bookId,
+            'suspending home did not save its current page')
+        host:onResume()
+    end
     host.shelf_view._navigation_buttons[3].callback();flush_actions()
     assert_position(2)
+    if personal then assert(home_writes==1,'leaving home rewrote an unchanged position') end
     UI:flushSettings()
     assert(writes==1,'an unchanged position was written again')
     focus(3);UI:flushSettings()
     assert(writes==2,'flushing settings did not save the new focus')
+    if personal then seed_home(3) end
 elseif stage=='reopen' then
     host:openBookstore()
     assert_position(3)
     assert(host.discovery_state.kind==query.kind and host.discovery_state.keyword==query.keyword
         and host.discovery_state.category_id==query.category_id and not host.discovery_state.source_revision)
+    if personal then
+        local position=assert(host.library_db:getProfileState(HomeBrowse.KEY))
+        host.shelf_view._navigation_buttons[1].callback();flush_actions()
+        assert(host.shelf_view._discovery_tab=='home' and host.shelf_view.page==1
+            and host.shelf_view:getFocusedBookId()==position.focus,
+            'offline home did not restore the focused book after its page changed')
+        local previous=host.shelf_view._shelf_checkpoint
+        switch_account('900001')
+        previous()
+        assert(home_writes==0 and not host.library_db:getProfileState(HomeBrowse.KEY),'old home checkpoint crossed accounts')
+        host:showHome()
+        assert(host.shelf_view.page==1 and not host.shelf_view:getFocusedBookId(),'foreign account inherited home focus')
+        switch_account('900000')
+        assert(host.library_db:cacheShelf({{bookId='940000',title='Remaining fixture',readUpdateTime=1700000001}},{}))
+        host:showHome()
+        assert(host.shelf_view.page==1 and #host.shelf_view.books==1,'removed home anchor did not clamp the page')
+    end
     if shared then
         assert(host.discovery_state._shared_public_category and host.discovery_state.account==account)
         press('Next batch');assert(host.discovery_state._shared_public_category and host.discovery_state.cursor==20)

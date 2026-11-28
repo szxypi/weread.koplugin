@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check packaged bookstore position across tabs and a new offline process."""
+"""Check packaged home and bookstore positions across tabs and offline restart."""
 import argparse
 import os
 from pathlib import Path
@@ -34,7 +34,7 @@ def run(runtime):
                     marker = f'WEREAD_BOOKSTORE_POSITION={scope}/{stage}'
                     if result.returncode or marker not in result.stdout.splitlines():
                         raise AssertionError(result.stdout[-2500:] + result.stderr[-2500:])
-    print('PASS: bookstore positions across tabs and offline restart, account, guest and shared categories, both screen sizes')
+    print('PASS: home and bookstore positions across tabs and offline restart, including account isolation, both screen sizes')
 
 
 if __name__ == '__main__':

@@ -371,6 +371,7 @@ function M:onWeReadAccountChanged()
     self.discovery_state = nil
     self._bookstore_history = nil
     self._home_browse_position = nil
+    self._home_saved_browse = nil
     self._shelf_browse_position = nil
     self._shelf_saved_browse = nil
     local downloads=package.loaded['weread.ui.download_library']
