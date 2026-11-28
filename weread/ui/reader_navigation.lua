@@ -140,16 +140,23 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
         book.chapters=chapters
         current_idx,current_chapter,is_full_book,partial,proof=self:getChapterInfoFromFile(book,file_path)
     end
-    -- The progress panel uses KOReader's own chapter navigation for combined files.
-    local next_chapter = current_idx and not is_full_book and chapters[current_idx + 1] or nil
-    local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
+    local Chapters=require('weread.lib.reader_progress_chapter')
+    local ProgressContext=require('weread.lib.reader_progress_context')
+    local viewport=(current_idx or is_full_book) and ProgressContext.capture(self)
+    if partial then
+        current_idx=Chapters.combined_current(book,viewport,proof)
+        current_chapter=current_idx and chapters[current_idx]
+    end
+    local next_chapter = current_idx and chapters[current_idx + 1]
+    local previous_chapter = current_idx and chapters[current_idx - 1]
     local function chapter_id(ch) return ch and tostring(ch.chapterUid or ch.chapterId or '') or nil end
     local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
     local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
         current=current_id,previous=previous_id,next=next_id}
-    local Chapters=require('weread.lib.reader_progress_chapter')
-    local ProgressContext=require('weread.lib.reader_progress_context')
-    local viewport=(current_idx or is_full_book) and ProgressContext.capture(self)
+    if partial and current_idx then
+        expected_chapter.combined_file,expected_chapter.combined_opf=proof.file_id,proof.opf_hash
+        expected_chapter.from_viewport=true
+    end
     local native_previous,native_next
     if viewport and is_full_book and not partial then
         native_previous=Chapters.native_target(viewport,-1)
@@ -317,6 +324,7 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
                 if self.ui ~= reader_ui or reader_ui.document ~= document or document.file ~= file_path
                     or (self._reader_session_gen or 0) ~= reader_session or not same_scope
                     or self.settings:get('auth_epoch',0) ~= search_epoch then return false end
+                if partial then return chapter_action_current() end
                 if current_idx then
                     if book.chapters~=chapters or chapters[current_idx]~=current_chapter
                         or chapters[current_idx-1]~=previous_chapter or chapters[current_idx+1]~=next_chapter
@@ -335,7 +343,7 @@ function M:showEndOfBookDialog(book_id, at_end, downloads)
                 require('weread.ui.reader_progress').show(self,{previous=previous_chapter,next=next_chapter,
                     single_chapter=current_idx~=nil and not is_full_book,
                     book=book,chapters=chapters,chapter_index=current_idx,chapter_uid=current_id,
-                    native_chapters=not current_idx or is_full_book,is_current=still_current,
+                    native_chapters=not partial and (is_full_book or not is_regular_weread_book),is_current=still_current,
                     resolve_chapter=resolve_chapter,open_chapter=self.openReaderChapter})
             end
         end,

@@ -32,19 +32,33 @@ local function equal_field(a,b,key)
 end
 
 -- Match the EPUB's ordered chapters against the current catalog. Gaps from a
--- partial download are fine. A repeated UID, reordering or missing entry is
--- insufficient evidence to continue from the file's final chapter.
-function M.combined_end(book,document,proof)
+-- partial download are fine. Use the current viewport for an explicit chapter
+-- switch, or the final spine member for KOReader's end-of-file event.
+local function combined_index(book,document,proof,viewport)
     local catalog=book and book.chapters
     if not proof or type(proof.order)~='table' or type(proof.items)~='table'
-        or type(catalog)~='table' or #catalog==0 or #catalog>20000
-        or not require('weread.lib.chapter_cache_claim').document_matches(proof,document,book.book_id or book.bookId) then
-        return nil
-    end
+        or type(catalog)~='table' or #catalog==0 or #catalog>20000 then return nil end
+    local verified,opf=require('weread.lib.chapter_cache_claim').document_matches(proof,document,book.book_id or book.bookId)
+    if not verified then return nil end
     local version=require('weread.lib.book_file_identity').version(book.bookVersion or book.book_version)
     if version>0 and (proof.book_version or 0)>0 and version~=proof.book_version then return nil end
     if document.getPageFlow and document:getPageFlow(document:getCurrentPage())~=0 then return nil end
-    local seen,matched,last,count={},0,nil,0
+    local origin=proof.order[#proof.order]
+    if viewport then
+        local location=require('weread.lib.source_context').location(document,viewport.mode)
+        if not location then return nil end
+        if viewport.mode=='scroll' then
+            local view=viewport.ui.view
+            local height=view and view.dimen and view.dimen.h
+            if not require('weread.lib.reader_position').contains_anchor(document,
+                {view_mode='scroll',pos=location.pos,viewport_height=height},location.xpointer) then return nil end
+        end
+        local Dom=require('weread.lib.source_dom')
+        local member=Dom.member(document,location.xpointer)
+        origin=member and Dom.chapter_member(opf,member.render_path)
+        if not origin or not proof.items[origin] then return nil end
+    end
+    local seen,matched,selected,count={},0,nil,0
     for index,row in ipairs(catalog) do
         local uid=id(row)
         if not uid or seen[uid] then return nil end
@@ -53,10 +67,18 @@ function M.combined_end(book,document,proof)
         if proof.items[member] then
             matched=matched+1
             if proof.order[matched]~=member then return nil end
-            last=index
+            if origin==member then selected=index end
         end
     end
-    if count==#catalog and matched==#proof.order then return last end
+    if count==#catalog and matched==#proof.order then return selected end
+end
+
+function M.combined_end(book,document,proof)
+    return combined_index(book,document,proof)
+end
+
+function M.combined_current(book,viewport,proof)
+    if viewport then return combined_index(book,viewport.document,proof,viewport) end
 end
 
 function M.resolve(host,expected,direction)
@@ -82,9 +104,17 @@ function M.resolve(host,expected,direction)
     book.chapters=catalog
     local index,current,combined,partial,proof=host:getChapterInfoFromFile(book,expected.file)
     if expected.combined_file then
-        if direction~=1 or not combined or not partial or not proof or proof.file_id~=expected.combined_file
+        local document=host.ui and host.ui.document
+        if not document or document.file~=expected.file or not combined or not partial
+            or not proof or proof.file_id~=expected.combined_file
             or proof.opf_hash~=expected.combined_opf then return nil end
-        index=M.combined_end(book,host.ui and host.ui.document,proof)
+        if expected.from_viewport then
+            index=M.combined_current(book,require('weread.lib.reader_progress_context').capture(host),proof)
+        elseif direction==1 then
+            index=M.combined_end(book,document,proof)
+        else
+            return nil
+        end
         current=index and catalog[index]
     elseif combined then
         return nil

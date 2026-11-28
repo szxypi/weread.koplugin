@@ -153,13 +153,14 @@ function M.document_matches(info,document,book_id)
     if type(info)~='table' or info.kind~='combined' or type(info.file_id)~='string' or #info.file_id~=64
         or type(info.opf_hash)~='string'
         or type(document)~='table' then return false end
-    local ok,result=pcall(function()
+    local ok,opf=pcall(function()
         local identity=Identity.read_document(document,book_id)
         local opf=document:getDocumentFileContent('OEBPS/content.opf')
-        return identity.book_id==tostring(book_id) and identity.file_id==info.file_id
-            and type(opf)=='string' and Crypto.sha256_hex(opf)==info.opf_hash
+        if identity.book_id==tostring(book_id) and identity.file_id==info.file_id
+            and type(opf)=='string' and Crypto.sha256_hex(opf)==info.opf_hash then return opf end
     end)
-    return ok and result==true
+    if not ok or not opf then return false end
+    return true,opf
 end
 
 function M.document_complete(info,document,book_id,catalog)

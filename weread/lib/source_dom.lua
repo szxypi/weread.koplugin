@@ -134,6 +134,26 @@ local function manifest_items(opf)
     end
 end
 
+-- Map a rendered combined-book fragment back to its unique manifest item.
+function M.chapter_member(opf,path)
+    if type(opf)~='string' or #opf>Catalog.MAX_PACKAGE_BYTES or type(path)~='string' then return nil end
+    local href=path:match('^OEBPS/(text/chapter%-%d+%.xhtml)$')
+    if not href then return nil end
+    return protected(function()
+        local found,seen=nil,{}
+        for raw in manifest_items(opf) do
+            local item=attributes(raw)
+            if not item.id or seen[item.id] then fail('spine_ambiguous') end
+            seen[item.id]=true
+            if item.href==href then
+                if found or not item.id:match('^chapter_[%w_-]+$') then fail('chapter_mismatch') end
+                found=item.id
+            end
+        end
+        return found
+    end)
+end
+
 local function spine(opf, path)
     if type(opf) ~= 'string' or #opf > Catalog.MAX_PACKAGE_BYTES then fail('spine_unavailable') end
     local refs = opf:match('<spine[^>]*>(.-)</spine>')

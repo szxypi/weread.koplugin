@@ -4,16 +4,18 @@ return function(reader,host,book,id,pump,clean,set_offline)
     local Content=require('weread.lib.content')
     local Identity=require('weread.lib.book_file_identity')
     local Dom=require('weread.lib.source_dom')
+    local UI=require('ui/uimanager')
     local chapters=assert(host:ensureChaptersLoaded(book))
-    local selected={chapters[2],chapters[4]}
-    assert(selected[1].title==selected[2].title,'synthetic chapter titles differ')
+    local selected={chapters[1],chapters[2],chapters[4]}
+    local present={[1]=true,[2]=true,[4]=true}
+    assert(selected[2].title==selected[3].title,'synthetic chapter titles differ')
     local original_path=reader.document.file
     local original_point=reader.document:getXPointer()
     local copy={};for key,value in pairs(book) do copy[key]=value end
     local png=require('mime').unb64('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAXElEQVR4nO3PsQ0AQAzCwOy/9P8EKVIZJFNTnOctm2Vp/ziQATTIABpkAA06B7RAz2FpIANokAE0yAAatP5roC0gA2iQATTIABp0DmiBnsPSQAbQIANokAE0aPt/y1n0pl3lRNkAAAAASUVORK5CYII=')
     local text2='<p>'..string.rep('这是第二章的合成正文。',100)..'</p>'
     local text4='<p>'..string.rep('这是第四章的合成正文。',100)..'</p>'
-    local combined=Content.save_book_epub(host.settings,copy,selected,{['2']=text2,['4']=text4},
+    local combined=Content.save_book_epub(host.settings,copy,selected,{['1']=text2,['2']=text2,['4']=text4},
         'synthetic-navigation',{},'',png,Identity.capture(copy))
     -- A stale single-chapter mapping must not hide the verified combined EPUB.
     copy.cached_full_book=combined;copy.cached_file=combined
@@ -29,24 +31,24 @@ return function(reader,host,book,id,pump,clean,set_offline)
         local view=assert(current._chapter_list_view)
         local row=assert(view._chapter_rows[index]);row.callback()
     end
-    select_chapter(host,copy,2)
+    select_chapter(host,copy,3)
     pump(function() return Reader.instance and Reader.instance~=reader and Reader.instance.document.file==combined end)
     reader=assert(Reader.instance);host=assert(reader.weread)
     local target=assert(Dom.chapter_start(reader.document,id,'4'))
     pump(function() return reader.document:isXPointerInCurrentPage(target) end)
     local member=assert(Dom.member(reader.document,target))
-    assert(member.render_path=='OEBPS/text/chapter-002.xhtml','handoff selected the wrong member')
+    assert(member.render_path=='OEBPS/text/chapter-003.xhtml','handoff selected the wrong member')
     local original_reader=reader
     local latest=assert(host.settings:get_book(id));latest.chapters=selected
-    select_chapter(host,latest,1)
+    select_chapter(host,latest,2)
     local first=assert(Dom.chapter_start(reader.document,id,'2'))
     pump(function() return reader.document:isXPointerInCurrentPage(first) end)
     assert(Reader.instance==original_reader,'same-file chapter selection reopened the reader')
     local first_member=assert(Dom.member(reader.document,first))
-    assert(first_member.render_path=='OEBPS/text/chapter-001.xhtml','same-file selection chose the wrong member')
-    select_chapter(host,latest,2);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
+    assert(first_member.render_path=='OEBPS/text/chapter-002.xhtml','same-file selection chose the wrong member')
+    select_chapter(host,latest,3);pump(function() return reader.document:isXPointerInCurrentPage(target) end)
     assert(Reader.instance==original_reader,'return selection reopened the reader')
-    -- The same two-chapter EPUB is only a subset of the real six-chapter
+    -- The same EPUB is only a subset of the real six-chapter
     -- catalog. Navigation must keep the old pending position and stop sync.
     local before=assert(host.settings:get_book(id))
     local pending={book_id=id,chapter_uid=4,chapter_idx=4,chapter_offset=10,percent=50}
@@ -59,7 +61,7 @@ return function(reader,host,book,id,pump,clean,set_offline)
     local catalog_view=assert(host._chapter_list_view)
     local cached=require('weread.lib.plugin_util').tr('Cached')
     for index,item in ipairs(catalog_view.chapters) do
-        assert((item.status==cached)==(index==2 or index==4),'partial combined cache status was incorrect')
+        assert((item.status==cached)==(present[index]==true),'partial combined cache status was incorrect')
     end
     host:showChapterDownloadSelection(latest,chapters)
     local menu=assert(require('ui/uimanager'):getTopmostVisibleWidget())
@@ -67,12 +69,48 @@ return function(reader,host,book,id,pump,clean,set_offline)
     for _,item in ipairs(menu.item_table) do
         if not item.separator then
             row_index=row_index+1
-            assert((item.mandatory==cached)==(row_index==2 or row_index==4),
+            assert((item.mandatory==cached)==(present[row_index]==true),
                 'download selection cache status was incorrect')
         end
     end
     assert(row_index==#chapters,'download selection omitted a chapter')
     select_chapter(host,latest,2);pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    local function press(button_id)
+        UI:forceRePaint()
+        local button=assert(UI:getTopmostVisibleWidget():getButtonById(button_id))
+        assert(button.enabled~=false,button_id..' did not offer the adjacent catalog chapter')
+        button:onTapSelectButton()
+    end
+    local function press_quick(button_id)
+        clean(reader);assert(host:onShowWeReadQuickMenu());press(button_id)
+    end
+    local function press_progress(button_id)
+        press_quick('reader_progress')
+        pump(function() return host._weread_reader_progress and host._weread_reader_progress.dialog end)
+        press(button_id)
+    end
+    local beginning=assert(Dom.chapter_start(reader.document,id,'1'))
+    press_quick('previous_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(beginning) end)
+    press_progress('progress_next_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(first) end)
+    assert(Reader.instance==original_reader,'contiguous navigation reopened the partial EPUB')
+    press_progress('progress_next_chapter')
+    pump(function() return host._saved_chapter_menu~=nil end)
+    local missing=assert(host._saved_chapter_menu)
+    assert(missing.subtitle==require('weread.lib.plugin_util').tr('Chapter unavailable offline')
+        and Reader.instance==original_reader and reader.document:isXPointerInCurrentPage(first),
+        'the progress panel skipped the missing chapter or replaced the reader')
+    clean(reader)
+    local Event=require('ui/event')
+    local view_mode=reader.view.view_mode
+    reader:handleEvent(Event:new('SetViewMode','scroll'))
+    reader.rolling:onGotoXPointer(first)
+    press_quick('previous_chapter')
+    pump(function() return reader.document:isXPointerInCurrentPage(beginning) end)
+    assert(Reader.instance==original_reader,'scroll navigation reopened the partial EPUB')
+    reader:handleEvent(Event:new('SetViewMode',view_mode))
+    reader.rolling:onGotoXPointer(first)
     assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only,
         'partial combined file did not pause synchronization')
     assert(not host.progress_sync:checkpoint_local('synthetic_partial') and not host.progress_sync:sync_now(),
@@ -86,7 +124,6 @@ return function(reader,host,book,id,pump,clean,set_offline)
     assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only)
     clean(reader)
     local action=G_reader_settings:readSetting('end_document_action')
-    local UI=require('ui/uimanager')
     local function turn_past_end(mode)
         G_reader_settings:saveSetting('end_document_action',mode)
         reader.rolling:onGotoPage(reader.document:getPageCount())
@@ -103,12 +140,13 @@ return function(reader,host,book,id,pump,clean,set_offline)
         assert(Reader.instance==reader and UI:getTopmostVisibleWidget()==picker and not host.downloader._active_job,
             'missing successor replaced the current reader or started a download')
         assert(picker.subtitle==require('weread.lib.plugin_util').tr('Chapter unavailable offline'))
-        assert(#picker.item_table==2 and picker.item_table[1].chapter_id=='2' and picker.item_table[2].chapter_id=='4')
+        assert(#picker.item_table==3 and picker.item_table[1].chapter_id=='1'
+            and picker.item_table[2].chapter_id=='2' and picker.item_table[3].chapter_id=='4')
         return picker
     end
     turn_past_end('next_file')
     local picker=missing_successor()
-    picker:onMenuSelect(picker.item_table[1])
+    picker:onMenuSelect(picker.item_table[2])
     pump(function() return reader.document:isXPointerInCurrentPage(first) end)
     assert(Reader.instance==reader and host.progress_sync.file_resume.preserve_only)
     clean(reader)
