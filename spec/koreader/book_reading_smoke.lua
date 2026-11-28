@@ -347,6 +347,25 @@ if shelf_tap_layout then
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     assert(not Reader.instance and not plugin.book_reading_context,'hold no longer offered details')
     local selected_view,selected_row=show_shelf()
+    if shelf_tap_layout=='list' and not eink_fallback then
+        local FocusManager=require('ui/widget/focusmanager')
+        for y,items in ipairs(selected_view.layout) do
+            if items[1]==selected_row then
+                selected_view:moveFocusTo(1,y,FocusManager.FORCED_FOCUS)
+                break
+            end
+        end
+        UI:forceRePaint()
+        assert(selected_view:getFocusItem()==selected_row and selected_row.frame.invert)
+        assert(selected_view:onPress() and plugin.book_reading_context,'focused row did not start reading')
+        plugin:cancelBookReading()
+        for _i=1,4 do tick() end
+        assert(not Reader.instance and not plugin.book_reading_context and plugin.shelf_view==selected_view
+            and UI:getTopmostVisibleWidget()==selected_view,'cancelled Press did not return to the same shelf')
+        assert(selected_view:getFocusItem()==selected_row and selected_row.frame.invert,
+            'cancelled direct reading lost the selected row highlight')
+        print('PASS: native shelf Press, cancel reading, and retain the highlighted selection')
+    end
     arm_eink_fallback()
     shelf_gesture(selected_row,'tap')
     assert(not plugin._book_detail_view,'direct shelf reading opened book details')

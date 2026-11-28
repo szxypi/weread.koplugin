@@ -498,17 +498,7 @@ end
 
 function ShelfRow:onTapShelfRow()
     if self._hold_handled then self._hold_handled = false; return true end
-    if not self.callback then return true end
-    self:_ensureFrame()
-    if not self.frame.dimen then self.frame.dimen=self.dimen:copy() end
-    self.frame.invert = true
-    UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
-    UIManager:forceRePaint()
-    self.frame.invert = false
-    self._shelf_focused = false
-    UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
-    UIManager:setDirty(nil, "fast", self.frame.dimen)
-    self.callback()
+    if self.callback then self.callback() end
     return true
 end
 

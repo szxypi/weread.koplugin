@@ -134,6 +134,22 @@ local ok,reason=pcall(function()
     assert(view:getScrollOffset().y<scroll_before,'pan did not reach the native scroller')
     UI:forceRePaint()
     local scroll_event_visits=event_rows-scroll_visit_start
+
+    -- A click can leave the shelf visible, for example if opening the book
+    -- is cancelled. A partially visible row must never paint over the header.
+    row=view._item_rows[1]
+    local inset=math.floor(row:getSize().h/2)
+    view.scroll:_scrollBy(0,inset-view:getScrollOffset().y)
+    UI:forceRePaint()
+    assert(row.dimen.y<view.scroll.dimen.y and row.dimen.y+row.dimen.h>view.scroll.dimen.y)
+    pos=require('ui/geometry'):new{x=row.dimen.x+math.floor(row.dimen.w/2),y=view.scroll.dimen.y+1}
+    local Blitbuffer=require('ffi/blitbuffer')
+    local before_tap=Blitbuffer.tostring(Device.screen.bb)
+    selected=nil;UI:sendEvent(Event:new('Gesture',{ges='tap',pos=pos}))
+    UI:forceRePaint()
+    assert(selected==books[1],'tap on a clipped row did not open the correct book')
+    assert(Blitbuffer.tostring(Device.screen.bb)==before_tap,'tapping a clipped row altered the shelf pixels')
+
     local FocusNav=require('weread.ui.focus_nav')
     for _,index in ipairs({1,750,1500}) do
         row=view._item_rows[index];local layout_index
@@ -144,6 +160,7 @@ local ok,reason=pcall(function()
         selected=nil;assert(view:onPress() and selected==books[index],
             'Press selected the wrong row before the queued repaint')
         UI:forceRePaint()
+        assert(view:getFocusItem()==row and row.frame.invert,'Press cleared the focused row highlight')
         assert(row.dimen.y>=view.scroll.dimen.y and row.dimen.y+row.dimen.h<=view.scroll.dimen.y+view.scroll.dimen.h,
             'focus did not scroll an offscreen row into view')
         pos=require('ui/geometry'):new{x=row.dimen.x+math.floor(row.dimen.w/2),y=row.dimen.y+math.floor(row.dimen.h/2)}
