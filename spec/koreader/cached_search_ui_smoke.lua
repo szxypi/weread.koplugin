@@ -185,6 +185,7 @@ for i=1,2 do
     local text='chapter '..uid..' '..string.rep('ordinary synthetic text ',80)
         ..(unicode_case and ('Straße '..accented..' Σίσυφος') or 'amberneedle')
         ..(limit_test and ' amberneedle amberneedle' or '')
+        ..(limit_test and i==1 and ' quartzneedle quartzneedle' or '')
         ..(canonical_case~='' and (' S'..string.char(204,135,204,163)..' canonical') or '')..' distinct ending '..uid
     local raw=txt_source and ('chapter '..uid..'\n\n    '..text) or '<html><body><p>'..text..'</p></body></html>'
     bodies[uid]=txt_source and Content.txt_to_xhtml(raw) or raw
@@ -359,8 +360,23 @@ if limit_test then
     select_action('Show previous result batch');assert(owner.show_previous and #owner.previous==2)
     assert(requests[0]==0,'continued local search attempted a network request')
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-batches.png')
+    owner.menu:onClose()
+    plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    assert(plugin:showEndOfBookDialog(book_id))
+    assert(UI:getTopmostVisibleWidget():getButtonById('search_cached')).callback()
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    owner=assert(plugin._cached_book_search_owner)
+    owner.input:setInputText('quartzneedle');owner.input.buttons[1][2].callback()
+    wait(function() return owner.limit and not owner.job end)
+    assert(#owner.value==2 and owner.value[2].chapter_uid=='1')
+    local kept_batch=owner.value
+    select_action('Search next batch (keeps only the previous batch)')
+    assert(owner.value==kept_batch and owner.page==1,'looking for more matches hid the visible batch')
+    wait(function() return owner.finished and not owner.job end)
+    assert(owner.value==kept_batch and owner.page==1 and not owner.previous and not owner.limit
+        and not owner.next_batch and requests[0]==0,'a later chapter without matches created an empty batch')
     print('\nWEREAD_CACHED_SEARCH_LIMIT='..require('json').encode({result='PASS',warning_first=true,
-        download_available=true,cancel_preserved=true,continued_batches=3,previous_batch=true,network_requests=0}))
+        download_available=true,cancel_preserved=true,continued_batches=3,previous_batch=true,no_empty_batch=true,network_requests=0}))
     os.exit(0)
 end
 if unicode_case then for _i,hit in ipairs(owner.value) do

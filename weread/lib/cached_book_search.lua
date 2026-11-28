@@ -193,7 +193,8 @@ function M.scan(input,read_archive)
                 else unresolved=unresolved+1 end
             end
         end
-        return {hits=hits,next_byte=resume,unresolved=unresolved}
+        local next_byte=haystack:find(keyword,at,true) and resume or nil
+        return {hits=hits,next_byte=next_byte,complete=next_byte==nil,unresolved=unresolved}
     end)
     return ok and result or {error='unavailable'}
 end

@@ -38,6 +38,9 @@ expect(type(first.hits)=='table' and #first.hits==30 and type(first.next_byte)==
 input.from=first.next_byte;local second=Search.scan(input,archive)
 expect(#second.hits==7 and second.complete and second.unresolved==0,'continuation lost or repeated hits')
 expect(first.hits[1].offset~=second.hits[1].offset,'continuation repeated the first hit')
+files['/exact.epub']=fixture(input.book,'2','<html><body>'..table.concat(paragraphs,'',1,30)..'</body></html>')
+local exact=Search.scan({book=input.book,chapter='2',paths={'/exact.epub'},keyword='needle',from=1},archive)
+expect(#exact.hits==30 and exact.complete and not exact.next_byte,'exact worker limit falsely offered a continuation')
 local folded_input={book=input.book,chapter=input.chapter,paths={'/cached.epub'},keyword='NEeDLE',from=1,
     ignore_ascii_case=true}
 local folded=Search.scan(folded_input,archive)

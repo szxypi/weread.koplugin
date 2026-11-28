@@ -128,7 +128,7 @@ render=function(host,owner)
             items[#items+1]={text=_('Search next batch (keeps only the previous batch)'),callback=function()
                 if current(host,owner) and owner.limit and not owner.show_previous and owner.value==batch
                     and not owner.job and not owner.navigation and not owner.download then
-                    owner.previous=owner.value;owner.value={};owner.limit=false;owner.page=owner.page+1
+                    owner.limit=false;owner.next_batch=true
                     render(host,owner);start(host,owner)
                 end
             end}
@@ -176,8 +176,7 @@ render=function(host,owner)
                 end}
         end
         if owner.finished and #visible==0 then
-            items[#items+1]={text=_(owner.page>1 and 'No more locatable matches in downloaded chapters.'
-                or 'No locatable matches in downloaded chapters.'),select_enabled=false}
+            items[#items+1]={text=_('No locatable matches in downloaded chapters.'),select_enabled=false}
         end
         if not incomplete then
             items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
@@ -208,6 +207,19 @@ local function scan_batch(requests,room,archive)
     return {results=results}
 end
 
+local function append_hits(owner,hits)
+    if owner.next_batch and #hits>0 then
+        owner.previous,owner.value=owner.value,{}
+        owner.next_batch=nil;owner.page=owner.page+1
+    end
+    local overflow={}
+    for _i,hit in ipairs(hits) do
+        if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
+        else overflow[#overflow+1]=hit end
+    end
+    owner.overflow=#overflow>0 and overflow or nil
+end
+
 local function accept_scan(owner,result,request)
     local chapter=owner.queue[owner.index]
     if not chapter or chapter.uid~=request.chapter or owner.from~=request.from
@@ -226,12 +238,7 @@ local function accept_scan(owner,result,request)
             or #hit.context>1024 or not Target.row(owner.id,owner.keyword,hit) then return false end
     end
     owner.unresolved=owner.unresolved+(result.unresolved or 0)
-    local overflow={}
-    for _i,hit in ipairs(result.hits) do
-        if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
-        else overflow[#overflow+1]=hit end
-    end
-    owner.overflow=#overflow>0 and overflow or nil
+    append_hits(owner,result.hits)
     if result.missing or result.complete then
         owner.checked=owner.checked+1
         if result.missing then owner.missing=owner.missing+1 end
@@ -309,18 +316,15 @@ start=function(host,owner)
             return
         end
         if owner.overflow then
-            local remaining={}
-            for _i,hit in ipairs(owner.overflow) do
-                if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
-                else remaining[#remaining+1]=hit end
-            end
-            owner.overflow=#remaining>0 and remaining or nil
+            append_hits(owner,owner.overflow)
             if #owner.value>=M.MAX_RESULTS then
                 owner.finished=not owner.overflow and not owner.queue[owner.index]
                 owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
             end
         end
-        if not owner.queue[owner.index] then owner.finished=true;stop(host,owner);render(host,owner);return end
+        if not owner.queue[owner.index] then
+            owner.finished=true;owner.next_batch=nil;stop(host,owner);render(host,owner);return
+        end
         local requests={}
         local grouped=owner.queue[owner.index].archive~=nil
         local archive=grouped and owner.full
@@ -334,7 +338,8 @@ start=function(host,owner)
                 from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case,archive=chapter.archive}
         end
         if #requests==1 then archive=nil end
-        local room=M.MAX_RESULTS-#owner.value
+        local used=owner.next_batch and 0 or #owner.value
+        local room=M.MAX_RESULTS-used
         local called,started=pcall(worker.start,worker,function() return scan_batch(requests,room,archive) end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
@@ -348,7 +353,7 @@ start=function(host,owner)
                 stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return
             end
             for index,scan in ipairs(results) do
-                if #owner.value>=M.MAX_RESULTS or not accept_scan(owner,scan,requests[index]) then
+                if (not owner.next_batch and #owner.value>=M.MAX_RESULTS) or not accept_scan(owner,scan,requests[index]) then
                     stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.'));return
                 end
             end
@@ -358,7 +363,7 @@ start=function(host,owner)
                 local smaller=math.max(256,#results)
                 if smaller<limit then job.archive_batch_limit=smaller end
             end
-            if #owner.value>=M.MAX_RESULTS then
+            if not owner.next_batch and #owner.value>=M.MAX_RESULTS then
                 owner.finished=not owner.overflow and not owner.queue[owner.index]
                 owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
             end
@@ -422,6 +427,7 @@ fetch_catalog=function(host,owner)
         owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
         owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
         owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
+        owner.next_batch=nil
         for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
         render(host,owner);start(host,owner)
     end)
@@ -484,6 +490,7 @@ download_missing=function(host,owner)
                     owner.full=path;owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
                     owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
                     owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
+                    owner.next_batch=nil
                     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
                     render(host,owner);start(host,owner)
                 end

@@ -219,19 +219,28 @@ owner=open({chapters[1]});worker:complete()
 expect(owner.finished and not owner.limit and not find_item(owner.menu,'Search next batch (keeps only the previous batch)'),
     'exact final batch falsely offered more results')
 Cached.cancel(host)
+local tail_hits={{chapter_uid='2',context='later',offset=3}}
 search_module.scan=function(input)
     if input.chapter=='1' then return {complete=true,hits={
         {chapter_uid='1',context='first',offset=1},{chapter_uid='1',context='second',offset=2}}} end
-    return {complete=true,hits={{chapter_uid=input.chapter,context='later',offset=3}}}
+    return {complete=true,hits=tail_hits}
 end
 owner=open({chapters[1],chapters[2]});worker:complete()
+local kept_batch=owner.value
 assert(find_item(owner.menu,'Search next batch (keeps only the previous batch)')).callback()
 local stopped_worker=worker;host.busy_message.cancel();stopped_worker:complete()
-expect(not owner.job and #owner.value==0 and #owner.previous==2,'cancelled next batch committed stale results')
+expect(not owner.job and owner.next_batch and owner.value==kept_batch and not owner.previous and owner.page==1,
+    'cancelled next batch discarded the visible results')
 assert(find_item(owner.menu,'Continue searching downloaded chapters')).callback();worker:complete()
 task=scheduled;scheduled=nil;task()
-expect(owner.finished and #owner.value==1 and owner.value[1].context=='later' and #owner.previous==2,
+expect(owner.finished and #owner.value==1 and owner.value[1].context=='later' and owner.previous==kept_batch and owner.page==2,
     'cancelled next batch did not resume from the saved cursor')
+Cached.cancel(host);tail_hits={}
+owner=open({chapters[1],chapters[2]});worker:complete();kept_batch=owner.value
+assert(find_item(owner.menu,'Search next batch (keeps only the previous batch)')).callback();worker:complete()
+task=scheduled;scheduled=nil;task()
+expect(owner.finished and not owner.limit and not owner.next_batch and owner.value==kept_batch and owner.page==1
+    and not owner.previous and find_item(owner.menu,'First · second'),'empty next batch replaced the last matches')
 Cached.cancel(host);Cached.MAX_RESULTS=1000;search_module.scan=original_scan
 owner=finish_partial();local action=assert(download_button(owner));action.callback()
 local confirm=assert(owner.download.confirm);confirm.cancel_callback()
