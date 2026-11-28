@@ -2541,6 +2541,7 @@ function M:showSavedChapters(book_id, detail, reader)
     local query, menu, visible = '', nil, nil
     local unfiltered_position,title_worker
     local subtitle = reader and (reader.subtitle or '') or _('Hold a separately downloaded chapter to remove its copy')
+    local unavailable_label = _('Unavailable offline')
     local function current()
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
@@ -2558,7 +2559,8 @@ function M:showSavedChapters(book_id, detail, reader)
             if not row.position and counts[row.title]>1 then
                 text=text..' · '..T(_('Chapter ID %1'),row.chapterUid)
             end
-            local entry = { text = text, chapter_id = row.chapterUid }
+            local entry = { text = text, chapter_id = row.chapterUid, select_enabled = not row.unavailable,
+                mandatory = row.unavailable and unavailable_label or nil }
             visible[entry] = row
             entries[index] = entry
         end
@@ -2589,10 +2591,24 @@ function M:showSavedChapters(book_id, detail, reader)
     menu = self:showList(_('Downloaded chapters'), items(), _('No downloaded chapters found.'), {
         left_icon='appbar.search', subtitle=subtitle, on_choice=function(entry)
             local chapter = visible[entry]
-            if not current() or not chapter then return end
+            if not current() or not chapter or chapter.unavailable then return end
             local fresh = load_book()
-            if fresh and current() and self:openChapter(fresh, chapter, nil, { cached_only = true })
-                and self._saved_chapter_menu == menu then
+            if not fresh or not current() then return end
+            local opened = self:openChapter(fresh, chapter, nil, {
+                cached_only = true,
+                on_cache_miss = function()
+                    if not current() or visible[entry] ~= chapter then return false end
+                    chapter.unavailable = true
+                    entry.select_enabled = false
+                    entry.mandatory = unavailable_label
+                    local focus = menu:getFocusItem()
+                    menu.itemnumber = focus and focus.idx
+                    menu:updateItems(1, true)
+                    self:showInfo(_('The downloaded chapter is unavailable or could not be verified.'))
+                    return false
+                end,
+            })
+            if opened and self._saved_chapter_menu == menu then
                 UIManager:close(menu)
             end
         end,

@@ -1787,6 +1787,7 @@ local zh = {
     ["Chapter ID %1"] = "章节编号 %1",
     ["No downloaded chapters found."] = "没有找到已下载的章节。",
     ["Chapter unavailable offline"] = "该章节暂不能离线阅读",
+    ["Unavailable offline"] = "离线不可用",
     ["The downloaded chapter is unavailable or could not be verified."] = "已下载的章节不可用，或无法核对章节身份。",
     ["Download failed:\n%1"] = "下载失败：\n%1",
     ["Another download is already in progress."] = "已有下载任务正在进行。",

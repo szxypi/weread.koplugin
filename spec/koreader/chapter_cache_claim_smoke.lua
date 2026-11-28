@@ -144,8 +144,47 @@ return function(reader,host,book,id,path,dir,pump)
         'the combined EPUB claimed a chapter whose rendered body was missing')
     assert(host:openBookForReading(shadow,true,{prefer_exact=true,confirmed_missing_uid='4'}) and opened==path)
     confirmation=nil;opened=nil
-    assert(not host:openChapter(shadow,chapters[4],nil,{cached_only=true}) and not opened and not confirmation,
-        'manual offline chapter selection ignored a missing rendered body')
+    local UI=require('ui/uimanager')
+    local picker_scope={is_current=function() return true end,load_book=function() return shadow end}
+    host:showSavedChapters(id,nil,picker_scope)
+    local picker=assert(host._saved_chapter_menu)
+    picker:onLeftButtonTap()
+    local search=assert(picker._shelf_popup)
+    search:setInputText('合成重复章节');search.buttons[1][2].callback()
+    local second=assert(picker.item_table[2])
+    assert(second.chapter_id=='4' and second.select_enabled~=false)
+    for y,row in ipairs(picker.layout) do
+        if row[1] and row[1].entry==second then
+            picker:moveFocusTo(1,y,require('ui/widget/focusmanager').FORCED_FOCUS)
+            break
+        end
+    end
+    local subtitle=picker.subtitle
+    picker:onMenuSelect(second)
+    local unavailable=picker.item_table[2]
+    assert(host._saved_chapter_menu==picker and not opened and not confirmation
+        and unavailable.chapter_id=='4' and unavailable.select_enabled==false
+        and unavailable.mandatory==require('weread.lib.i18n').tr('Unavailable offline'),
+        'failed offline selection left the damaged chapter enabled')
+    assert(picker.subtitle==subtitle and picker:getFocusItem().entry.chapter_id=='4',
+        'failed offline selection lost the chapter filter or focus')
+    local message=UI:getTopmostVisibleWidget()
+    assert(message~=picker)
+    UI:close(message)
+    picker:onMenuSelect(unavailable)
+    assert(UI:getTopmostVisibleWidget()==picker,'disabled chapter retried opening the damaged file')
+    picker:onLeftButtonTap()
+    assert(picker._shelf_popup).buttons[1][1].callback()
+    assert(picker.item_table[2].select_enabled==false,'clearing the filter revived the damaged chapter')
+    picker:onMenuSelect(picker.item_table[1])
+    assert(opened==path and not host._saved_chapter_menu,'another saved chapter could not be selected')
+    opened=nil
+    shadow.cached_full_book=combined
+    host:showSavedChapters(id,nil,picker_scope)
+    picker=assert(host._saved_chapter_menu)
+    assert(picker.item_table[2].select_enabled~=false,'reopening the picker marked a replacement file unavailable')
+    UI:close(picker)
+    shadow.cached_full_book=missing_body
     shadow.cached_chapters['2']=missing_body
     available,reason=host:openBookForReading(shadow,true,{prefer_exact=true})
     assert(not available and reason=='damaged_cache' and not opened,
