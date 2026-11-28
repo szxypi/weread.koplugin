@@ -100,6 +100,16 @@ do
     expect(not Marks.open_saved(host,'900001','marks',initial_note) and not host._my_marks_owner,
         'an account change during the cache read opened a stale result')
 end
+do
+    local host,state=fixture(snapshot());state.online=true
+    expect(Marks.open_saved_book(host,'900001','bookmarks') and host._my_marks_owner.bookmarks
+        and not state.link_checks and not state.started,'saved book did not open its local bookmark snapshot')
+    local prior=host._my_marks_owner
+    state.saved=nil
+    expect(not Marks.open_saved_book(host,'900001','thoughts') and host._my_marks_owner==prior
+        and not state.link_checks and not state.started,'missing saved book started a cloud refresh')
+    Marks.cancel(host)
+end
 local host,value=fixture(snapshot())
 expect(Marks.show(host,'900001'),'saved marks did not open offline')
 local menu=host._my_marks_menu

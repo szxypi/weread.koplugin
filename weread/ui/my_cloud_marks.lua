@@ -339,21 +339,22 @@ refresh=function(host,owner,resume_draft,automatic)
     end
     return launch()
 end
-local function show(host,id,variant,request,saved_note_id)
+local function show(host,id,variant,request,saved_note_id,saved_only)
     if not Data.display_id(id) or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
     local account=host.library_db:accountKey()
     if not account or not scope or not host.settings:auth_scope_matches(scope) then
-        if not saved_note_id then host:showInfo(_('Please scan the QR code to log in first.')) end
+        if not saved_note_id and not saved_only then host:showInfo(_('Please scan the QR code to log in first.')) end
         return false
     end
-    if not saved_note_id then M.cancel(host) end
+    if not saved_note_id and not saved_only then M.cancel(host) end
     local thoughts=variant=='thoughts'
     local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=Data.display_id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,sort='original',
         data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=account,epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
         store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}
     local read_ok,value=pcall(owner.store.read,owner.store,id);owner.value=read_ok and value or nil
+    if saved_only and not owner.value then return false end
     if saved_note_id then
         local found=false
         for _,row in ipairs(owner.value and (thoughts and owner.value.reviews or owner.value.updated) or {}) do
@@ -362,7 +363,7 @@ local function show(host,id,variant,request,saved_note_id)
         if not found then return false end
     end
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
-    if saved_note_id then M.cancel(host) end
+    if saved_note_id or saved_only then M.cancel(host) end
     if not thoughts and type(host.library_db.getChapters)=='function' then
         local ok,chapters=pcall(host.library_db.getChapters,host.library_db,id)
         owner.catalog_titles={}
@@ -426,5 +427,9 @@ function M.open_saved(host,id,note_kind,note_id)
     if note_kind~='marks' and note_kind~='thoughts' then return false end
     if not Data.valid_text(note_id,256) or note_id:find('%s') then return false end
     return show(host,id,note_kind=='thoughts' and 'thoughts' or nil,nil,note_id)
+end
+function M.open_saved_book(host,id,variant)
+    if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    return show(host,id,variant,nil,nil,true)
 end
 return M

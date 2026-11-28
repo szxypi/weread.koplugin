@@ -8,7 +8,9 @@ package.preload['ui/widget/inputdialog']=function() return {new=function(_self,d
     function data:getInputText() return self.input end
     return data
 end} end
-package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
+package.preload['weread.lib.plugin_util']=function()
+    return {tr=function(value) return value end,T=function(value,id) return (value:gsub('%%1',id)) end}
+end
 local Data=require('weread.lib.notebook_catalog');local Store=require('weread.lib.notebook_catalog_store')
 local Catalog=require('weread.ui.notebook_catalog')
 local checks=0
@@ -35,7 +37,10 @@ local function fixture(saved)
     host.showList=function(_self,title,items,_empty,options)
         return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end,
             onMenuSelect=function(_menu,item)
-                if item.select_enabled~=false then options.on_choice(item) end
+                if item.select_enabled~=false then
+                    if options.on_choice then options.on_choice(item)
+                    elseif item.callback then item.callback() end
+                end
             end}
     end
     host.showBusy=function(self,_text,cancel) self.busy_message={cancel=cancel} end
@@ -188,4 +193,44 @@ local draft_action=row(menu,'Local thought drafts').callback;draft_action()
 expect(draft_owner==host._notebook_owner and not value.started,'notebook did not open local drafts offline')
 draft_owner=nil;Catalog.cancel(host);draft_action();expect(not draft_owner,'closed notebook retained draft action')
 package.loaded['weread.ui.thought_editor']=original_editor
+
+local Saved=require('weread.lib.my_cloud_marks_store')
+local old_snapshot=Saved.with_read_snapshot
+Saved.with_read_snapshot=function(_library,_client,task)
+    return task({list_ids=function() return {'900099','900100'} end},
+        {list_ids=function() return {'900100'} end})
+end
+local Notes=require('weread.ui.my_cloud_marks')
+local old_open=Notes.open_saved_book
+host,value=fixture();Catalog.show(host);menu=host._notebook_menu
+host.settings.book_lookup=function()
+    return function(id) if id=='900099' then return {book_id=id,title='Local book',author='Local author'} end end
+end
+Notes.open_saved_book=function(self,id,variant)
+    value.opened={id,variant};self._my_marks_owner={};return true
+end
+row(menu,'Browse saved notes by book').callback()
+expect(value.started==1 and host.busy_message,'saved notebooks did not load in the worker')
+value.complete(value.task())
+local saved_menu=assert(menu._shelf_popup)
+expect(saved_menu.title=='Books with saved notes' and row(saved_menu,'Local book').mandatory=='Local author'
+    and row(saved_menu,'Book 900100'),'saved books depended on the cloud catalog')
+saved_menu:onLeftButtonTap()
+popup=assert(saved_menu._shelf_popup);popup.input='local author';popup.buttons[1][2].callback()
+expect(row(saved_menu,'Local book') and not pcall(row,saved_menu,'Book 900100'),'saved book filter did not match local author')
+saved_menu:onMenuSelect(row(saved_menu,'Local book'))
+popup=assert(saved_menu._shelf_popup)
+expect(#popup.buttons==2 and popup.buttons[2][1].text=='My cloud bookmarks','saved mark types or scope were lost')
+popup.buttons[2][1].callback()
+expect(value.opened[1]=='900099' and value.opened[2]=='bookmarks','saved bookmarks did not open')
+Catalog.cancel(host)
+expect(value.child_closed and saved_menu.closed,'saved notebook widgets survived closing their parent')
+host,value=fixture();Catalog.show(host);menu=host._notebook_menu
+row(menu,'Browse saved notes by book').callback()
+local complete=value.complete
+value.account='different'
+complete(value.task())
+expect(not menu._shelf_popup and not host.busy_message,'stale saved notebook lookup escaped account scope')
+Catalog.cancel(host)
+Notes.open_saved_book=old_open;Saved.with_read_snapshot=old_snapshot
 print('PASS: notebook native UI lifecycle ('..checks..' checks)')

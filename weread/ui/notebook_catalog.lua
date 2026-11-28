@@ -9,7 +9,8 @@ local Query=require('weread.lib.search_query')
 local Protocol=require('weread.lib.protocol')
 local NetworkLink=require('weread.lib.network_link')
 local UI=require('ui/uimanager')
-local _=require('weread.lib.plugin_util').tr
+local Util=require('weread.lib.plugin_util')
+local _,T=Util.tr,Util.T
 local M={}
 local function current(host,owner)
     return host._notebook_owner==owner and host._notebook_menu==owner.menu and not owner.menu._shelf_closed
@@ -24,7 +25,8 @@ local function stop(host,owner)
     require('weread.ui.notebook_search').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
-    if owner.worker then owner.worker:cancel() end
+    local worker=context.worker or owner.worker
+    if worker then worker:cancel() end
     Recovery.cancel(host,context)
     if context.busy and host.busy_message==context.busy then host:closeBusy() end
 end
@@ -39,21 +41,21 @@ function M.cancel(host)
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
 end
 local render,refresh
-local function search_dialog(host,owner)
+local function search_dialog(host,menu,view,is_current,update)
     local dialog
-    local function valid() return current(host,owner) and Popup.current(owner.menu,dialog) end
+    local function valid() return is_current() and Popup.current(menu,dialog) end
     local function apply(value)
         if not valid() then return end
         local query=Query.trim(value)
         if #query>1024 then host:showInfo(_('Search text is too long.'));return end
-        owner.search=query~='' and query or nil;owner.needle=Search.prepare(owner.search);owner.terms=Search.terms(owner.needle)
-        Popup.close(owner.menu);render(host,owner)
+        view.search=query~='' and query or nil;view.needle=Search.prepare(view.search);view.terms=Search.terms(view.needle)
+        Popup.close(menu);update()
     end
-    dialog=require('ui/widget/inputdialog'):new{title=_('Search notebooks'),input=owner.search or '',input_type='text',buttons={{
+    dialog=require('ui/widget/inputdialog'):new{title=_('Search notebooks'),input=view.search or '',input_type='text',buttons={{
         {text=_('Clear'),callback=function() apply('') end},
         {text=_('Search'),is_enter_default=true,callback=function() apply(dialog:getInputText()) end},
     }}}
-    Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
+    Popup.show(menu,dialog,function(widget) host:showInputDialog(widget) end)
 end
 local function sort_by_count(books)
     local order,totals={},{}
@@ -107,30 +109,120 @@ local function sort_dialog(host,owner)
     }}
     Popup.show(owner.menu,dialog)
 end
-local function open_book(host,owner,book)
-    if not current(host,owner) then return end
+local function open_book(host,owner,book,saved_menu)
+    local parent=saved_menu or owner.menu
+    local function valid()
+        return current(host,owner) and (not saved_menu or Popup.current(owner.menu,saved_menu))
+    end
+    if not valid() then return end
     if not Marks.display_id(book.bookId) then host:showInfo(_('This book type is not supported for cloud notes.'));return end
     local dialog
-    local function button(label,method,count)
+    local function button(label,method,count,variant)
         return {text=_(label)..(count~=nil and ' ('..tostring(count)..')' or ''),callback=function()
-            if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
-            Popup.close(owner.menu)
-            host[method](host,book.bookId)
-            if current(host,owner) then owner.child=host._my_marks_owner end
+            if not valid() or not Popup.current(parent,dialog) then return end
+            Popup.close(parent)
+            if saved_menu then
+                if not require('weread.ui.my_cloud_marks').open_saved_book(host,book.bookId,variant) then
+                    if valid() then host:showInfo(_('These saved notes are unavailable.')) end
+                    return
+                end
+            else host[method](host,book.bookId) end
+            if valid() then owner.child=host._my_marks_owner end
         end}
     end
-    dialog=require('ui/widget/buttondialog'):new{title=book.title,buttons={
-        {button('My cloud highlights','showMyCloudMarks',book.noteCount)},
-        {button('My cloud thoughts','showMyCloudThoughts',book.reviewCount)},
-        {button('My cloud bookmarks','showMyCloudBookmarks',book.bookmarkCount)},
-    }}
-    Popup.show(owner.menu,dialog)
+    local buttons={}
+    if not saved_menu or book.marks then
+        buttons[#buttons+1]={button('My cloud highlights','showMyCloudMarks',book.noteCount)}
+    end
+    if not saved_menu or book.thoughts then
+        buttons[#buttons+1]={button('My cloud thoughts','showMyCloudThoughts',book.reviewCount,'thoughts')}
+    end
+    if not saved_menu or book.marks then
+        buttons[#buttons+1]={button('My cloud bookmarks','showMyCloudBookmarks',book.bookmarkCount,'bookmarks')}
+    end
+    dialog=require('ui/widget/buttondialog'):new{title=book.title,buttons=buttons}
+    Popup.show(parent,dialog)
 end
+
+local function show_saved_books(host,owner,books)
+    local menu,visible
+    local view={value={books=books},sort='original'}
+    local function valid() return menu and current(host,owner) and Popup.current(owner.menu,menu) and not menu._shelf_closed end
+    local function items()
+        visible=ordered_books(view)
+        local rows={}
+        for index,book in ipairs(visible) do
+            rows[index]={text=book.title,mandatory=book.author,notebook_id=book.bookId,notebook_index=index}
+        end
+        if #rows==0 then
+            rows[1]={text=_(view.needle and 'No matching notebooks.' or 'No books with saved notes.'),select_enabled=false}
+        end
+        return rows
+    end
+    for _i,book in ipairs(books) do
+        if book.title=='' then book.title=T(_('Book %1'),book.bookId) end
+    end
+    menu=host:showList(_('Books with saved notes'),items(),nil,{
+        thought_text=true,left_icon='appbar.search',on_choice=function(item)
+            local index=item.notebook_index
+            if valid() and index and menu.item_table[index]==item then open_book(host,owner,visible[index],menu) end
+        end,
+    })
+    if not menu then return end
+    menu.onLeftButtonTap=function()
+        if valid() then search_dialog(host,menu,view,valid,function() menu:switchItemTable(nil,items()) end) end
+        return true
+    end
+    local on_close=menu.onCloseWidget
+    menu.onCloseWidget=function(widget,...)
+        widget._shelf_closed=true;Popup.close(widget);close_child(host,owner)
+        if on_close then return on_close(widget,...) end
+    end
+    Popup.show(owner.menu,menu,function() end)
+end
+
+local function browse_saved(host,owner)
+    if not current(host,owner) or owner.context or owner.menu._shelf_popup then return end
+    local function failed() host:showInfo(_('Could not list books with saved notes.')) end
+    local ok,worker=pcall(function()
+        return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=8*1024*1024}
+    end)
+    if not ok or not worker then failed();return end
+    local context={worker=worker};owner.context=context
+    host:showBusy(_('Loading saved notebooks…\nTap or press a key to cancel.'),function()
+        if owner.context==context then stop(host,owner) end
+    end)
+    context.busy=host.busy_message
+    local catalog=owner.value
+    local started,active=pcall(worker.start,worker,function()
+        local ids=require('weread.lib.my_cloud_marks_store').with_read_snapshot(host.library_db,host.client,function(marks,thoughts)
+            local marked,reviewed=marks:list_ids(),thoughts:list_ids()
+            if marked and reviewed then return {marked,reviewed} end
+        end)
+        if not ids then return nil end
+        local lookup=host.settings.book_lookup and host.settings:book_lookup()
+        return Data.saved_books(catalog and catalog.books or {},ids[1],ids[2],function(id)
+            local book=lookup and lookup(id)
+            if type(book)=='table' and book.book_id==id
+                and (not book._library_account_key or book._library_account_key==owner.account) then
+                return book
+            end
+        end)
+    end,function(books)
+        if owner.context~=context then return end
+        stop(host,owner)
+        if not current(host,owner) or owner.value~=catalog or owner.menu._shelf_popup then return end
+        if type(books)=='table' then show_saved_books(host,owner,books) else failed() end
+    end)
+    if not started or not active then stop(host,owner);failed() end
+end
+
 render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
         local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end},
+            {text=_('Browse saved notes by book'),callback=function() browse_saved(host,owner) end},
             {text=_('Search all saved notes'),callback=function()
                 if current(host,owner) then require('weread.ui.notebook_search').prompt(host,owner,current) end
             end},
@@ -166,7 +258,10 @@ render=function(host,owner)
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
             if owner.search and #search_text<#owner.search then search_text=search_text..'…' end
             items[#items+1]={text=_('Search notebooks'),mandatory=search_text,callback=function()
-                if current(host,owner) then search_dialog(host,owner) end
+                if current(host,owner) then
+                    search_dialog(host,owner.menu,owner,function() return current(host,owner) end,
+                        function() render(host,owner) end)
+                end
             end}
             items[#items+1]={text=_('Sort notebooks'),mandatory=_(owner.sort=='count' and 'Most notes first' or 'Original order'),callback=function()
                 if current(host,owner) then sort_dialog(host,owner) end

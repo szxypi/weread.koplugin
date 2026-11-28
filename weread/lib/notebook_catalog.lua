@@ -60,6 +60,38 @@ function M.validate(client,value)
     if type(value)~='table' or value.schema~=1 or not integer(value.fetched_at,2^53-1) or value.fetched_at==0 then fail('snapshot') end
     return {schema=1,fetched_at=value.fetched_at,books=rows(client,value.books,false)}
 end
+
+-- The saved view needs only snapshot identities and short display labels.
+function M.saved_books(catalog, mark_ids, thought_ids, lookup)
+    local Protocol=require('weread.lib.protocol')
+    local by_id,ordered={},{}
+    for kind,ids in pairs({marks=mark_ids,thoughts=thought_ids}) do
+        for _,id in ipairs(ids) do
+            local book=by_id[id] or {bookId=id}
+            book[kind]=true;by_id[id]=book
+        end
+    end
+    local function label(value)
+        if not Marks.valid_text(value,4096,true,true) then return '' end
+        local short=Protocol.utf8_substr(value,48)
+        return #short<#value and short..'…' or short
+    end
+    local function append(id, source)
+        local book=by_id[id]
+        book.title,book.author=label(source and source.title),label(source and source.author)
+        ordered[#ordered+1]=book
+        by_id[id]=nil
+    end
+    for _,book in ipairs(catalog) do
+        if by_id[book.bookId] then append(book.bookId,book) end
+    end
+    local extras={}
+    for id in pairs(by_id) do extras[#extras+1]=id end
+    table.sort(extras)
+    for _,id in ipairs(extras) do append(id,lookup(id)) end
+    return ordered
+end
+
 function M.fetch(client,access,options)
     options=options or {}
     local function current() return M.matches(client.settings,access) end

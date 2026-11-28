@@ -282,6 +282,7 @@ local ok,reason=pcall(function()
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
         marks.book_id='900099';marks.updated=array()
         marks.updated[1]={bookmarkId='saved-mark-extra',type=1,markText='Synthetic needle in an extra cached book'}
+        marks.updated[2]={bookmarkId='saved-point-extra',type=0,chapterUid=1,range='0'}
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
         local thoughts={schema=1,book_id='900002',fetched_at=1000,reviews=array()}
         thoughts.reviews[1]={reviewId='saved-thought-b',content='😀 Synthetic needle in a thought',isPrivate=1}
@@ -433,6 +434,9 @@ local ok,reason=pcall(function()
         and not Store:new(other,plugin.client,other:accountKey()):read());report.account_isolation=true
     local stale=menu.item_table[1].callback;plugin:closeWeReadUI();assert(not plugin._notebook_menu and not plugin._notebook_owner)
     stale();assert(not plugin._notebook_menu and not plugin.busy_message)
+    if synthetic then
+        dofile('/source/spec/koreader/notebook_saved_case.lua')(plugin,mode,expected,counters,wait,tick)
+    end
     plugin.settings:flush();G_reader_settings:flush()
     for _,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end
     report.workers_reaped=true;report.phase='audit'
