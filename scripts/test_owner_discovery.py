@@ -27,7 +27,7 @@ def private_fixture():
         model=page(kind,raw,cursor);plans.append(dict(kind=kind,cursor=cursor,expected=model))
         sources.append(dict(kind=kind,cursor=cursor,source=raw))
         views.append(dict(kind=kind,cursor=cursor,books=model['books'],has_more=more,next_cursor=model['next_cursor'],cached=False))
-    offline=[dict(views[-1],cached=True)]
+    offline=[dict(views[0],cached=True)]
     for view in views:
         offline.append(dict(view,cached=True))
         if view['cursor']:offline.append(dict(next(row for row in views if row['kind']==view['kind'] and not row['cursor']),cached=True))
@@ -90,11 +90,12 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):compare_private(private,plans)
 
     def test_missing_reordered_or_changed_offline_views_fail(self):
-        for change in ['missing','order','book','request']:
+        for change in ['missing','order','book','request','latest_fetch']:
             private,plans=private_fixture()
             if change=='missing':private[1]['views'].pop()
             elif change=='order':private[1]['views'].reverse()
             elif change=='book':private[1]['views'][1]=deepcopy(private[1]['views'][1]);private[1]['views'][1]['books'][0]['title']='Changed'
+            elif change=='latest_fetch':private[1]['views'][0]=dict(private[0]['views'][-1],cached=True)
             else:private[1]['sources']=private[0]['sources']
             with self.subTest(change=change),self.assertRaises(ValueError):compare_private(private,plans)
 

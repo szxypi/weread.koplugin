@@ -78,7 +78,7 @@ def compare_private(private,planned):
         elif entry['sources']:raise ValueError('discovery_schema')
         expected_views=[(row['kind'],row['cursor']) for row in planned]
         if index:
-            expected_views=[expected_views[-1]]
+            expected_views=[('search',0)]
             for row in planned:
                 expected_views.append((row['kind'],row['cursor']))
                 if row['cursor']>0:expected_views.append((row['kind'],0))

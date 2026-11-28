@@ -196,10 +196,11 @@ local ok,reason=pcall(function()
         end
         paint(plugin.shelf_view)
     end
+    local search=assert(input.samples[1]);assert(search.kind=='search' and search.cursor==0)
     if mode=='reopen' then
-        local last=input.samples[#input.samples]
-        assert(plugin.discovery_state.cached and plugin.discovery_state.kind==last.kind)
-        verify(last)
+        -- The live stage ends on the first batch selected from saved searches.
+        assert(plugin.discovery_state.cached and plugin.discovery_state.kind==search.kind)
+        verify(search)
     end
     for index,sample in ipairs(input.samples) do
         report.phase=sample.kind
@@ -227,7 +228,6 @@ local ok,reason=pcall(function()
     report.samples=#input.samples;report.ui_projection_matches=true;report.pagination_matches=true
     -- Reopen the real account's saved search through the native history menu.
     -- No private keyword, result or screenshot leaves this isolated profile.
-    local search=assert(input.samples[1]);assert(search.kind=='search' and search.cursor==0)
     plugin.shelf_view.on_search();local input_dialog=assert(plugin.shelf_view._shelf_popup)
     input_dialog.buttons[1][3].callback()
     wait(function() return plugin._discovery_menu~=nil end)
