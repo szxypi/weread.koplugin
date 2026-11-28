@@ -774,4 +774,41 @@ function LibraryDB:getChapters(book_id)
     return ok and #chapters > 0 and chapters or nil
 end
 
+-- Resolve titles by primary key without decoding the rest of the catalog.
+function LibraryDB:getChapterTitles(book_id, ids)
+    if not book_id or type(ids)~='table' or #ids==0 then return {} end
+    local db=self:openRead()
+    if not db then return nil end
+    local titles,stmt,previous_size={}
+    local batch_size=256
+    local ok=pcall(function()
+        if #ids>batch_size then db:exec('BEGIN') end
+        for first=1,#ids,batch_size do
+            local last=math.min(first+batch_size-1,#ids)
+            local size=last-first+1
+            if previous_size~=size then
+                close_statement(stmt);stmt=nil
+                local parameters=string.rep('?,',size-1)..'?'
+                stmt=db:prepare('SELECT chapter_uid, payload FROM chapters WHERE book_id=? AND chapter_uid IN ('..parameters..')')
+                previous_size=size
+            end
+            local args={tostring(book_id)}
+            for index=first,last do args[#args+1]=ids[index] end
+            local row=stmt:reset():bind(unpack(args)):step()
+            while row do
+                local uid=row[1]
+                local chapter=decode(row[2])
+                if chapter and tostring(chapter.chapterUid)==uid and type(chapter.title)=='string' then
+                    titles[uid]=chapter.title
+                end
+                row=stmt:step()
+            end
+        end
+        if #ids>batch_size then db:exec('COMMIT') end
+    end)
+    close_statement(stmt)
+    pcall(db.close,db)
+    return ok and titles or nil
+end
+
 return LibraryDB

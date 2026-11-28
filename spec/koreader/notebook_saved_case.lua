@@ -12,6 +12,7 @@ return function(host,mode,catalog,counters,wait,tick)
         local books=host.settings:get('books',{})
         books[id]={book_id=id,title='Synthetic saved book',author='Local author',_library_account_key=account}
         host.settings:set('books',books);host.settings:flush()
+        assert(host.library_db:putChapters(id,{{chapterUid='1',title='Synthetic cached chapter'}}))
         local reviews=host.client:json_decode('[]')
         reviews[1]={reviewId='saved-extra-review',content='Separate local thought',isPrivate=1}
         assert(Notes:new(host.library_db,host.client,'thoughts'):write{
@@ -58,7 +59,8 @@ return function(host,mode,catalog,counters,wait,tick)
     choices.buttons[3][1].callback()
     opened=assert(host._my_marks_owner)
     assert(opened.id==id and opened.bookmarks and not opened.context)
-    assert(find(opened.menu,'my_note_id','saved-point-extra'),'bookmark without preview was lost')
+    local bookmark=assert(find(opened.menu,'my_note_id','saved-point-extra'),'bookmark without preview was lost')
+    assert(bookmark.text_func()=='Synthetic cached chapter','bookmark did not use the indexed chapter title')
     UI:close(saved);tick()
     assert(not host._my_marks_owner and not menu._shelf_popup)
     assert(tonumber(counters[0])==before,'saved book browsing issued a request')

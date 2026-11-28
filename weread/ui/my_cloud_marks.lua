@@ -98,14 +98,51 @@ local function sort_dialog(host,owner)
     Popup.show(owner.menu,dialog)
 end
 
+local function ordered_rows(host,owner)
+    local view=owner.note_view
+    if not view or view.value~=owner.value then
+        local value=owner.value
+        local rows=value and (owner.thoughts and value.reviews or value.updated) or {}
+        local titles={}
+        for _i,item in ipairs(value and value.chapters or {}) do titles[item.chapterUid]=item.title end
+        owner.chapter_titles=titles
+        owner.catalog_titles={}
+        if not owner.thoughts and type(host.library_db.getChapterTitles)=='function' then
+            local missing,seen={},{}
+            for _i,item in ipairs(rows) do
+                local uid=item.chapterUid
+                if type(uid)=='number' and uid>0 and not titles[uid] and not seen[uid] then
+                    missing[#missing+1]=tostring(uid);seen[uid]=true
+                end
+            end
+            if #missing>0 then
+                local ok,result=pcall(host.library_db.getChapterTitles,host.library_db,owner.id,missing)
+                if ok and type(result)=='table' then
+                    for _,uid in ipairs(missing) do
+                        if Data.valid_text(result[uid],4096,false,true) then
+                            owner.catalog_titles[tonumber(uid)]=result[uid]
+                        end
+                    end
+                end
+            end
+        end
+        view={value=value,rows=rows}
+        owner.note_view=view
+    end
+    if owner.sort=='original' then return view.rows end
+    if view.mode~=owner.sort then
+        view.mode=owner.sort;view.ordered=Order.rows(view.rows,owner.sort)
+    end
+    return view.ordered
+end
+
 render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
         owner.generation=(owner.generation or 0)+1
         local generation=owner.generation
-        owner.chapter_titles={}
-        for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
+        local rows=ordered_rows(host,owner)
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if not owner.writable then
             local notice=owner.bookmarks and 'Imported book bookmarks can be saved and deleted; locating requires a unique verified preview.'
@@ -147,7 +184,7 @@ render=function(host,owner)
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
             items[#items+1]={text=_(owner.labels.saved),mandatory=date,select_enabled=false}
             local count=0
-            for _i,row in ipairs(Order.rows(owner.thoughts and owner.value.reviews or owner.value.updated,owner.sort)) do
+            for _i,row in ipairs(rows) do
                 local has_quote=row.abstract~=nil and row.abstract~=''
                 local row_type=owner.thoughts and (has_quote and 1 or 0) or row.type
                 if (owner.filter==nil or row_type==owner.filter) and matches(owner,row) then
@@ -364,15 +401,6 @@ local function show(host,id,variant,request,saved_note_id,saved_only)
     end
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
     if saved_note_id or saved_only then M.cancel(host) end
-    if not thoughts and type(host.library_db.getChapters)=='function' then
-        local ok,chapters=pcall(host.library_db.getChapters,host.library_db,id)
-        owner.catalog_titles={}
-        if ok and type(chapters)=='table' then for _i,row in ipairs(chapters) do
-            if type(row)=='table' and Data.id(tostring(row.chapterUid)) and tonumber(row.chapterUid)<=2147483647 and type(row.title)=='string'
-                and #row.title>0 and #row.title<=4096 and Protocol.utf8_substr(row.title,#row.title)==row.title
-                and not row.title:find('[%z%c]') then owner.catalog_titles[tonumber(row.chapterUid)]=row.title end
-        end end
-    end
     owner.labels=thoughts and {title='My cloud thoughts',refresh='Refresh my cloud thoughts',saved='Saved cloud thoughts',
         empty='No thoughts in this view.',missing='No saved thoughts. Refresh while online.',failed='Could not update my thoughts. Saved thoughts are kept.',
         loading='Loading my thoughts…\nTap or press a key to cancel.',save_failed='Could not save my thoughts. The previous saved copy is kept.'}

@@ -173,6 +173,13 @@ local function sort(index)
     dialog.buttons[index][1].callback()
 end
 local stale_note=row(menu,'Match A').callback
+local Order=require('weread.lib.personal_notes_order')
+local original_order=Order.rows
+local sorts=0
+Order.rows=function(...)
+    sorts=sorts+1
+    return original_order(...)
+end
 sort(2);expect(visible_ids()=='a,d,b,c,e','newest order or stable ties were wrong')
 stale_note();expect(not menu._shelf_popup,'old note action survived a new ordering')
 sort(3);expect(visible_ids()=='b,a,d,c,e','oldest order or missing dates were wrong')
@@ -181,6 +188,8 @@ row(menu,'Highlights only').callback();expect(visible_ids()=='d,e,a,c','sort ign
 row(menu,'Search saved notes').callback();local sorted_search=menu._shelf_popup
 sorted_search.input='match a';sorted_search.buttons[1][2].callback()
 expect(visible_ids()=='a' and row(menu,'Sort saved notes').mandatory=='Chapter order','search reset the ordering')
+expect(sorts==3,'filtering or searching repeated the saved note sort')
+Order.rows=original_order
 expect(ordered.updated[1].bookmarkId=='a' and ordered.updated[2].bookmarkId=='b' and value.writes==0 and not value.started,
     'sorting changed saved order or accessed network')
 row(menu,'Sort saved notes').callback();local stale_sort=menu._shelf_popup
@@ -331,7 +340,13 @@ expect(#menu._shelf_popup.buttons_table==2 and menu._shelf_popup.buttons_table[1
 Marks.cancel(host)
 local bookmark_view=snapshot();bookmark_view.updated[2].range='25'
 host,value=fixture(bookmark_view)
-bookmark_view.chapters={};host.library_db.getChapters=function() return {{chapterUid='7',title='缓存章节'}} end
+bookmark_view.chapters={}
+local title_reads=0
+host.library_db.getChapterTitles=function(_self,id,ids)
+    title_reads=title_reads+1
+    assert(id=='900001' and #ids==1 and ids[1]=='7')
+    return {['7']='缓存章节'}
+end
 expect(Marks.show(host,'900001','bookmarks'),'offline bookmark view rejected')
 menu=host._my_marks_menu
 expect(menu.title=='My cloud bookmarks' and host._my_marks_owner.filter==0,'bookmark scope/title lost')
@@ -342,6 +357,7 @@ expect(row(menu,'缓存章节') and not pcall(row,menu,'合成引用'),'bookmark
 row(menu,'缓存章节').callback()
 expect(menu._shelf_popup.buttons_table[1][1].id=='open_bookmark' and menu._shelf_popup.buttons_table[2][1].id=='delete_bookmark','point without preview lost actions')
 expect(menu._shelf_popup.text:find('No saved quote text.',1,true),'missing server preview synthesized')
+expect(title_reads==1,'searching existing notes repeated the chapter title lookup')
 Marks.cancel(host)
 expect(not Marks.show(host,'900001','untrusted_table'),'arbitrary personal note mode accepted')
 -- Cross-book draft restoration resumes only after the owned reference is

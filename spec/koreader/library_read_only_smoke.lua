@@ -20,7 +20,7 @@ local codec={json_encode=function(_self,value) return json.encode(value) end,
 local note_store=require('weread.lib.my_cloud_marks_store')
 local marks=note_store:new(store,codec)
 local thoughts=note_store:new(store,codec,'thoughts')
-assert(not lfs.attributes(missing) and not store:getChapters('100'))
+assert(not lfs.attributes(missing) and not store:getChapters('100') and not store:getChapterTitles('100',{'1'}))
 assert(#assert(marks:list_ids())==0 and #assert(thoughts:list_ids())==0 and not marks:read('100'))
 assert(not lfs.attributes(missing),'a read created an account database')
 assert(store:putChapters('100',{{chapterUid=1,title='old'}}))
@@ -127,6 +127,25 @@ check_saved_catalog(assert(store:getChapters('300')))
 assert(store:putChapters('300',{}) and not store:getChapters('300'))
 assert(store:getChapters('100')[1].title=='new','clearing one catalog touched another book')
 
+local long={}
+for i=1,20000 do long[i]={chapterUid=tostring(i),title='章节 '..i,chapterIdx=i} end
+assert(store:putChapters('400',long))
+local decode_catalog,count=json.decode,0
+json.decode=function(...)
+    count=count+1
+    return decode_catalog(...)
+end
+assert(#assert(store:getChapters('400'))==20000 and count==20000)
+count=0
+local targeted=assert(store:getChapterTitles('400',{'19999','2','20001'}))
+assert(targeted['19999']=='章节 19999' and targeted['2']=='章节 2' and not targeted['20001'] and count==2)
+json.decode=decode_catalog
+local many={}
+for i=1,513 do many[i]=tostring(i*2) end
+targeted=assert(store:getChapterTitles('400',many))
+for _,id in ipairs(many) do assert(targeted[id]=='章节 '..id) end
+print('PASS: targeted chapter title lookup decoded 2 instead of 20,000 catalog rows')
+
 -- Reads do not migrate old schemas; the existing write open still does so.
 account='900002'
 local legacy=assert(SQ3.open(assert(store:databasePath())))
@@ -147,7 +166,8 @@ legacy:close()
 legacy=assert(store:open())
 assert(legacy:rowexec([[SELECT count(*) FROM pragma_table_info('books') WHERE name='detail_payload']])==1)
 legacy:close()
-assert(not store:getChapters('100'),'catalog leaked between accounts')
+assert(not store:getChapters('100') and not next(assert(store:getChapterTitles('400',{'2'}))),
+    'catalog leaked between accounts')
 assert(not marks:read('100') and not thoughts:read('100'),'note cache leaked between accounts')
 account=nil;assert(not store:getChapters('200') and not marks:list_ids(),'signed-out catalog read succeeded')
 print('PASS: read-only catalog lookup, SQLite contention, snapshots and legacy migration')
