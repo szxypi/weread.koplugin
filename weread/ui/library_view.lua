@@ -1937,6 +1937,24 @@ local function refresh_grid_progress(self, prepare)
     return snapshots
 end
 
+local function scroll_paint_buffer(scroll, crop)
+    local buffer, screen = scroll._bb, Screen.bb
+    if not buffer or not screen or buffer == screen
+        or buffer:getWidth() ~= screen:getWidth() or buffer:getHeight() ~= screen:getHeight()
+        or buffer:getType() ~= screen:getType() then return end
+    for _, scrollbar in ipairs({ scroll._v_scroll_bar or false, scroll._h_scroll_bar or false }) do
+        if scrollbar then
+            -- Native scrollbars record their painted position in the touch
+            -- bounds, which include the full bar and its touch padding.
+            local bounds = scrollbar.touch_dimen
+            if not bounds or bounds.w <= 0 or bounds.h <= 0 then return end
+            local overlap = crop:intersect(bounds)
+            if overlap.w > 0 and overlap.h > 0 then return end
+        end
+    end
+    return buffer
+end
+
 local function refresh_list_progress(self, prepare)
     local scroll = self.scroll
     local viewport = painted_region(scroll)
@@ -1987,6 +2005,7 @@ local function refresh_list_progress(self, prepare)
             if size.w ~= region.w or size.h ~= region.h then return end
             local visible = region:intersect(crop)
             if visible.w > 0 and visible.h > 0 then
+                entry.visible = visible
                 changed[#changed + 1] = entry
                 dirty = dirty and dirty:combine(visible) or visible
             end
@@ -1994,8 +2013,18 @@ local function refresh_list_progress(self, prepare)
     end
     if dirty then
         if clipped then
-            -- Preserve native clipping for partly visible rows and scrollbars.
-            UIManager:widgetRepaint(scroll, viewport.x, viewport.y)
+            local buffer = scroll_paint_buffer(scroll, crop)
+            if buffer then
+                -- Paint at the native scroll coordinates, then copy only the
+                -- part of each changed row inside the scroll container's crop.
+                for _, entry in ipairs(changed) do
+                    local region, visible = entry.region, entry.visible
+                    entry.row.frame:paintTo(buffer, region.x, region.y)
+                    Screen.bb:blitFrom(buffer, visible.x, visible.y, visible.x, visible.y, visible.w, visible.h)
+                end
+            else
+                UIManager:widgetRepaint(scroll, viewport.x, viewport.y)
+            end
         else
             for _, entry in ipairs(changed) do
                 UIManager:widgetRepaint(entry.row.frame, entry.region.x, entry.region.y)

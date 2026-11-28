@@ -388,11 +388,11 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
         stable_order=true,sorted_on_reopen=true,filtered_again=true,reading_writes=0})))
     assert(grid_report:close())
 
-    local function check_list_repaint(view, requests_before, clipped)
+    local function check_list_repaint(view, requests_before, clipped, without_buffer)
         UIManager:forceRePaint()
         local initial_pixels=BB.tostring(Screen.bb)
         local row,other=view._item_rows[1],view._item_rows[2]
-        assert(row.status:find('91%%') and other.status:find('55%%'))
+        assert(row.status:find(without_buffer and '0%%' or '91%%') and other.status:find('55%%'))
         local old_frame,other_frame=row.frame,other.frame
         local offset,focus=view:getScrollOffset(),view:getFocusItem()
         local expected=old_frame.dimen:copy()
@@ -404,28 +404,56 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
             })
         end
         local repaint,set_dirty=UIManager.widgetRepaint,UIManager.setDirty
-        local paints,regions=0,{}
+        local refresh_visible,paint_other=view.refreshVisibleProgress,other_frame.paintTo
+        local repainting=false
+        local cell_paints,scroll_paints,other_paints,regions=0,0,0,{}
+        view.refreshVisibleProgress=function(self,...)
+            repainting=true
+            local result=refresh_visible(self,...)
+            repainting=false
+            return result
+        end
+        other_frame.paintTo=function(frame,...)
+            if repainting then other_paints=other_paints+1 end
+            return paint_other(frame,...)
+        end
         UIManager.widgetRepaint=function(ui,widget,...)
-            if widget==(clipped and view.scroll or row.frame) then paints=paints+1 end
+            if repainting then
+                if widget==view.scroll then scroll_paints=scroll_paints+1 end
+                if widget==row.frame then cell_paints=cell_paints+1 end
+            end
             return repaint(ui,widget,...)
         end
         UIManager.setDirty=function(ui,widget,mode,region,...)
-            if not widget and mode=='ui' and region then regions[#regions+1]=region end
+            if repainting and not widget and mode=='ui' and region then regions[#regions+1]=region end
             return set_dirty(ui,widget,mode,region,...)
         end
-        local ok,failure=pcall(wait_progress)
+        local ok,failure=pcall(function()
+            if not without_buffer then wait_progress();return end
+            view.scroll._bb:free()
+            view.scroll._bb=nil
+            assert(plugin.library_db:putShelfProgress({
+                {book_id=row.book.bookId,percent=91,exact_percent=91,fetched_at=os.time()},
+            }))
+            assert(view:refreshVisibleProgress())
+        end)
         UIManager.widgetRepaint,UIManager.setDirty=repaint,set_dirty
+        view.refreshVisibleProgress,other_frame.paintTo=refresh_visible,paint_other
         assert(ok,failure)
         assert(plugin.shelf_view==view and row==view._item_rows[1] and row.frame~=old_frame
-            and row.status:find('0%%') and other.frame==other_frame and paints==1 and #regions==1,
+            and row.status:find(without_buffer and '91%%' or '0%%') and other.frame==other_frame and #regions==1,
             'list progress replaced the page or repainted the wrong content')
         assert(view:getScrollOffset().y==offset.y and view:getFocusItem()==focus and row.frame.invert,
             'list progress lost the scroll offset or focus')
+        assert(cell_paints==(clipped and 0 or 1) and scroll_paints==(without_buffer and 1 or 0)
+            and (without_buffer and other_paints>0 or not without_buffer and other_paints==0),
+            ('unexpected progress paint counts (row=%d, viewport=%d, neighbor=%d)'):format(
+                cell_paints,scroll_paints,other_paints))
         local dirty=regions[1]
-        assert(dirty.x==expected.x and dirty.y==expected.y and dirty.w==expected.w and dirty.h==expected.h
-            and count('/web/book/getProgress')==requests_before+1,'list progress escaped the visible row or repeated a request')
+        assert(same_region(dirty,expected) and count('/web/book/getProgress')==requests_before+(without_buffer and 0 or 1),
+            'list progress escaped the visible row or repeated a request')
         assert_pixels(view,initial_pixels,dirty)
-        return {w=dirty.w,h=dirty.h,scroll_y=offset.y}
+        return {w=dirty.w,h=dirty.h,scroll_y=offset.y,viewport_paints=scroll_paints,unaffected_row_paints=other_paints}
     end
 
     local Device=require('device')
@@ -474,10 +502,11 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     gets=count('/web/book/getProgress')
     scrolling.scroll:_scrollBy(0,math.floor(scrolling._item_rows[1]:getSize().h/2))
     local scroll_list=check_list_repaint(scrolling,gets,true)
+    local scroll_fallback=check_list_repaint(scrolling,gets+1,true,true)
     Device.hasDPad=has_dpad
     assert(count('/web/book/read')==writes,'list progress sent a reading write')
     local list_report=assert(io.open(evidence..'/shelf-list-progress-repaint.json','wb'))
-    assert(list_report:write(client:json_encode({shelf=list_page,home=home_list,scroll=scroll_list,
+    assert(list_report:write(client:json_encode({shelf=list_page,home=home_list,scroll=scroll_list,fallback=scroll_fallback,
         pixels_equal=true,focus_preserved=true,reading_writes=0})))
     assert(list_report:close())
     plugin:closeWeReadUI()
