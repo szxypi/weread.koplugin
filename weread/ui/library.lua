@@ -3012,12 +3012,31 @@ function M:openCachedBook(book)
     self:openFile(self:getFullBookCachePath(book),nil,book)
 end
 
+local unreadable_epub_message = 'The downloaded EPUB is unreadable. The file and your reading position are kept.'
+
+local function cached_epub_readable(path)
+    return path:sub(-5):lower() ~= '.epub'
+        or require('weread.lib.source_archive').epub_container_readable(path) ~= false
+end
+
 -- Read offline from the best available cache. A complete EPUB wins. Otherwise
 -- choose the cached chapter nearest to the last known chapter/progress, with a
 -- slight preference for the preceding chapter when distances are equal.
 function M:openBookForReading(book, quiet, options)
     local claim_cache={}
-    local full_path = self:getFullBookCachePath(book,nil,claim_cache)
+    local damaged, checked = false, {}
+    local function readable(path, known_present)
+        if type(path) ~= 'string' then return false end
+        if checked[path] == nil then
+            checked[path] = false
+            if known_present or file_exists(path) then
+                checked[path] = cached_epub_readable(path)
+                damaged = damaged or not checked[path]
+            end
+        end
+        return checked[path]
+    end
+    local full_path = self:getFullBookCachePath(book,readable,claim_cache)
     local cached_chapters=book.cached_chapters
     local book_id = book.book_id or book.bookId
     -- A confirmation permits falling back from only the chapter it showed.
@@ -3025,11 +3044,19 @@ function M:openBookForReading(book, quiet, options)
     local claims=require('weread.lib.chapter_cache_claim')
     local Reading=require('weread.ui.book_reading')
     local unusable_shared=false
-    local function usable(uid,path)
+    local function usable(uid,path,skip_probe)
         if not file_exists(path) then return false end
         local valid=claims.usable(book,path,uid,claim_cache)
         if not valid and claims.shared(book,path,claim_cache) then unusable_shared=true end
-        return valid
+        return valid and (skip_probe or readable(path,true))
+    end
+    local function unavailable()
+        if not quiet then self:showInfo(_(unusable_shared
+            and 'No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'
+            or damaged and unreadable_epub_message or 'No cached file.')) end
+        if unusable_shared then return false,'ambiguous_cache' end
+        if damaged then return false,'damaged_cache' end
+        return false
     end
     local function exact_chapter_path(uid)
         for _,path in ipairs({ReadAccess.cached_chapter_candidates(cached_chapters,uid)}) do
@@ -3061,8 +3088,8 @@ function M:openBookForReading(book, quiet, options)
         if type(chapters)~='table' or #chapters==0 then
             local mapped=ReadAccess.cached_chapter(cached_chapters,hint.chapter_uid)
             local paths={}
-            if file_exists(mapped) then paths[#paths+1]=mapped end
-            if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end
+            if readable(mapped) then paths[#paths+1]=mapped end
+            if full_path~=mapped and readable(full_path) then paths[#paths+1]=full_path end
             if #paths>0 then
                 if options and options.check_only then return true end
                 if require('weread.ui.unindexed_resume').start(self,book,hint,paths,{cloud_view=cloud_hint~=nil}) then return true end
@@ -3074,7 +3101,7 @@ function M:openBookForReading(book, quiet, options)
             end
         end
     end
-    if file_exists(full_path) then
+    if readable(full_path) then
         if options and options.prefer_exact then
             local uid=Reading.resume_uid(book.chapters,book,account,function()
                 local catalog=self.library_db and self.library_db:getChapters(book_id)
@@ -3096,9 +3123,8 @@ function M:openBookForReading(book, quiet, options)
     end
 
     -- An ordinary catalog only helps choose between mapped downloads.
-    if not cached_chapters or type(cached_chapters)=='table' and next(cached_chapters)==nil then
-        if not quiet then self:showInfo(_('No cached file.')) end
-        return false
+    if type(cached_chapters)~='table' or next(cached_chapters)==nil then
+        return unavailable()
     end
 
     local chapters = book.chapters
@@ -3159,19 +3185,21 @@ function M:openBookForReading(book, quiet, options)
 
     local fallback_paths = {}
     for uid, path in pairs(cached_chapters) do
-        if usable(uid,path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
+        if usable(uid,path,true) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
     end
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
     local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
+    if fallback and not readable(fallback.path,true) then
+        fallback = nil
+        for _, candidate in ipairs(fallback_paths) do
+            if readable(candidate.path,true) then fallback = candidate; break end
+        end
+    end
     if fallback then
         if not (options and options.check_only) then self:openFile(fallback.path,nil,book) end
         return true
     end
-    if not quiet then self:showInfo(_(unusable_shared
-        and 'No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'
-        or 'No cached file.')) end
-    if unusable_shared then return false,'ambiguous_cache' end
-    return false
+    return unavailable()
 end
 
 -- The selection or confirmation has already looked up the current record.
@@ -3182,7 +3210,7 @@ function M:readCachedCopy(record,view)
     if opened then return true end
     if reason=='resume_not_cached' then return require('weread.ui.missing_resume').show(self,id,view,uid) end
     if reason=='ambiguous_cache' then self:showInfo(_('No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'));return false end
-    self:showInfo(_('No cached file.'))
+    self:showInfo(_(reason=='damaged_cache' and unreadable_epub_message or 'No cached file.'))
     return false
 end
 
@@ -3265,6 +3293,9 @@ function M:startBookReading(book, view, origin, options)
     if reason=='ambiguous_cache' and not exact then
         self:showInfo(_('No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'));return false
     end
+    if reason=='damaged_cache' and not online then
+        self:showInfo(_(unreadable_epub_message));return false
+    end
     return require("weread.ui.book_reading").start(self, latest, view, origin)
 end
 
@@ -3333,11 +3364,11 @@ function M:openChapter(book, chapter, on_downloaded, options)
         for _,path in ipairs({preferred,alternate}) do
             if file_exists(path) then
                 local info=claims.inspect(book,path,claim_cache,verify_source)
-                if info.kind=='combined' and info.items['chapter_'..chapter_id] then
-                    combined,proof=path,info
-                    break
-                elseif claims.usable(book,path,chapter_uid,claim_cache,verify_source) then
-                    cached=path
+                local is_combined=info.kind=='combined' and info.items['chapter_'..chapter_id]
+                if (is_combined or claims.usable(book,path,chapter_uid,claim_cache,verify_source))
+                    and cached_epub_readable(path) then
+                    if is_combined then combined,proof=path,info
+                    else cached=path end
                     break
                 else
                     ambiguous=true
@@ -3345,7 +3376,7 @@ function M:openChapter(book, chapter, on_downloaded, options)
             end
         end
     end
-    if not combined and not cached and full and file_exists(full) then
+    if not combined and not cached and full and file_exists(full) and cached_epub_readable(full) then
         local info=claims.combined(book,full,claim_cache)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end

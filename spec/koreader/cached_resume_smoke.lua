@@ -564,6 +564,29 @@ report.fallback_warning_cancel_preserved=true
 press(view,'▤ Read');fallback_warning(true)
 pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
 report.offline_missing_target_fallback=true;close_reader();offline=false
+if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
+    omit_target()
+    host=assert(FM.instance.weread)
+    local damaged=home..'/synthetic-damaged-resume.epub'
+    local input=assert(io.open(second,'rb'))
+    local incomplete=assert(input:read('*a')):sub(1,-23);assert(input:close())
+    local output=assert(io.open(damaged,'wb'))
+    assert(output:write(incomplete));assert(output:close())
+    patch(host,{cached_chapters={['2']=first,['4']=damaged}})
+    host,view=detail();offline=true
+    local pending=book(host).pending_upload_position
+    press(view,'▤ Read');fallback_warning(false)
+    local kept=book(host).pending_upload_position
+    assert(not Reader.instance and kept.chapter_uid==pending.chapter_uid
+        and kept.chapter_idx==pending.chapter_idx and kept.percent==pending.percent,
+        'cancelling a damaged resume changed the pending position')
+    press(view,'▤ Read');fallback_warning(true)
+    pump(function() return Reader.instance and Reader.instance.document.file==first end)
+    input=assert(io.open(damaged,'rb'));assert(input:read('*a')==incomplete);assert(input:close())
+    report.damaged_resume_fallback=true
+    close_reader();offline=false
+    print('PASS: corrupted resume prompted before opening a different chapter in ReaderUI')
+end
 omit_target()
 host=assert(FM.instance.weread)
 require('weread.ui.download_library').show(host)

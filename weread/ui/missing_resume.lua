@@ -28,7 +28,7 @@ function M.show(host,book_id,view,expected_uid)
             and (not owner or Popup.current(owner,dialog))
     end
     dialog=ConfirmBox:new{
-        text=_('Your last reading chapter is not cached. Opening another cached chapter may change your local reading position, even without turning a page. Continue?'),
+        text=_('Your last reading chapter is unavailable offline. Opening another cached chapter may change your local reading position, even without turning a page. Continue?'),
         ok_text=_('Read cached copy'),cancel_text=_('Cancel'),
         ok_callback=function()
             if not current() then return end

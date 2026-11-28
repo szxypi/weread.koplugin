@@ -103,6 +103,27 @@ return function(reader,host,book,id,path,dir,pump)
     opened=nil;shadow.cached_full_book=nil;shadow.chapters={chapters[2]};shadow.cached_chapters['2']=path
     assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==exact,
         'stale catalog replaced an available exact chapter')
+    local damaged=dir..'/synthetic-truncated.epub'
+    local input=assert(io.open(combined,'rb'))
+    local incomplete=assert(input:read('*a')):sub(1,-23)
+    assert(input:close())
+    file=assert(io.open(damaged,'wb'));assert(file:write(incomplete));assert(file:close())
+    shadow.cached_full_book=damaged
+    shadow.chapters=chapters
+    opened=nil
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true}) and opened==exact,
+        'a truncated full EPUB prevented opening the exact saved chapter')
+    opened=nil;shadow.cached_full_book=nil;shadow.cached_chapters['5']=damaged
+    available,reason,uid=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='resume_not_cached' and uid=='5' and not opened,
+        'a truncated target EPUB bypassed the fallback confirmation')
+    assert(host:openBookForReading(shadow,true,{prefer_exact=true,confirmed_missing_uid='5'}) and opened==path,
+        'the confirmed fallback did not open the remaining chapter')
+    opened=nil;shadow.cached_chapters['2']=nil
+    available,reason=host:openBookForReading(shadow,true,{prefer_exact=true})
+    assert(not available and reason=='damaged_cache' and not opened,'unreadable EPUB was dispatched to the reader')
+    local kept=assert(io.open(damaged,'rb'));assert(kept:read('*a')==incomplete);assert(kept:close())
+    print('PASS: truncated standard EPUB resume, guarded fallback and file preservation')
     shadow.chapters=chapters;shadow.chapter_uid=4;shadow.chapter_idx=4
     host.openFile,host.confirmAndDownloadChapters,host._chapter_open_intent=old_open,old_confirm,old_intent
     -- Confirm the real recovery download without opening another reader, then

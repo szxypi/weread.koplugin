@@ -17,7 +17,7 @@ local function byte_comparator(ffi)
     end
     return compare_bytes
 end
-local function read_members(path, wanted, batch)
+local function read_members(path, wanted, batch, zip_probe)
     if type(path) ~= 'string' or path == '' or #path > 4096 or path:find('%z') or type(wanted) ~= 'table' then
         return nil, 'source_archive/invalid'
     end
@@ -29,16 +29,20 @@ local function read_members(path, wanted, batch)
             or maximum < 1 or maximum > limit then return nil, 'source_archive/invalid' end
     end
     if count == 0 or count > (batch and M.MAX_BATCH_MEMBERS or M.MAX_MEMBERS) then return nil, 'source_archive/invalid' end
-    local archive, entry, lib, ffi
+    local archive, entry, lib, ffi, zip_supported
     local ok, result = pcall(function()
         ffi = require('ffi')
         require('ffi/libarchive_h')
         lib = ffi.loadlib('archive', '13')
         archive, entry = lib.archive_read_new(), lib.archive_entry_new()
         if archive == nil or entry == nil then return nil end
-        if lib.archive_read_support_format_all(archive) ~= lib.ARCHIVE_OK
-            or lib.archive_read_support_filter_all(archive) ~= lib.ARCHIVE_OK
-            or lib.archive_read_open_filename(archive, path, 10240) ~= lib.ARCHIVE_OK then return nil end
+        if zip_probe then
+            ffi.cdef[[int archive_read_support_format_zip_seekable(struct archive *);]]
+            if lib.archive_read_support_format_zip_seekable(archive) ~= lib.ARCHIVE_OK then return nil end
+            zip_supported = true
+        elseif lib.archive_read_support_format_all(archive) ~= lib.ARCHIVE_OK
+            or lib.archive_read_support_filter_all(archive) ~= lib.ARCHIVE_OK then return nil end
+        if lib.archive_read_open_filename(archive, path, 10240) ~= lib.ARCHIVE_OK then return nil end
         local members, found, used = {}, 0, 0
         local buffer = ffi.new('char[?]', 65536)
         for _i = 1, M.MAX_ENTRIES do
@@ -66,6 +70,7 @@ local function read_members(path, wanted, batch)
                 end
                 if total ~= size then return nil end
                 members[name], found = table.concat(chunks), found + 1
+                if zip_probe and found == count then return members end
             end
         end
         return nil
@@ -74,12 +79,22 @@ local function read_members(path, wanted, batch)
     -- and duplicate requested members. Do not accept an early first match.
     if archive ~= nil and lib then pcall(lib.archive_read_close, archive); pcall(lib.archive_free, archive) end
     if entry ~= nil and lib then pcall(lib.archive_entry_free, entry) end
+    if zip_probe and not zip_supported then return nil, 'source_archive/zip_probe_unsupported' end
     if not ok or not result then return nil, 'source_archive/unavailable' end
     return result
 end
 
 function M.read(path, wanted)
     return read_members(path, wanted, false)
+end
+
+-- The seekable ZIP reader requires the central directory. Read just the
+-- required EPUB container entry before handing the candidate to ReaderUI.
+function M.epub_container_readable(path)
+    local name = 'META-INF/container.xml'
+    local members, reason = read_members(path, { [name] = 1024 * 1024 }, false, true)
+    if reason == 'source_archive/zip_probe_unsupported' then return nil end
+    return members ~= nil and members[name] ~= ''
 end
 
 -- Missing members are checked by each snapshot consumer. Ambiguous, invalid
