@@ -35,7 +35,7 @@ def main():
         grant=dict(vid='900000',accessToken='mock-native-access',refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)
         payload,_=prepare(grant,LocalProbe());payload['mock_port']=server.server_port
         if args.with_skill_recommendation:
-            payload['skill_key'] = 'wrk-mock-recommendation'
+            payload['skill_key'] = 'wrk-xxxxxxxx'
             model = page('recommend', skill_page)
             for book in model['books']:
                 book.pop('searchIdx')

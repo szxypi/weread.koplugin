@@ -33,7 +33,7 @@ local ok,reason=pcall(function()
     if mock then
         assert(tonumber(mock)==input.mock_port and grant.vid=='900000' and grant.accessToken=='mock-native-access'
             and grant.refreshToken=='mock-native-refresh' and grant.deviceId=='eink334691225'..string.rep('1',19))
-        assert(not skill_key or skill_key=='wrk-mock-recommendation')
+        assert(not skill_key or skill_key=='wrk-xxxxxxxx')
     end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
     G_defaults=require('luadefaults'):open()
