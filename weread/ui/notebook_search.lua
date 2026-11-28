@@ -36,9 +36,10 @@ local function valid_result(value,offset)
 end
 local function show(host,owner,current,catalog,result,paging)
     if not current(host,owner) or owner.value~=catalog then return end
-    local titles={}
+    local titles,labels={},{}
     for _,book in ipairs(catalog and catalog.books or {}) do titles[book.bookId]=book.title end
     local function title(id)
+        if labels[id] then return labels[id] end
         local value=titles[id]
         if not value and type(host.settings.get_book)=='function' then
             local ok,book=pcall(host.settings.get_book,host.settings,id)
@@ -47,7 +48,8 @@ local function show(host,owner,current,catalog,result,paging)
         if type(value)~='string' or value=='' then value=T(_('Book %1'),id) end
         value=value:gsub('[%z%c]',' ')
         local short=Protocol.utf8_substr(value,36)
-        return #short<#value and short..'…' or short
+        labels[id]=#short<#value and short..'…' or short
+        return labels[id]
     end
     local rows={{text=_('Only notes saved on this device are searched.'),select_enabled=false},
         {text=T(_('Searched %1 of %2 saved snapshots.'),result.checked,result.available),select_enabled=false}}
@@ -76,22 +78,12 @@ local function show(host,owner,current,catalog,result,paging)
         rows[#rows+1]={text=record.preview,saved_note_id=record.item_id,saved_book_id=record.book_id,
             mandatory=_(record.kind=='thoughts' and 'Thought' or 'Cloud mark')..' · '..title(record.book_id),callback=function()
             if not current(host,owner) or owner.value~=catalog or not Popup.current(owner.menu,menu) then return end
-            local variant=record.kind=='thoughts' and 'thoughts' or nil
-            local ok,snapshot=pcall(function() return Store:new(host.library_db,host.client,variant):read(record.book_id) end)
-            local found=false
-            if ok and snapshot then for _j,row in ipairs(variant and snapshot.reviews or snapshot.updated) do
-                if (variant and row.reviewId or row.bookmarkId)==record.item_id then found=true;break end
-            end end
-            if not found then Popup.close(owner.menu);host:showInfo(_('This saved note is no longer available. Search again.'));return end
             Popup.close(owner.menu)
-            if variant then host:showMyCloudThoughts(record.book_id) else host:showMyCloudMarks(record.book_id) end
+            if not current(host,owner) or owner.value~=catalog then return end
+            local opened=require('weread.ui.my_cloud_marks').open_saved(host,record.book_id,record.kind,record.item_id)
             if not current(host,owner) then return end
-            owner.child=host._my_marks_owner
-            local child=host._my_marks_menu
-            if child then for _j,row in ipairs(child.item_table or {}) do
-                if row.my_note_id==record.item_id and row.callback then row.callback();return end
-            end end
-            host:showInfo(_('This saved note is no longer available. Search again.'))
+            if opened then owner.child=host._my_marks_owner
+            else host:showInfo(_('This saved note is no longer available. Search again.')) end
         end}
     end
     menu=host:showList(_('Saved note search results'),rows,nil,{thought_text=true})

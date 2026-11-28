@@ -23,6 +23,9 @@ package.preload['weread.lib.my_cloud_marks_store']=function()
     end
     return store
 end
+package.preload['weread.ui.my_cloud_marks']=function()
+    return {open_saved=function(host,book,kind,note) return host:open_saved(book,kind,note) end}
+end
 local Search=require('weread.ui.notebook_search')
 local function setup()
     local state={current=true,notices={},online_calls=0,cancelled=0}
@@ -34,11 +37,15 @@ local function setup()
     function host:showBusy(_,cancel) self.busy_message={cancel=cancel} end
     function host:closeBusy() self.busy_message=nil end
     function host:showList(title,items) local menu={title=title,item_table=items};state.result=menu;return menu end
-    function host:showMyCloudMarks(id)
-        state.opened=id;self._my_marks_owner={};self._my_marks_menu={item_table={{my_note_id='m1',callback=function() state.opened_note='m1' end}}}
-    end
-    function host:showMyCloudThoughts(id)
-        state.opened=id;self._my_marks_owner={};self._my_marks_menu={item_table={{my_note_id='t2',callback=function() state.opened_note='t2' end}}}
+    function host:open_saved(id,kind,note)
+        local snapshot=snapshots[kind][id]
+        for _,row in ipairs(snapshot and (snapshot.updated or snapshot.reviews) or {}) do
+            if (row.bookmarkId or row.reviewId)==note then
+                state.opened=id;state.opened_note=note;self._my_marks_owner={}
+                return true
+            end
+        end
+        return false
     end
     package.loaded['weread.lib.memory_worker']={new=function() return {start=function(_,task,callback)
         state.task,state.callback=task,callback;return true end,cancel=function() state.cancelled=state.cancelled+1 end} end}
@@ -72,13 +79,22 @@ dialog.input='needle';dialog.buttons[1][2].callback();late=state.callback;host.b
 assert(not state.result and not owner.note_search_job and state.cancelled>0,'cancelled search returned late results')
 local many={};for i=1,205 do many[i]={bookmarkId='i'..i,markText='matching note'} end
 snapshots.marks['1']={updated=many,chapters={}};snapshots.thoughts['2']=nil
-host,owner,state,current=setup();menu=start(host,owner,state,current,'matching')
+host,owner,state,current=setup()
+owner.value.books={}
+local title_reads=0
+function host.settings:get_book(id)
+    assert(id=='1');title_reads=title_reads+1
+    return {title='Book outside the notebook catalog'}
+end
+menu=start(host,owner,state,current,'matching')
+assert(title_reads==1,'result titles were loaded more than once for a book')
 local function find_row(view,label) for _,row in ipairs(view.item_table) do if row.text==label then return row end end end
 assert(find_row(menu,'More results') and not find_row(menu,'Previous results'))
 find_row(menu,'More results').callback();state.callback(state.task());menu=state.result
 assert(find_row(menu,'Previous results') and not find_row(menu,'More results'))
 local found={};for _,row in ipairs(menu.item_table) do if row.saved_note_id then found[#found+1]=row.saved_note_id end end
 assert(#found==5 and found[1]=='i201' and found[5]=='i205')
+assert(title_reads==2,'a new batch did not read the current title once')
 find_row(menu,'Previous results').callback();state.callback(state.task());menu=state.result
 assert(find_row(menu,'More results'))
 find_row(menu,'More results').callback();many[10].markText='no match';state.callback(state.task())

@@ -36,7 +36,11 @@ local function fixture(saved)
     end
     host.showBusy=function(self,_text,cancel) self.busy_message={cancel=cancel} end
     host.closeBusy=function(self) self.busy_message=nil end
-    Store.new=function() return {read=function() return value.saved end,write=function(_self,row)
+    Store.new=function() return {read=function()
+        value.reads=(value.reads or 0)+1
+        if value.on_read then value.on_read() end
+        return value.saved
+    end,write=function(_self,row)
         if value.save_fail then return false end;value.saved=row;value.writes=value.writes+1;return true
     end} end
     Data.capture=function() if value.native_missing then return nil end;return {native={scope=value.scope,revision=value.revision,credentials={}},base_revision='a'} end
@@ -74,6 +78,27 @@ do
     expect(menu._shelf_popup.text:find(notes.updated[1].markText,1,true),'truncated label replaced the original note')
     Marks.cancel(host)
     protocol.utf8_substr=substr
+end
+do
+    local host,state=fixture(snapshot())
+    local initial_note='synthetic-1'
+    expect(Marks.open_saved(host,'900001','marks',initial_note) and state.reads==1,
+        'opening a saved result reread the note cache')
+    local menu=host._my_marks_menu
+    expect(menu._shelf_popup.text=='合成章节\n\n合成引用','saved result opened the wrong note')
+    state.online=true
+    expect(not Marks.open_saved(host,'900001','marks','missing') and not state.link_checks
+        and host._my_marks_menu==menu,'missing result replaced the active view or checked the network')
+    Marks.cancel(host)
+    state.saved=nil
+    expect(not Marks.open_saved(host,'900001','marks',initial_note) and not state.link_checks
+        and not host._my_marks_owner,'an absent saved cache started a refresh or opened an empty view')
+    expect(not Marks.open_saved(host,'900001','marks','bad id') and state.reads==3,
+        'an invalid note identity read the cache')
+    state.saved=snapshot()
+    state.on_read=function() state.account='different' end
+    expect(not Marks.open_saved(host,'900001','marks',initial_note) and not host._my_marks_owner,
+        'an account change during the cache read opened a stale result')
 end
 local host,value=fixture(snapshot())
 expect(Marks.show(host,'900001'),'saved marks did not open offline')

@@ -339,25 +339,30 @@ refresh=function(host,owner,resume_draft,automatic)
     end
     return launch()
 end
-function M.show(host,id,variant,options)
-    if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
-    local request=type(options)=='table' and options.resume_draft or nil
-    if options~=nil and (type(request)~='table' or request.book_id~=id
-        or not require('weread.lib.thought_edit_contract').hash(request.key)
-        or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
-        or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
-        or (request.operation=='edit')~=(variant=='thoughts')) then return false end
+local function show(host,id,variant,request,saved_note_id)
     if not Data.display_id(id) or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
-    if not host.library_db:accountKey() or not scope or not host.settings:auth_scope_matches(scope) then
-        host:showInfo(_('Please scan the QR code to log in first.'));return false
+    local account=host.library_db:accountKey()
+    if not account or not scope or not host.settings:auth_scope_matches(scope) then
+        if not saved_note_id then host:showInfo(_('Please scan the QR code to log in first.')) end
+        return false
     end
-    M.cancel(host)
+    if not saved_note_id then M.cancel(host) end
     local thoughts=variant=='thoughts'
     local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=Data.display_id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,sort='original',
-        data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,
+        data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=account,epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
         store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}
+    local read_ok,value=pcall(owner.store.read,owner.store,id);owner.value=read_ok and value or nil
+    if saved_note_id then
+        local found=false
+        for _,row in ipairs(owner.value and (thoughts and owner.value.reviews or owner.value.updated) or {}) do
+            if (thoughts and row.reviewId or row.bookmarkId)==saved_note_id then found=true;break end
+        end
+        if not found then return false end
+    end
+    if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
+    if saved_note_id then M.cancel(host) end
     if not thoughts and type(host.library_db.getChapters)=='function' then
         local ok,chapters=pcall(host.library_db.getChapters,host.library_db,id)
         owner.catalog_titles={}
@@ -374,7 +379,6 @@ function M.show(host,id,variant,options)
             missing='No saved cloud marks. Refresh while online.',failed='Could not update my cloud marks. Saved marks are kept.',
             loading='Loading my cloud marks…\nTap or press a key to cancel.',save_failed='Could not save my cloud marks. The previous saved copy is kept.'}
     if owner.bookmarks then owner.labels.title='My cloud bookmarks';owner.labels.empty='No cloud bookmarks in this view.' end
-    local ok,value=pcall(owner.store.read,owner.store,id);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
     local menu=host:showList(_(owner.labels.title),{{text=_(owner.labels.missing),select_enabled=false}},nil,{thought_text=true})
     if not menu then return false end
@@ -386,6 +390,17 @@ function M.show(host,id,variant,options)
         if on_close then return on_close(instance,...) end
     end
     render(host,owner)
+    if saved_note_id then
+        for _,item in ipairs(menu.item_table or {}) do
+            if item.my_note_id==saved_note_id then
+                item.callback()
+                if current(host,owner) and menu._shelf_popup then return true end
+                break
+            end
+        end
+        if host._my_marks_owner==owner then M.cancel(host) end
+        return false
+    end
     -- Draft selection remains bound to its token while a missing reference is
     -- loaded; a later user action or popup prevents an unsolicited editor.
     if request and (owner.value or request.selection) then
@@ -394,5 +409,22 @@ function M.show(host,id,variant,options)
         refresh(host,owner,request,true)
     end
     return true
+end
+
+function M.show(host,id,variant,options)
+    if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    local request=type(options)=='table' and options.resume_draft or nil
+    if options~=nil and (type(request)~='table' or request.book_id~=id
+        or not require('weread.lib.thought_edit_contract').hash(request.key)
+        or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
+        or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
+        or (request.operation=='edit')~=(variant=='thoughts')) then return false end
+    return show(host,id,variant,request)
+end
+
+function M.open_saved(host,id,note_kind,note_id)
+    if note_kind~='marks' and note_kind~='thoughts' then return false end
+    if not Data.valid_text(note_id,256) or note_id:find('%s') then return false end
+    return show(host,id,note_kind=='thoughts' and 'thoughts' or nil,nil,note_id)
 end
 return M

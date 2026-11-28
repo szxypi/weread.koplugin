@@ -336,7 +336,18 @@ local ok,reason=pcall(function()
             results:onGotoPage(results:getPageNumber(index));break
         end end
         FontSmoke.menu_emoji(results,'😀')
+        local saved_store=require('weread.lib.my_cloud_marks_store')
+        local original_read=saved_store.read
+        local selection_reads=0
+        saved_store.read=function(self,id)
+            if self.table_name=='my_cloud_thoughts' and id=='900002' then
+                selection_reads=selection_reads+1
+            end
+            return original_read(self,id)
+        end
         results:onMenuSelect(found_notes['saved-thought-b'])
+        saved_store.read=original_read
+        assert(selection_reads==1,'selecting a result should read the saved thought once')
         local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
         assert(child.id=='900002' and child.thoughts and child_menu._shelf_popup)
         assert(child_menu._shelf_popup.text:find('Synthetic needle in a thought',1,true))
