@@ -48,6 +48,7 @@ def run(runtime,plain_text=False):
                     reader('selection_direct_thought_offline_locked',True)
                     reader('selection_direct_thought_offline_slow_check',True)
                     reader('selection_direct_thought_offline_draft',True)
+                    reader('selection_direct_notebook_draft',True)
                     reader('selection_direct_thought_offline_draft',True)
                     calls=reader('selection_direct',False)
                     assert any(path=='/book/chapterdownload' for _,_,path in calls)
@@ -61,6 +62,7 @@ def run(runtime,plain_text=False):
                     reader('selection_direct_thought_offline_draft',True)
                     native_source.write_bytes(b'tampered')
                     reader('selection_direct_offline_missing',True)
+                    reader('selection_direct_notebook_draft_missing',True)
                     with sqlite3.connect(dbs[0]) as db:
                         assert db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==1
                         db.execute('UPDATE native_direct_mark_source SET body=?',(raw,))
@@ -71,6 +73,10 @@ def run(runtime,plain_text=False):
                     calls=reader('selection_direct_thought_offline_submit',False)
                     assert sum(path=='/review/add' for _,_,path in calls)==1 and server.review is not None
                     with sqlite3.connect(dbs[0]) as db:assert db.execute('SELECT count(*) FROM thought_drafts').fetchone()[0]==0
+                    server.review=None
+                    reader('selection_direct_thought_offline_draft',True)
+                    calls=reader('selection_direct_notebook_draft_submit',False)
+                    assert sum(path=='/review/add' for _,_,path in calls)==1 and server.review is not None
                 print(json.dumps(dict(result='PASS',width=width,height=height,offline_requests=0,synthetic_only=True)),flush=True)
     finally:
         server.shutdown();server.server_close();thread.join()

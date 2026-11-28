@@ -30,16 +30,7 @@ function M.capture(client,settings,entry,file,input,native,web,current,bookmark,
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
 end
-local function cached(settings,library,entry,file,native,web,current)
-    if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current)
-        or type(native)~='table' or type(native.scope)~='table' or type(web)~='table' or type(web.web)~='table'
-        or type(web.web.cookies)~='table' or web.web.cookies.wr_vid~=native.scope.vid then return nil,'invalid' end
-    local function live() return active(settings,native,web,current) end
-    local pinned=Cache.identify(settings,native.scope.vid,file,live)
-    if type(pinned)~='table' or type(entry)~='table' then return nil,'source_changed' end
-    for _,key in ipairs({'owner','book_id','chapter_uid','chapter_idx','book_version','key','copy','file_id','source_sha256'}) do
-        if pinned[key]~=entry[key] then return nil,'source_changed' end
-    end
+local function cached_source(library,pinned,file,live)
     if not live() then return nil,'session_changed' end
     local ok,raw,format=pcall(function() return require('weread.lib.native_direct_mark_source_store'):new(library):read(pinned) end)
     if not live() then return nil,'session_changed' end
@@ -51,6 +42,18 @@ local function cached(settings,library,entry,file,native,web,current)
         if not ok or not raw then return nil,'offline_source_unavailable' end
     end
     return raw,nil,format
+end
+local function cached(settings,library,entry,file,native,web,current)
+    if type(current)~='function' or not Path.contains(settings,file) or not active(settings,native,web,current)
+        or type(native)~='table' or type(native.scope)~='table' or type(web)~='table' or type(web.web)~='table'
+        or type(web.web.cookies)~='table' or web.web.cookies.wr_vid~=native.scope.vid then return nil,'invalid' end
+    local function live() return active(settings,native,web,current) end
+    local pinned=Cache.identify(settings,native.scope.vid,file,live)
+    if type(pinned)~='table' or type(entry)~='table' then return nil,'source_changed' end
+    for _,key in ipairs({'owner','book_id','chapter_uid','chapter_idx','book_version','key','copy','file_id','source_sha256'}) do
+        if pinned[key]~=entry[key] then return nil,'source_changed' end
+    end
+    return cached_source(library,pinned,file,live)
 end
 function M.capture_cached(settings,library,entry,file,input,native,web,current)
     local raw,why,format=cached(settings,library,entry,file,native,web,current)
@@ -65,6 +68,25 @@ function M.restore_cached(settings,library,entry,file,key,native,web,current)
     local row,reason=Reference.restore_direct(entry,file,key,raw,format)
     if not active(settings,native,web,current) then return nil,'session_changed' end
     return row,reason
+end
+-- A local draft can locate its original chapter without an open reader or
+-- service credentials. The file receipt and raw source still have to match.
+function M.restore_downloaded(settings,library,scope,book_id,key)
+    local selection=Reference.parse(key)
+    local function live() return settings:auth_scope_matches(scope) end
+    if not selection or type(scope)~='table' or not live() then return nil end
+    local entries=Cache.list(settings,scope.vid,book_id,live,selection.chapter_uid)
+    for _,entry in ipairs(entries or {}) do
+        if not live() then return nil end
+        if entry.source_sha256==selection.raw_sha256 then
+            local opened,pinned=Cache.open(settings,scope.vid,book_id,entry,live,true)
+            if opened and pinned then
+                local raw,_,format=cached_source(library,pinned,opened.path,live)
+                local row=raw and Reference.restore_direct(pinned,opened.path,key,raw,format)
+                if row and live() then return row,{path=opened.path,file_id=pinned.file_id} end
+            end
+        end
+    end
 end
 function M.verify(client,settings,native,row,file,current,bookmark)
     if type(current)~='function' or not Path.contains(settings,file) or type(native)~='table'

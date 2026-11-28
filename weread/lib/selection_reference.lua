@@ -211,7 +211,7 @@ local function restore(book,current_file,key,read)
                     local quote=trim(extracted)
                     local row=reference(id,parsed.chapter_uid,index,{range=parsed.range,abstract=quote,
                         raw_sha256=record.raw_sha256,raw_bytes=record.raw_bytes})
-                    return {row=row,format=record.format}
+                    return {row=row,format=record.format,file=file}
                 end
             end
         end
@@ -220,7 +220,7 @@ local function restore(book,current_file,key,read)
 end
 function M.restore(book,current_file,key,read)
     local result,reason=restore(book,current_file,key,read)
-    return result and result.row or nil,reason
+    return result and result.row or nil,reason,result and result.file or nil
 end
 function M.same(a,b)
     for _i,key in ipairs({'selection','type','bookmarkId','range','chapterUid','chapterIdx','markText'}) do if a[key]~=b[key] then return false end end

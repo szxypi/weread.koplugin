@@ -9,7 +9,7 @@ package.preload['ui/widget/menu']=function() return {new=function(_self,v) retur
 package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end} end
 package.preload['weread.lib.thought_edit_contract']=function() return {
     reference_hash=function(_op,row) return row.hash end,valid_content=function(v) return type(v)=='string' and v~='' end,
-    key=function(v) return type(v)=='string' and v~='' end} end
+    key=function(v) return type(v)=='string' and v~='' end,hash=function(v) return type(v)=='string' and #v==64 end} end
 local state
 local function copy(value) local out={};for k,v in pairs(value) do out[k]=v end;return out end
 package.preload['weread.lib.thought_edit_store']=function() return {new=function() return {
@@ -37,7 +37,7 @@ package.preload['weread.ui.mark_editor']=function() return {cancel=function() en
 package.preload['weread.lib.my_cloud_marks']=function() return {id=function(id) return id end} end
 package.preload['weread.lib.my_mark_target']=function() return {can_locate=function(row) return row and row.bookmarkId~=nil end} end
 package.preload['weread.lib.selection_reference']=function() return {
-    parse=function(v) return v=='selection' and {} or nil end,
+    parse=function(v) return v=='selection' and {chapter_uid='7',raw_sha256=string.rep('a',64)} or nil end,
     valid=function(row,id) return row and row.source and row.source.book_id==id end,
     restore=function() return state.restored end} end
 package.preload['weread.ui.thought_text']=function() return {
@@ -189,13 +189,13 @@ host,owner,current=fixture();state.draft=nil;state.require_lease=true
 host.settings.data_dir='/synthetic';owner.source_file='/synthetic/native-reader-v1/chapter.epub';owner.scope.vid='123'
 local source={book_id='42',chapter_uid='7',raw_sha256=string.rep('a',64)}
 local row={selection=true,source=source,bookmarkId='selection',hash='source'}
-local entry={book_id='42',chapter_uid='7',source_sha256=source.raw_sha256,file_id='file'}
+local entry={book_id='42',chapter_uid='7',source_sha256=source.raw_sha256,file_id=string.rep('b',64)}
 package.loaded['weread.lib.native_direct_cache']={acquire=function()
     if state.lease_held or state.busy then return nil end
     state.lease_held=true
     return {owns=function() return state.lease_held end,release=function() state.lease_held=false end}
 end,identify=function(_,vid,file,live)
-    assert(vid=='123' and file==owner.source_file and live());if state.bad_entry then return nil end;return entry
+    assert(vid=='123' and file==(state.pin_path or owner.source_file) and live());if state.bad_entry then return nil end;return entry
 end}
 state.busy=true
 expect(not Editor.start(host,owner,'create',row,current) and not owner.editor and not state.lease_held,
@@ -258,10 +258,15 @@ do
             assert(state.background and state.network_checks==1)
             state.remote_checked=true;return row
         end,
+        restore_downloaded=function(_,_,account_scope,id,ref)
+            assert(account_scope==owner.scope and id=='42' and ref=='selection')
+            state.downloaded_checked=true
+            return state.downloaded_reference,state.downloaded_source
+        end,
     }
     for _,case in ipairs({{'cached'}, {'offline_source_unavailable',true},
         {'offline_source_unavailable',false}, {'source_changed',true}}) do
-        host,owner,current=fixture();owner.direct=true;owner.value=nil
+        host,owner,current=fixture();owner.direct=true;owner.direct_entry=entry;owner.value=nil
         state.draft.reference_id='selection';state.draft.base_hash='source';state.network_checks=0
         if case[1]~='cached' then state.missing=case[1] end
         function host:isNetworkOnline()
@@ -282,5 +287,24 @@ do
     state.worker_throws=true
     expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor and state.cancelled
         and state.message:find('draft is kept',1,true),'worker failure did not leave the draft available')
+    for _,file_id in ipairs({entry.file_id,string.rep('c',64)}) do
+        host,owner,current=fixture();owner.value=nil;owner.scope.vid='123'
+        host.settings.data_dir='/synthetic'
+        host.settings.get_book=function() end
+        state.draft.reference_id='selection';state.draft.base_hash='source'
+        state.downloaded_reference=row
+        state.downloaded_source={path='/synthetic/native-reader-v1/chapter.epub',file_id=file_id}
+        state.pin_path=state.downloaded_source.path
+        owner.source_file='/unrelated'
+        expect(Editor.resume(host,owner,'draft','v1',current),'downloaded draft did not start a source check')
+        state.complete(state.task())
+        expect(state.downloaded_checked and state.lease_held and not owner.editor.input,'downloaded draft did not pin its chapter')
+        state.complete(state.task())
+        if file_id==entry.file_id then
+            expect(owner.editor.input.input=='Saved draft' and owner.editor.source_file==state.downloaded_source.path,
+                'resumed draft did not use its verified download')
+            Editor.cancel(host,owner)
+        else expect(not owner.editor and not state.lease_held,'replaced download opened an editor') end
+    end
 end
 print('thought_draft_resume_spec: '..checks..' checks')

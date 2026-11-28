@@ -149,13 +149,15 @@ local function new_context(host,owner,current,redraw)
     ctx.service=require('weread.lib.thought_edit_service'):new{settings=host.settings,client=host.client,scheduler=UI,journal=journal,cache=cache}
     owner.editor=ctx;return ctx
 end
-function M.start(host,owner,operation,reference,current,redraw,restore)
+function M.start(host,owner,operation,reference,current,redraw,restore,source)
     if not current(host,owner) or operation=='create' and not M.can_create(reference)
         or operation~='create' and (operation~='edit' and operation~='delete' or not M.can_edit(reference))
         or not require('weread.lib.my_cloud_marks').id(owner.id) and operation~='create' and reference.isPrivate~=1 then return false end
     local ctx=new_context(host,owner,current,redraw)
     ctx.operation,ctx.reference=operation,reference
-    if reference.selection then ctx.source_file=owner.source_file or host.ui and host.ui.document and host.ui.document.file end
+    if reference.selection then
+        ctx.source_file=source and source.path or owner.source_file or host.ui and host.ui.document and host.ui.document.file
+    end
     ctx.reference_id=operation=='create' and reference.bookmarkId or reference.reviewId
     ctx.base_hash=Contract.reference_hash(operation,reference)
     local function open_editor()
@@ -190,7 +192,12 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
         end}}}}
     show(ctx,dialog,true)
     end
-    if reference.selection and require('weread.lib.native_direct_path').contains(host.settings,ctx.source_file) then
+    local direct=reference.selection and require('weread.lib.native_direct_path').contains(host.settings,ctx.source_file)
+    local expected_file=source and source.file_id or not source and owner.direct_entry and owner.direct_entry.file_id
+    if source and source.file_id and (not direct or not Contract.hash(source.file_id)) then
+        message(ctx,'The selected source is unavailable or changed. Your local draft is kept.');return false
+    end
+    if direct then
         local cache=require('weread.lib.native_direct_cache')
         local vid=type(owner.scope)=='table' and owner.scope.vid
         local opened,lease=pcall(cache.acquire,host.settings,vid,owner.id)
@@ -215,7 +222,7 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
             local entry=type(result)=='table' and result.entry
             if type(entry)~='table' or not lease:owns() or entry.book_id~=owner.id
                 or entry.chapter_uid~=reference.source.chapter_uid or entry.source_sha256~=reference.source.raw_sha256
-                or owner.direct_entry and entry.file_id~=owner.direct_entry.file_id then
+                or expected_file and entry.file_id~=expected_file then
                 message(ctx,'The selected source is unavailable or changed. Your local draft is kept.');return
             end
             open_editor()
@@ -294,7 +301,8 @@ function M.resume(host,owner,key,version,current,redraw)
     ctx.restore_worker=worker
     local source_file=host.ui and host.ui.document and host.ui.document.file
     local start_ok,started=pcall(worker.start,worker,function()
-        if owner.direct then
+        local entry=owner.direct_entry
+        if owner.direct and entry and entry.chapter_uid==selection.chapter_uid and entry.source_sha256==selection.raw_sha256 then
             local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
             local function current_source() return host.settings:auth_scope_matches(owner.scope)
                 and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end
@@ -309,10 +317,14 @@ function M.resume(host,owner,key,version,current,redraw)
             return {reference=row}
         end
         local book=host.settings:get_book(owner.id)
-        if not book then return {} end
-        book.chapters=host.library_db:getChapters(owner.id)
-        local row=require('weread.lib.selection_reference').restore(book,source_file,draft.reference_id)
-        return {reference=row}
+        if book then
+            book.chapters=host.library_db:getChapters(owner.id)
+            local row,_,file=require('weread.lib.selection_reference').restore(book,source_file,draft.reference_id)
+            if row then return {reference=row,source=file and {path=file} or nil} end
+        end
+        local row,source=require('weread.lib.native_direct_reference').restore_downloaded(
+            host.settings,host.library_db,owner.scope,owner.id,draft.reference_id)
+        return {reference=row,source=source}
     end,function(result)
         if not alive(ctx) then
             if owner.editor==ctx then done(ctx) end
@@ -324,7 +336,7 @@ function M.resume(host,owner,key,version,current,redraw)
         end
         local row=type(result)=='table' and result.reference
         if row and Contract.reference_hash('create',row)==latest.base_hash then
-            M.start(host,owner,'create',row,current,redraw,latest)
+            M.start(host,owner,'create',row,current,redraw,latest,result.source)
         else message(ctx,unavailable) end
     end)
     if not start_ok or not started then message(ctx,unavailable);return false end

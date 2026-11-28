@@ -32,9 +32,6 @@ local function wait(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
     end
 end
-Reader:showReader(input.path)
-wait(function() return Reader.instance and Reader.instance.document and Reader.instance.weread end)
-local reader=Reader.instance;local host=reader.weread;local destination_host
 local function configure(active)
 active.settings.mock_endpoint=input.mock_endpoint
 active.isNetworkConnected=function() return not input.offline end
@@ -69,6 +66,66 @@ end
 active.showInfo=function(self,message) self.checked_message=message end
 active.showTransientInfo=function(self,message) self.transient_message=message end
 end
+if input.mode:find('^selection_direct_notebook_draft') then
+    local submit=input.mode=='selection_direct_notebook_draft_submit'
+    assert(input.offline~=submit)
+    local FM=require('apps/filemanager/filemanager')
+    FM:showFiles(home);wait(function() return FM.instance and FM.instance.weread end)
+    local host=FM.instance.weread;configure(host)
+    local network,link=host.isNetworkOnline,host.isNetworkLinkAvailable
+    host.isNetworkLinkAvailable=function() return false end
+    host.isNetworkOnline=function() error('opening a saved notebook draft checked the network') end
+    assert(not host.ui.document and not Reader.instance)
+    local journal=require('weread.lib.thought_edit_store'):new(host.library_db,host.client)
+    local drafts=assert(journal:drafts())
+    assert(#drafts==1 and drafts[1].book_id=='42')
+    local original=drafts[1]
+    local catalog=require('weread.ui.notebook_catalog')
+    assert(catalog.show(host));local notebook=assert(host._notebook_owner)
+    local tr=require('weread.lib.plugin_util').tr
+    local open
+    for _,item in ipairs(notebook.menu.item_table) do if item.text==tr('Local thought drafts') then open=item.callback end end
+    assert(open);open()
+    wait(function() return notebook.editor and notebook.editor.dialog and notebook.editor.dialog.item_table end)
+    notebook.editor.dialog.item_table[1].callback();UI:forceRePaint()
+    assert(notebook.menu._shelf_popup.button_table:getButtonById('resume_other_book_draft')):onTapSelectButton()
+    wait(function()
+        local owner=host._my_marks_owner
+        return owner and owner.editor and owner.editor.input or host.checked_message
+    end)
+    local owner=assert(host._my_marks_owner);assert(owner.id=='42' and notebook.child==owner and not host.ui.document)
+    if input.mode~='selection_direct_notebook_draft_missing' then
+        local editor=assert(owner.editor)
+        assert(editor.input:getInputText()==original.content and editor.source_file==input.path)
+        assert(editor.source_lease and editor.source_lease:owns())
+        assert(not require('weread.lib.native_direct_cache').acquire(host.settings,scope.vid,owner.id))
+    else
+        assert(not owner.editor and host.checked_message==tr('The selected source is unavailable or changed. Your local draft is kept.'))
+        assert(assert(journal:draft(original.draft_key)).token==original.token)
+    end
+    if submit then
+        host.isNetworkOnline,host.isNetworkLinkAvailable=network,link
+        local function tap(id)
+            UI:forceRePaint()
+            assert(owner.menu._shelf_popup.button_table:getButtonById(id)):onTapSelectButton()
+        end
+        tap('submit_thought')
+        wait(function() return owner.editor and owner.editor.service.preview or host.checked_message end)
+        assert(owner.editor and owner.editor.service.preview,'notebook draft did not verify its selected source')
+        tap('confirm_thought_change')
+        wait(function() return not owner.editor end)
+        assert(not journal:draft(original.draft_key) and journal:read().phase=='idle')
+    end
+    catalog.cancel(host)
+    assert(not host._my_marks_owner and not host._notebook_owner and not host.ui.document)
+    if not submit then assert(assert(journal:draft(original.draft_key)).content==original.content) end
+    local lease=assert(require('weread.lib.native_direct_cache').acquire(host.settings,scope.vid,owner.id));lease:release()
+    print('WEREAD_POSITION_READER='..json.encode{ok=true,mode=input.mode})
+    return
+end
+Reader:showReader(input.path)
+wait(function() return Reader.instance and Reader.instance.document and Reader.instance.weread end)
+local reader=Reader.instance;local host=reader.weread;local destination_host
 configure(host)
 local open_file=host.openFile
 host.openFile=function(self,path,callback,...)

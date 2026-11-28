@@ -22,6 +22,7 @@ expect(Ref.valid(row,'900001') and row.range==value.range and row.markText==valu
 expect(row.chapterIdx==3 and row.source.raw_sha256==value.raw_sha256 and row.source.raw_bytes==#raw,'source metadata changed')
 expect(Ref.parse(row.bookmarkId).range==row.range,'draft reference does not retain range')
 expect(Ref.same(row,assert(Ref.restore(book,nil,row.bookmarkId,archive))),'offline restore changed reference')
+expect(select(3,Ref.restore(book,nil,row.bookmarkId,archive))=='/cached.epub','restored draft lost its source archive')
 expect(Ref.verify(row,book,nil,archive)~=nil,'valid cached reference rejected')
 expect(select(2,Ref.verify(row,book,nil,archive))=='web_xhtml','verified XHTML source format missing')
 local reference=F.clone(row);reference.markText='Different quote';expect(not Ref.verify(reference,book,nil,archive),'forged quote accepted')
