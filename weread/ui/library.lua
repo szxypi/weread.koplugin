@@ -2469,6 +2469,7 @@ function M:showSavedChapters(book_id, detail, reader)
     end
     local rows = saved_chapter_rows(self, latest, catalog)
     local ChapterSearch = require('weread.ui.chapter_search')
+    local filter_titles = ChapterSearch.title_filter(rows)
     local Popup = require('weread.ui.shelf_popup')
     local Cleanup = require('weread.ui.book_cache_cleanup')
     local query, menu, visible = '', nil, nil
@@ -2477,7 +2478,7 @@ function M:showSavedChapters(book_id, detail, reader)
         return menu and self._saved_chapter_menu == menu and not menu._shelf_closed and page_current()
     end
     local function items()
-        local matches, counts = ChapterSearch.filter(rows, query)
+        local matches, counts = filter_titles(query)
         local entries = {}
         visible = {}
         for index=1,(matches and #matches or #rows) do
@@ -2544,6 +2545,7 @@ function M:showChapterList(book, on_close)
     local ChapterSearch = require("weread.ui.chapter_search")
     local Popup = require("weread.ui.shelf_popup")
     local search = ""
+    local filter_titles, unfiltered_position
     local function reloadBookCache()
         if not self.settings then return end
         local book_id = book.book_id or book.bookId
@@ -2554,7 +2556,7 @@ function M:showChapterList(book, on_close)
         end
     end
     local showCatalog
-    showCatalog = function(chapters, old_view, rows, keep_position)
+    showCatalog = function(chapters, old_view, rows, position)
         if old_view and (self._chapter_list_view ~= old_view or old_view._catalog_closed) then return end
         if not rows then
             -- Downloads persist their cache paths before invoking on_complete.
@@ -2570,8 +2572,9 @@ function M:showChapterList(book, on_close)
                     source = chapter,
                 }
             end
+            filter_titles = ChapterSearch.title_filter(rows)
         end
-        local matches, counts = ChapterSearch.filter(rows, search)
+        local matches, counts = filter_titles(search)
         local visible = rows
         if matches then
             visible = {}
@@ -2581,7 +2584,6 @@ function M:showChapterList(book, on_close)
                 visible[#visible + 1] = title == row.title and row or { title = title, status = row.status, source = row.source }
             end
         end
-        local position = keep_position and old_view:browsingPosition()
         if old_view then
             UIManager:close(old_view)
         end
@@ -2594,7 +2596,7 @@ function M:showChapterList(book, on_close)
             for _, chapter in ipairs(targets) do
                 if is_cached(chapter.chapterUid or chapter.chapterId) then changed[chapter] = true end
             end
-            if not view:markChaptersCached(changed) then return showCatalog(chapters, view, nil, true) end
+            if not view:markChaptersCached(changed) then return showCatalog(chapters, view, nil, view:browsingPosition()) end
             -- Duplicate search results may use presentation rows distinct
             -- from the full catalog. Keep their source rows up to date too.
             if visible ~= rows then
@@ -2612,6 +2614,8 @@ function M:showChapterList(book, on_close)
         }, {
             on_refresh = self:safeCallback(_("Refresh chapter list"), function()
                 self:loadChapters(book, function(refreshed_chapters)
+                    if self._chapter_list_view ~= view or view._catalog_closed then return end
+                    unfiltered_position = nil
                     showCatalog(refreshed_chapters, view)
                     self:showTransientInfo(T(_("Chapter list refreshed: %1 chapters"),
                         tostring(#refreshed_chapters)), 2)
@@ -2624,8 +2628,11 @@ function M:showChapterList(book, on_close)
                 ChapterSearch.prompt(self, view, search, function()
                     return self._chapter_list_view == view and not view._catalog_closed
                 end, function(query)
+                    if search == "" then unfiltered_position = view:browsingPosition() end
                     search = query
-                    showCatalog(chapters, view, rows)
+                    local position_to_restore = query == "" and unfiltered_position or nil
+                    if query == "" then unfiltered_position = nil end
+                    showCatalog(chapters, view, rows, position_to_restore)
                 end)
             end),
             on_select = function(chapter)
@@ -2695,6 +2702,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
         rows[index] = { uid = uid, title = chapter.title or T(_("Chapter %1"), uid) }
     end
+    local filter_titles = ChapterSearch.title_filter(rows)
     local download = self:safeCallback(_("Download selected chapters"), function()
         if not current() then return end
         local targets = selectedChapters()
@@ -2738,7 +2746,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         Popup.show(menu, dialog)
     end
     local function buildItems()
-        local matches, counts = ChapterSearch.filter(rows, search)
+        local matches, counts = filter_titles(search)
         local bulk_selection = matches and #matches > 1
         local chapters_per_page = math.max(1, perpage - (bulk_selection and 2 or 1))
         local items = {}

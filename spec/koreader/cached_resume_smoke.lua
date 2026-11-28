@@ -325,6 +325,13 @@ if manual_case then
 else
     local title=view._chapter_rows[4].text
     local duplicates=os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1'
+    if duplicates then
+        view:moveFocusTo(1,4,require('ui/widget/focusmanager').FORCED_FOCUS)
+        view=filter_chapters(current,view,title)
+        view=filter_chapters(current,view,'')
+        assert(view:getFocusItem()==view._chapter_rows[3] and view._chapter_rows[3].frame.invert,
+            'clearing the chapter filter lost the original focus')
+    end
     view=filter_chapters(current,view,'　'..title..'　')
     local index=duplicates and 2 or 1
     assert(#view._chapter_rows==index and view._chapter_rows[index].text==(duplicates and '4. '..title or title))

@@ -443,6 +443,7 @@ function M.start(host,book,view,options)
         elseif not offline then sections,depths,headings=chapter_outline(rows) end
         local saved_labels=offline and require('weread.ui.native_direct_copies').labels(rows)
         local empty_title=_('Untitled chapter')
+        local filter_titles=ChapterSearch.title_filter(rows,empty_title)
         local subtitle=picker and picker.subtitle
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
@@ -465,7 +466,7 @@ function M.start(host,book,view,options)
         local search=''
         local by_index,menu
         local function items()
-            local matches,counts=ChapterSearch.filter(rows,search,empty_title)
+            local matches,counts=filter_titles(search)
             local result={}
             by_index={}
             for number=1,(matches and #matches or #rows) do

@@ -20,7 +20,9 @@ end
 
 -- Share completed folds within one shelf snapshot. Once full, new strings
 -- still match normally without increasing the memory used by the cache.
-function Search.cached_fold()
+function Search.cached_fold(max_folds, max_fold_bytes)
+    max_folds = max_folds or MAX_FOLDS
+    max_fold_bytes = max_fold_bytes or MAX_FOLD_BYTES
     local values = {}
     local count, bytes = 0, 0
     return function(value)
@@ -28,7 +30,7 @@ function Search.cached_fold()
         if normalized ~= nil then return normalized end
         normalized = fold(value)
         local cost = #value + #normalized
-        if count < MAX_FOLDS and cost <= MAX_FOLD_BYTES - bytes then
+        if count < max_folds and cost <= max_fold_bytes - bytes then
             values[value] = normalized
             count, bytes = count + 1, bytes + cost
         end

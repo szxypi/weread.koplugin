@@ -28,6 +28,8 @@ def main():
                         help='Confirm a physical key selects the new focus before the queued scroll repaint.')
     parser.add_argument('--check-cache-update', action='store_true',
                         help='Measure a downloaded chapter status update against rebuilding the catalog.')
+    parser.add_argument('--check-title-search', action='store_true',
+                        help='Compare first and repeated title searches on the same catalog.')
     parser.add_argument('--max-row-paints', type=int)
     parser.add_argument('--max-row-layout-updates', type=int)
     parser.add_argument('--max-materialized-rows', type=int)
@@ -64,6 +66,8 @@ def main():
             env['WEREAD_CHAPTER_PREPAINT_PRESS'] = '1'
         if args.check_cache_update:
             env['WEREAD_CHAPTER_CACHE_UPDATE'] = '1'
+        if args.check_title_search:
+            env['WEREAD_CHAPTER_TITLE_SEARCH'] = '1'
         code, output, repaint = run_child([str(runtime / 'luajit'), str(repo / 'spec/koreader/eink_chapter_benchmark.lua')],
                                           env, b'', runtime, timeout=150)
         if output.count(FRAME) != 1:

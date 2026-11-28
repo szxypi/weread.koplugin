@@ -10,7 +10,8 @@ package.preload["weread.ui.chapter_list_view"] = function()
         show = function(data, callbacks)
             catalog_view_data = data
             catalog_view_callbacks = callbacks
-            return {markChaptersCached=function(_,changed)
+            return {position=data.browsing_position,browsingPosition=function(view) return view.position end,
+                markChaptersCached=function(_,changed)
                 for _,row in ipairs(data.chapters) do
                     if changed[row.source] then row.status='Cached' end
                 end
@@ -275,6 +276,8 @@ end
 chapters[1].title = "Chapter Alpha"
 chapters[4].title = "Chapter Alpha"
 host:showChapterList(book)
+local before_search={offset={x=0,y=480},x=1,y=5,focused=true}
+host._chapter_list_view.position=before_search
 catalog_view_callbacks.on_search()
 input.input = "　ALPHA  chapter　"
 input.buttons[1][2].callback()
@@ -293,6 +296,13 @@ persisted_books['book-1'].cached_chapters['4']='/cache/four.epub'
 single_chapter_refresh('/cache/four.epub',function(rebuild) rebuild() end)
 expect(host._chapter_list_view==filtered_view and results[2].status=='Cached' and results[1].source==chapters[1],
     'a filtered download kept the view and updated the matching result')
+catalog_view_callbacks.on_search()
+input.buttons[1][1].callback()
+expect(catalog_view_data.browsing_position==before_search and not catalog_view_data.subtitle,
+    'clearing restored the browsing position of the full catalog')
+catalog_view_callbacks.on_search()
+input.input='Alpha'
+input.buttons[1][2].callback()
 catalog_view_callbacks.on_refresh()
 expect(chapter_loads == 2 and #catalog_view_data.chapters == 2, "refresh preserves the active filter")
 catalog_view_callbacks.on_search()
@@ -303,6 +313,7 @@ catalog_view_callbacks.on_search()
 input.buttons[1][1].callback()
 expect(not catalog_view_data.subtitle and #catalog_view_data.chapters == 7 and chapter_loads == 2,
     "clearing restores the catalog from memory")
+expect(not catalog_view_data.browsing_position,'a refreshed catalog did not inherit an old row position')
 expect(catalog_view_data.chapters[4].status=='Cached','clearing the filter kept the downloaded status')
 catalog_view_callbacks.on_search()
 local old_query = input

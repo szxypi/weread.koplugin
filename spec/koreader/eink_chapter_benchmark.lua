@@ -3,6 +3,71 @@ require('ffi').log=function() end
 require('setupkoenv')
 local json=require('json')
 local report={result='UNVERIFIED'}
+
+local function measure_title_search(chapter_count)
+    local Search=require('weread.lib.shelf_search')
+    local ChapterSearch=require('weread.ui.chapter_search')
+    local utf8proc=require('ffi/utf8proc')
+    local rows={}
+    for index=1,chapter_count do rows[index]={title='第'..index..'章 ÉLAN'} end
+    local function legacy(query)
+        local needle=Search.prepare(query)
+        local terms=Search.terms(needle)
+        local matches,counts,title={},{},{}
+        for index,row in ipairs(rows) do
+            title.title=row.title
+            if Search.matches(title,needle,terms) then
+                matches[#matches+1]=index
+                counts[row.title]=(counts[row.title] or 0)+1
+            end
+        end
+        return matches,counts
+    end
+    local lower=assert(utf8proc.lowercase)
+    local calls=0
+    utf8proc.lowercase=function(...) calls=calls+1;return lower(...) end
+    local tests={'Élan '..chapter_count,'Élan　第17章'}
+    local function timed(filter)
+        collectgarbage('collect')
+        local heap=collectgarbage('count')
+        local results={}
+        for index,query in ipairs(tests) do
+            calls=0
+            local start=os.clock()
+            local matches,counts=filter(query)
+            results[index]={cpu=(os.clock()-start)*1000,folds=calls,matches=matches,counts=counts}
+        end
+        collectgarbage('collect')
+        return results,collectgarbage('count')-heap
+    end
+    local metrics={}
+    for trial=1,5 do
+        local candidate=ChapterSearch.title_filter(rows)
+        local before,after,before_heap,after_heap
+        if trial%2==1 then before,before_heap=timed(legacy);after,after_heap=timed(candidate)
+        else after,after_heap=timed(candidate);before,before_heap=timed(legacy) end
+        for index,measured in ipairs(after) do
+            assert(#measured.matches>0 and #measured.matches==#before[index].matches,'search returned a different chapter count')
+            for position,match in ipairs(measured.matches) do
+                assert(match==before[index].matches[position] and measured.counts[rows[match].title]==before[index].counts[rows[match].title],
+                    'search changed chapter order or duplicate counts')
+            end
+        end
+        assert(after[2].folds==1,'another query normalized the existing catalog again')
+        metrics[trial]={first_before_ms=before[1].cpu,first_after_ms=after[1].cpu,
+            repeat_before_ms=before[2].cpu,repeat_after_ms=after[2].cpu,
+            repeat_before_folds=before[2].folds,repeat_after_folds=after[2].folds,extra_retained_kib=after_heap-before_heap}
+    end
+    utf8proc.lowercase=lower
+    local median={}
+    for key in pairs(metrics[1]) do
+        local values={}
+        for index,trial in ipairs(metrics) do values[index]=trial[key] end
+        table.sort(values);median[key]=values[3]
+    end
+    return median
+end
+
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'))
     package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
@@ -190,7 +255,8 @@ local ok,reason=pcall(function()
         row_layout_updates=row_layout_updates,
         lua_kib=heap,geometry_checksum=checksum,geometry=geometry,row_paints=row_paints,initial_materialized_rows=initial_frames,
         max_materialized_rows=max_frames,event_row_visits=event_visits,tap_verified=true,focus_verified=true,
-        press_verified=true,prepaint_press_verified=prepaint_press,cache_update=cache_update}
+        press_verified=true,prepaint_press_verified=prepaint_press,cache_update=cache_update,
+        title_search=os.getenv('WEREAD_CHAPTER_TITLE_SEARCH')=='1' and measure_title_search(chapter_count) or nil}
 end)
 if not ok then report.error=tostring(reason) end
 io.write('\nWEREAD_CHAPTER_BENCHMARK='..json.encode(report)..'\n')
