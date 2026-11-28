@@ -69,24 +69,38 @@ return function(input,plugin,reader,pump,report)
         assert(reader:getCurrentPage()==(ratio==0 and 1 or pages),'progress endpoint opened the wrong page')
     end
     local original_handle=reader.handleEvent
-    local requested
+    local requested,jump_event
     reader.handleEvent=function(self,event,...)
-        if event.handler=='onGotoPercent' then requested=event.args[1] end
+        if event.handler=='onGotoPercent' or event.handler=='onGotoPage' then
+            requested,jump_event=event.args[1],event.handler
+        end
         return original_handle(self,event,...)
     end
     state=open_panel()
+    local short=state.snapshot.mode=='page' and pages<=10*state.snapshot.visible_pages
+    local visible_pages=state.snapshot.visible_pages
     local expected_back=math.max(0,state.snapshot.percent-10)
     assert(state.dialog:getButtonById('progress_back_10')):onTapSelectButton()
     pump(function() return not plugin._weread_reader_progress end)
     local back=reader:getCurrentPage()
-    assert(type(requested)=='number' and math.abs(requested-expected_back)<1e-7,'back ten percent sent the wrong target')
-    if pages>=11 then assert(back<pages,'back ten percent did not move') end
+    if short and pages>1 then
+        assert(jump_event=='onGotoPage' and requested==math.max(1,pages-visible_pages) and back<pages,
+            'short-chapter backward step did not move one screen')
+    elseif not short then
+        assert(jump_event=='onGotoPercent' and math.abs(requested-expected_back)<1e-7 and back<pages,
+            'back ten percent sent the wrong target')
+    end
     state=open_panel()
-    local expected_forward=math.min(100,state.snapshot.percent+10);requested=nil
+    local expected_forward=math.min(100,state.snapshot.percent+10);requested,jump_event=nil,nil
     assert(state.dialog:getButtonById('progress_forward_10')):onTapSelectButton()
     pump(function() return not plugin._weread_reader_progress end)
-    assert(type(requested)=='number' and math.abs(requested-expected_forward)<1e-7,'forward ten percent sent the wrong target')
-    if pages>=11 then assert(reader:getCurrentPage()>back,'forward ten percent did not move') end
+    if short and pages>1 then
+        assert(jump_event=='onGotoPage' and requested==math.min(pages,back+visible_pages) and reader:getCurrentPage()>back,
+            'short-chapter forward step did not move one screen')
+    elseif not short then
+        assert(jump_event=='onGotoPercent' and math.abs(requested-expected_forward)<1e-7 and reader:getCurrentPage()>back,
+            'forward ten percent sent the wrong target')
+    end
     reader.handleEvent=original_handle
     state=open_panel()
     assert(state.dialog:getButtonById('progress_input')):onTapSelectButton()

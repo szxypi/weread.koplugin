@@ -11,6 +11,10 @@ local host={ui=ui,_reader_session_gen=1,library_db={accountKey=function() return
 local base=assert(Context.capture(host))
 assert(base.percent==20 and Context.current(host,base))
 pos=251;assert(not Context.current(host,base));pos=250
+document.getVisiblePageNumberCount=function() return 2 end
+assert(not Context.current(host,base) and Context.capture(host).visible_pages==2,
+    'changed page spread accepted an old progress action')
+document.getVisiblePageNumberCount=nil
 page=3;assert(not Context.current(host,base));page=2
 total=11;assert(not Context.current(host,base));total=10
 account='account-b';assert(not Context.current(host,base));account='account-a'
@@ -19,6 +23,8 @@ host._reader_session_gen=2;assert(not Context.current(host,base));host._reader_s
 document.file='/other.epub';assert(not Context.current(host,base));document.file='/synthetic.epub'
 ui.view.view_mode='scroll';local scroll=assert(Context.capture(host))
 assert(scroll.percent==25 and Context.current(host,scroll))
+document.info.doc_height=1200
+assert(not Context.current(host,scroll),'changed scroll extent accepted an old progress action')
 ui.rolling={};document.info.doc_height=0;assert(not Context.capture(host),'unknown scroll extent was presented as precise progress')
 document.info.doc_height=1000;ui.rolling=nil;ui.view.view_mode='page'
 assert(not Context.current(host,scroll))

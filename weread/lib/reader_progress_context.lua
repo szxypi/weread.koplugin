@@ -34,10 +34,20 @@ function M.capture(host)
     local percent=page/total*100
     local height=type(document.info)=='table' and document.info.doc_height
     if mode=='scroll' and ui.rolling and (not finite(pos) or not finite(height) or height<=0) then return nil end
-    if mode=='scroll' and finite(pos) and finite(height) and height>0 then percent=pos/height*100 end
+    local scroll_height
+    if mode=='scroll' and finite(pos) and finite(height) and height>0 then
+        scroll_height=height
+        percent=pos/height*100
+    end
+    local visible_pages=1
+    if mode=='page' and type(document.getVisiblePageNumberCount)=='function' then
+        local visible_ok,value=pcall(document.getVisiblePageNumberCount,document)
+        if visible_ok and finite(value) and value%1==0 and value>=1 and value<=total then visible_pages=value end
+    end
     percent=math.max(0,math.min(100,percent))
     return {ui=ui,document=document,file=document.file,page=page,total=total,mode=mode,pos=pos,
-        percent=percent,session=host._reader_session_gen,account=account_value,scope=scope_value}
+        percent=percent,visible_pages=visible_pages,scroll_height=scroll_height,
+        session=host._reader_session_gen,account=account_value,scope=scope_value}
 end
 function M.current(host,snapshot)
     if not host or not snapshot or host.ui~=snapshot.ui or snapshot.ui.document~=snapshot.document
@@ -53,6 +63,7 @@ function M.current(host,snapshot)
     elseif now~=nil then return false end
     local fresh=M.capture(host)
     return fresh and fresh.page==snapshot.page and fresh.total==snapshot.total
-        and fresh.mode==snapshot.mode and fresh.pos==snapshot.pos or false
+        and fresh.mode==snapshot.mode and fresh.pos==snapshot.pos
+        and fresh.visible_pages==snapshot.visible_pages and fresh.scroll_height==snapshot.scroll_height or false
 end
 return M

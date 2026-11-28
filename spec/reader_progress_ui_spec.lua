@@ -29,8 +29,9 @@ package.preload['weread.lib.plugin_util']=function() return {tr=function(text) r
 local estimated
 package.preload['weread.lib.reader_whole_estimate']=function() return {for_document=function() return estimated end} end
 local Progress=require('weread.ui.reader_progress')
-local page,pos,account=2,100,'one'
-local doc={file='chapter.epub',getPageCount=function() return 10 end,getCurrentPos=function() return pos end}
+local page,pos,account,total,visible=2,100,'one',10,1
+local doc={file='chapter.epub',info={doc_height=1000},getPageCount=function() return total end,
+    getVisiblePageNumberCount=function() return visible end,getCurrentPos=function() return pos end}
 local events,history,input={},0,0
 local ui={document=doc,view={view_mode='page'},getCurrentPage=function() return page end,
     handleEvent=function(_,event) events[#events+1]=event end,
@@ -82,7 +83,7 @@ assert(Progress.show(host,{native_chapters=true}));assert(shown.title:find('Curr
 button('progress_next_chapter').callback();tasks[7]()
 assert(events[2].name=='GotoNextChapter','full-file chapter navigation bypassed the native reader')
 assert(Progress.show(host,opts));button('progress_back_10').callback();tasks[8]()
-assert(events[3].name=='GotoPercent' and events[3].value==10 and history==2,'relative progress control was incorrect')
+assert(events[3].name=='GotoPage' and events[3].value==1 and history==2,'relative progress control was incorrect')
 assert(Progress.show(host,opts));local dismissed=shown;dismissed:onCloseWidget()
 assert(not host._weread_reader_progress,'dismissed panel retained its owner')
 local open_chapter=host.openChapter;host.openChapter=nil
@@ -121,4 +122,30 @@ assert(direct_next==1,'native next action was not invoked')
 direct.estimate=function() return 101 end
 assert(Progress.show(host,direct) and not host._weread_reader_progress.whole_estimate)
 assert(shown.title:find('Whole-book estimate unavailable.',1,true));Progress.cancel(host)
+
+local function jump(id,expected_name,expected_value)
+    local count=#events
+    assert(Progress.show(host,opts));button(id).callback()
+    if host._weread_reader_progress then tasks[#tasks]() end
+    if expected_name then
+        assert(#events==count+1 and events[#events].name==expected_name and events[#events].value==expected_value,
+            'short paginated chapter did not move one visible screen')
+    else
+        assert(#events==count,'relative jump tried to move past an endpoint')
+    end
+end
+total,page=3,1
+jump('progress_forward_10','GotoPage',2)
+page=2;jump('progress_forward_10','GotoPage',3)
+page=3;jump('progress_forward_10')
+jump('progress_back_10','GotoPage',2)
+page=1;jump('progress_back_10')
+total,visible=8,2
+jump('progress_forward_10','GotoPage',3)
+page=7;jump('progress_forward_10')
+jump('progress_back_10','GotoPage',5)
+total,page,visible=32,8,1
+jump('progress_forward_10','GotoPercent',35)
+ui.view.view_mode='scroll';total,page,pos=3,1,250
+jump('progress_forward_10','GotoPercent',35)
 print('reader_progress_ui_spec: native events, chapter navigation and cancellation passed')

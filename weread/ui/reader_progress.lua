@@ -80,13 +80,27 @@ function M.show(host,options)
         end
         UI:scheduleIn(.1,state.task)
     end
-    local function goto_percent(percent)
-        if type(percent)~='number' or percent~=percent then return end
-        percent=math.max(0,math.min(100,percent))
+    local function jump(event,target)
         finish(function()
             if ui.link and type(ui.link.addCurrentLocationToStack)=='function' then ui.link:addCurrentLocationToStack() end
-            ui:handleEvent(Event:new('GotoPercent',percent))
+            ui:handleEvent(Event:new(event,target))
         end)
+    end
+    local function goto_percent(percent)
+        if type(percent)~='number' or percent~=percent then return end
+        jump('GotoPercent',math.max(0,math.min(100,percent)))
+    end
+    local function step(direction)
+        if snapshot.mode~='page' or snapshot.total>10*snapshot.visible_pages then
+            goto_percent(snapshot.percent+direction*10)
+            return
+        end
+        -- In a short file the native percentage jump can round back to the
+        -- current page (or spread). Use an exact one-screen step instead.
+        local page=snapshot.page
+        if direction>0 and page+snapshot.visible_pages-1>=snapshot.total then finish(nil);return end
+        local target=math.max(1,math.min(snapshot.total,page+direction*snapshot.visible_pages))
+        if target==page then finish(nil) else jump('GotoPage',target) end
     end
     local function native_chapter(direction)
         finish(function() ui:handleEvent(Event:new(direction<0 and 'GotoPrevChapter' or 'GotoNextChapter')) end)
@@ -144,8 +158,8 @@ function M.show(host,options)
         local window=ButtonDialog:new{title=heading,buttons={
             {{id='progress_previous_chapter',text=_('Previous chapter'),enabled=prev_action~=nil,callback=prev_action},
              {id='progress_next_chapter',text=_('Next chapter'),enabled=next_action~=nil,callback=next_action}},
-            {{id='progress_back_10',text='−10%',callback=function() goto_percent(snapshot.percent-10) end},
-             {id='progress_forward_10',text='+10%',callback=function() goto_percent(snapshot.percent+10) end}},
+            {{id='progress_back_10',text='−10%',callback=function() step(-1) end},
+             {id='progress_forward_10',text='+10%',callback=function() step(1) end}},
             {{id='progress_input',text=_('Enter page or percentage'),enabled=can_input and true or false,
                 callback=function() finish(function()
                     if ui.gotopage==gotopage then gotopage:onShowGotoDialog() end
