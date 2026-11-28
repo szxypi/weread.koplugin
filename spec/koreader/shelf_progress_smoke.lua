@@ -146,6 +146,9 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     plugin:closeWeReadUI()
     expires({books[1]})
     plugin:showHome()
+    -- These checks target the first recent book. The home page may have
+    -- restored a different viewport from the earlier navigation fixture.
+    if plugin.shelf_view.page~=1 then plugin.shelf_view.on_page_changed(1) end
     wait_progress()
     assert(progress(seed).source=="web" and progress(seed).percent==37,"keyless home did not refresh")
     assert(plugin.shelf_view.books[1]._shelf_progress==83,"keyless home lost pending location")
