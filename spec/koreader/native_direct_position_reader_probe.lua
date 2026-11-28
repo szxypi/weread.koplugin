@@ -10,7 +10,10 @@ local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local credential_state=type(input.credential_state)=='string' and input.credential_state or nil
 local settings=require('weread.lib.settings'):new();assert(settings.data_dir==home..'/weread')
 settings:set('account',{user_vid=input.credentials.vid,name='Synthetic',login_method='qr'})
-settings:set('cookies',credential_state=='missing_web' and {} or {wr_vid=input.credentials.vid,wr_skey='synthetic-web-access'})
+settings:set('cookies',credential_state=='missing_web' and {} or {
+    wr_vid = input.credentials.vid,
+    wr_skey = 'synthetic-web-access',
+})
 settings:flush()
 if input.mode:find('^interval') then
     local sync=settings:get('sync',{});sync.upload_interval_minutes=1
