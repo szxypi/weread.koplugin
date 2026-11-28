@@ -244,8 +244,15 @@ function M:remember(state,position,shared_public)
         local serial=PUBLIC_REFERENCE_SERIAL
         if not shared_public then
             local row=statement(db,'SELECT serial FROM discovery_cache WHERE cache_key=?',reference.key)
-            if not row or tonumber(row[1])~=reference.serial then return false end
-            serial=reference.serial
+            if not row then return false end
+            serial=tonumber(row[1])
+            if serial~=reference.serial then
+                -- Another batch can update the serial without replacing this list.
+                local saved=read(self,db,reference.key,query_metadata)
+                if not saved or saved.generation~=reference.generation or not restored_state(saved,state.cursor) then
+                    return false
+                end
+            end
         end
         statement(db,[[INSERT INTO discovery_position(id,cache_key,serial,generation,cursor,anchor,focus)
             VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET cache_key=excluded.cache_key,serial=excluded.serial,
@@ -320,11 +327,11 @@ function M:write(state,previous,continuation)
     local key=M.key(query,public_search)
     return run(self,function(db,begin,commit)
         begin()
-        local saved
+        local saved, previous_reference
         if continuation then
             if not previous or previous.cached or not previous._cache_generation or M.key(previous,previous.source_kind=='public')~=key
                 or previous.source_kind~=state.source_kind or previous.source_revision~=state.source_revision then return nil end
-            saved=read(self,db,key)
+            saved,previous_reference=read(self,db,key)
             if not saved or saved.generation~=previous._cache_generation then return nil end
         else
             if projected.cursor~=0 or not valid_source(state.source_kind) then return nil end
@@ -333,14 +340,19 @@ function M:write(state,previous,continuation)
             saved={schema=1,generation=generation,source_kind=state.source_kind,pages={}}
             if query.kind=='search' then
                 local legacy_key=public_search and M.key(query) or key
-                local ok,legacy=pcall(read,self,db,legacy_key)
+                local ok,legacy,legacy_reference=pcall(read,self,db,legacy_key)
                 if ok and legacy and legacy.source_kind=='public' then
                     if public_search then
                         statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',legacy_key)
                     else
+                        local public_key=M.key(query,true)
                         statement(db,[[INSERT OR IGNORE INTO discovery_cache(cache_key,payload,serial)
                             SELECT ?,?,serial FROM discovery_cache WHERE cache_key=?]],
-                            M.key(query,true),self.codec:json_encode(legacy),legacy_key)
+                            public_key,self.codec:json_encode(legacy),legacy_key)
+                        statement(db,[[UPDATE discovery_position SET cache_key=?
+                            WHERE cache_key=? AND serial=? AND generation=?
+                            AND EXISTS (SELECT 1 FROM discovery_cache WHERE cache_key=? AND serial=?)]],
+                            public_key,legacy_key,legacy_reference.serial,legacy.generation,public_key,legacy_reference.serial)
                     end
                 end
             end
@@ -359,7 +371,10 @@ function M:write(state,previous,continuation)
         local serial=assert(tonumber(statement(db,'SELECT COALESCE(MAX(serial),0)+1 FROM discovery_cache')[1]))
         statement(db,[[INSERT INTO discovery_cache(cache_key,payload,serial) VALUES(?,?,?)
             ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,serial=excluded.serial]],key,payload,serial)
-        db:exec('DELETE FROM discovery_position')
+        if previous_reference then
+            statement(db,[[UPDATE discovery_position SET serial=? WHERE cache_key=? AND serial=? AND generation=?]],
+                serial,key,previous_reference.serial,saved.generation)
+        end
         local stmt=db:prepare('SELECT cache_key,length(CAST(payload AS BLOB)) FROM discovery_cache ORDER BY serial DESC')
         local remove,count,bytes={},0,0
         local iterated,reason=pcall(function()
@@ -373,6 +388,10 @@ function M:write(state,previous,continuation)
         end)
         stmt:close();if not iterated then error(reason,0) end
         for _,expired in ipairs(remove) do statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',expired) end
+        -- Shared public bookmarks belong to the separate public database.
+        statement(db,[[DELETE FROM discovery_position WHERE serial<>? AND NOT EXISTS (
+            SELECT 1 FROM discovery_cache WHERE cache_key=discovery_position.cache_key
+                AND serial=discovery_position.serial)]],PUBLIC_REFERENCE_SERIAL)
         commit();return saved.generation,{key=key,serial=serial,generation=saved.generation}
     end)
 end

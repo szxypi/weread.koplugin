@@ -153,6 +153,36 @@ if stage=='write' then
     assert(writes==1,'an unchanged position was written again')
     focus(3);UI:flushSettings()
     assert(writes==2,'flushing settings did not save the new focus')
+    -- Another cache write must not change the position saved by the visible page.
+    local latest={kind='category',category_id='background',category_title='Background rank',rank=true}
+    assert(Cache.save(host,batch(latest,0)))
+    local checkpoint=assert(Cache.read(host))
+    assert(checkpoint.kind==query.kind and checkpoint.cursor==0 and checkpoint._browse_position
+        and checkpoint._browse_position.anchor==host.shelf_view.page_size+1
+        and checkpoint._browse_position.focus==host.shelf_view:getFocusedBookId(),
+        'saving another query replaced the committed bookstore position')
+    if personal or not shared then
+        assert(Cache.save(host,batch(query,20),first,true))
+        local updated=assert(Cache.read(host))
+        assert(updated.cursor==0 and updated._browse_position
+            and updated._browse_position.focus==checkpoint._browse_position.focus
+            and updated._cache_view.serial~=checkpoint._cache_view.serial,
+            'extending the same saved query lost the committed batch and focus')
+        focus(2);UI:flushSettings()
+        assert(writes==3 and Cache.read(host)._browse_position.focus==host.shelf_view:getFocusedBookId(),
+            'the visible page could no longer save its focus after another batch was appended')
+        focus(3);UI:flushSettings()
+        assert(writes==4)
+    else
+        -- This account position refers to the public database, even if an
+        -- account-local result with the same query identity is later cached.
+        assert(Cache.save(host,batch(query,0)))
+        local updated=assert(Cache.read(host))
+        assert(updated._shared_public_category and updated._browse_position
+            and updated._browse_position.focus==checkpoint._browse_position.focus,
+            'saving the account-local category replaced its shared public position')
+        assert(Cache.save(host,batch(account_fallback,0)))
+    end
     if personal then seed_home(3) end
 elseif stage=='reopen' then
     host:openBookstore()

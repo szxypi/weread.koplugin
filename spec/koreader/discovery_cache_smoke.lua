@@ -126,10 +126,14 @@ oversized._cache_generation=assert(store:write(oversized))
 local second=state('search',20);second.books=oversized.books
 expect(not store:write(second,oversized,true) and store:read().cursor==0)
 
-for i=1,13 do local item=state();item.keyword='Query '..i;assert(store:write(item)) end
+for i=1,13 do
+    local item=state();item.keyword='Query '..i;assert(store:write(item))
+    if i==1 then expect(store:remember(assert(store:read(item,0)),{anchor=1})) end
+end
 expect(not store:read{kind='search',keyword='Query 1'})
 expect(store:read{kind='search',keyword='Query 13'}~=nil)
 rawdb=library:open();expect(tonumber(rawdb:rowexec('SELECT COUNT(*) FROM discovery_cache'))==12)
+expect(tonumber(rawdb:rowexec('SELECT COUNT(*) FROM discovery_position'))==0,'eviction left an orphaned position')
 rawdb:exec("UPDATE discovery_cache SET payload='{}' WHERE serial=(SELECT MAX(serial) FROM discovery_cache)");rawdb:close()
 expect(store:read()==nil)
 local searches=store:searches()
@@ -169,8 +173,13 @@ rawdb=library:open()
 local move=rawdb:prepare('UPDATE discovery_cache SET cache_key=? WHERE cache_key=?')
 move:bind(Cache.key(public_first),Cache.key(public_first,true)):step();move:close();rawdb:close()
 expect(store:read({kind='search',keyword='Shared search',public_only=true},0).books[1].bookId=='public-0')
+expect(store:remember(assert(store:read({kind='search',keyword='Shared search',public_only=true},0)),
+    {anchor=1,focus='public-0'}))
 local ordinary_first=search('native')
 ordinary_first._cache_generation=assert(store:write(ordinary_first))
+local migrated=assert(store:read())
+expect(migrated.source_kind=='public' and migrated._browse_position.focus=='public-0'
+    and migrated._cache_view.key==Cache.key(public_first,true),'legacy public migration lost the saved position')
 local standard_query={kind='search',keyword='Shared search'}
 local native_query={kind='search',keyword='Shared search',source_kind='native'}
 local public_query={kind='search',keyword='Shared search',source_kind='public'}
