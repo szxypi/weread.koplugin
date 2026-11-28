@@ -37,48 +37,63 @@ function M.key(value, public_search)
     if query.kind=='search' and public_search then identity=identity..'\0public' end
     return Crypto.sha256_hex(identity)
 end
-local function books(value)
+local display_fields={title=4096,author=4096,cover=8192,category=4096}
+local function books(value,build_cards)
     if not array(value,100) then fail() end
-    local out,seen={},{}
+    local out=build_cards and {} or nil
+    local seen={}
     for _,book in ipairs(value) do
         if type(book)~='table' or not text(book.bookId,256) or seen[book.bookId] then fail() end
         seen[book.bookId]=true
-        local row={bookId=book.bookId}
-        for key,limit in pairs({title=4096,author=4096,cover=8192,category=4096}) do
-            if not text(book[key],limit,true) then fail() end;row[key]=book[key]
+        for key,limit in pairs(display_fields) do
+            if not text(book[key],limit,true) then fail() end
         end
-        if book.reason~=nil then
-            if not text(book.reason,512) or Protocol.utf8_substr(book.reason,#book.reason+1)~=book.reason then fail() end
-            row.reason=book.reason
+        if book.reason~=nil and (not text(book.reason,512)
+            or Protocol.utf8_substr(book.reason,#book.reason+1)~=book.reason) then fail() end
+        if book.searchIdx~=nil and not integer(book.searchIdx) then fail() end
+        if out then
+            local row={bookId=book.bookId,title=book.title,author=book.author,cover=book.cover,
+                category=book.category,reason=book.reason,searchIdx=book.searchIdx}
+            if book._public_info~=nil then row._public_info=require('weread.lib.public_book_info').project(book._public_info) end
+            out[#out+1]=row
         end
-        if book._public_info~=nil then row._public_info=require('weread.lib.public_book_info').project(book._public_info) end
-        if book.searchIdx~=nil then if not integer(book.searchIdx) then fail() end;row.searchIdx=book.searchIdx end
-        out[#out+1]=row
     end
     return out
 end
-local function page(value)
+local function page(value,display_cursor)
     if type(value)~='table' or not integer(value.cursor) or not integer(value.next_cursor)
         or type(value.has_more)~='boolean' or not integer(value.loaded_at,2^53) or value.loaded_at==0
         or value.has_more and value.next_cursor<=value.cursor then fail() end
-    return {cursor=value.cursor,next_cursor=value.next_cursor,has_more=value.has_more,loaded_at=value.loaded_at,books=books(value.books)}
+    return {cursor=value.cursor,next_cursor=value.next_cursor,has_more=value.has_more,loaded_at=value.loaded_at,
+        books=books(value.books,display_cursor==nil or value.cursor==display_cursor)}
 end
 local function valid_source(kind)
     return kind=='native' or kind=='gateway' or kind=='public'
 end
-function M.validate(value)
+local function validate_snapshot(value,selection)
     if type(value)~='table' or value.schema~=1 or not text(value.generation,32) or not value.generation:match('^[a-f0-9]+$')
         or #value.generation~=32 or not integer(value.updated_at,2^53) or value.updated_at==0
         or not array(value.pages,M.MAX_PAGES) or #value.pages==0
         or not valid_source(value.source_kind) then fail() end
+    local cursor=selection and selection.cursor
+    if selection and not cursor then
+        local newest=value.pages[#value.pages]
+        if type(newest)~='table' then fail() end
+        cursor=newest.cursor
+    end
     local out={schema=1,generation=value.generation,query=M.query(value.query),updated_at=value.updated_at,
         source_kind=value.source_kind,pages={}};local seen={}
     for _,row in ipairs(value.pages) do
-        local projected=page(row);if seen[projected.cursor] then fail() end
+        -- All batches must be valid. Only the requested batch needs cards and
+        -- optional public details when opening a saved snapshot for display.
+        local projected=page(row,cursor);if seen[projected.cursor] then fail() end
         seen[projected.cursor]=true;out.pages[#out.pages+1]=projected
     end
     if not seen[0] then fail() end
     return out
+end
+function M.validate(value)
+    return validate_snapshot(value)
 end
 -- The caller owns this freshly validated snapshot.
 local function restored_state(saved,cursor)
@@ -97,7 +112,7 @@ local function restored_state(saved,cursor)
     return result
 end
 function M.state(value,cursor)
-    return restored_state(M.validate(value),cursor)
+    return restored_state(validate_snapshot(value,{cursor=cursor}),cursor)
 end
 local function nonce()
     local f=io.open('/dev/urandom','rb');if not f then return nil end
@@ -129,20 +144,20 @@ local function run(self,task)
     if ok then return result,reference end
 end
 function M:new(library,codec) return setmetatable({library=library,codec=codec},self) end
-local function read(self,db,key)
+local function read(self,db,key,selection)
     local sql='SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END, cache_key, serial FROM discovery_cache'
     local row
     if key then row=statement(db,sql..' WHERE cache_key=?',M.MAX_PAYLOAD,key)
     else row=statement(db,sql..' ORDER BY serial DESC LIMIT 1',M.MAX_PAYLOAD) end
     if not row or type(row[1])~='string' then return nil end
-    local value=M.validate(self.codec:json_decode(row[1]))
+    local value=validate_snapshot(self.codec:json_decode(row[1]),selection)
     -- Accept the original key for public searches saved by older versions.
     if M.key(value.query,value.source_kind=='public')~=row[2] and M.key(value.query)~=row[2] then fail() end
     return value,{key=row[2],serial=tonumber(row[3]),generation=value.generation}
 end
-local function search(self,db,query)
+local function search(self,db,query,selection)
     local function get(key)
-        local ok,value,reference=pcall(read,self,db,key)
+        local ok,value,reference=pcall(read,self,db,key,selection)
         if ok then return value,reference end
     end
     local standard_key=M.key(query)
@@ -184,7 +199,7 @@ local function resume(self,db,resolve_public)
     if serial==PUBLIC_REFERENCE_SERIAL then
         if resolve_public then state=resolve_public(row[1],row[3],cursor) end
     else
-        local value,reference=read(self,db,row[1])
+        local value,reference=read(self,db,row[1],{cursor=cursor})
         if reference and reference.serial==serial and reference.generation==row[3] then
             state=cached_state(value,reference,cursor)
         end
@@ -201,15 +216,16 @@ function M:read(query,cursor,resolve_public)
             if ok and state then return state end
         end
         local value,reference
-        if query and query.kind=='search' then value,reference=search(self,db,query)
-        else value,reference=read(self,db,query and M.key(query)) end
+        local selection={cursor=cursor}
+        if query and query.kind=='search' then value,reference=search(self,db,query,selection)
+        else value,reference=read(self,db,query and M.key(query),selection) end
         return cached_state(value,reference,cursor)
     end)
 end
 function M:read_reference(key,generation,cursor)
     if not valid_reference(key,generation) or not integer(cursor) then return nil end
     return run(self,function(db)
-        local value,reference=read(self,db,key)
+        local value,reference=read(self,db,key,{cursor=cursor})
         if reference and reference.generation==generation then return cached_state(value,reference,cursor) end
     end)
 end

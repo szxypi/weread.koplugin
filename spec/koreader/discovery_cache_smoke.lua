@@ -32,16 +32,33 @@ PublicInfo.project=function(...)
     return project(...)
 end
 next_page._cache_generation=assert(store:write(next_page,first,true))
-PublicInfo.project=project
-expect(projected==2 and store:read(first,20).books[1]._public_info.intro=='Second public excerpt')
+expect(projected==2,'a save did not validate both its previous and new batches')
+projected=0
+local cached_next=assert(store:read(first,20))
+expect(projected==1 and cached_next.books[1]._public_info.intro=='Second public excerpt',
+    'an explicit cache read projected public details for an unseen batch')
+projected=0
+local reference=assert(cached_next._cache_view)
+local cached_reference=assert(store:read_reference(reference.key,reference.generation,0))
+expect(projected==1 and cached_reference.books[1]._public_info.intro=='Public excerpt',
+    'a cache reference read projected public details for an unseen batch')
+projected=0
+expect(store:read(first,400)==nil and projected==0,'an absent batch projected public details')
 expect(store:read(first,20).history[1]==0 and store:read(first,0).has_more)
-expect(store:read().cursor==20 and store:read().cached)
+projected=0
+local newest=assert(store:read())
+expect(newest.cursor==20 and newest.cached and projected==1,
+    'opening the latest batch projected public details for an unseen batch')
 local rawdb=library:open();local _,name,file=rawdb:rowexec('PRAGMA database_list');expect(name=='main' and file==library:databasePath())
 local raw=rawdb:rowexec('SELECT payload FROM discovery_cache');rawdb:close()
 expect(not raw:find('private',1,true) and not raw:find('session',1,true) and not raw:find('revision',1,true))
 local browse=assert(store:read(first,0))
 expect(store:remember(browse,{anchor=2,focus='900001'}))
+projected=0
 local reopened=assert(store:read())
+PublicInfo.project=project
+expect(projected==1 and reopened.books[1]._public_info.intro=='Public excerpt',
+    'restoring the last view projected public details for an unseen batch')
 expect(reopened.cursor==0 and reopened._browse_saved and reopened._browse_position.anchor==2
     and reopened._browse_position.focus=='900001' and not reopened.source_revision and not reopened.session_id)
 rawdb=library:open();expect(rawdb:rowexec('SELECT payload FROM discovery_cache')==raw);rawdb:close()
