@@ -153,15 +153,17 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
     local function open_editor()
     if not alive(ctx) then return end
     if operation=='delete' then submit(ctx);return end
-    local draft
+    local draft,why
     if restore then
-        local latest,why=ctx.journal:draft(restore.draft_key)
-        if why or not latest or latest.token~=restore.token or latest.book_id~=owner.id
-            or latest.operation~=operation or latest.reference_id~=ctx.reference_id then
+        draft,why=ctx.journal:draft(restore.draft_key)
+        if why or not draft or draft.token~=restore.token or draft.book_id~=owner.id
+            or draft.operation~=operation or draft.reference_id~=ctx.reference_id then
             message(ctx,'This draft changed or is unavailable. Open local thought drafts again.');return
         end
-        draft=latest
-    else draft=ctx.journal:draft(Store.draft_key(owner.id,operation,ctx.reference_id)) end
+    else
+        draft,why=ctx.journal:draft(Store.draft_key(owner.id,operation,ctx.reference_id))
+        if why then message(ctx,'Could not load local thought drafts.');return end
+    end
     if draft and draft.base_hash~=ctx.base_hash then
         message(ctx,'This draft refers to an older cloud version. View or delete it in Local thought drafts; refresh before editing again.');return
     end
@@ -350,10 +352,15 @@ function M.drafts(host,owner,current,redraw)
     local ctx=new_context(host,owner,current,redraw);local values=ctx.journal:drafts()
     if not values then message(ctx,'Could not load local thought drafts.');return false end
     if #values==0 then message(ctx,'No local thought drafts.');return true end
-    local items={}
+    local items,labels={},{}
+    local Protocol=require('weread.lib.protocol')
     for _i,draft in ipairs(values) do
-        items[#items+1]={text=require('weread.lib.protocol').utf8_substr(draft.content:gsub('[%z%c]',' '),60),
-            mandatory=draft.book_id~=owner.id and draft_book_label(host,draft.book_id) or nil,callback=function()
+        local label
+        if draft.book_id~=owner.id then
+            label=labels[draft.book_id] or draft_book_label(host,draft.book_id)
+            labels[draft.book_id]=label
+        end
+        items[#items+1]={text=Protocol.utf8_substr(draft.content,60):gsub('[%z%c]',' '),mandatory=label,callback=function()
             if not alive(ctx) then return end
             local dialog
             local buttons={{{id='delete_thought_draft',text=_('Delete local draft'),callback=function()

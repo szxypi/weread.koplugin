@@ -149,28 +149,73 @@ function M:save_draft(book,operation,reference,base_hash,content,expected)
         return {draft_key=key,book_id=book,operation=operation,reference_id=reference,base_hash=base_hash,content=content,token=version,serial=serial}
     end,true)
 end
+local DRAFT_SELECT=[[SELECT draft_key,book_id,operation,reference_id,base_hash,
+    CASE WHEN length(CAST(content AS BLOB))<=131072 THEN content ELSE NULL END,token,serial FROM thought_drafts]]
+local function decode_draft(row)
+    local serial=tonumber(row[8])
+    if not Contract.hash(row[1]) or not require('weread.lib.my_cloud_marks').display_id(row[2])
+        or row[3]~='create' and row[3]~='edit' or not Contract.key(row[4]) or not Contract.hash(row[5])
+        or row[1]~=M.draft_key(row[2],row[3],row[4]) or not Contract.valid_content(row[6])
+        or not token(row[7]) or not integer(serial) then error('thought_store/draft',0) end
+    return {draft_key=row[1],book_id=row[2],operation=row[3],reference_id=row[4],base_hash=row[5],
+        content=row[6],token=row[7],serial=serial}
+end
+local function read_drafts(self,task,empty)
+    local library=self.library
+    local account=library and library:accountKey()
+    if not account then return nil,'account' end
+    if type(library.openRead)~='function' then return run(self,task) end
+    local opened,db=pcall(library.openRead,library)
+    if not opened then return nil,'storage' end
+    if not db then
+        local checked,missing=pcall(function()
+            local path=library:databasePath()
+            if not path then return false end
+            local attributes,_,code=require('libs/libkoreader-lfs').attributes(path)
+            return not attributes and code==2
+        end)
+        if checked and missing and library:accountKey()==account then return empty end
+        return nil,'storage'
+    end
+    local ok,value=pcall(function()
+        if library:accountKey()~=account then error('thought_store/account',0) end
+        local schema=statement(db,"SELECT type FROM sqlite_master WHERE name='thought_drafts' COLLATE NOCASE")
+        if not schema then return empty end
+        if schema[1]~='table' then error('thought_store/schema',0) end
+        return task(db)
+    end)
+    pcall(db.close,db)
+    if not ok then return nil,'storage' end
+    return value
+end
 function M:drafts()
-    return run(self,function(db)
-        local stmt=db:prepare([[SELECT draft_key,book_id,operation,reference_id,base_hash,
-            CASE WHEN length(CAST(content AS BLOB))<=131072 THEN content ELSE NULL END,token,serial FROM thought_drafts ORDER BY serial DESC]])
+    return read_drafts(self,function(db)
+        local stmt=db:prepare(DRAFT_SELECT..' ORDER BY serial DESC LIMIT ?')
         local values={};local ok=pcall(function()
-            local row=stmt:step()
+            local row=stmt:bind(M.MAX_DRAFTS+1):step()
             while row do
-                row[8]=tonumber(row[8])
-                if #values>=M.MAX_DRAFTS or not Contract.hash(row[1]) or not require('weread.lib.my_cloud_marks').display_id(row[2])
-                    or row[3]~='create' and row[3]~='edit' or not Contract.key(row[4]) or not Contract.hash(row[5])
-                    or row[1]~=M.draft_key(row[2],row[3],row[4]) or not Contract.valid_content(row[6])
-                    or not token(row[7]) or not integer(row[8]) then error('thought_store/draft',0) end
-                values[#values+1]={draft_key=row[1],book_id=row[2],operation=row[3],reference_id=row[4],base_hash=row[5],content=row[6],token=row[7],serial=row[8]}
+                if #values>=M.MAX_DRAFTS then error('thought_store/draft',0) end
+                values[#values+1]=decode_draft(row)
                 row=stmt:step()
             end
         end);stmt:close();if not ok then error('thought_store/draft',0) end
         return values
-    end)
+    end,{})
 end
 function M:draft(key)
-    local values,why=self:drafts();if not values then return nil,why end
-    for _i,v in ipairs(values) do if v.draft_key==key then return v end end
+    if not Contract.hash(key) then return nil end
+    return read_drafts(self,function(db)
+        local stmt=db:prepare(DRAFT_SELECT..' WHERE draft_key=? LIMIT 2')
+        local ok,value=pcall(function()
+            local row=stmt:bind(key):step()
+            if not row then return nil end
+            if row[1]~=key or stmt:step() then error('thought_store/draft_identity',0) end
+            return decode_draft(row)
+        end)
+        stmt:close()
+        if not ok then error('thought_store/draft',0) end
+        return value
+    end)
 end
 function M:delete_draft(draft)
     if type(draft)~='table' or not Contract.hash(draft.draft_key) or not token(draft.token) then return false end

@@ -12,7 +12,7 @@ local state
 local function copy(value) local out={};for k,v in pairs(value) do out[k]=v end;return out end
 package.preload['weread.lib.thought_edit_store']=function() return {new=function() return {
     draft=function(_self,key) if state.error then return nil,'storage' end;if state.draft and state.draft.draft_key==key then return copy(state.draft) end end,
-    drafts=function() return state.draft and {copy(state.draft)} or {} end,
+    drafts=function() return state.drafts or state.draft and {copy(state.draft)} or {} end,
     save_draft=function(_self,_book,_operation,_reference,_base,_content,expected)
         if state.require_lease then assert(state.lease_held,'chapter lease missing while saving draft') end
         state.save_expected=expected;if state.save_failed then return nil end;return {token='new'} end,
@@ -29,7 +29,6 @@ package.preload['weread.lib.selection_reference']=function() return {
     restore=function() return state.restored end} end
 package.preload['weread.ui.thought_text']=function() return {
     viewer=function(v) return v end,menu=function(v) return v end,input=function(v) function v:getInputText() return self.input end;return v end} end
-package.preload['weread.lib.protocol']=function() return {utf8_substr=function(v) return v end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function() return {
     start=function(_self,task,callback) state.task=task;state.complete=callback
         if state.worker_throws then error('synthetic worker failure') end;return not state.worker_failed end,
@@ -79,6 +78,8 @@ host,owner,current=fixture();owner.value.updated[1].hash='different'
 expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor and state.message:find('unavailable',1,true),'changed reference accepted')
 host,owner,current=fixture();state.error=true
 expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor,'unreadable draft was opened')
+expect(not Editor.start(host,owner,'create',owner.value.updated[1],current) and not owner.editor
+    and state.message=='Could not load local thought drafts.','unreadable draft opened an empty editor')
 host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source';owner.value=nil
 expect(Editor.resume(host,owner,'draft','v1',current) and state.complete,'selection did not start source validation')
 state.complete({});expect(not owner.editor and state.message:find('unavailable',1,true),'missing source opened editor')
@@ -103,6 +104,19 @@ expect(state.opened.options.source==owner.menu and host._notebook_owner.child==o
 state.apply()
 expect(state.opened and state.opened.id=='42' and state.opened.variant==nil and state.opened.options.resume_draft.token=='v1'
     and host._notebook_owner.child==host._my_marks_owner,'cross-book handoff lost target or parent ownership')
+host,owner,current=fixture();owner.id='41'
+state.drafts={copy(state.draft),copy(state.draft)}
+local prefix=string.rep('字',57)..'\n😀🙂'
+state.drafts[1].content=prefix..string.rep('x',4096)
+local titles=0
+function host.library_db:getBook(id)
+    expect(id=='42')
+    titles=titles+1;return {title='Saved book'}
+end
+expect(Editor.drafts(host,owner,current),'same-book drafts did not list')
+local rows=owner.editor.dialog.item_table
+expect(rows[1].text==prefix:gsub('\n',' ') and rows[1].mandatory=='Saved book'
+    and rows[2].mandatory=='Saved book' and titles==1,'draft preview split UTF-8, changed text, or repeated a title lookup')
 host,owner,current=fixture();owner.id='41';host._notebook_owner={child=owner}
 Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback()
 owner.editor.dialog.buttons_table[1][2].callback();owner.menu._shelf_popup={}
