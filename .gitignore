@@ -1,4 +1,5 @@
 config.lua
+!/weread/lib/excerpt_card/config.lua
 *.cookies
 cache/
 *.epub
