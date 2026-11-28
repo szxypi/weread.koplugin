@@ -18,14 +18,14 @@ local function continuation(byte)
     return byte and byte >= 0x80 and byte <= 0xbf
 end
 
--- Check controls and UTF-8 together without creating a prefix of the text.
-function M.valid_text(value, max, allow_empty)
+-- Check controls and UTF-8 together. Single-line labels also reject tab, CR and LF.
+function M.valid_text(value, max, allow_empty, single_line)
     if type(value) ~= 'string' or not allow_empty and value == '' or #value > max then return false end
     local position, size = 1, #value
     while position <= size do
         local lead = value:byte(position)
         if lead < 0x80 then
-            if lead == 0x7f or lead < 0x20 and lead ~= 9 and lead ~= 10 and lead ~= 13 then return false end
+            if lead == 0x7f or lead < 0x20 and (single_line or lead ~= 9 and lead ~= 10 and lead ~= 13) then return false end
             position = position + 1
         else
             local second = value:byte(position + 1)

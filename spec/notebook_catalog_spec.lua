@@ -24,6 +24,17 @@ end
 for _,case in ipairs({{'bookId','900002'},{'title','x\0'},{'title','\255'},{'author',true}}) do
     local raw=source();raw.books[1].book[case[1]]=case[2];reject(raw)
 end
+for _,title in ipairs({'x\t', 'x\n', 'x\r', 'x\127', '\192\128', '\237\160\128', '\244\144\128\128', '\240\159\152'}) do
+    local invalid=source();invalid.books[1].book.title=title;reject(invalid)
+    local saved=Data.project(client,source(),1000);saved.books[1].title=title
+    expect(not pcall(Data.validate,client,saved),'invalid cached title accepted')
+end
+local boundary=source()
+boundary.books[1].book.title=string.rep('书',1365)..'A'
+boundary.books[1].book.author=''
+local bounded=Data.project(client,boundary,1000).books[1]
+expect(bounded.title==boundary.books[1].book.title and bounded.author=='','valid text at the byte limit was rejected')
+boundary.books[1].book.title=bounded.title..'B';reject(boundary)
 local raw=source();raw.books[2]=raw.books[1];raw.totalBookCount=2;reject(raw)
 raw=source();raw.books=rows();for i=1,5001 do raw.books[i]={} end;raw.totalBookCount=5001;reject(raw)
 local scope,revision,valid={vid='900000',epoch=1},1,true

@@ -1,14 +1,13 @@
 -- Native notebook list: independent read-only projection, never note bodies.
 local Marks=require('weread.lib.my_cloud_marks')
-local Protocol=require('weread.lib.protocol')
 local M={MAX_ROWS=5000,capture=Marks.capture,matches=Marks.matches,EXPIRED='notebooks/native_expired'}
+local count_fields={'noteCount','reviewCount','bookmarkCount','sort'}
 local function fail(reason) error('notebooks/'..reason,0) end
 local function integer(value,max)
     return type(value)=='number' and value>=0 and value<=max and value%1==0
 end
 local function text(value,max,empty)
-    return type(value)=='string' and (empty or value~='') and #value<=max and not value:find('[%z%c]')
-        and Protocol.utf8_substr(value,#value+1)==value
+    return Marks.valid_text(value,max,empty,true)
 end
 local function identity(value)
     if integer(value,2^53-1) and value>0 then value=string.format('%.0f',value) end
@@ -28,7 +27,7 @@ local function row(value,wire,present)
     local author=present(book.author) and book.author or ''
     if not text(author,4096,true) then fail('book') end
     local result={bookId=id,title=book.title,author=author}
-    for _,key in ipairs({'noteCount','reviewCount','bookmarkCount','sort'}) do
+    for _,key in ipairs(count_fields) do
         if present(value[key]) then
             if not integer(value[key],key=='sort' and 2^53-1 or 2147483647) then fail('number') end
             result[key]=value[key]
