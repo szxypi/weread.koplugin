@@ -55,9 +55,11 @@ do
     local new_books={{bookId='43',title='New list'}}
     local new_groups={{archiveId='2',name='New group',bookIds={'43'}}}
     expect(db:cacheShelf(old_books,old_groups),'combined read setup')
+    local filters_key=require('weread.lib.shelf_filters').KEY
     expect(db:putProfileState('shelf_multi_groups_v1',{keys={'archive:1'}})
         and db:putProfileState('shelf_local_groups_v1',{generation='original'})
         and db:putProfileState('shelf_local_pins_v1',{generation='original'})
+        and db:putProfileState(filters_key,{reading='finished',download='downloaded'})
         and db:putProfileState('statistics',{generation='unrelated'}),'book preference read setup')
     local writer=DB:new(settings)
     local open_read,reads,committed=db.openRead,0,false
@@ -70,6 +72,7 @@ do
                 committed=writer:cacheShelf(new_books,new_groups)
                 assert(committed,'other connection could not commit during the read')
                 assert(writer:putProfileState('shelf_local_pins_v1',{generation='new'}))
+                assert(writer:putProfileState(filters_key,{}))
             end
             return prepare(reader,query)
         end
@@ -82,10 +85,14 @@ do
         and preferences.values.shelf_local_groups_v1.generation=='original'
         and preferences.values.shelf_multi_groups_v1.keys[1]=='archive:1' and not preferences.values.statistics,
         'snapshot mixed generations or included an unrelated profile row')
+    expect(preferences.values[filters_key].reading=='finished'
+        and preferences.values[filters_key].download=='downloaded','snapshot did not read both filters in the same transaction')
     books,groups,preferences=db:getShelfSnapshot(true)
     expect(reads==2 and books[1].bookId=='43' and groups[1].bookIds[1]=='43',
         'reopening did not read both parts of the new snapshot')
     expect(preferences.values.shelf_local_pins_v1.generation=='new','new snapshot retained old preferences')
+    expect(type(preferences.values[filters_key])=='table' and not next(preferences.values[filters_key]),
+        'new snapshot did not preserve the explicit empty filters')
     db.openRead=open_read
     local legacy=db:open()
     legacy:exec("DELETE FROM shelf_state WHERE name='archives'");legacy:close()

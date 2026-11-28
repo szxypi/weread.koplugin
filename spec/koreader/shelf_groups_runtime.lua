@@ -494,10 +494,12 @@ local function pump(predicate)
     local deadline=socket.gettime()+20
     while not predicate() do assert(socket.gettime()<deadline,'synthetic group UI deadline');tick() end
 end
+local filters_key=require('weread.lib.shelf_filters').KEY
 local function reset()
     plugin:closeWeReadUI()
     local settings=plugin.settings:get('shelf');settings.view_mode='cover';settings.paginated=true
-    settings.sort_order='default';settings.filter_reading=nil;settings.filter_download=nil
+    settings.sort_order='default'
+    assert(plugin.library_db:putProfileState(filters_key,{}))
     plugin.settings:set('shelf',settings);plugin.settings:flush()
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
 end
@@ -622,8 +624,13 @@ for _kind_index,kind in ipairs({'sort','filter','search'}) do
         else callback=dialog.buttons[2][1].callback end
         UI:forceRePaint()
         local before=json.encode(plugin.settings:get('shelf'))
-        local writes=0;local set=plugin.settings.set
+        local writes,filter_writes=0,0
+        local set,put=plugin.settings.set,plugin.library_db.putProfileState
         plugin.settings.set=function(self,...) writes=writes+1;return set(self,...) end
+        plugin.library_db.putProfileState=function(self,key,value)
+            if key==filters_key then filter_writes=filter_writes+1 end
+            return put(self,key,value)
+        end
         if event=='closed' then plugin:closeWeReadUI()
         elseif event=='session' then plugin._reader_session_gen=(plugin._reader_session_gen or 0)+1 end
         callback()
@@ -635,13 +642,16 @@ for _kind_index,kind in ipairs({'sort','filter','search'}) do
                 for _book_index,book in ipairs(plugin.shelf_view.books) do
                     assert(book.title:find('合成书籍',1,true) and (book.title:find('1',1,true) or tostring(book.bookId):find('1',1,true)))
                 end
-            else assert(writes==1 and json.encode(plugin.settings:get('shelf'))~=before) end
+            elseif kind=='filter' then
+                assert(filter_writes==1 and writes==0 and json.encode(plugin.settings:get('shelf'))==before
+                    and assert(plugin.library_db:getProfileState(filters_key)).reading=='finished')
+            else assert(writes==1 and filter_writes==0 and json.encode(plugin.settings:get('shelf'))~=before) end
         else
             for _i=1,5 do tick() end
-            assert(writes==0 and json.encode(plugin.settings:get('shelf'))==before)
+            assert(writes==0 and filter_writes==0 and json.encode(plugin.settings:get('shelf'))==before)
             assert(event~='closed' or not plugin.shelf_view)
         end
-        plugin.settings.set=set;popup_cases=popup_cases+1
+        plugin.settings.set=set;plugin.library_db.putProfileState=put;popup_cases=popup_cases+1
     end
 end
 -- Exercise identifier search through the real input dialog and group view
@@ -953,7 +963,6 @@ if mode=='live' then
 end
 if mode=='reopen' then
     local saved=plugin.settings:get('shelf');saved.sort_order='progress_desc'
-    saved.filter_reading='progress_active';saved.filter_download=nil
     plugin.settings:set('shelf',saved);plugin.settings:flush()
 end
 assert(requests==0)

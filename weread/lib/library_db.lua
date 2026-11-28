@@ -318,7 +318,8 @@ local function read_shelf_preferences(db, account)
     local ok = pcall(function()
         stmt = db:prepare([[
             SELECT name, payload FROM profile_state
-            WHERE name IN ('shelf_multi_groups_v1', 'shelf_local_groups_v1', 'shelf_local_pins_v1', 'shelf_browse_v1', 'home_browse_v1')
+            WHERE name IN ('shelf_multi_groups_v1', 'shelf_local_groups_v1', 'shelf_local_pins_v1',
+                           'shelf_browse_v1', 'home_browse_v1', 'shelf_filters_v1')
         ]])
         local row = stmt:reset():step()
         while row do

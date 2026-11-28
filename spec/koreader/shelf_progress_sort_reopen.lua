@@ -13,7 +13,6 @@ assert(#Loader.enabled_plugins==1)
 local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
 local FM=require('apps/filemanager/filemanager');FM:showFiles(home);local plugin=assert(FM.instance.weread)
 assert(plugin.settings:get('shelf').sort_order=='progress_desc','progress sort preference did not survive restart')
-assert(plugin.settings:get('shelf').filter_reading=='progress_active','progress filter preference did not survive restart')
 local requests=0
 plugin.client.request=function() requests=requests+1;error('offline progress sort attempted HTTP',0) end
 plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
@@ -22,6 +21,9 @@ local filter_settings={data_dir=evidence,get=function(_,key,default)
     return default
 end}
 plugin.library_db=require('weread.lib.library_db'):new(filter_settings)
+local filters_key=require('weread.lib.shelf_filters').KEY
+assert(assert(plugin.library_db:getProfileState(filters_key)).reading=='progress_active',
+    'account progress filter preference did not survive restart')
 local filter_books={}
 for i=1,9 do filter_books[i]={bookId=tostring(902000+i),title='合成筛选书 '..i,finishReading=0} end
 filter_books[6].finishReading=1;filter_books[7].finishReading=nil
@@ -31,7 +33,6 @@ local filtered=assert(plugin.shelf_view)
 assert(#filtered.books==2 and filtered.books[1].bookId=='902003' and filtered.books[2].bookId=='902002',
     'reopened filter did not apply persisted progress with the saved sort')
 assert(requests==0,'reopened filter needed a network request')
-local shelf=plugin.settings:get('shelf');shelf.filter_reading=nil;plugin.settings:set('shelf',shelf)
 local local_settings={data_dir=evidence,get=function(_,key,default)
     if key=='account' then return {user_vid='sort-account-a'} end
     return default

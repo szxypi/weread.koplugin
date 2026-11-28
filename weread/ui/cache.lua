@@ -6,6 +6,7 @@ local logger = require("weread.lib.logger")
 local PathChooser = require("ui/widget/pathchooser")
 local Scan = require("weread.lib.scan")
 local ReadAccess = require("weread.lib.read_access")
+local ShelfFilters = require("weread.lib.shelf_filters")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local UIManager = require("ui/uimanager")
@@ -263,7 +264,7 @@ local SHELF_FILTER_OPTIONS = {
 }
 
 function M:shelfFilterSummary()
-    local filters = self.shelf_filters
+    local filters = self.shelf_filters or {}
     local parts = {}
     for _i, opt in ipairs(SHELF_FILTER_OPTIONS) do
         if filters[opt.dim] == opt.value then
@@ -277,9 +278,25 @@ function M:shelfFilterSummary()
 end
 
 function M:saveShelfFilters()
+    local db = self.library_db
+    local account = db and db.accountKey and db:accountKey()
+    local filters = ShelfFilters.normalize(self.shelf_filters)
+    if account and type(db.putProfileState) == 'function' then
+        local ok, saved = pcall(db.putProfileState, db, ShelfFilters.KEY, filters)
+        if db:accountKey() ~= account then return end
+        if ok and saved == true then
+            self._shelf_unsaved_filters = nil
+        else
+            self._shelf_unsaved_filters = account
+            if self.showTransientInfo then
+                self:showTransientInfo(_('Could not save the bookshelf filters. They are still active for this session.'), 4)
+            end
+        end
+        return
+    end
     local shelf = self.settings:get("shelf")
-    shelf.filter_reading = self.shelf_filters.reading
-    shelf.filter_download = self.shelf_filters.download
+    shelf.filter_reading = filters.reading
+    shelf.filter_download = filters.download
     self.settings:set("shelf", shelf)
     self.settings:flush()
 end
@@ -354,10 +371,20 @@ end
 function M:showShelfFilterOptions(on_changed, origin)
     local Popup=require('weread.ui.shelf_popup')
     local dialog
-    local function current()
-        return not origin or origin.is_current() and Popup.current(origin.owner,dialog)
-    end
+    if not self.shelf_filters and self.loadShelfFilters then self:loadShelfFilters() end
+    self.shelf_filters = self.shelf_filters or {}
     local filters = self.shelf_filters
+    local db = self.library_db
+    local account = db and db.accountKey and db:accountKey()
+    local auth = not origin and self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local selected = false
+    local function current()
+        if selected or self.shelf_filters ~= filters or self.library_db ~= db then return false end
+        if origin then return origin.is_current() and Popup.current(origin.owner,dialog) end
+        if db and db.accountKey and db:accountKey() ~= account then return false end
+        if auth then return self.settings:auth_scope_matches(auth) end
+        return not self.settings.get_auth_scope or not self.settings:get_auth_scope()
+    end
     local buttons = {
         {
             {
@@ -368,6 +395,7 @@ function M:showShelfFilterOptions(on_changed, origin)
                 callback = function()
                     UIManager:nextTick(function()
                         if not current() then return end
+                        selected = true
                         if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         filters.reading = nil
                         filters.download = nil
@@ -388,6 +416,7 @@ function M:showShelfFilterOptions(on_changed, origin)
                 callback = function()
                     UIManager:nextTick(function()
                         if not current() then return end
+                        selected = true
                         if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         -- Toggle within the dimension: re-tapping clears it, else select.
                         if filters[opt.dim] == opt.value then filters[opt.dim] = nil

@@ -1,5 +1,6 @@
 local ShelfGroups=require('weread.lib.shelf_groups')
 local ShelfSnapshot=require('weread.lib.shelf_snapshot')
+local ShelfFilters=require('weread.lib.shelf_filters')
 local Protocol=require('weread.lib.protocol')
 local M={KEY='shelf_browse_v1'}
 
@@ -25,7 +26,9 @@ function M.normalize(value)
     local focus=ShelfSnapshot.persisted_identity(value.focus_book_id)
     local y=type(value.scroll_offset)=='table' and value.scroll_offset.y
     return {version=1,mode=value.mode,page=value.page,keyword=keyword,group_key=value.group_key,group_keys=keys,
-        book_id=anchor,focus_book_id=focus,inset=bounded_integer(value.inset,-1,10000000) and value.inset or nil,
+        book_id=anchor,focus_book_id=focus,
+        filters=value.mode=='books' and type(value.filters)=='table' and ShelfFilters.normalize(value.filters) or nil,
+        inset=bounded_integer(value.inset,-1,10000000) and value.inset or nil,
         scroll_offset=bounded_integer(y,0,10000000) and {x=0,y=y} or nil}
 end
 
@@ -35,6 +38,7 @@ function M.same(a,b)
         if a[field]~=b[field] then return false end
     end
     return M.same_groups(a.group_keys,b.group_keys)
+        and ShelfFilters.same(a.filters,b.filters)
         and (a.scroll_offset and a.scroll_offset.y)==(b.scroll_offset and b.scroll_offset.y)
 end
 

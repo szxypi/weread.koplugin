@@ -7,7 +7,10 @@ return function(plugin,pump)
     local old_filters,old_notice=plugin.shelf_filters,plugin.showTransientInfo
     local old_group,old_multi=plugin.shelf_group_key,plugin.shelf_multi_groups
     local shelf=plugin.settings:get('shelf')
-    local old_reading,old_download=shelf.filter_reading,shelf.filter_download
+    local Filters=require('weread.lib.shelf_filters')
+    local db=plugin.library_db
+    local old_saved=db:getProfileState(Filters.KEY)
+        or Filters.normalize({reading=shelf.filter_reading,download=shelf.filter_download})
     local cover_fetch,progress_fetch=plugin.fetchVisibleShelfCovers,plugin.refreshVisibleShelfProgress
     plugin:cancelShelfCovers();plugin:cancelShelfProgress()
     plugin.fetchVisibleShelfCovers=function() end;plugin.refreshVisibleShelfProgress=function() end
@@ -48,8 +51,7 @@ return function(plugin,pump)
         for _,book in ipairs(books) do assert((selected[book]==true)==expected(book,choice==5)) end
         require('ui/uimanager'):forceRePaint()
     end
-    shelf=plugin.settings:get('shelf');shelf.filter_reading=old_reading;shelf.filter_download=old_download
-    plugin.settings:set('shelf',shelf);plugin.settings:flush()
+    assert(db:putProfileState(Filters.KEY,old_saved))
     plugin.shelf_group_key,plugin.shelf_multi_groups,plugin.shelf_filters=old_group,old_multi,old_filters
     plugin.fetchVisibleShelfCovers,plugin.refreshVisibleShelfProgress=cover_fetch,progress_fetch
     plugin.showTransientInfo=old_notice

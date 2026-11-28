@@ -94,6 +94,45 @@ for index,key in ipairs({'progress_zero','progress_active'}) do
         'progress filter did not save and explain its cache behavior')
     expect(not owner._shelf_popup,'progress filter left its popup open')
 end
+do
+    local host=fixture()
+    local account,epoch,fail='first',1,false
+    local rows,notices={},0
+    local filters_key=require('weread.lib.shelf_filters').KEY
+    host.settings:get().filter_reading='unfinished'
+    function host.settings:get_auth_scope() return {epoch=epoch} end
+    function host.settings:auth_scope_matches(scope) return scope.epoch==epoch end
+    host.library_db={
+        accountKey=function() return account end,
+        putProfileState=function(_,key,value)
+            expect(key==filters_key,'unexpected filter preference')
+            if fail then return false end
+            rows[account]=value
+            return true
+        end,
+    }
+    host.showTransientInfo=function() notices=notices+1 end
+    local function open()
+        host:showShelfFilterOptions(function() host.changes=host.changes+1 end)
+        return shown.buttons
+    end
+    open()[2][1].callback()
+    epoch=2;flush()
+    expect(not rows.first and host.changes==0,'renewal accepted a stale filter callback')
+    open()[2][1].callback()
+    account='second';flush()
+    expect(not rows.second and host.changes==0,'account change accepted a stale filter callback')
+    local button=open()[2][1]
+    button.callback();button.callback();flush()
+    expect(rows.second.reading=='finished' and host.changes==1 and not rows.first,'choice did not save once for its account')
+    expect(host.writes==0 and host.flushes==0 and host.settings:get().filter_reading=='unfinished',
+        'account choice changed legacy global options')
+    fail=true;open()[1][1].callback();flush()
+    expect(notices==1 and next(host.shelf_filters)==nil and host._shelf_unsaved_filters==account
+        and rows.second.reading=='finished','storage failure lost the active session choice')
+    fail=false;open()[1][1].callback();flush()
+    expect(next(rows.second)==nil and not host._shelf_unsaved_filters,'explicit clearing did not persist after recovery')
+end
 package.loaded['weread.ui.shelf_progress_all']=nil
 local _,owner=fixture();local calls=0
 local dialog={onCloseWidget=function() calls=calls+1;return false end}

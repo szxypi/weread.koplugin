@@ -5,6 +5,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfFilters = require("weread.lib.shelf_filters")
 local ShelfSearch = require("weread.lib.shelf_search")
 local ShelfProgress = require("weread.lib.shelf_progress")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
@@ -195,7 +196,8 @@ function M:showBookshelf(restore_browse_position, return_position)
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil, preferences)
         if position and (position.group_key~=self.shelf_group_key
-            or not ShelfBrowse.same_groups(position.group_keys or {},self.shelf_multi_groups or {})) then
+            or not ShelfBrowse.same_groups(position.group_keys or {},self.shelf_multi_groups or {})
+            or position.mode=='books' and position.filters and not ShelfFilters.same(position.filters,self.shelf_filters)) then
             position={mode=position.mode,keyword=position.keyword,page=1}
         end
         local options = { browse_position = position, shelf_preferences = preferences }
@@ -374,6 +376,7 @@ function M:onWeReadAccountChanged()
     self._home_saved_browse = nil
     self._shelf_browse_position = nil
     self._shelf_saved_browse = nil
+    self.shelf_filters, self._shelf_unsaved_filters = nil, nil
     local downloads=package.loaded['weread.ui.download_library']
     if downloads then downloads.clearBrowsePosition() end
     self.discovery_categories = nil
@@ -401,6 +404,17 @@ function M:onWeReadAccountChanged()
     if personal then personal.attach(self) end
 end
 
+function M:loadShelfFilters(preferences)
+    local account = group_owner(self)
+    if account and self._shelf_unsaved_filters == account then return end
+    local ok, stored
+    if account then ok, stored = read_shelf_preference(self, ShelfFilters.KEY, preferences, account) end
+    if account ~= group_owner(self) then return end
+    local shelf = self.settings:get("shelf")
+    self.shelf_filters = ShelfFilters.normalize(account and ok and type(stored) == 'table' and stored
+        or { reading = shelf.filter_reading, download = shelf.filter_download })
+end
+
 function M:applyShelfSnapshot(all_books, archives, preserve_volatile, preferences)
     local owner=self.shelf_view
     local metadata=self.book_metadata_context
@@ -414,8 +428,7 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile, preference
         if ok then preferences=result end
     end
     load_group_selection(self,preferences)
-    local shelf = self.settings:get("shelf")
-    self.shelf_filters = { reading = shelf.filter_reading, download = shelf.filter_download }
+    self:loadShelfFilters(preferences)
     self._shelf_search_fold = nil
     self.shelf_regular = {}
     self.shelf_mp = {}
@@ -938,6 +951,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local downloaded_cache = {}
     local shelf_settings = self.settings:get("shelf")
     local filters = self.shelf_filters or {}
+    local browse_filters = mode == 'books' and ShelfFilters.normalize(filters) or nil
     local order = shelf_settings.sort_order
     local reading_filter = filters.reading
     local progress_filtered = reading_filter == 'progress_zero' or reading_filter == 'progress_active'
@@ -1124,6 +1138,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         browse.version, browse.account, browse.mode, browse.keyword = 1, recent_account, mode, keyword
         browse.group_key = view.group_key
         browse.group_keys = ShelfGroups.normalize(view.group_keys) or {}
+        browse.filters = browse_filters
         return browse
     end
     if navigation then

@@ -6,7 +6,7 @@ return function(plugin,mode,pump,evidence)
     local old_refresh,old_notice=plugin.refreshVisibleShelfProgress,plugin.showTransientInfo
     local shelf=plugin.settings:get('shelf')
     local old_sort,old_view,old_paged=shelf.sort_order,shelf.view_mode,shelf.paginated
-    local old_reading,old_download=shelf.filter_reading,shelf.filter_download
+    local filters_key=require('weread.lib.shelf_filters').KEY
     local vid='progress-filter-account-a'
     local settings={data_dir=evidence,get=function(_,key,default)
         if key=='account' then return {user_vid=vid} end
@@ -45,7 +45,7 @@ return function(plugin,mode,pump,evidence)
     plugin.showTransientInfo=function() notices=(notices or 0)+1 end
     plugin.shelf_filters={};plugin.shelf_group_key=nil;plugin.shelf_multi_groups={}
     shelf.view_mode='cover';shelf.paginated=true;shelf.sort_order='default'
-    shelf.filter_reading=nil;shelf.filter_download=nil;plugin.settings:set('shelf',shelf)
+    plugin.settings:set('shelf',shelf);assert(db:putProfileState(filters_key,{}))
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
     local function select_filter(button)
         local old=assert(plugin.shelf_view);old.on_filter();local dialog=assert(old._shelf_popup)
@@ -56,7 +56,7 @@ return function(plugin,mode,pump,evidence)
     end
     local view=select_filter(4)
     assert(#view.books==1 and view.books[1].bookId=='902001','zero filter included ambiguous or finished entries')
-    assert(notices==1 and plugin.settings:get('shelf').filter_reading=='progress_zero','filter choice was not persisted')
+    assert(notices==1 and assert(db:getProfileState(filters_key)).reading=='progress_zero','filter choice was not persisted')
     UI:forceRePaint()
     if mode=='live' then require('device').screen:shot(evidence..'/progress-filter-zero.png') end
     view=select_filter(5)
@@ -129,7 +129,7 @@ return function(plugin,mode,pump,evidence)
         },finish_group))
     end
     cache_finished(0,1)
-    shelf.filter_reading='unfinished';plugin.settings:set('shelf',shelf)
+    assert(db:putProfileState(filters_key,{reading='unfinished'}))
     plugin:applyShelfSnapshot({first,second},finish_group)
     plugin.shelf_group_key='archive:3';plugin:showShelfView('books')
     local Finish=require('weread.ui.finish_offline')
@@ -151,7 +151,7 @@ return function(plugin,mode,pump,evidence)
     plugin:closeWeReadUI();plugin.settings.get_book_indexes=old_indexes;plugin.library_db=old_db;plugin.shelf_filters=old_filters
     plugin.refreshVisibleShelfProgress=old_refresh;plugin.showTransientInfo=old_notice
     shelf=plugin.settings:get('shelf');shelf.sort_order=old_sort;shelf.view_mode=old_view;shelf.paginated=old_paged
-    shelf.filter_reading=old_reading;shelf.filter_download=old_download
+    assert(db:putProfileState(filters_key,{reading='progress_active'}))
     plugin.settings:set('shelf',shelf);plugin.settings:flush()
     plugin.shelf_group_key=nil;plugin.shelf_multi_groups={}
     return true

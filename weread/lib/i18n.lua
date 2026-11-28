@@ -2038,6 +2038,7 @@ local zh = {
     ["Reading (known progress above 0%)"] = "在读（已知进度大于 0%）",
     ["Unread · progress"] = "未读 · 按进度",
     ["Reading · progress"] = "在读 · 按进度",
+    ["Could not save the bookshelf filters. They are still active for this session."] = "无法保存书架筛选，筛选在本次会话中仍然有效。",
     ["Progress filters use cached values, which may be old. Unknown progress is hidden; update all bookshelf progress to refresh."] = "筛选使用本机缓存，进度可能已过期；未知进度不显示，可更新全书架进度。",
     ["No known progress matches. Update all bookshelf progress from the filter menu."] = "没有符合条件的已知进度。可在筛选菜单更新全书架进度。",
     ["Finished"] = "已读完",
