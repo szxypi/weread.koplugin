@@ -276,20 +276,23 @@ function M.resume(host,owner,key,version,current,redraw)
         message(ctx,'The original thought or highlight is unavailable. Refresh its notes and try again.');return false
     end
     busy(ctx,'Checking selected text…')
-    ctx.restore_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    local unavailable='The selected source is unavailable or changed. Your local draft is kept.'
+    local ok,worker=pcall(function()
+        return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    end)
+    if not ok or not worker then message(ctx,unavailable);return false end
+    ctx.restore_worker=worker
     local source_file=host.ui and host.ui.document and host.ui.document.file
-    local offline=owner.direct and not host:isNetworkOnline()
-    local started=ctx.restore_worker:start(function()
+    local start_ok,started=pcall(worker.start,worker,function()
         if owner.direct then
             local NativeAccess=require('weread.lib.native_read_access');local Source=require('weread.lib.source_currentness')
             local function current_source() return host.settings:auth_scope_matches(owner.scope)
                 and NativeAccess.matches(host.settings,owner.native) and Source.matches(host.settings,owner.web) end
             local refs=require('weread.lib.native_direct_reference')
-            local row
-            if offline then
-                row=refs.restore_cached(host.settings,host.library_db,owner.direct_entry,source_file,
-                    draft.reference_id,owner.native,owner.web,current_source)
-            else
+            local row,reason=refs.restore_cached(host.settings,host.library_db,owner.direct_entry,source_file,
+                draft.reference_id,owner.native,owner.web,current_source)
+            if not row and reason=='offline_source_unavailable' and current_source()
+                and host:isNetworkOnline() and current_source() then
                 row=refs.restore(host.client,host.settings,owner.direct_entry,source_file,
                     draft.reference_id,owner.native,owner.web,current_source,host.library_db)
             end
@@ -301,7 +304,10 @@ function M.resume(host,owner,key,version,current,redraw)
         local row=require('weread.lib.selection_reference').restore(book,source_file,draft.reference_id)
         return {reference=row}
     end,function(result)
-        if not alive(ctx) then return end
+        if not alive(ctx) then
+            if owner.editor==ctx then done(ctx) end
+            return
+        end
         local latest,error_=ctx.journal:draft(draft.draft_key)
         if error_ or not latest or latest.token~=draft.token or latest.book_id~=owner.id then
             message(ctx,'This draft changed or is unavailable. Open local thought drafts again.');return
@@ -309,10 +315,10 @@ function M.resume(host,owner,key,version,current,redraw)
         local row=type(result)=='table' and result.reference
         if row and Contract.reference_hash('create',row)==latest.base_hash then
             M.start(host,owner,'create',row,current,redraw,latest)
-        else message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
+        else message(ctx,unavailable) end
     end)
-    if not started then message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
-    return started
+    if not start_ok or not started then message(ctx,unavailable);return false end
+    return true
 end
 local function cross_book(host,owner,current,draft,ctx)
     if not alive(ctx) or not current(host,owner) then return false end
@@ -321,10 +327,14 @@ local function cross_book(host,owner,current,draft,ctx)
     local request={book_id=draft.book_id,key=draft.draft_key,token=draft.token,operation=draft.operation,
         selection=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)~=nil}
     done(ctx)
-    local opened=require('weread.ui.my_cloud_marks').show(host,draft.book_id,draft.operation=='edit' and 'thoughts' or nil,
-        {resume_draft=request})
-    if opened and inherited and host._notebook_owner==notebook then notebook.child=host._my_marks_owner end
-    return opened
+    return require('weread.ui.my_cloud_marks').open(host,draft.book_id,draft.operation=='edit' and 'thoughts' or nil,{
+        resume_draft=request,
+        source=owner.menu,
+        current=function() return current(host,owner) and not owner.menu._shelf_popup end,
+        on_open=function(child)
+            if inherited and host._notebook_owner==notebook then notebook.child=child end
+        end,
+    })
 end
 local function draft_book_label(host,id)
     local ok,book=pcall(function() return host.library_db.getBook and host.library_db:getBook(id) end)

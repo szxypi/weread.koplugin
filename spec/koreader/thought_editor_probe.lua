@@ -162,13 +162,40 @@ local ok,reason=pcall(function()
         -- no current book and no network. The exact cached mark must match.
         UI:close(owner.editor.input);expect(not owner.editor and #journal:drafts()==1)
         online=false;local before=state().requests
-        expect(require('weread.ui.notebook_catalog').show(plugin))
-        local notebook=assert(plugin._notebook_owner)
-        select(notebook,'Local thought drafts');list=notebook.menu._shelf_popup
-        TextSmoke.menu_emoji(list,'😀')
-        expect(list.item_table[1].mandatory=='合成测试书籍')
-        shot('notebook-drafts')
-        list:onMenuSelect(list.item_table[1]);tap(notebook,'resume_other_book_draft')
+        local Catalog=require('weread.ui.notebook_catalog')
+        local function choose_draft(screenshot)
+            expect(Catalog.show(plugin))
+            local notebook=assert(plugin._notebook_owner)
+            select(notebook,'Local thought drafts');list=notebook.menu._shelf_popup
+            expect(list.item_table[1].mandatory=='合成测试书籍')
+            if screenshot then TextSmoke.menu_emoji(list,'😀');shot('notebook-drafts') end
+            list:onMenuSelect(list.item_table[1]);tap(notebook,'resume_other_book_draft')
+            expect(notebook.menu.saved_note_open and not plugin._my_marks_owner)
+            return notebook
+        end
+        pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
+        local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+        local gate=ffi.cast('int *',memory);local read=Cache.read
+        Cache.read=function(...)
+            assert(tonumber(ffi.C.getpid())~=parent,'draft handoff read the target cache on the interface thread')
+            gate[0]=1
+            local deadline=socket.gettime()+10
+            while gate[1]==0 do assert(socket.gettime()<deadline,'draft read was not released');socket.sleep(.01) end
+            return read(...)
+        end
+        local saved=journal:drafts()[1]
+        local notebook=choose_draft(true);local loading=notebook.menu.saved_note_open.worker
+        local pid=loading.job.pid
+        local beat=false;UI:scheduleIn(.1,function() beat=true end)
+        wait(function() return beat and gate[0]==1 end)
+        Catalog.cancel(plugin)
+        gate[1]=1
+        wait(function() return loading.runner.done(pid) end)
+        expect(not notebook.menu.saved_note_open and not plugin._my_marks_owner and not plugin.busy_message)
+        expect(journal:drafts()[1].token==saved.token and journal:drafts()[1].content==saved.content)
+        Cache.read=read;ffi.C.munmap(memory,4096)
+        notebook=choose_draft(false)
+        wait(function() return not notebook.menu.saved_note_open end)
         owner=assert(plugin._my_marks_owner)
         expect(owner.id=='900001' and notebook.child==owner and owner.editor and owner.editor.input)
         expect(owner.editor.input:getInputText():find('合成本机草稿',1,true) and state().requests==before)

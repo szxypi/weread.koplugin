@@ -200,8 +200,11 @@ if input.mode:find('^selection_direct') then
                         local drafts_action
                         for _,item in ipairs(owner.menu.item_table) do if item.text==tr('Local thought drafts') then drafts_action=item.callback;break end end
                         assert(drafts_action);drafts_action();assert(owner.editor and owner.editor.dialog.item_table[1])
+                        local network=host.isNetworkOnline
+                        host.isNetworkOnline=function() error('resuming a cached selection checked the network') end
                         owner.editor.dialog.item_table[1].callback();tap('resume_thought_draft')
                         wait(function() return owner.editor and owner.editor.input or host.checked_message end)
+                        host.isNetworkOnline=network
                         assert(owner.editor.input:getInputText()=='Synthetic private thought','direct draft did not restore')
                         require('weread.ui.thought_editor').cancel(host,owner)
                         if input.mode=='selection_direct_thought_offline_locked' then

@@ -432,32 +432,53 @@ local resumes={}
 package.loaded['weread.ui.thought_editor']={cancel=function() end,resume=function(_host,owner,key,token)
     resumes[#resumes+1]={owner=owner,key=key,token=token};return true end}
 local request={book_id='900001',key=string.rep('a',64),token=string.rep('b',32),operation='create',selection=false}
+local function open_draft(plugin,state,options)
+    options=options or {};options.resume_draft=request
+    if not Marks.open(plugin,'900001',nil,options) then return false end
+    expect(not state.reads and not plugin._my_marks_owner,'draft handoff read the target notes on the interface thread')
+    state.complete(state.task())
+    return true
+end
 host,value=fixture(snapshot());resumes={}
-expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and resumes[1].key==request.key,
+expect(open_draft(host,value) and #resumes==1 and resumes[1].key==request.key,
     'cached reference did not start the requested draft')
 Marks.cancel(host)
-host,value=fixture();resumes={};expect(Marks.show(host,'900001',nil,{resume_draft=request}), 'offline target did not open')
-expect(#resumes==0 and value.link_checks==1 and not value.started and #value.notices==1,'missing offline reference was guessed')
+host,value=fixture();resumes={};expect(open_draft(host,value), 'offline target did not open')
+expect(#resumes==0 and value.link_checks==1 and value.started==1 and #value.notices==1,'missing offline reference was guessed')
 Marks.cancel(host)
 host,value=fixture();resumes={};request.selection=true
-expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and not value.started,
+expect(open_draft(host,value) and #resumes==1 and value.started==1 and not value.link_checks,
     'selection draft did not use local source without network')
 Marks.cancel(host);request.selection=false
 host,value=fixture();value.online=true;resumes={}
-expect(Marks.show(host,'900001',nil,{resume_draft=request}) and value.link_checks==1 and value.started==1 and #resumes==0,
+expect(open_draft(host,value) and value.link_checks==1 and value.started==2 and #resumes==0,
     'missing reference did not refresh after one link check')
 value.complete(snapshot());expect(value.writes==1 and #resumes==1 and resumes[1].token==request.token,'fresh reference did not resume draft')
 Marks.cancel(host)
-host,value=fixture();value.online=true;resumes={};Marks.show(host,'900001',nil,{resume_draft=request});menu=host._my_marks_menu
+host,value=fixture();value.online=true;resumes={};open_draft(host,value);menu=host._my_marks_menu
 row(menu,'Highlights only').callback();value.complete(snapshot())
 expect(#resumes==0 and value.writes==1,'late reference refresh displaced a newer user action')
 Marks.cancel(host)
-host,value=fixture();value.online=true;resumes={};Marks.show(host,'900001',nil,{resume_draft=request});menu=host._my_marks_menu
+host,value=fixture();value.online=true;resumes={};open_draft(host,value);menu=host._my_marks_menu
 menu._shelf_popup={};value.complete(snapshot())
 expect(#resumes==0,'late reference refresh opened an editor over another popup')
 Marks.cancel(host)
+host,value=fixture(snapshot());resumes={}
+expect(Marks.show(host,'900001'),'source notes did not open')
+local original_menu=host._my_marks_menu
+expect(Marks.open(host,'900001',nil,{source=original_menu,resume_draft=request}),'draft read did not start')
+local handoff_complete,value_from_worker=value.complete,value.task()
+original_menu:onCloseWidget()
+handoff_complete(value_from_worker)
+expect(#resumes==0 and not host._my_marks_owner and not original_menu.saved_note_open and not host.busy_message,
+    'closing source notes did not cancel the pending handoff')
+host,value=fixture(snapshot())
+expect(Marks.open(host,'900001',nil,{resume_draft=request}),'failed draft read could not be tested')
+value.complete(nil)
+expect(not host._my_marks_owner and not value.link_checks and value.notices[1]:find('draft is kept',1,true),
+    'failed draft read did not report that the draft remains saved')
 host,value=fixture(snapshot());request.book_id='900002'
-expect(not Marks.show(host,'900001',nil,{resume_draft=request}),'another book request was accepted')
+expect(not Marks.open(host,'900001',nil,{resume_draft=request}),'another book request was accepted')
 package.loaded['weread.ui.thought_editor']=original_editor
 
 do

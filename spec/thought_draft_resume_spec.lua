@@ -34,8 +34,15 @@ package.preload['weread.lib.memory_worker']=function() return {new=function() re
     start=function(_self,task,callback) state.task=task;state.complete=callback
         if state.worker_throws then error('synthetic worker failure') end;return not state.worker_failed end,
     cancel=function() state.cancelled=true end} end} end
-package.preload['weread.ui.my_cloud_marks']=function() return {show=function(host,id,variant,options)
-    state.opened={id=id,variant=variant,options=options};host._my_marks_owner={id=id};return true end} end
+package.preload['weread.ui.my_cloud_marks']=function() return {open=function(host,id,variant,options)
+    assert(options.current())
+    state.opened={id=id,variant=variant,options=options}
+    state.apply=function()
+        if not options.current() then return end
+        host._my_marks_owner={id=id};options.on_open(host._my_marks_owner)
+    end
+    return true
+end} end
 local Editor=require('weread.ui.thought_editor')
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local function fixture()
@@ -92,8 +99,15 @@ owner.editor.dialog.item_table[1].callback();local viewer=owner.editor.dialog
 local button=viewer.buttons_table[1][2]
 expect(button.id=='resume_other_book_draft','cross-book resume not offered')
 button.callback()
+expect(state.opened.options.source==owner.menu and host._notebook_owner.child==owner,'pending handoff replaced its source')
+state.apply()
 expect(state.opened and state.opened.id=='42' and state.opened.variant==nil and state.opened.options.resume_draft.token=='v1'
     and host._notebook_owner.child==host._my_marks_owner,'cross-book handoff lost target or parent ownership')
+host,owner,current=fixture();owner.id='41';host._notebook_owner={child=owner}
+Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback()
+owner.editor.dialog.buttons_table[1][2].callback();owner.menu._shelf_popup={}
+state.apply()
+expect(not host._my_marks_owner and host._notebook_owner.child==owner,'delayed handoff displaced a newer popup')
 host,owner,current=fixture();state.draft.operation='edit';state.draft.reference_id='review';owner.thoughts=true
 owner.value={reviews={{reviewId='review',isPrivate=1,content='Original',hash='original'}}}
 expect(Editor.resume(host,owner,'draft','v1',current) and owner.editor.input.input=='Saved draft',
@@ -168,4 +182,42 @@ expect(Editor.start(host,owner,'create',row,current,nil,saved_draft),'draft rech
 state.draft.token='v2';state.complete(state.task())
 expect(not owner.editor and not state.lease_held and state.message:find('draft changed',1,true),
     'replacement during chapter check opened an older draft')
+do
+    package.loaded['weread.lib.native_read_access']={matches=function() return true end}
+    package.loaded['weread.lib.source_currentness']={matches=function() return true end}
+    package.loaded['weread.lib.native_direct_reference']={
+        restore_cached=function(_,_,_,_,_,_,_,is_current)
+            assert(is_current())
+            if state.missing then return nil,state.missing end
+            return row
+        end,
+        restore=function()
+            assert(state.background and state.network_checks==1)
+            state.remote_checked=true;return row
+        end,
+    }
+    for _,case in ipairs({{'cached'}, {'offline_source_unavailable',true},
+        {'offline_source_unavailable',false}, {'source_changed',true}}) do
+        host,owner,current=fixture();owner.direct=true;owner.value=nil
+        state.draft.reference_id='selection';state.draft.base_hash='source';state.network_checks=0
+        if case[1]~='cached' then state.missing=case[1] end
+        function host:isNetworkOnline()
+            assert(state.background,'draft restore probed the network on the interface thread')
+            state.network_checks=state.network_checks+1;return case[2]
+        end
+        expect(Editor.resume(host,owner,'draft','v1',current) and state.network_checks==0,'resume blocked on network state')
+        state.background=true;local result=state.task();state.background=false
+        state.complete(result)
+        local fallback=case[1]=='offline_source_unavailable'
+        local opened=owner.editor and owner.editor.input
+        expect(state.network_checks==(fallback and 1 or 0) and (state.remote_checked==true)==(fallback and case[2] or false),
+            'incorrect fallback for '..case[1])
+        expect((opened~=nil)==(case[1]=='cached' or fallback and case[2]),
+            'incorrect restore result for '..case[1])
+    end
+    host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source'
+    state.worker_throws=true
+    expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor and state.cancelled
+        and state.message:find('draft is kept',1,true),'worker failure did not leave the draft available')
+end
 print('thought_draft_resume_spec: '..checks..' checks')

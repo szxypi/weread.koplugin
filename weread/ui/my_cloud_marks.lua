@@ -31,6 +31,7 @@ local function cancel_search(host,owner)
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 local function stop(host,owner)
+    M.cancel_saved(host,owner.menu)
     cancel_search(host,owner)
     require('weread.ui.thought_images').cancel(host,owner)
     local card=package.loaded['weread.ui.excerpt_card']
@@ -553,21 +554,15 @@ local function present(host,owner,request,saved_note_id)
     return true
 end
 
-function M.show(host,id,variant,options)
+function M.show(host,id,variant)
     if not Data.display_id(id) or not host.library_db
         or variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
-    local request=type(options)=='table' and options.resume_draft or nil
-    if options~=nil and (type(request)~='table' or request.book_id~=id
-        or not require('weread.lib.thought_edit_contract').hash(request.key)
-        or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
-        or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
-        or (request.operation=='edit')~=(variant=='thoughts')) then return false end
     local owner=new_owner(host,id,variant)
     if not owner then host:showInfo(_('Please scan the QR code to log in first.'));return false end
     M.cancel(host)
     local ok,value=pcall(owner.store.read,owner.store,id)
     owner.value=ok and value or nil
-    return present(host,owner,request)
+    return present(host,owner)
 end
 
 function M.cancel_saved(host,source)
@@ -627,17 +622,27 @@ end
 function M.open(host,id,variant,options)
     if not Data.display_id(id) or not host.library_db
         or variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    options=options or {}
+    local request=options.resume_draft
+    if request~=nil and (type(request)~='table' or request.book_id~=id
+        or not require('weread.lib.thought_edit_contract').hash(request.key)
+        or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
+        or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
+        or variant=='bookmarks' or (request.operation=='edit')~=(variant=='thoughts')) then return false end
     local owner=new_owner(host,id,variant)
     if not owner then host:showInfo(_('Please scan the QR code to log in first.'));return false end
-    options=options or {}
     local source=options.source or host
     local function valid() return not options.current or options.current() end
     if not valid() then return false end
     M.cancel_saved(host,source)
     return load_snapshot(host,owner,source,valid,function(snapshot,ok)
-        if not ok then host:showInfo(_('Could not open saved notes.'));return end
+        if not ok then
+            host:showInfo(_(request and 'Could not open the original notes. Your local draft is kept.'
+                or 'Could not open saved notes.'))
+            return
+        end
         owner.value=snapshot
-        if present(host,owner) and options.on_open then options.on_open(owner) end
+        if present(host,owner,request) and options.on_open then options.on_open(owner) end
     end)
 end
 

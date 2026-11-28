@@ -79,6 +79,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         for _i,item in ipairs(notebook.menu.item_table) do if item.text==tr('Local thought drafts') then item.callback();break end end
         notebook.editor.dialog.item_table[1].callback();UI:forceRePaint()
         notebook.menu._shelf_popup.button_table:getButtonById('resume_other_book_draft'):onTapSelectButton()
+        pump(function() return not plugin._my_marks_loading_source end)
         local own=assert(plugin._my_marks_owner)
         pump(function() return own.editor and own.editor.input end)
         assert(own.id==id and notebook.child==own,'notebook lost its resumed selection owner')

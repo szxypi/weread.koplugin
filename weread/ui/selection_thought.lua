@@ -34,6 +34,8 @@ local function current(host,owner)
         and (not owner.direct or NativeAccess.matches(host.settings,owner.native) and Currentness.matches(host.settings,owner.web))
 end
 local function stop(host,owner)
+    local notes=package.loaded['weread.ui.my_cloud_marks']
+    if notes then notes.cancel_saved(host,owner.menu) end
     Editor.cancel(host,owner)
     require('weread.ui.mark_editor').cancel(host,owner)
     if owner.task then UI:unschedule(owner.task);owner.task=nil end
