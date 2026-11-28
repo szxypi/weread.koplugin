@@ -41,7 +41,9 @@ package.preload['weread.lib.source_dom']=function() return {normalize=function(v
     return type(value)=='string' and value:gsub('%s','') or nil
 end} end
 local scans,last_case,unicode_available=0,nil,false
+local capture_id=string.rep('a',64)
 package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,MAX_ARCHIVE_BATCH=1,
+    valid_capture_id=function(value) return value==capture_id end,
     unicode_casefold_available=function() return unicode_available end,
     discover=function() return {error='unavailable'} end,
     scan=function(input)
@@ -417,7 +419,12 @@ Cached.cancel(host)
 local visited={}
 search_module.scan=function(request)
     visited[#visited+1]=request.chapter..':'..request.from
-    if request.chapter=='1' and request.from==1 then return {hits={},next_byte=32,unresolved=2} end
+    if request.chapter=='1' then
+        if request.from==1 then return {hits={},next_byte=32,unresolved=2,capture_id=capture_id} end
+        assert(request.capture_id==capture_id)
+        local result=original_scan(request);result.capture_id=capture_id;return result
+    end
+    assert(not request.capture_id,'chapter inherited the previous chapter capture')
     if request.chapter=='2' then return {hits={},missing=true} end
     if request.chapter=='3' then return {error='unavailable'} end
     return original_scan(request)
@@ -430,6 +437,26 @@ next_task();worker:complete()
 expect(table.concat(visited,',')=='1:1,1:32,2:1,3:1' and owner.index==3 and owner.checked==2 and owner.missing==1
     and #owner.value==1 and not owner.job and host.info=='Could not search downloaded chapters.',
     'worker error discarded the valid prefix or scanned later chapters')
+Cached.cancel(host)
+
+search_module.scan=function(request)
+    if request.chapter=='1' then
+        if request.from>1 then
+            assert(request.capture_id==capture_id)
+            return {hits={},missing=true,source_changed=true}
+        end
+        local result=original_scan(request)
+        result.complete=nil;result.next_byte=32;result.capture_id=capture_id
+        return result
+    end
+    assert(not request.capture_id)
+    return original_scan(request)
+end
+owner=open({many[1],many[2]});worker:complete();next_task();worker:complete();next_task()
+expect(owner.finished and owner.missing==1 and owner.source_changed and not owner.capture_id and #owner.value==2
+    and owner.value[1].chapter_uid=='1' and owner.value[2].chapter_uid=='2'
+    and find_item(owner.menu,'Some chapter text changed during this search. Search again to include the updated text.'),
+    'changed source lost earlier hits or the next chapter')
 Cached.cancel(host)
 
 search_module.scan=function(request) now=now+360;return original_scan(request) end

@@ -1326,6 +1326,7 @@ local zh = {
     ["No more locatable matches in downloaded chapters."] = "已下载章节中没有更多可定位的匹配。",
     ["Downloaded search: %1 of %2 chapters checked; %3 unavailable."] = "下载内容搜索：已检查 %1 / %2 章，%3 章不可用。",
     ["Some matches could not be located safely and were omitted."] = "部分匹配无法安全定位，已省略。",
+    ["Some chapter text changed during this search. Search again to include the updated text."] = "部分章节原文在搜索期间发生变化。重新搜索可查找更新后的内容。",
     ["Chapter list unavailable; only mapped downloads were searched."] = "目录不可用，仅搜索了已关联的下载章节。",
     ["Chapter list unavailable; only indexed downloads were searched."] = "目录不可用，仅搜索了可核对的已下载章节。",
     ["Downloaded chapter %1"] = "已下载第 %1 章",

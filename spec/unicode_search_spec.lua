@@ -119,7 +119,8 @@ files={[Identity.PATH]=root,[Source.meta_path('2')]=metadata,[Source.path_meta_p
 args.keyword='STRASSE';args.ignore_ascii_case=true;args.from=1
 local batch=Search.scan(args,archive)
 expect(#batch.hits==30 and batch.next_byte and not batch.complete,'Unicode first result batch failed')
-args.from=batch.next_byte;local more=Search.scan(args,archive)
+args.from,args.capture_id=batch.next_byte,batch.capture_id
+local more=Search.scan(args,archive)
 expect(#more.hits==7 and more.complete and batch.hits[30].offset<more.hits[1].offset,'Unicode continuation lost or repeated results')
 body='<html><body><p>Unique alpha '..string.rep('ß',105)..' S ends.</p></body></html>'
 captured=assert(Source.capture(book,chapter,body,'web_xhtml'))
@@ -127,7 +128,7 @@ root=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(bod
 metadata=assert(Source.bind(captured,identity,render,Crypto.sha256_hex(body)))
 files={[Identity.PATH]=root,[Source.meta_path('2')]=metadata,[Source.path_meta_path(render)]=metadata,
     [Source.raw_path(captured.raw_sha256)]=body,[render]=body}
-args.keyword='s';args.from=1
+args.keyword='s';args.from,args.capture_id=1,nil
 local positions,rounds={},0
 repeat
     local result=Search.scan(args,archive)
@@ -136,7 +137,7 @@ repeat
     rounds=rounds+1;expect(rounds<8,'Unicode search did not advance across partial expansions')
     if result.complete then break end
     expect(result.next_byte>args.from,'Unicode continuation did not advance')
-    args.from=result.next_byte
+    args.from,args.capture_id=result.next_byte,result.capture_id
 until false
 expect(#positions==2,'partial expansion created or lost search results')
 

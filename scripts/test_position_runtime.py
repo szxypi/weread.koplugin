@@ -493,7 +493,7 @@ def main():
                     value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',warning_first=True,download_available=True,
                                        cancel_preserved=True,continued_batches=3,previous_batch=True,
-                                       no_empty_batch=True,network_requests=0), 'limited cached search mismatch'
+                                       no_empty_batch=True,changed_source_preserved=True,network_requests=0), 'limited cached search mismatch'
                     assert not server.events, 'limited cached search made a mock request'
                     print('PASS: '+str(log));return
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='

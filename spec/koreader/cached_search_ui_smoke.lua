@@ -186,6 +186,7 @@ for i=1,2 do
         ..(unicode_case and ('Straße '..accented..' Σίσυφος') or 'amberneedle')
         ..(limit_test and ' amberneedle amberneedle' or '')
         ..(limit_test and i==1 and ' quartzneedle quartzneedle' or '')
+        ..(limit_test and i==2 and ' cobaltneedle cobaltneedle cobaltneedle' or '')
         ..(canonical_case~='' and (' S'..string.char(204,135,204,163)..' canonical') or '')..' distinct ending '..uid
     local raw=txt_source and ('chapter '..uid..'\n\n    '..text) or '<html><body><p>'..text..'</p></body></html>'
     bodies[uid]=txt_source and Content.txt_to_xhtml(raw) or raw
@@ -360,14 +361,17 @@ if limit_test then
     select_action('Show previous result batch');assert(owner.show_previous and #owner.previous==2)
     assert(requests[0]==0,'continued local search attempted a network request')
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-batches.png')
-    owner.menu:onClose()
     plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
-    assert(plugin:showEndOfBookDialog(book_id))
-    assert(UI:getTopmostVisibleWidget():getButtonById('search_cached')).callback()
-    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
-    owner=assert(plugin._cached_book_search_owner)
-    owner.input:setInputText('quartzneedle');owner.input.buttons[1][2].callback()
-    wait(function() return owner.limit and not owner.job end)
+    local function search_to_limit(term)
+        owner.menu:onClose()
+        assert(plugin:showEndOfBookDialog(book_id))
+        assert(UI:getTopmostVisibleWidget():getButtonById('search_cached')).callback()
+        wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+        owner=assert(plugin._cached_book_search_owner)
+        owner.input:setInputText(term);owner.input.buttons[1][2].callback()
+        wait(function() return owner.limit and not owner.job end)
+    end
+    search_to_limit('quartzneedle')
     assert(#owner.value==2 and owner.value[2].chapter_uid=='1')
     local kept_batch=owner.value
     select_action('Search next batch (keeps only the previous batch)')
@@ -375,8 +379,32 @@ if limit_test then
     wait(function() return owner.finished and not owner.job end)
     assert(owner.value==kept_batch and owner.page==1 and not owner.previous and not owner.limit
         and not owner.next_batch and requests[0]==0,'a later chapter without matches created an empty batch')
+    local scan_limit=Search.MAX_HITS;Search.MAX_HITS=2
+    search_to_limit('cobaltneedle')
+    local capture_id=assert(owner.capture_id)
+    assert(owner.from>1 and owner.value[1].chapter_uid==second_uid and #owner.value==2)
+    kept_batch=owner.value
+    local changed_raw='<html><body><p>'..string.rep('Synthetic updated chapter text ',160)
+        ..'cobaltneedle cobaltneedle cobaltneedle updated ending</p></body></html>'
+    local updated_source=assert(Source.capture(book,chapters[2],changed_raw,'web_xhtml'))
+    assert(updated_source.capture_id~=capture_id)
+    local replacement=assert(Content.save_book_epub(settings,book,{chapters[2]},{[second_uid]=changed_raw},
+        'cached-search-replacement',{},nil,nil,Identity.capture(book),{[second_uid]=updated_source}))
+    local previous_path=assert(book.cached_chapters[second_uid])
+    assert(previous_path~=reader.document.file and replacement~=previous_path)
+    assert(os.rename(replacement,previous_path))
+    select_action('Search next batch (keeps only the previous batch)')
+    wait(function() return owner.finished and not owner.job end)
+    assert(owner.value==kept_batch and owner.page==1 and not owner.capture_id and owner.source_changed
+        and owner.missing==2,'search used the old cursor in a different chapter source')
+    search_to_limit('cobaltneedle')
+    assert(not owner.source_changed and owner.capture_id==updated_source.capture_id and owner.value[1].source_hash==updated_source.raw_sha256,
+        'new search did not include the updated source')
+    Search.MAX_HITS=scan_limit
+    assert(requests[0]==0)
     print('\nWEREAD_CACHED_SEARCH_LIMIT='..require('json').encode({result='PASS',warning_first=true,
-        download_available=true,cancel_preserved=true,continued_batches=3,previous_batch=true,no_empty_batch=true,network_requests=0}))
+        download_available=true,cancel_preserved=true,continued_batches=3,previous_batch=true,no_empty_batch=true,
+        changed_source_preserved=true,network_requests=0}))
     os.exit(0)
 end
 if unicode_case then for _i,hit in ipairs(owner.value) do

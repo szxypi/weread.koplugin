@@ -24,6 +24,10 @@ local function path(value)
     return type(value)=='string' and value~='' and #value<=4096 and not value:find('[%z%c]')
 end
 
+function M.valid_capture_id(value)
+    return type(value)=='string' and #value==64 and value:match('^[0-9a-f]+$')~=nil
+end
+
 -- Read only members named by independently decoded metadata; a matching raw
 -- hash alone is not enough if the rendered chapter or archive identity changed.
 local function read_snapshot(file,book,uid,read_archive,with_metadata_hash)
@@ -136,26 +140,40 @@ function M.scan(input,read_archive)
             or type(input.paths)~='table' or #input.paths<1 or #input.paths>4
             or type(input.keyword)~='string' or #input.keyword<1 or #input.keyword>160
             or input.ignore_ascii_case~=nil and type(input.ignore_ascii_case)~='boolean'
-            or type(input.from)~='number' or input.from%1~=0 or input.from<1 or input.from>Source.MAX_BYTES*4+1 then
+            or type(input.from)~='number' or input.from%1~=0 or input.from<1 or input.from>Source.MAX_BYTES*4+1
+            or input.from>1 and not M.valid_capture_id(input.capture_id)
+            or input.from==1 and input.capture_id~=nil then
             return {error='invalid'}
         end
         local keyword=Dom.normalize(input.keyword)
         if not keyword or keyword=='' then return {error='invalid'} end
         local snapshot,map,seen
+        local source_changed=false
         seen={}
         for _i,file in ipairs(input.paths) do
             if not path(file) then return {error='invalid'} end
             if not seen[file] then
                 seen[file]=true
                 local candidate=read_snapshot(file,input.book,input.chapter,read_archive)
-                local candidate_map=candidate and Coordinates.build(candidate.record.raw,
-                    {format=candidate.record.format,allow_multiple_bodies=true})
-                if candidate_map and pcall(candidate_map._index,candidate_map) then
-                    snapshot,map=candidate,candidate_map;break
+                if not candidate and input.capture_id and read_archive then
+                    -- A replacement can have members outside the earlier archive index.
+                    candidate=read_snapshot(file,input.book,input.chapter)
+                end
+                if candidate then
+                    -- A capture identifies the original bytes and format across EPUB copies.
+                    if input.capture_id and candidate.record.capture_id~=input.capture_id then
+                        source_changed=true
+                    else
+                        local candidate_map=Coordinates.build(candidate.record.raw,
+                            {format=candidate.record.format,allow_multiple_bodies=true})
+                        if candidate_map and pcall(candidate_map._index,candidate_map) then
+                            snapshot,map=candidate,candidate_map;break
+                        end
+                    end
                 end
             end
         end
-        if not snapshot then return {missing=true,hits={}} end
+        if not snapshot then return {missing=true,source_changed=source_changed or nil,hits={}} end
         local record=snapshot.record
         local haystack=map.flat
         local unicode,at,resume=nil,input.from,input.from
@@ -169,9 +187,13 @@ function M.scan(input,read_archive)
         end
         local hits,examined,unresolved={},0,0
         local metadata_hash
+        local function finish_scan(next_byte)
+            return {hits=hits,next_byte=next_byte,complete=next_byte==nil,unresolved=unresolved,
+                capture_id=(next_byte or input.capture_id) and record.capture_id or nil}
+        end
         while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
             local first=haystack:find(keyword,at,true)
-            if not first then return {hits=hits,complete=true,unresolved=unresolved} end
+            if not first then return finish_scan() end
             examined=examined+1
             local source_first,exact,last=first,true,first+#keyword-1
             if unicode then
@@ -194,7 +216,7 @@ function M.scan(input,read_archive)
             end
         end
         local next_byte=haystack:find(keyword,at,true) and resume or nil
-        return {hits=hits,next_byte=next_byte,complete=next_byte==nil,unresolved=unresolved}
+        return finish_scan(next_byte)
     end)
     return ok and result or {error='unavailable'}
 end

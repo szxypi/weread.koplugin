@@ -9,14 +9,15 @@ local Identity=require('weread.lib.book_file_identity')
 local Crypto=require('weread.lib.crypto')
 local checks=0
 local function expect(value,label) checks=checks+1;if not value then error(label) end end
-local function fixture(book,uid,raw)
+local function fixture(book,uid,raw,rendered)
     local b={book_id=book,bookVersion=7};local chapter={chapterUid=uid}
     local capture=assert(Source.capture(b,chapter,raw,'web_xhtml'))
-    local root=Identity.encode(b,{chapter},Identity.capture(b),Crypto.sha256_hex(raw))
+    rendered=rendered or raw
+    local root=Identity.encode(b,{chapter},Identity.capture(b),Crypto.sha256_hex(rendered))
     local identity=assert(Identity.decode(root));local render='OEBPS/text/chapter.xhtml'
-    local metadata=assert(Source.bind(capture,identity,render,Crypto.sha256_hex(raw)))
+    local metadata=assert(Source.bind(capture,identity,render,Crypto.sha256_hex(rendered)))
     local members={[Identity.PATH]=root,[Source.meta_path(uid)]=metadata,[Source.path_meta_path(render)]=metadata,
-        [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[render]=raw}
+        [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[render]=rendered}
     return members
 end
 local paragraphs={}
@@ -35,9 +36,32 @@ local input={book='CB_Synthetic',chapter='2',paths={'/missing.epub','/cached.epu
 local first=Search.scan(input,archive)
 expect(type(first.hits)=='table' and #first.hits==30 and type(first.next_byte)=='number' and not first.complete,
     'first batch did not retain a continuation')
-input.from=first.next_byte;local second=Search.scan(input,archive)
+input.from,input.capture_id=first.next_byte,first.capture_id
+local second=Search.scan(input,archive)
 expect(#second.hits==7 and second.complete and second.unresolved==0,'continuation lost or repeated hits')
 expect(first.hits[1].offset~=second.hits[1].offset,'continuation repeated the first hit')
+local changed_raw=raw:gsub('<body>','<body><p>New source before the earlier matches.</p>')
+files['/changed.epub']=fixture(input.book,'2',changed_raw)
+files['/repacked.epub']=fixture(input.book,'2',raw,raw:gsub('<p>','<p class="rebuilt">'))
+local continued={book=input.book,chapter='2',paths={'/changed.epub'},keyword='needle',from=first.next_byte}
+expect(Search.scan(continued,archive).error=='invalid','unbound continuation was accepted')
+continued.capture_id=first.capture_id
+local changed=Search.scan(continued,archive)
+expect(changed.missing and changed.source_changed and #changed.hits==0,'changed source used the earlier text cursor')
+local Archive=require('weread.lib.source_archive')
+local original_read=Archive.read;Archive.read=archive
+local changed_without_index=Search.scan(continued,function(file,wanted)
+    if wanted[Identity.PATH] then return archive(file,wanted) end
+end)
+Archive.read=original_read
+expect(changed_without_index.source_changed,'stale archive index hid a changed chapter source')
+continued.paths[2]='/repacked.epub'
+local equivalent=Search.scan(continued,archive)
+expect(equivalent.complete and #equivalent.hits==7 and equivalent.capture_id==first.capture_id
+    and equivalent.hits[1].offset==second.hits[1].offset and equivalent.hits[1].file_id~=second.hits[1].file_id,
+    'same original text could not continue through a repacked EPUB')
+continued.from,continued.capture_id=1,nil
+expect(#Search.scan(continued,archive).hits==30,'a new search excluded the changed source')
 files['/exact.epub']=fixture(input.book,'2','<html><body>'..table.concat(paragraphs,'',1,30)..'</body></html>')
 local exact=Search.scan({book=input.book,chapter='2',paths={'/exact.epub'},keyword='needle',from=1},archive)
 expect(#exact.hits==30 and exact.complete and not exact.next_byte,'exact worker limit falsely offered a continuation')
@@ -46,10 +70,11 @@ local folded_input={book=input.book,chapter=input.chapter,paths={'/cached.epub'}
 local folded=Search.scan(folded_input,archive)
 expect(#folded.hits==30 and folded.hits[1].offset==first.hits[1].offset
     and folded.hits[1].context:find('needle',1,true),'folded search lost the original location or context')
-folded_input.from=folded.next_byte;local folded_next=Search.scan(folded_input,archive)
+folded_input.from,folded_input.capture_id=folded.next_byte,folded.capture_id
+local folded_next=Search.scan(folded_input,archive)
 expect(#folded_next.hits==7 and folded_next.complete and folded_next.hits[1].offset==second.hits[1].offset,
     'folded continuation lost or repeated matches')
-folded_input.from=1;folded_input.ignore_ascii_case=false
+folded_input.from,folded_input.capture_id=1,nil;folded_input.ignore_ascii_case=false
 expect(#Search.scan(folded_input,archive).hits==0,'case-sensitive search ignored case')
 folded_input.ignore_ascii_case='yes'
 expect(Search.scan(folded_input,archive).error=='invalid','non-boolean case setting accepted')

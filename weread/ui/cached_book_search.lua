@@ -140,6 +140,10 @@ render=function(host,owner)
             items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
                 owner.checked,owner.total,owner.missing),select_enabled=false}
         end
+        if owner.source_changed then
+            items[#items+1]={text=_('Some chapter text changed during this search. Search again to include the updated text.'),
+                select_enabled=false}
+        end
         if owner.unresolved>0 then
             items[#items+1]={text=_('Some matches could not be located safely and were omitted.'),select_enabled=false}
         end
@@ -222,28 +226,32 @@ end
 
 local function accept_scan(owner,result,request)
     local chapter=owner.queue[owner.index]
-    if not chapter or chapter.uid~=request.chapter or owner.from~=request.from
+    if not chapter or chapter.uid~=request.chapter or owner.from~=request.from or owner.capture_id~=request.capture_id
         or type(result)~='table' or type(result.hits)~='table' or #result.hits>Search.MAX_HITS
         or result.error or type(result.unresolved or 0)~='number' or (result.unresolved or 0)%1~=0
         or (result.unresolved or 0)<0 or (result.unresolved or 0)>Search.MAX_EXAMINED
         or result.complete~=nil and type(result.complete)~='boolean'
         or result.missing~=nil and type(result.missing)~='boolean'
         or result.complete==true and result.next_byte~=nil
-        or result.missing==true and (#result.hits~=0 or result.complete or result.next_byte or (result.unresolved or 0)~=0)
+        or result.source_changed~=nil and (result.source_changed~=true or not result.missing or not request.capture_id)
+        or result.missing==true and (#result.hits~=0 or result.complete or result.next_byte or result.capture_id or (result.unresolved or 0)~=0)
         or result.missing~=true and result.complete~=true
             and (type(result.next_byte)~='number' or result.next_byte%1~=0 or result.next_byte<=request.from
-                or result.next_byte>require('weread.lib.position_source').MAX_BYTES*4+1) then return false end
+                or result.next_byte>require('weread.lib.position_source').MAX_BYTES*4+1
+                or not Search.valid_capture_id(result.capture_id))
+        or not result.missing and request.capture_id and request.capture_id~=result.capture_id then return false end
     for _i,hit in ipairs(result.hits) do
         if type(hit)~='table' or hit.chapter_uid~=chapter.uid or type(hit.context)~='string'
             or #hit.context>1024 or not Target.row(owner.id,owner.keyword,hit) then return false end
     end
     owner.unresolved=owner.unresolved+(result.unresolved or 0)
+    owner.source_changed=owner.source_changed or result.source_changed
     append_hits(owner,result.hits)
     if result.missing or result.complete then
         owner.checked=owner.checked+1
         if result.missing then owner.missing=owner.missing+1 end
-        owner.index=owner.index+1;owner.from=1
-    else owner.from=result.next_byte end
+        owner.index=owner.index+1;owner.from=1;owner.capture_id=nil
+    else owner.from=result.next_byte;owner.capture_id=result.capture_id end
     return true
 end
 
@@ -335,7 +343,8 @@ start=function(host,owner)
             local chapter=owner.queue[index]
             if (chapter.archive~=nil)~=grouped then break end
             requests[#requests+1]={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,
-                from=index==owner.index and owner.from or 1,ignore_ascii_case=owner.ignore_ascii_case,archive=chapter.archive}
+                from=index==owner.index and owner.from or 1,capture_id=index==owner.index and owner.capture_id or nil,
+                ignore_ascii_case=owner.ignore_ascii_case,archive=chapter.archive}
         end
         if #requests==1 then archive=nil end
         local used=owner.next_batch and 0 or #owner.value
@@ -425,6 +434,7 @@ fetch_catalog=function(host,owner)
         owner.discovery_incomplete,owner.discovered=false,false
         owner.queue,owner.missing,owner.total=entries,missing,total
         owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
+        owner.capture_id,owner.source_changed=nil,nil
         owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
         owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
         owner.next_batch=nil
@@ -488,6 +498,7 @@ download_missing=function(host,owner)
                     owner.queue,owner.missing,owner.total=entries,missing,total
                     owner.discovery_pending=#entries>M.MAX_SCANS_PER_WORKER
                     owner.full=path;owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
+                    owner.capture_id,owner.source_changed=nil,nil
                     owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
                     owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
                     owner.next_batch=nil
