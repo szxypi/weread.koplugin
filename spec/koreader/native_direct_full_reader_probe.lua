@@ -214,7 +214,30 @@ local item
 for _,row in ipairs(owner.menu.item_table) do
     if row.text==wanted.title..' · '..wanted.hit.context then item=row end
 end
-assert(item,'search result missing from reader menu');owner.menu:onMenuSelect(item)
+assert(item,'search result missing from reader menu')
+do
+    local menu,items,menu_page=owner.menu,owner.menu.item_table,owner.menu.page
+    local current_point=assert(before_search.document:getXPointer())
+    local file=assert(io.open(input.first,'rb'));local original_bytes=assert(file:read('*a'));assert(file:close())
+    file=assert(io.open(input.first,'ab'));assert(file:write('corrupt'));assert(file:close())
+    local function results_preserved()
+        assert(host._native_direct_search==owner and owner.menu==menu and menu.item_table==items and menu.page==menu_page
+            and not owner.navigation and Reader.instance==before_search and before_search.document:getXPointer()==current_point,
+            'opening or cancelling a stale search hit changed the reader or lost the results')
+    end
+    menu:onMenuSelect(item)
+    assert(host._native_direct_search_open,'changed result did not reach the cache check')
+    pump(function() return not host._native_direct_search_open end)
+    results_preserved()
+    local notice=assert(UI:getTopmostVisibleWidget())
+    assert(notice.text==util.tr('Could not locate this downloaded search result. The cached chapter may have changed.'))
+    UI:close(notice)
+    file=assert(io.open(input.first,'wb'));assert(file:write(original_bytes));assert(file:close())
+    menu:onMenuSelect(item)
+    assert(host.busy_message):onTapClose()
+    results_preserved()
+end
+owner.menu:onMenuSelect(item)
 pump(function() return Reader.instance and Reader.instance~=before_search and Reader.instance.document.file==input.first end)
 local searched=Reader.instance;local search_host=assert(searched.weread)
 pump(function() return not search_host._native_direct_search_incoming and not search_host._native_direct_search_open end)

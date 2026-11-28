@@ -22,6 +22,7 @@ function M.cancel(host)
     if ctx.worker then ctx.worker:cancel() end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
     ctx.thread=nil
+    if ctx.callbacks then ctx.callbacks.on_finish() end
 end
 function M.on_view_changed(host)
     local incoming=host._native_direct_search_incoming
@@ -30,7 +31,7 @@ function M.on_view_changed(host)
     local ctx=host._native_direct_search_open
     if ctx and not ctx.committing and ctx.current and not ctx.current() then M.cancel(host) end
 end
-function M.start(host,entry,hit,keyword,ignore_case)
+function M.start(host,entry,hit,keyword,ignore_case,callbacks)
     local reader=host.ui;local doc=reader and reader.document;local scope=host.settings:get_auth_scope()
     local at=doc and location(reader,doc);local account=host.library_db and host.library_db:accountKey()
     if not at or not scope or not account or not host.settings:auth_scope_matches(scope)
@@ -41,14 +42,14 @@ function M.start(host,entry,hit,keyword,ignore_case)
         or type(keyword)~='string' or #keyword<1 or #keyword>160 or type(ignore_case)~='boolean' then return false end
     M.cancel(host)
     local ctx={reader=reader,document=doc,file=doc.file,scope=scope,session=host._reader_session_gen or 0,
-        account=account,location=at,started=os.time()}
+        account=account,location=at,started=os.time(),callbacks=callbacks}
     host._native_direct_search_open=ctx
     local function current()
         local age=os.time()-ctx.started
         return host._native_direct_search_open==ctx and age>=0 and age<=180 and host.ui==reader and reader.document==doc
             and doc.file==ctx.file and (host._reader_session_gen or 0)==ctx.session
             and host.settings:auth_scope_matches(scope) and host.library_db and host.library_db:accountKey()==account
-            and Context.same_location(at,location(reader,doc))
+            and Context.same_location(at,location(reader,doc)) and (not callbacks or callbacks.is_current())
     end
     ctx.current=current
     local function fail()
@@ -95,6 +96,7 @@ function M.start(host,entry,hit,keyword,ignore_case)
                 if identity.book_id~=entry.book_id or identity.book_version~=entry.book_version or identity.file_id~=hit.file_id then return false end
                 return M.receive(next_host,entry,hit,keyword,ignore_case,scope,account)
             end
+            if callbacks then callbacks.on_commit() end
             M.cancel(host);host:openFile(path,handoff);return
         end
         local identity=Identity.read_document(doc,entry.book_id)
@@ -121,7 +123,9 @@ function M.start(host,entry,hit,keyword,ignore_case)
                 or #point.xpointer>4096 then fail();return end
             run(function(fresh)
                 if fresh~=path or not current() then fail();return end
-                local geometry=require('weread.lib.reader_position');ctx.committing=true
+                ctx.committing=true
+                if callbacks then callbacks.on_commit() end
+                local geometry=require('weread.lib.reader_position')
                 local applied=geometry.goto_xpointer(reader,point.xpointer);ctx.committing=false
                 local frame=geometry.snapshot(doc,reader.view and reader.view.view_mode,
                     host.progress_sync and host.progress_sync.get_viewport_height and host.progress_sync.get_viewport_height())

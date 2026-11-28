@@ -44,10 +44,13 @@ package.preload['weread.lib.native_direct_search']=function() return {MAX_HITS=3
         return {complete=true,unresolved=0,hits={{chapter_uid=entry.chapter_uid,byte=from,file_id=string.rep('a',64),
             context='match '..entry.key,anchor={co=1}}}}
     end} end
-local navigated
-package.preload['weread.ui.native_direct_search_open']=function() return {start=function(_,entry,hit,keyword,ignore)
-    navigated={entry=entry,hit=hit,keyword=keyword,ignore=ignore};return true
-end} end
+local navigated,open_cancels
+package.preload['weread.ui.native_direct_search_open']=function() return {
+    start=function(_,entry,hit,keyword,ignore,callbacks)
+        navigated={entry=entry,hit=hit,keyword=keyword,ignore=ignore,callbacks=callbacks};return true
+    end,
+    cancel=function() open_cancels=(open_cancels or 0)+1 end,
+} end
 package.preload['weread.lib.memory_worker']=function() return {new=function()
     local worker={};workers[#workers+1]=worker
     function worker:start(task,callback) self.task,self.callback=task,callback;return true end
@@ -91,7 +94,22 @@ local result
 for _,item in ipairs(owner.menu.item_table) do if item.text=='Second · match c' then result=item end end
 expect(result~=nil,'second chapter result missing');result.callback()
 expect(navigated and navigated.entry==two and navigated.keyword=='needle' and navigated.ignore==false
-    and not host._native_direct_search,'result did not start guarded navigation')
+    and host._native_direct_search==owner and navigated.callbacks.is_current(),'locating closed the result list')
+local attempt=navigated
+result.callback()
+expect(navigated==attempt,'a second tap started another navigation')
+attempt.callbacks.on_finish()
+expect(host._native_direct_search==owner and owner.menu.item_table[4]==result and not owner.navigation,
+    'failed navigation redrew or discarded the result list')
+result.callback()
+navigated.callbacks.on_commit()
+navigated.callbacks.on_finish()
+expect(not host._native_direct_search and not open_cancels,'successful navigation did not release the result list')
+owner=start();finish(workers[#workers])
+owner.menu.item_table[4].callback()
+UI:close(owner.menu)
+expect(open_cancels==1 and not host._native_direct_search and not navigated.callbacks.is_current(),
+    'closing results left their pending navigation active')
 owner=start();worker=workers[#workers]
 worker:complete();next_task();worker:complete();next_task();worker:complete();next_task()
 expect(owner.menu.redraws==1 and owner.checked==1 and #owner.value==1,'partial result redrew immediately')

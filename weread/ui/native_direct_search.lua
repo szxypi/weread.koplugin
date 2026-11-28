@@ -29,6 +29,8 @@ function M.cancel(host)
     local owner=host._native_direct_search
     if not owner then return end
     host._native_direct_search=nil;owner.closed=true;stop(host,owner)
+    local navigation=owner.navigation;owner.navigation=nil
+    if navigation then navigation.cancel(host) end
     local input,menu=owner.input,owner.menu;owner.input=nil;owner.menu=nil
     if input then UI:close(input) end
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
@@ -62,7 +64,7 @@ render=function(host,owner)
         if owner.limit then
             items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false}
             items[#items+1]={text=_('Search next batch (keeps only the previous batch)'),callback=function()
-                if current(host,owner) and owner.limit and not owner.job then
+                if current(host,owner) and owner.limit and not owner.job and not owner.navigation then
                     owner.previous=owner.value;owner.value={};owner.limit=false;owner.show_previous=false
                     owner.batch=owner.batch+1;render(host,owner);start(host,owner)
                 end
@@ -70,7 +72,9 @@ render=function(host,owner)
         end
         if owner.previous and not owner.job then
             items[#items+1]={text=_(owner.show_previous and 'Show current result batch' or 'Show previous result batch'),callback=function()
-                if current(host,owner) and not owner.job then owner.show_previous=not owner.show_previous;render(host,owner) end
+                if current(host,owner) and not owner.job and not owner.navigation then
+                    owner.show_previous=not owner.show_previous;render(host,owner)
+                end
             end}
         end
         if not owner.finished and not owner.limit and not owner.job then
@@ -84,10 +88,18 @@ render=function(host,owner)
         for _,value in ipairs(values) do
             local hit=value.hit;local visible=values
             items[#items+1]={text=value.title..' · '..hit.context,callback=function()
-                if not current(host,owner) or owner.job or (owner.show_previous and owner.previous or owner.value)~=visible then return end
-                local entry,keyword,ignore_case=value.entry,owner.keyword,owner.ignore_case
-                M.cancel(host)
-                require('weread.ui.native_direct_search_open').start(host,entry,hit,keyword,ignore_case)
+                if not current(host,owner) or owner.job or owner.navigation
+                    or (owner.show_previous and owner.previous or owner.value)~=visible then return end
+                local Open=require('weread.ui.native_direct_search_open')
+                local navigation={cancel=Open.cancel};owner.navigation=navigation
+                local function release()
+                    if owner.navigation==navigation then owner.navigation=nil end
+                end
+                if not Open.start(host,value.entry,hit,owner.keyword,owner.ignore_case,{
+                    is_current=function() return host._native_direct_search==owner and owner.navigation==navigation end,
+                    on_commit=function() release();M.cancel(host) end,
+                    on_finish=release,
+                }) then release() end
             end}
         end
         if owner.finished and #values==0 then items[#items+1]={text=_('No locatable matches in downloaded chapters.'),select_enabled=false} end
@@ -108,7 +120,7 @@ local function valid_result(result,entry,from)
     return true
 end
 start=function(host,owner)
-    if not current(host,owner) or owner.job or owner.finished or owner.limit then return end
+    if not current(host,owner) or owner.job or owner.navigation or owner.finished or owner.limit then return end
     local ok,worker=pcall(function() return owner.worker or require('weread.lib.memory_worker'):new{
         scheduler=UI,codec=host.client,max_bytes=8*1024*1024,timeout=180} end)
     if not ok then host:showInfo(_('Could not search downloaded chapters.'));return end

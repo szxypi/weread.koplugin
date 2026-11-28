@@ -55,8 +55,15 @@ local function expect(value,message) checks=checks+1;assert(value,message) end
 local host=fixture(path);expect(Search.start(host,entry,hit,'needle',false),'same chapter did not start')
 worker:complete();tick();worker:complete()
 expect(moved==1 and not host._native_direct_search_open,'same-chapter target was not verified and opened')
-host=fixture(path);changed_file=true;Search.start(host,entry,hit,'needle',false);worker:complete()
-expect(moved==1 and host.message and not host._native_direct_search_open,'changed file moved the reader');changed_file=false
+local committed,finished=0,0
+local callbacks={is_current=function() return true end,
+    on_commit=function() committed=committed+1 end,on_finish=function() finished=finished+1 end}
+host=fixture(path);changed_file=true;Search.start(host,entry,hit,'needle',false,callbacks);worker:complete()
+expect(moved==1 and host.message and not host._native_direct_search_open and committed==0 and finished==1,
+    'changed file moved the reader or discarded results');changed_file=false
+host=fixture(path);Search.start(host,entry,hit,'needle',false,callbacks);host.busy_message.cancel()
+expect(moved==1 and not host.message and not host._native_direct_search_open and committed==0 and finished==2,
+    'cancelling the check moved the reader or discarded results')
 host=fixture(path);Search.start(host,entry,hit,'needle',false);page=2;Search.on_view_changed(host)
 expect(not host._native_direct_search_open and worker.cancelled,'page change left navigation active');page=1
 host=fixture('/tmp/native-reader-v1/other.epub');Search.start(host,entry,hit,'needle',false);worker:complete()
