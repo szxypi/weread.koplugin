@@ -3,7 +3,7 @@ require('jit').off();require('ffi').log=function() end;require('setupkoenv')
 assert(os.getenv('WEREAD_SYNTHETIC')=='1')
 local repo=assert(arg[1]);local home=assert(os.getenv('KO_HOME'))
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
-local online=input.mode=='online' or input.mode=='legacy'
+local online=input.mode=='online' or input.mode=='legacy' or input.mode=='gap_online'
 package.path=(online and home..'/plugins/weread.koplugin' or repo)..'/?.lua;'..package.path
 if not online then assert(dofile(repo..'/spec/koreader/offline_network_guard.lua')()) end
 G_reader_settings=require('luasettings'):wrap({});G_defaults=require('luadefaults'):open()
@@ -72,6 +72,38 @@ local function press(id)
 end
 local function saved_menu()
     return host._native_direct_reading and host._native_direct_reading.menu
+end
+if input.mode=='gap_online' then
+    local function set_marker(name)
+        local marker=home..'/'..name
+        assert(assert(io.open(marker,'wb')):close())
+        return marker
+    end
+    local function fallback(marker,subtitle,offline)
+        press('next_chapter')
+        wait(function() return saved_menu() or host.message or host.opened end)
+        local ctx=assert(host._native_direct_reading)
+        local menu=assert(ctx.menu)
+        assert(ctx.offline==offline and not ctx.target and menu.subtitle==tr(subtitle)
+            and #menu.item_table==2 and not host.opened and not host.message and not host.busy_message
+            and host.ui.document.file==input.first,'failed next chapter did not preserve the original reader')
+        assert(os.remove(marker))
+        return menu
+    end
+    local menu=fallback(set_marker('changed-catalog'),'The chapter list changed. Choose a chapter from the updated list.',false)
+    menu:onClose()
+    assert(UI:getTopmostVisibleWidget()==base and host.ui.document.file==input.first)
+    menu=fallback(set_marker('interrupt-catalog'),'The online catalog is unavailable. Showing saved chapters.',true)
+    menu:onClose()
+    assert(UI:getTopmostVisibleWidget()==base and host.ui.document.file==input.first)
+    menu=fallback(set_marker('interrupt-download'),'Chapter unavailable offline',true)
+    assert(menu.item_table[1].text:find(tr('Current chapter'),1,true)==1
+        and menu.item_table[2].text:find('Chapter outside group',1,true))
+    connected=false;menu:onMenuSelect(menu.item_table[2])
+    wait(function() return host.opened or host.message end)
+    assert(not host.message and host.opened==input.last,'user could not select the later saved chapter')
+    print('WEREAD_DIRECT_NAV_RESULT='..json.encode({ok=true,mode=input.mode,path=host.opened}))
+    os.exit(0)
 end
 if input.mode=='legacy' then
     G_reader_settings:saveSetting('items_per_page',1)

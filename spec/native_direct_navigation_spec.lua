@@ -201,7 +201,8 @@ expect(s.opened==0 and not s.message and auto_target and auto_target.options.cac
     and not auto_target.options.target and not host._native_direct_navigation,
     'offline missing chapter did not offer saved chapters without skipping')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);rows={};shown.callbacks.on_next();s.finish(2)
-expect(auto_target and auto_target.options.target.uid=='38' and auto_target.options.target.from_uid=='37'
+expect(auto_target and auto_target.options.anchor==source
+    and auto_target.options.target.uid=='38' and auto_target.options.target.from_uid=='37'
     and auto_target.options.target.order==3 and auto_target.options.target.catalog_sha256==source.catalog_sha256,
     'online missing chapter was not tied to verified catalog')
 host,s=fixture();Nav.start(host);s.finish(1);shown.callbacks.on_next();local result=s.jobs[2].task();s.account='other';s.jobs[2].callback(result)
@@ -215,7 +216,8 @@ host,s=fixture();Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_n
 expect(s.opened==0 and auto_target and auto_target.options.cached and auto_target.options.failed_copy==next_entry,
     'unverified destination was opened or offered again')
 host,s=fixture();s.online=true;Nav.start(host);s.finish(1);can_open=false;shown.callbacks.on_next();s.finish(2)
-expect(s.opened==0 and auto_target and auto_target.options.target.uid=='38','online corrupt copy could not be downloaded again')
+expect(s.opened==0 and auto_target and auto_target.options.target.uid=='38' and auto_target.options.failed_copy==next_entry,
+    'online corrupt copy could not be downloaded again or lost the failed-copy identity')
 host,s=fixture();Nav.start(host,1);s.finish(1);expect(#s.jobs==2,'end-of-book did not navigate');s.finish(2)
 expect(s.opened==1,'end-of-book did not open adjacent chapter')
 source.catalog_order=3;source.catalog_next=nil

@@ -177,7 +177,7 @@ function M.start(host,direction,notes)
                 end
                 local target={uid=uid,from_uid=entry.chapter_uid,catalog_sha256=entry.catalog_sha256,
                     book_version=entry.book_version,count=entry.catalog_count,order=entry.catalog_order+which,direction=which}
-                choose_chapter({target=target})
+                choose_chapter({anchor=entry,target=target,failed_copy=value.failed_copy})
                 return
             end
             if type(value)=='table' and type(value.choices)=='table' then

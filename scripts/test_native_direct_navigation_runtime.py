@@ -37,8 +37,9 @@ class Handler(fixture.Handler):
         marker = self.server.interrupt_download
         if marker is not None and marker.is_file() and self.command == 'GET':
             if target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterdownload':
-                assert parse_qs(target.query).get('chapters') == ['0,37']
-                self.server.chapters.append('37')
+                chapter = self.server.interrupt_chapter
+                assert parse_qs(target.query).get('chapters') == [f'0,{chapter}']
+                self.server.chapters.append(chapter)
                 self.server.interruptions += 1
                 self.close_connection = True
                 return
@@ -70,7 +71,7 @@ def run(runtime, full_only=False):
 
 def run_cases(runtime,server,candidate,full_only=False):
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
-            for mode in ('legacy','two','gap','online','full','copies'):
+            for mode in ('gap_online','legacy','two','gap','online','full','copies'):
                 if full_only and mode!='full':
                     continue
                 with tempfile.TemporaryDirectory(prefix='weread-native-nav-',dir='/dev/shm') as root:
@@ -83,21 +84,22 @@ def run_cases(runtime,server,candidate,full_only=False):
                     endpoint='http://127.0.0.1:'+str(server.server_port)
                     server.resume=server.expired=False;server.resume_marker=Path(root)/'resume';server.chapters=[]
                     server.valid=True;server.leaked=False;server.image_requests=server.tar_requests=0
-                    server.interrupt_download=Path(root)/'interrupt-download' if mode=='online' else None
+                    server.interrupt_download=Path(root)/'interrupt-download' if mode in ('online','gap_online') else None
+                    server.interrupt_chapter='38' if mode=='gap_online' else '37'
                     server.interruptions=0
                     server.interrupt_catalog=Path(root)/'interrupt-catalog'
                     server.catalog_interruptions=0
-                    server.hierarchical=mode in ('online','legacy')
+                    server.hierarchical=mode in ('online','legacy','gap_online')
                     payload=dict(credentials=credentials,mock_endpoint=endpoint,mode=mode,plugin_profile=mode=='full')
-                    if mode in ('full','online','legacy'):
+                    if mode in ('full','online','legacy','gap_online'):
                         (Path(root)/'settings').mkdir();(Path(root)/'plugins').mkdir()
                         extract_candidate(candidate,Path(root)/'plugins')
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_nav_prepare.lua'),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                     saved=frame(child,'WEREAD_DIRECT_NAV_PREPARED=')
-                    assert '37' in saved and (('38' in saved)==(mode in ('two','full','copies'))) and (('39' in saved)==(mode=='gap'))
+                    assert '37' in saved and (('38' in saved)==(mode in ('two','full','copies'))) and (('39' in saved)==(mode in ('gap','gap_online')))
                     payload.update(first=saved['37'],second=saved.get('38'),missing_copy=saved.get('missing_copy'),last=saved.get('39'))
-                    if mode not in ('online','legacy'):payload.pop('credentials')
+                    if mode not in ('online','legacy','gap_online'):payload.pop('credentials')
                     probe='native_direct_full_reader_probe.lua' if mode=='full' else 'native_direct_nav_probe.lua'
                     child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader'/probe),str(REPO)],
                         input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
@@ -115,6 +117,7 @@ def run_cases(runtime,server,candidate,full_only=False):
                         assert result['ok'] and result['mode']==mode
                         if mode=='online':assert result['path']==saved['missing_copy'] and Path(result['path']).is_file()
                         if mode=='legacy':assert result['path']!=saved['37'] and Path(result['path']).is_file()
+                        if mode=='gap_online':assert result['path']==saved['39']
                         if mode=='copies':
                             assert result['path']==saved['missing_copy']
                             payload['choose']='complete'
@@ -124,10 +127,11 @@ def run_cases(runtime,server,candidate,full_only=False):
                                 input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=180)
                             assert frame(child,'WEREAD_DIRECT_NAV_RESULT=')['path']==saved['38']
                             assert damaged.read_bytes()==original+b'corrupt'
-                    expected={'copies':['37','38','38'],'online':['37','37','38','39','37'],'gap':['37','39']}.get(mode,['37','38'])
+                    expected={'copies':['37','38','38'],'online':['37','37','38','39','37'],
+                              'gap':['37','39'],'gap_online':['37','39','38']}.get(mode,['37','38'])
                     assert server.chapters==expected and server.valid and not server.leaked
-                    assert server.interruptions==int(mode=='online')
-                    assert server.catalog_interruptions==int(mode in ('online','legacy'))
+                    assert server.interruptions==int(mode in ('online','gap_online'))
+                    assert server.catalog_interruptions==int(mode in ('online','legacy','gap_online'))
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)

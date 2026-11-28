@@ -200,32 +200,40 @@ function M.start(host,book,view,options)
     local resume_plan=type(options)=='table' and options.resume_plan or nil
     local batch_title=_(repair_images and 'Recover missing images in downloaded chapters' or 'Download E-Ink chapters')
     if batch and offline then host:showOffline(batch_title);return false end
-    local target=type(options)=='table' and options.target or nil
-    if target~=nil and (offline or type(target)~='table' or type(target.uid)~='string'
-        or Protocol.id(target.uid)~=target.uid or type(target.from_uid)~='string' or Protocol.id(target.from_uid)~=target.from_uid
-        or not hash(target.catalog_sha256) or not Protocol.integer(target.book_version,0,2147483647)
-        or not Protocol.integer(target.count,1,20000) or not Protocol.integer(target.order,1,target.count)
-        or (target.direction~=1 and target.direction~=-1)) then return false end
     local scope=host.settings:get_auth_scope()
     if not scope or not host.settings:auth_scope_matches(scope) then
         host:showInfo(_('Sign in to the account that saved these E-Ink chapters.'))
         return false
     end
-    local failed_copy=type(options)=='table' and options.failed_copy or nil
-    if failed_copy and (not cached or not require('weread.lib.native_direct_cache').valid_entry(failed_copy,id,scope.vid)) then return false end
+    local Cache=require('weread.lib.native_direct_cache')
     local anchor=type(options)=='table' and options.anchor or nil
-    if anchor and not require('weread.lib.native_direct_cache').valid_entry(anchor,id,scope.vid) then anchor=nil end
+    if anchor and not Cache.valid_entry(anchor,id,scope.vid) then anchor=nil end
+    local target=type(options)=='table' and options.target or nil
+    if target and (not from_reader or cached or batch or type(target)~='table' or not anchor or not anchor.catalog_sha256
+        or target.direction~=1 and target.direction~=-1
+        or target.from_uid~=anchor.chapter_uid or target.catalog_sha256~=anchor.catalog_sha256
+        or target.book_version~=anchor.book_version or target.count~=anchor.catalog_count
+        or target.order~=anchor.catalog_order+target.direction
+        or not target.uid or target.uid~=anchor[target.direction==1 and 'catalog_next' or 'catalog_prev']) then return false end
+    local failed_copy=type(options)=='table' and options.failed_copy or nil
+    if failed_copy and (not (cached or target) or not Cache.valid_entry(failed_copy,id,scope.vid)
+        or target and (failed_copy.chapter_uid~=target.uid or failed_copy.catalog_sha256~=target.catalog_sha256
+            or failed_copy.book_version~=target.book_version)) then return false end
     local adjacent_direction=type(options)=='table' and options.adjacent_direction
     if adjacent_direction and (not from_reader or batch or target or not anchor or anchor.catalog_sha256
         or adjacent_direction~=-1 and adjacent_direction~=1) then return false end
+    if target and offline then
+        offline_notice='Chapter unavailable offline'
+        target=nil
+    end
     local want_cloud_chapter=not anchor and not batch and not target and type(options)=='table' and options.cloud_chapter==true
     local standard_read=want_cloud_chapter and not from_reader and type(options.standard_read)=='function' and options.standard_read
     local selected=not offline and capture(host.settings) or nil
-    local fallback_reason,offer_standard
+    local fallback_reason,offer_standard,catalog_notice
     if not offline and (not selected or selected.native.renewal_pending) then
         fallback_reason='E-Ink authorization is required to read these chapters.'
-        if batch or target then host:showInfo(_(fallback_reason));return false end
-        offline,selected=true,nil
+        if batch then host:showInfo(_(fallback_reason));return false end
+        offline,selected,target=true,nil,nil
         offer_standard=true
     end
     local title=text(book.title,2048) and book.title or id
@@ -352,15 +360,20 @@ function M.start(host,book,view,options)
         busy=host.busy_message;ctx.busy=busy
         launch()
     end
-    local function catalog_unavailable(message,try_standard)
-        if ctx.phase~='catalog' or ctx.batch or ctx.target or ctx.catalog or not view_current() then
-            fail(message,true,try_standard);return
-        end
+    local function load_saved_chapters(message,try_standard,notice)
         fallback_reason=message or 'Could not prepare the E-Ink chapter. Please try again.'
         offer_standard=try_standard
+        offline_notice=notice or offline_notice
         offline,ctx.offline,ctx.selected=true,true,nil
+        ctx.target,ctx.chapter,ctx.catalog=nil,nil,nil
         current=view_current
         load_chapters('offline_list')
+    end
+    local function catalog_unavailable(message,try_standard)
+        if ctx.batch or not view_current() or not ctx.target and (ctx.phase~='catalog' or ctx.catalog) then
+            fail(message,true,try_standard);return
+        end
+        load_saved_chapters(message,try_standard)
     end
     local function begin_open(phase)
         ctx.phase=phase
@@ -473,7 +486,7 @@ function M.start(host,book,view,options)
             or failed_copy and _('The last E-Ink chapter is unavailable. Choose another saved chapter.')
             or fallback_reason and _('The online catalog is unavailable. Showing saved chapters.')
             or offline and _('Each copy keeps its own reading position. Reopen online to retry missing images.')
-            or adjacent_notice or _('Online: sync position or save selected highlights and private thoughts.')
+            or catalog_notice or adjacent_notice or _('Online: sync position or save selected highlights and private thoughts.')
         local cloud_index=not current_index and cloud_row(rows,cloud_chapter) or nil
         local initial_index=picker and picker.start or adjacent_index or current_index or cloud_index
         local screen=require('device').screen
@@ -724,15 +737,13 @@ function M.start(host,book,view,options)
         show_confirmation(dialog)
     end
     local function open_saved(entry,is_current)
-        local cache=require('weread.lib.native_direct_cache')
-        local result,verified=cache.open(host.settings,scope.vid,id,entry,is_current,true)
+        local result,verified=Cache.open(host.settings,scope.vid,id,entry,is_current,true)
         if result then result.saved_entry=verified end
         return result
     end
     local function lookup_saved(is_current,complete_only)
-        local cache=require('weread.lib.native_direct_cache')
         local chapter=ctx.chapter
-        local rows=cache.list(host.settings,scope.vid,id,is_current,chapter.chapterUid)
+        local rows=Cache.list(host.settings,scope.vid,id,is_current,chapter.chapterUid)
         if not rows then return nil,'storage' end
         local matches,saved={}
         for _,entry in ipairs(rows) do
@@ -795,7 +806,7 @@ function M.start(host,book,view,options)
                 return result
             end
             if phase=='offline_list' then
-                local rows=require('weread.lib.native_direct_cache').list(host.settings,scope.vid,id,current)
+                local rows=Cache.list(host.settings,scope.vid,id,current)
                 local catalog
                 if rows and host.library_db then
                     pcall(require('weread.lib.native_direct_pending').mark,host.library_db,host.settings,scope,id,rows,current)
@@ -859,8 +870,17 @@ function M.start(host,book,view,options)
                 ctx.auto_open=result.cloud_chapter or ctx.auto_open
                 show_resume_catalog();return
             end
-            if phase=='chapter' and (ctx.menu or ctx.auto_open) and (reason=='transport' or reason=='timeout') then
+            if phase=='chapter' and (ctx.menu or ctx.auto_open or ctx.target) and (reason=='transport' or reason=='timeout') then
                 begin_open('saved_matches');return
+            end
+            if ctx.target and phase=='saved_matches' and reason then
+                load_saved_chapters('No saved copy matches this chapter. Connect to download it.',false,
+                    'Chapter unavailable offline');return
+            end
+            if ctx.target and phase=='chapter' and (reason=='rate_limited' or reason=='catalog_changed') then
+                local message=reason=='rate_limited' and 'WeRead is limiting requests. Please try again later.'
+                    or 'The chapter list changed. Please open it again.'
+                load_saved_chapters(message,false,message);return
             end
             if reason=='auth_expired' then renew();return end
             if ctx.batch and (phase=='batch' or phase=='catalog')
@@ -961,10 +981,17 @@ function M.start(host,book,view,options)
                     if checked.version~=wanted.book_version or checked.reading_digest~=wanted.catalog_sha256
                         or #checked.chapters~=wanted.count or not chapter or chapter.chapterUid~=wanted.uid
                         or neighbor~=wanted.from_uid then
-                        fail('The chapter list changed. Please open it again.');return
+                        ctx.target=nil
+                        catalog_notice=_('The chapter list changed. Choose a chapter from the updated list.')
+                        show_chapter_menu(checked.chapters);return
                     end
-                    if not chapter.downloadable then fail('The adjacent E-Ink chapter is unavailable.');return end
-                    ctx.chapter=chapter;ctx.phase='chapter';launch();return
+                    if not chapter.downloadable then
+                        ctx.target=nil
+                        catalog_notice=_('The adjacent E-Ink chapter is unavailable.')
+                        show_chapter_menu(checked.chapters);return
+                    end
+                    ctx.chapter=chapter
+                    begin_open(connected(host) and 'chapter' or 'saved_matches');return
                 end
                 local cloud=result.cloud_chapter
                 local chapter,position=direct_chapter(checked,cloud)

@@ -659,6 +659,7 @@ local zh = {
     ["Chapter order is unavailable. Reopen this chapter online to update it."] = "章节顺序不可用，请联网重新打开本章以更新。",
     ["Chapter order is unavailable offline"] = "离线无法确认章节顺序",
     ["Choose a chapter from the updated list."] = "请在更新后的目录中选择章节。",
+    ["The chapter list changed. Choose a chapter from the updated list."] = "章节目录已变化，请在更新后的目录中选择章节。",
     ["You have reached the first chapter."] = "已到第一章。",
     ["Checking adjacent saved chapter..."] = "正在检查已保存的相邻章节…",
     ["The target chapter or its verified source is unavailable offline. Connect and try again."] = "目标章节或经过核对的原文未在离线缓存中，请联网后重试。",

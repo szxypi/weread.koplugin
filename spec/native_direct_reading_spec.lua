@@ -400,19 +400,58 @@ host,s=fixture();UI.start(host,{book_id='456'},s.view,{batch=true});s.finish(1)
 confirm=assert(host._native_direct_reading.confirm);require('ui/uimanager'):close(confirm);confirm.choice2_callback()
 expect(not host._native_direct_reading and #s.jobs==1,'dismissed download options retained a valid action')
 local target={uid='2',from_uid='1',catalog_sha256=digest,book_version=7,count=2,order=2,direction=1}
-host,s=fixture();sample.reading_chapters[2].downloadable=true
-UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)
+local source={book_id='456',chapter_uid='1',chapter_idx=1,title='First',book_version=7,
+    owner=require('weread.lib.crypto').sha256_hex('native-direct-account\0'..scope.vid),
+    text_digest=digest,source_sha256=digest,key=string.rep('e',64),copy=0,missing_images=0,
+    catalog_sha256=digest,catalog_order=1,catalog_count=2,catalog_next='2'}
+local adjacent={from_reader=true,target=target,anchor=source}
+local function reader_fixture()
+    local reader,state=fixture()
+    reader.ui.document={file=reader_path}
+    return reader,state
+end
+host,s=reader_fixture();sample.reading_chapters[2].downloadable=true
+expect(UI.start(host,{book_id='456'},host.ui,adjacent),'adjacent download did not start from its reader');s.finish(1)
 expect(#s.jobs==2 and not s.items,'verified adjacent download did not begin automatically')
 s.finish(2);expect(s.opened==1 and expected_chapter.chapterUid=='2','verified adjacent download did not open')
 sample.reading_chapters[2].downloadable=false
-host,s=fixture();UI.start(host,{book_id='456'},s.view,{target=target});s.finish(1)
-expect(#s.jobs==1 and s.message=='The adjacent E-Ink chapter is unavailable.','locked adjacent chapter was downloaded')
-host,s=fixture();local stale_target={};for key,value in pairs(target) do stale_target[key]=value end
+host,s=reader_fixture();UI.start(host,{book_id='456'},host.ui,adjacent);s.finish(1)
+expect(#s.jobs==1 and s.opened==0 and s.items[2].select_enabled==false
+    and s.subtitle=='The adjacent E-Ink chapter is unavailable.','locked adjacent chapter was downloaded or offered for selection')
+host,s=reader_fixture();local stale_target={};for key,value in pairs(target) do stale_target[key]=value end
 stale_target.catalog_sha256=string.rep('d',64)
-UI.start(host,{book_id='456'},s.view,{target=stale_target});s.finish(1)
-expect(#s.jobs==1 and s.message=='The chapter list changed. Please open it again.','changed catalog was used for adjacent download')
+expect(not UI.start(host,{book_id='456'},host.ui,{from_reader=true,target=stale_target,anchor=source}) and #s.jobs==0,
+    'target inconsistent with its source started a catalog lookup')
+host,s=reader_fixture();UI.start(host,{book_id='456'},host.ui,adjacent)
+sample.reading_digest=stale_target.catalog_sha256;s.finish(1);sample.reading_digest=digest
+expect(#s.jobs==1 and s.opened==0 and s.items and s.subtitle=='The chapter list changed. Choose a chapter from the updated list.',
+    'changed catalog did not require chapter selection')
 local cache=require('weread.lib.native_direct_cache');local pending=require('weread.lib.native_direct_pending')
 local old_list,old_valid,old_open,old_mark=cache.list,cache.valid_entry,cache.open,pending.mark
+cache.list=function(_,_,_,_,uid) return uid and {} or {source} end
+for _,mode in ipairs({'already_offline','no_grant','catalog_timeout','disconnected','download_timeout','rate_limited','changed_during_download'}) do
+    host,s=reader_fixture();sample.reading_chapters[2].downloadable=true
+    local online=mode~='already_offline'
+    host.isNetworkConnected=function() return online end
+    if mode=='no_grant' then selected=nil end
+    expect(UI.start(host,{book_id='456'},host.ui,adjacent),'adjacent navigation did not start: '..mode)
+    if mode=='catalog_timeout' then catalog_error='native_auth/native_catalog_catalog/timeout' end
+    if mode=='disconnected' then online=false end
+    if host._native_direct_reading.phase=='catalog' then s.finish(1) end
+    if host._native_direct_reading.phase=='chapter' then
+        build_error=mode=='rate_limited' and 'rate_limited' or mode=='changed_during_download' and 'catalog_changed' or 'transport'
+        s.finish(2)
+    end
+    if host._native_direct_reading.phase=='saved_matches' then s.finish(#s.jobs) end
+    expect(host._native_direct_reading.phase=='offline_list' and host._native_direct_reading.target==nil,
+        'failed online selection did not offer the local list: '..mode)
+    s.finish(#s.jobs)
+    expect(s.title=='Saved E-Ink chapters' and #s.items==1 and marked(s.items[1])
+        and s.opened==0 and host.ui.document.file==reader_path and not host.busy_message,
+        'local fallback did not preserve the current chapter: '..mode)
+end
+sample.reading_chapters[2].downloadable=false
+cache.list=old_list
 local saved_entry={key=string.rep('d',64),copy=0,title='Saved',book_version=7,chapter_uid='1',missing_images=0,source_sha256=digest}
 cache.list=function() return {saved_entry} end;cache.valid_entry=function() return true end
 pending.mark=function(_,_,_,_,rows) rows[1].pending_offline=true;return true end

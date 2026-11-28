@@ -31,7 +31,7 @@ local auth=require('weread.lib.native_authorization'):new(client,{expected_vid=s
 local catalog=require('weread.lib.native_book_catalog').read(auth,input.credentials,'42','native_catalog');auth:cancel()
 local rows=assert(catalog.reading_chapters);assert(#rows==3)
 local output={}
-for _,index in ipairs((input.mode=='two' or input.mode=='full' or input.mode=='copies') and {1,2} or input.mode=='gap' and {1,3} or {1}) do
+for _,index in ipairs((input.mode=='two' or input.mode=='full' or input.mode=='copies') and {1,2} or (input.mode=='gap' or input.mode=='gap_online') and {1,3} or {1}) do
     local row=rows[index];row.catalog_order=index;row.catalog_count=#rows
     row.catalog_prev=rows[index-1] and rows[index-1].chapterUid or nil
     row.catalog_next=rows[index+1] and rows[index+1].chapterUid or nil
