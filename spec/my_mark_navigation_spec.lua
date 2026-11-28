@@ -33,7 +33,9 @@ local function fixture(reader,thoughts)
     host.closeWeReadUI=function() f.closed=true;Nav.cancel(host,owner) end
     host.openFile=function(_self,path,callback) f.opened=path;f.receive=callback;host:closeWeReadUI() end
     host.progress_sync.navigation_generation=0
-    host.progress_sync.begin_file_resume=function() f.begin=(f.begin or 0)+1;return f.frame end
+    host.progress_sync.begin_file_resume=function(_self,options)
+        f.begin=(f.begin or 0)+1;f.resume_options=options;return f.frame
+    end
     host.progress_sync.finish_file_resume=function(_self,frame,applied) assert(frame==f.frame);f.finished=applied;return true end
     host.progress_sync.begin_file_resume_departure=function() f.departed=true end
     host.openSourcePosition=function(_self,target,callback) f.jumped=target;f.applied=callback;host.source_navigation.job={};return true end
@@ -68,22 +70,29 @@ Bookmark.bind_file=function(...) return Target.bind_file(...) end
 f.row={type=0,chapterUid=2,range='15',bookmarkId='synthetic-point'}
 expect(start(),'bookmark without preview did not start');complete()
 expect(f.jumped and f.jumped.chapter_offset==15 and f.jumped.upload_verified==false,'bookmark used wrong position path')
+expect(f.resume_options.allow_missing_catalog and f.resume_options.allow_partial_combined,
+    'saved bookmark could not use an independently verified local chapter')
 f.applied(position())
 expect(not owner.navigation and not host._read_resume_active,'bookmark retained finished navigation')
 host,owner,f,start,complete=fixture(true);f.row={type=0,chapterUid=2,range='15',bookmarkId='synthetic-point'}
 expect(start(),'bookmark stale guard did not start');f.row.bookmarkId='changed';complete()
 expect(not f.jumped and not f.opened and not owner.navigation and not host._read_resume_active,'changed bookmark id navigated')
 host,owner,f,start,complete=fixture(true)
-owner.local_search,owner.catalog_missing,owner.search_results=true,true,true
+owner.local_search,owner.search_results=true,true
 f.frame.local_only=true
-host.progress_sync.begin_file_resume=function(_self,options) f.resume_options=options;return f.frame end
 package.loaded['weread.lib.cached_search_target']={can_locate=function() return true end,resolve=function() return bound() end}
 expect(start(),'catalog-free search result did not start');complete()
 expect(f.resume_options and f.resume_options.allow_missing_catalog==true,'catalog-free handoff did not request a local-only frame')
 f.applied(nil)
-expect(f.notices[1]=='Could not locate this result. The previous bookshelf position and pending sync are preserved; update the chapter list and reopen the book before syncing.',
+expect(not host._read_resume_active and f.notices[1]=='Could not locate this result. The previous bookshelf position and pending sync are preserved; update the chapter list and reopen the book before syncing.',
     'catalog-free navigation failure did not explain the paused sync')
 package.loaded['weread.lib.cached_search_target']=nil
+host,owner,f,start,complete=fixture(true)
+owner.search_results=true
+package.loaded['weread.lib.book_search_target']={can_locate=function() return true end,resolve=function() return bound() end}
+expect(start(),'online search result did not start');complete()
+expect(f.jumped and host._read_resume_active and not f.resume_options,'online search received the local navigation options')
+package.loaded['weread.lib.book_search_target']=nil
 host,owner,f,start,complete=fixture(true)
 expect(start(),'reader lookup did not start');complete()
 expect(f.closed and f.jumped and not f.opened and f.begin==1,'same-file jump reopened a file or lost sync gate')

@@ -2619,6 +2619,19 @@ test('partial combined selection preserves prior intent and suppresses synchroni
     eq(bad.sync:begin_file_resume({partial_combined=true}),nil,'missing document accepted as a partial book')
 end)
 
+test('local source navigation can opt into a confirmed partial EPUB',function()
+    local partial=fixture({}, {get_file_context=function() return nil,nil,true,true end})
+    eq(partial.sync:begin_file_resume(),nil,'ordinary source navigation accepted an incomplete EPUB')
+    local options={allow_partial_combined=true}
+    local frame=assert(partial.sync:begin_file_resume(options))
+    eq(frame.local_only,true,'incomplete EPUB was not scoped to this device')
+    eq(frame.preserve_only,true,'incomplete EPUB could update the whole-book position')
+    local complete=fixture({})
+    eq(assert(complete.sync:begin_file_resume(options)).local_only,nil,'a complete book was forced into local-only navigation')
+    local missing=fixture({}, {get_chapters=function() return nil end})
+    eq(missing.sync:begin_file_resume(options),nil,'missing catalog was treated as a confirmed incomplete EPUB')
+end)
+
 test('catalog-free file resume keeps prior intent and suppresses synchronization',function()
     local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
     local saved=f.values.books['41']

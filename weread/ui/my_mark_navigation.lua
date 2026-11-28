@@ -75,13 +75,14 @@ local function open_bound(host,owner,job,result,current)
                         and (departure_generation==nil or old_sync.generation==departure_generation+(document and 1 or 0))
                         and old_sync.account_generation==departure_account)) then return false end
         local sync=next_host.progress_sync
+        local local_destination=owner.local_search or not owner.search_results
         local ok,frame=pcall(sync.begin_file_resume,sync,
-            owner.local_search and owner.catalog_missing and {allow_missing_catalog=true} or nil)
+            local_destination and {allow_missing_catalog=true,allow_partial_combined=true} or nil)
         if not ok or not frame then
             next_host:showInfo(_('Reading position is temporarily unavailable. Please try again shortly.'));return false
         end
         local function failed()
-            if frame.local_only then
+            if frame.local_only and not frame.preserve_only then
                 next_host:showInfo(_('Could not locate this result. The previous bookshelf position and pending sync are preserved; update the chapter list and reopen the book before syncing.'))
             else
                 next_host:showInfo(_(job.failed_label))
@@ -96,6 +97,8 @@ local function open_bound(host,owner,job,result,current)
                 next_host:showInfo(_('Reading position opened, but it could not be saved. Check storage before continuing.'))
             elseif not applied then
                 failed()
+            elseif frame.preserve_only then
+                next_host:showInfo(_('This combined file cannot be verified against the complete book. Progress sync is paused for this reading session; the previous position is kept.'))
             elseif frame.local_only then
                 next_host:showInfo(_('Chapter list unavailable. This chapter will reopen from the bookshelf; the previous pending sync is preserved. Refresh the chapter list before syncing.'))
             end

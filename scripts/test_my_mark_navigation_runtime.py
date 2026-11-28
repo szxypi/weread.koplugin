@@ -19,10 +19,15 @@ from run_my_mark_navigation_ui import FRAME,DOWNLOAD_FRAME,validate
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--imported',action='store_true',help='exercise imported-book quote navigation')
+    cached=parser.add_mutually_exclusive_group()
+    cached.add_argument('--no-catalog',action='store_true',help='locate saved notes using only the downloaded EPUB source')
+    cached.add_argument('--partial-book',action='store_true',help='locate saved notes in a book with some chapters downloaded')
     parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-utf16',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
     if args.imported and args.download_missing:parser.error('imported fixture uses cached navigation')
     if args.txt and not args.imported:parser.error('TXT fixture requires an imported book')
     if args.txt_utf16 and not args.txt:parser.error('UTF-16 range requires TXT')
+    if (args.no_catalog or args.partial_book) and (args.download_missing or args.personal_display):
+        parser.error('incomplete book fixtures use cached note navigation')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
     book_id='CB_SyntheticNotes' if args.imported else '900001'
@@ -60,6 +65,8 @@ def main():
         model=thoughts_project(dict(reviews=reviews,totalCount=len(reviews),hasMore=0),book_id,'900000',1000)
     else:model=marks_project(source,book_id,'900000',1000)
     payload=dict(book_id=book_id,owner='900000',synthetic=True,model=model,chapters=chapters)
+    if args.no_catalog:payload['no_catalog']=True
+    if args.partial_book:payload['partial_book']=True
     command=['python3',str(repo/'scripts/run_my_mark_navigation_ui.py'),'--koreader',str(args.koreader),'--candidate',str(candidate),'--synthetic',
         '--screenshots',str(root/'screenshots'),'--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi)]
     if args.variant:payload['variant']=args.variant;command.extend(['--variant',args.variant])

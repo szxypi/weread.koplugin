@@ -28,6 +28,9 @@ local ok,reason=pcall(function()
         report.personal_position_notes_unchanged=false;report.personal_file_unchanged=false
     end
     local synthetic=os.getenv('WEREAD_MARKNAV_SYNTHETIC')=='1'
+    local no_catalog=input.no_catalog==true
+    local partial_book=input.partial_book==true
+    assert(not (no_catalog or partial_book) or synthetic and not downloading and not personal)
     assert((input.synthetic==true)==synthetic)
     if synthetic then assert(input.owner=='900000' and (input.book_id=='900001' or input.book_id=='CB_SyntheticNotes')) end
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -157,13 +160,16 @@ local ok,reason=pcall(function()
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);plugin=assert(FM.instance.weread)
     report.native_filemanager=not plugin.ui.document
     local UI,socket=require('ui/uimanager'),require('socket')
+    local tr=require('weread.lib.plugin_util').tr
+    local resume_unavailable=tr('Reading position is temporarily unavailable. Please try again shortly.')
     local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.005) end
     local function wait(predicate,seconds,on_timeout)
         local deadline=socket.gettime()+(seconds or 75)
         while not predicate() do
             local top=on_timeout and UI:getTopmostVisibleWidget()
-            if top and (top.text==require('weread.lib.plugin_util').tr('Could not locate this highlight in the original text. Try downloading the chapter again.')
-                or top.text==require('weread.lib.plugin_util').tr('Could not locate this thought quote in the original text. Try downloading the chapter again.')) then
+            if top and (top.text==tr('Could not locate this highlight in the original text. Try downloading the chapter again.')
+                or top.text==tr('Could not locate this thought quote in the original text. Try downloading the chapter again.')
+                or top.text==resume_unavailable) then
                 on_timeout();error('navigation unavailable',0)
             end
             if socket.gettime()>=deadline then if on_timeout then on_timeout() end;error('navigation deadline',0) end
@@ -172,6 +178,22 @@ local ok,reason=pcall(function()
     end
     local Content=require('weread.lib.content');local Source=require('weread.lib.position_source');local Identity=require('weread.lib.book_file_identity')
     local id=input.book_id;local book=plugin.settings:get_book(id)
+    local prior={book_id=id,chapter_uid='1',chapter_offset=19,percent=12}
+    local function seed_pending(record)
+        record.pending_upload_account=plugin.library_db:accountKey()
+        record.pending_upload_reason='synthetic_pending'
+        record.pending_upload_position=prior
+        record.last_local_position=prior
+    end
+    local function pending_preserved()
+        local saved=assert(plugin.settings:get_book(id))
+        assert(saved.pending_upload_account==plugin.library_db:accountKey()
+            and saved.pending_upload_reason=='synthetic_pending')
+        for key,value in pairs(prior) do
+            assert(saved.pending_upload_position[key]==value and saved.last_local_position[key]==value)
+        end
+        return saved
+    end
     if mode=='live' and downloading then
         book={book_id=id,bookId=id,title='所选书籍',bookVersion=0,cached_chapters={},chapters={}}
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush()
@@ -187,24 +209,58 @@ local ok,reason=pcall(function()
             bodies[uid]=format=='web_txt' and Content.txt_to_xhtml(sample.raw) or sample.raw
             sources[uid]=assert(Source.capture(book,chapters[index],sample.raw,format))
         end
-        book.chapters=chapters
+        if not no_catalog then
+            book.chapters=chapters
+            if partial_book then
+                book.chapters={chapters[1],chapters[2],{chapterUid='3',chapterIdx=3,title='未下载章节',wordCount=1000}}
+            end
+        end
         book.cached_full_book=Content.save_book_epub(plugin.settings,book,chapters,bodies,'navigation-full',{},nil,nil,Identity.capture(book),sources)
         report.source_files=1
         for index,chapter in ipairs(chapters) do
             local path=Content.save_book_epub(plugin.settings,book,{chapter},bodies,'navigation-'..index,{},nil,nil,Identity.capture(book),sources)
             book.cached_chapters[tostring(chapter.chapterUid)]=path;report.source_files=report.source_files+1
         end
-        assert(Content.save_catalog_cache(plugin.client,plugin.settings,book,chapters))
+        if no_catalog then
+            seed_pending(book)
+        else
+            assert(Content.save_catalog_cache(plugin.client,plugin.settings,book,book.chapters))
+        end
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush()
         assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client,thoughts and 'thoughts' or nil):write(input.model))
     elseif downloading then
         assert(book and not book.cached_full_book and type(book.cached_chapters)=='table')
         report.source_files=#input.chapters
     else
-        assert(book and book.cached_full_book);book.cached_chapters={};book.cached_file=nil
+        assert(book and book.cached_full_book)
+        if no_catalog then
+            local path=assert(book.cached_chapters[assert(book.unindexed_resume).chapter_uid])
+            local saved=assert(io.open(home..'/offline-note-xpointer','rb'))
+            local xpointer=assert(saved:read(4096));assert(saved:close())
+            local Reader=require('apps/reader/readerui')
+            assert(plugin:startBookReading(book))
+            wait(function()
+                local active=Reader.instance
+                return active and active.document and active.document.file==path and active.weread
+                    and active.weread.progress_sync.file_resume
+            end)
+            local active=assert(Reader.instance)
+            plugin=active.weread
+            assert(plugin.progress_sync.file_resume.local_only and active.document:isXPointerInCurrentPage(xpointer))
+            pending_preserved()
+            active:onClose(false);FM:showFiles(home);plugin=assert(FM.instance.weread)
+            book=assert(plugin.settings:get_book(id))
+        end
+        book.cached_chapters={};book.cached_file=nil
+        if partial_book then seed_pending(book) end
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush();report.source_files=#input.chapters+1
     end
-    local tr=require('weread.lib.plugin_util').tr
+    local preserve_pending=no_catalog or partial_book and mode=='reopen'
+    if no_catalog then
+        assert(not book.chapters and not plugin.library_db:getChapters(id)
+            and not Content.load_catalog_cache(plugin.client,plugin.settings,book))
+    end
+    if preserve_pending then pending_preserved() end
     local Target=require(thoughts and 'weread.lib.my_thought_target' or bookmarks and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
     local function note_id(row) return thoughts and row.reviewId or row.bookmarkId end
     local expected={}
@@ -284,6 +340,7 @@ local ok,reason=pcall(function()
             report.diagnostic={reader_open=current~=nil,owner_navigating=owner.navigation~=nil,
                 busy_visible=active.busy_message~=nil,target_present=active.progress_sync:current_source_target()~=nil,
                 source_ready=active.source_navigation and active.source_navigation.state=='ready' or false,
+                resume_unavailable=top and top.text==resume_unavailable or false,
                 error_visible=top and top.text==tr('Could not locate this highlight in the original text. Try downloading the chapter again.') or false,
                 finish_target_unavailable=navigation_reason=='target_unavailable',
                 finish_navigation_unavailable=navigation_reason=='navigation_unavailable',finish_target_changed=navigation_reason=='target_changed',
@@ -305,6 +362,17 @@ local ok,reason=pcall(function()
         local snapshot=assert(Source.document_metadata(reader.document,id,point.chapter_uid,point.render_path))
         assert(snapshot.record.raw_sha256==expected[note_id(row)].raw_sha256)
         assert(not plugin.progress_sync.verified and not plugin.read_report.job)
+        if preserve_pending then
+            local saved=pending_preserved()
+            local frame=assert(plugin.progress_sync.file_resume)
+            assert(frame.local_only)
+            if no_catalog then
+                assert(saved.unindexed_resume and saved.unindexed_resume.chapter_uid==uid)
+            else
+                assert(frame.preserve_only and not saved.unindexed_resume)
+            end
+            assert(plugin.progress_sync:sync_now()==false)
+        end
         if downloading then
             counters[5]=0
             if mode=='live' and tonumber(counters[0])>requests_before then
@@ -352,8 +420,13 @@ local ok,reason=pcall(function()
         assert(report.personal_spans==#entries)
         report.personal_display=true;report.personal_native_text=true;report.personal_position_notes_unchanged=true;report.personal_file_unchanged=true
     end
+    if no_catalog and mode=='live' then
+        local output=assert(io.open(home..'/offline-note-xpointer','wb'))
+        assert(output:write(assert(plugin.progress_sync.source_anchor).xpointer));assert(output:close())
+    end
     plugin:closeWeReadUI();if reader then reader:onClose() end
     plugin.settings:flush();G_reader_settings:flush()
+    if preserve_pending then pending_preserved() end
     for _i,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end
     report.workers_reaped=true
     local lfs=require('libs/libkoreader-lfs')

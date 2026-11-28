@@ -166,10 +166,11 @@ function ProgressSync:begin_file_resume(options)
     self:_begin_source_transition('file_resume')
     local id=tostring(self.detect_book() or '')
     local baseline,reason=self:capture_local()
-    local preserve_only=type(options)=='table' and options.partial_combined==true
+    options=type(options)=='table' and options or {}
+    local preserve_only=options.partial_combined==true
+        or options.allow_partial_combined==true and reason=='partial_combined_book'
     if preserve_only and not baseline and reason~='catalog_unavailable' and reason~='partial_combined_book' then return nil end
-    local local_only=preserve_only or not baseline and reason=='catalog_unavailable' and type(options)=='table'
-        and options.allow_missing_catalog==true
+    local local_only=preserve_only or not baseline and reason=='catalog_unavailable' and options.allow_missing_catalog==true
     if not baseline and not local_only then return nil end
     local saved=self.get_book(id) or {}
     local owner=saved.pending_upload_account or saved.recent_read_account

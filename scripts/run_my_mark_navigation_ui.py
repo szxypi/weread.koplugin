@@ -42,6 +42,7 @@ def public_report(value):
                 if stage.get(key) in allowed:item[key]=stage[key]
             diagnostic=stage.get('diagnostic')
             allowed={'reader_open','owner_navigating','busy_visible','target_present','source_ready','error_visible',
+                     'resume_unavailable',
                      'finish_target_unavailable','finish_navigation_unavailable','finish_target_changed','finish_other',
                      'dom_anchor_missing','dom_anchor_ambiguous','dom_walk_diverged','dom_other',
                      'dom_failed_endpoints','dom_failed_checkpoint','dom_failed_verification',
