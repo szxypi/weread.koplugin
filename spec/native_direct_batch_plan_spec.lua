@@ -67,7 +67,25 @@ assert(plain:range(saved,Plan.standard_catalog('43',0,chapters)),'unknown versio
 local imported=assert(Plan.standard_catalog('CB_Fixture',0,chapters))
 assert(plain:begin(imported,nil,nil,current) and not reopened:read('CB_Fixture',current))
 assert(after_restart:remove('43',saved,current) and not plain:read('43',current) and reopened:read('43',current))
+local selections=Plan:new(library,scope,'selected')
+local third={chapterUid='19',chapterIdx=3}
+local picked=assert(selections:begin(Plan.standard_catalog('43',7,{chapters[1],third}),nil,nil,current))
+selections=Plan:new(library,scope,'selected')
+local reference=assert(selections:list(current))[1]
+assert(reference.count==2 and reference.revision==picked.revision and reference.selection==nil)
+local fresh={chapters[1],chapters[2],third}
+local subset,persisted_selection=selections:selectChapters('43',7,fresh,reference,current)
+assert(subset and #subset==2 and subset[1]==chapters[1] and subset[2]==third)
+assert(persisted_selection and persisted_selection.selection=='11,19')
+assert(not selections:selectChapters('43',7,{third,chapters[2],chapters[1]},reference,current))
+assert(not selections:selectChapters('43',8,fresh,reference,current))
+assert(not selections:selectChapters('43',7,chapters,reference,current))
+local replacement=assert(selections:begin(Plan.standard_catalog('43',7,{chapters[2]}),nil,picked,current))
+assert(not selections:selectChapters('43',7,fresh,reference,current) and not selections:remove('43',reference,current))
+assert(#assert(selections:list(current))==1 and selections:read('43',current).revision==replacement.revision)
+assert(reopened:read('43',current).revision==listed.revision)
 vid='456'
-assert(not reopened:list(current) and not plain:list(current) and #assert(other:list(current))==1,'listing exposed another account')
+assert(not reopened:list(current) and not plain:list(current) and not selections:list(current)
+    and #assert(other:list(current))==1,'listing exposed another account')
 os.remove(path);os.remove(other_path)
 print('PASS: local chapter download plans survive reopen and protect book, account and newer ranges')

@@ -28,7 +28,7 @@ local function collect(host, current)
     local scope=host.settings.get_auth_scope and host.settings:get_auth_scope()
     local records={}
     if scope then
-        for _,kind in ipairs({'eink','standard'}) do
+        for _,kind in ipairs({'eink','standard','selected'}) do
             local store=Plan:new(host.library_db,scope,kind)
             for _,record in ipairs(store:list(current) or {}) do
                 records[#records+1]={kind=kind,record=record}
@@ -215,10 +215,11 @@ local function show_plan_actions(host, entry, view, menu, current, removed, relo
         end
     end
     local buttons
-    if entry.kind=='standard' then
+    if entry.kind~='eink' then
         buttons={{{text=_('Continue download'),callback=action(function()
             Popup.close(view)
-            if current() then host:confirmDownloadAllChapters(entry.book,entry.record,function(ok)
+            local resume=entry.kind=='selected' and host.confirmResumeSelectedChapters or host.confirmDownloadAllChapters
+            if current() then resume(host,entry.book,entry.record,function(ok)
                 if ok and current() then reload(view:getBrowsePosition()) end
             end) end
         end)}}}
@@ -244,6 +245,7 @@ local function show_plans(host,plans,removed,reload,page)
     local items,menu={}
     for index,entry in ipairs(plans) do
         local text=entry.kind=='standard' and T(_('Full EPUB · %1 chapters'),entry.record.count)
+            or entry.kind=='selected' and T(_('Selected EPUBs · %1 chapters'),entry.record.count)
             or T(_('Chapters %1–%2'),entry.record.first,entry.record.last)
         items[index]={text=text..' · '..entry.book.title,index=index}
     end

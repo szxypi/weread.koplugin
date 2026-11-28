@@ -113,7 +113,7 @@ function Downloader:_cleanupWorkspace(dl)
     Content.cleanup_download_workspace(workspace)
 end
 
--- A resumable full-book workspace is intentionally retained after a failure,
+-- A resumable workspace is intentionally retained after a failure,
 -- cancellation or crash.  It only contains downloaded book material under the
 -- cache directory; credentials and settings remain untouched.
 function Downloader:_preserveWorkspace(dl, reason)
@@ -122,7 +122,7 @@ function Downloader:_preserveWorkspace(dl, reason)
         dl.progress_dialog:close()
         dl.progress_dialog = nil
     end
-    logger.info("full-book download checkpoint retained:",
+    logger.info("download checkpoint retained:",
         "reason=", tostring(reason or "paused"),
         "completed=", tostring(dl and dl.completed_count or 0),
         "total=", tostring(dl and dl.total or 0))
@@ -368,7 +368,7 @@ end
 function Downloader:discardPausedSelection(dl)
     if not dl or self._active_job~=dl or not dl.awaiting_renewal then return false end
     dl.awaiting_renewal=nil
-    self:_cleanupWorkspace(dl)
+    if not dl.resumable then self:_cleanupWorkspace(dl) end
     self:_finishJob(dl)
     return true
 end
@@ -399,7 +399,8 @@ function Downloader:_ensureProgressDialog(dl)
     if dl.progress_dialog then return dl.progress_dialog end
     local progress_dialog = DownloadDialog:new{
         title = dl.stage_title or T(_("Downloading: %1"), dl.book.title or ""),
-        description = dl.resumable and _("You can cancel at any time. Completed chapters are kept.\nChoose Download full book again to resume.") or nil,
+        description = dl.selection_checkpoint and _("You can cancel at any time. Completed chapters are kept.\nContinue from Unfinished downloads.")
+            or dl.resumable and _("You can cancel at any time. Completed chapters are kept.\nChoose Download full book again to resume.") or nil,
         progress_max = dl.total,
         buttons = {{
             {
@@ -759,9 +760,11 @@ function Downloader:start(book, chapters, suffix, options)
     end
 
     local total = #chapters
-    local resumable = (suffix or "book") == "full"
+    local full = (suffix or "book") == "full"
         and not options.single_chapter
         and not options.separate_chapters
+    local selection_checkpoint = options.separate_chapters and not options.single_chapter and options.selection_checkpoint
+    local resumable = full or type(selection_checkpoint) == "string"
     local dl = {
         book = book,
         chapters = chapters,
@@ -778,6 +781,7 @@ function Downloader:start(book, chapters, suffix, options)
         total = total,
         failed = {},
         resumable = resumable,
+        selection_checkpoint = selection_checkpoint,
         completed = {},
         completed_count = 0,
         annotation_failed_batches = 0,
@@ -820,7 +824,7 @@ function Downloader:start(book, chapters, suffix, options)
     local download_cache = self.settings.get and self.settings:get('cache', {}) or {}
     dl.native_chapter_resources = download_cache.download_book_images == true
         and (dl.single_chapter and download_cache.native_chapter_resources == true
-            or dl.resumable and download_cache.native_full_book_resources == true)
+            or full and download_cache.native_full_book_resources == true)
     if dl.native_chapter_resources then
         dl.native_selected = require('weread.lib.native_read_access').capture(self.settings)
         dl.native_chapter_resources = dl.native_selected ~= nil and not dl.native_selected.renewal_pending
@@ -843,7 +847,8 @@ function Downloader:start(book, chapters, suffix, options)
         dl.operation_lease=lease
     end
 
-    local task_label = options.single_chapter and _("Download chapter and read") or _("Download full book")
+    local task_label = options.single_chapter and _("Download chapter and read")
+        or options.separate_chapters and _("Download selected chapters") or _("Download full book")
     local task_runner = function(callback)
         return self.run_online_task(task_label, callback)
     end
@@ -853,6 +858,7 @@ function Downloader:start(book, chapters, suffix, options)
         local called, start_err = pcall(dl.on_start)
         if not called then
             logger.warn("download start callback failed:", log_error(start_err))
+            if dl.selection_checkpoint then self:cancelJob(dl, "download_cache_unavailable") end
         end
     end
     if dl.prefetch then
@@ -905,9 +911,13 @@ function Downloader:start(book, chapters, suffix, options)
             end
             dl.source_identity = FileIdentity.capture(book)
             self:_setStage(dl, _("Preparing download..."))
+            if dl.selection_checkpoint then
+                notifyStart()
+                if dl.cancelled or not full_scope_current(self.settings, dl) then return end
+            end
             if dl.resumable and Content.open_full_download_workspace then
                 dl.workspace = Content.open_full_download_workspace(
-                    self.settings, book)
+                    self.settings, book, dl.selection_checkpoint, options.reset_selection)
                 dl.state.workspace = dl.workspace
                 dl.state.css = Content.load_full_download_css(dl.workspace)
                 dl.state.used_asset_names = Content.full_download_workspace_used_asset_names(
@@ -922,7 +932,7 @@ function Downloader:start(book, chapters, suffix, options)
         if dl.cancelled then self:_step(dl); return end
         if not ok_init then
             logger.err("initialize book download failed:", log_error(err_init))
-            self:_cleanupWorkspace(dl)
+            if not dl.selection_checkpoint then self:_cleanupWorkspace(dl) end
             if dl.progress_dialog then
                 dl.progress_dialog:close()
                 dl.progress_dialog = nil
@@ -1016,7 +1026,7 @@ function Downloader:_skipCompletedChapterBatch(dl)
     local skipped = 0
     while dl.index <= dl.total and dl.completed[dl.index]
         and skipped < RESUME_SKIP_BATCH_SIZE do
-        if dl.separate_chapters then
+        if dl.separate_chapters and not dl.resumable then
             dl.selected[#dl.selected+1]=dl.chapters[dl.index]
             dl.selected_indices[#dl.selected_indices+1]=dl.index
         end
@@ -1048,7 +1058,9 @@ function Downloader:_rateLimit(dl)
         self:_finishJob(dl)
     end
     if not dl.prefetch then
-        self.show_info(_(dl.resumable
+        self.show_info(_(dl.selection_checkpoint
+            and "WeRead is limiting requests. Try continuing from Unfinished downloads later."
+            or dl.resumable
             and "WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later."
             or "WeRead is limiting requests. Download stopped. Please try again later."))
     end
@@ -1286,7 +1298,7 @@ function Downloader:_finishChapter(dl)
             end
             local xhtml, assets = Content.finalize_single_chapter_content(
                 client or self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
-            if dl.separate_chapters then
+            if dl.separate_chapters and not dl.resumable then
                 local saved, reason = Content.stage_download_chapter_text(dl.workspace, dl.index, xhtml)
                 if not saved then return { staging_error = reason or "chapter storage unavailable" } end
                 xhtml = nil
@@ -1401,6 +1413,12 @@ function Downloader:_step(dl)
     end
 
     if dl.index > dl.total then
+        if dl.selection_checkpoint and #dl.failed > 0 then
+            self:_preserveWorkspace(dl, "incomplete_selection")
+            self.show_info(T(_("Download paused. %1 chapter(s) failed. Continue from Unfinished downloads."),
+                tostring(#dl.failed)))
+            return
+        end
         if #dl.selected == 0 then
             if dl.progress_dialog then
                 dl.progress_dialog:close()
@@ -1518,12 +1536,21 @@ function Downloader:_step(dl)
                     local paths = {}
                     for chapter_index, chapter in ipairs(dl.selected) do
                         local uid = tostring(chapter.chapterUid or chapter_index)
-                        local xhtml, reason = Content.load_download_chapter_text(dl.workspace, dl.selected_indices[chapter_index])
-                        if not xhtml then error(reason or "chapter text is missing", 0) end
+                        local xhtml, assets, source, identity, guard
+                        if dl.selection_checkpoint then
+                            local version
+                            xhtml, assets, source, version = Content.load_selected_download_chapter(dl.workspace, chapter, chapter_index)
+                            identity = { book_id = dl.source_identity.book_id, book_version = version, changed = dl.source_identity.changed }
+                            guard = native_guard
+                        else
+                            local reason
+                            xhtml, reason = Content.load_download_chapter_text(dl.workspace, dl.selected_indices[chapter_index])
+                            if not xhtml then error(reason or "chapter text is missing", 0) end
+                            assets, source, identity = dl.assets_by_uid[uid], source_for(uid), dl.source_identity
+                        end
                         paths[uid] = Content.save_chapter_epub(
-                            self.settings, packaging_book, chapter, xhtml,
-                            (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
-                            dl.state.css, dl.source_identity, source_for(uid)
+                            self.settings, packaging_book, chapter, xhtml, assets or {},
+                            dl.state.css, identity, source, nil, guard
                         )
                     end
                     path, chapter_paths = paths[tostring(dl.selected[1].chapterUid or 1)], paths

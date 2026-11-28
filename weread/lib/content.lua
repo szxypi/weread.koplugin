@@ -269,13 +269,37 @@ local function make_path(path)
     end
 end
 
+local atomic_write
+
+local function remove_selection_tree(path)
+    local lfs = require("libs/libkoreader-lfs")
+    local mode = lfs.symlinkattributes(path, "mode")
+    if not mode then return true end
+    if mode == "directory" then
+        for name in lfs.dir(path) do
+            if name ~= "." and name ~= ".." then
+                local ok, err = remove_selection_tree(path .. "/" .. name)
+                if not ok then return nil, err end
+            end
+        end
+    end
+    return os.remove(path)
+end
+
 local function remove_tree(path)
     if type(path) ~= "string"
         or (not path:match("/%.weread%-download%-%d+%-%d+$")
             and not path:match("/%.weread%-download%-resume%-full$")
             and not path:match("/%.weread%-download%-resume%-full/rendered%-text$")
-            and not path:match("/%.weread%-download%-resume%-full/package%-images$")) then
+            and not path:match("/%.weread%-download%-resume%-full/package%-images$")
+            and not path:match("/%.weread%-download%-resume%-selected$")
+            and not path:match("/%.weread%-download%-resume%-selected/rendered%-text$")) then
         return nil, "refusing to remove an invalid download workspace"
+    end
+    if path:match("/%.weread%-download%-resume%-selected") then
+        local called, removed, err = pcall(remove_selection_tree, path)
+        if not called then return nil, removed end
+        return removed, err
     end
     local ok, ffiutil = pcall(require, "ffi/util")
     if not ok or not ffiutil or not ffiutil.purgeDir then
@@ -287,16 +311,30 @@ local function remove_tree(path)
     return true
 end
 
--- A full-book job is the only one that can run long enough to make a restart
--- meaningful. Keep its working files under a stable, book-local directory so
--- a failed transfer (or an OOM kill) can be resumed without putting book text
--- in the plugin settings file.
-function Content.open_full_download_workspace(settings, book)
+-- Keep working files outside the settings database for restart recovery.
+function Content.open_full_download_workspace(settings, book, selection, reset_selection)
     local book_id = book.book_id or book.bookId
     local book_dir = Content.book_resolved_dir(settings, book_id, book)
     make_path(book_dir)
     book.cache_dir = book_dir
-    local workspace = book_dir .. "/.weread-download-resume-full"
+    local workspace = book_dir .. (selection and "/.weread-download-resume-selected" or "/.weread-download-resume-full")
+    if selection then
+        local lfs = require("libs/libkoreader-lfs")
+        local marker = workspace .. "/selection"
+        local file = lfs.symlinkattributes(workspace, "mode") == "directory"
+            and lfs.symlinkattributes(marker, "mode") == "file" and io.open(marker, "rb")
+        local previous = file and file:read(65)
+        if file then file:close() end
+        -- The caller claims the plan before opening its workspace. The scope
+        -- binds the shared stylesheet and chapter indexes to this account.
+        if reset_selection or previous ~= selection then
+            local ok, err = remove_tree(workspace)
+            if not ok then error(err or "could not reset selected chapter workspace", 0) end
+            make_path(workspace)
+            ok, err = atomic_write(marker, selection)
+            if not ok then error(err or "could not identify selected chapter workspace", 0) end
+        end
+    end
     local incoming_dir = workspace .. "/incoming"
     local asset_dir = workspace .. "/images"
     local text_dir = workspace .. "/text"
@@ -587,7 +625,7 @@ function Content.load_full_download_chapter(workspace, chapter, chapter_index)
     return read_chapter_text(Content.full_download_chapter_path(workspace, chapter, chapter_index))
 end
 
-local function atomic_write(path, data)
+atomic_write = function(path, data)
     local tmp_path = path .. ".part"
     local file, err = io.open(tmp_path, "wb")
     if not file then return nil, err end
@@ -808,6 +846,26 @@ function Content.full_download_completed_chapters(workspace, chapters, expected_
         end
     end
     return completed
+end
+
+function Content.load_selected_download_chapter(workspace, chapter, index)
+    if not Content.full_download_rendered_chapter_exists(workspace, chapter, index) then position_error(false) end
+    local text, err = read_chapter_text(Content.full_download_rendered_chapter_path(workspace, chapter, index))
+    if not text or err then error(err or "chapter text is missing", 0) end
+    local checkpoint = { read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace, chapter, index)) }
+    local assets = {}
+    if checkpoint[10] then
+        local valid, names = require("weread.lib.web_image_receipt").names(workspace, checkpoint[10])
+        if not valid then position_error(false) end
+        for _, name in ipairs(names) do
+            local path = workspace.asset_dir .. "/" .. name
+            local _, media_type = media_type_for_file(path)
+            if not media_type or not media_type:match("^image/") then position_error(false) end
+            assets[#assets + 1] = { href = "images/" .. name, media_type = media_type, path = path }
+        end
+    end
+    local source = checkpoint[6] and { workspace = workspace, receipt = checkpoint[6] }
+    return text, assets, source, checkpoint[4]
 end
 
 function Content.full_download_workspace_assets(workspace, chapters, css)

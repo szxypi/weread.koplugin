@@ -3447,6 +3447,22 @@ function M:confirmDownloadAllChapters(book, resume_plan, on_complete)
     end,resume_plan~=nil)
 end
 
+function M:confirmResumeSelectedChapters(book, reference, on_complete)
+    local current=require('weread.ui.page_scope').capture(self,self.shelf_view)
+    self:loadChapters(book,function(chapters,version)
+        if not current() then return end
+        local target={}
+        for key,value in pairs(book) do target[key]=value end
+        if version~=nil then target.bookVersion=require('weread.lib.book_file_identity').version(version) end
+        local selected,plan=require('weread.ui.download_recovery').resumeSelection(self,target,chapters,reference,current)
+        if not selected then return end
+        self:confirmAndDownloadChapters(target,selected,"chapters",{
+            separate_chapters=true,resume_plan=plan,on_complete=on_complete,
+            confirmation_text=T(_('Continue downloading %1 selected chapters as separate EPUBs?'),tostring(#selected)),
+        })
+    end,true)
+end
+
 -- Annotation matching is a reading action, shared by all download forms.
 function M:confirmAndDownloadChapters(book, chapters, suffix, options)
     require('weread.ui.prefetch_auth_recovery').cancel(self)

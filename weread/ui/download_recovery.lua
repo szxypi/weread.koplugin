@@ -10,6 +10,7 @@ local Scope = require('weread.ui.page_scope')
 local _ = require('weread.lib.plugin_util').tr
 local M = {}
 local resume_changed='The saved download or its catalog changed. Refresh the list or start a new full-book download.'
+local selection_changed='The saved selection or its catalog changed. Choose the chapters again.'
 local Plan=require('weread.lib.native_direct_batch_plan')
 
 local function matches_plan(store,plan,catalog,current)
@@ -25,6 +26,20 @@ function M.canResume(host,book,chapters,plan)
     local store=scope and host.library_db and Plan:new(host.library_db,scope,'standard')
     if matches_plan(store,plan,catalog,function() return host.settings:auth_scope_matches(scope) end) then return true end
     host:showInfo(_(resume_changed));return false
+end
+
+function M.resumeSelection(host,book,chapters,reference,current)
+    local scope=host.settings:get_auth_scope()
+    local catalog=Reading.catalog(chapters)
+    local id=Access.display_book_id(book.book_id or book.bookId)
+    if scope and host.library_db and catalog and id then
+        local plan=Plan:new(host.library_db,scope,'selected')
+        local selected,record=plan:selectChapters(id,FileIdentity.version(book.bookVersion),catalog,reference,function()
+            return current() and host.settings:auth_scope_matches(scope)
+        end)
+        if selected then return selected,record end
+    end
+    if current() then host:showInfo(_(selection_changed)) end
 end
 
 local function same_catalog(left,right)
@@ -81,7 +96,7 @@ function M.start(host,book,chapters,suffix,options)
     local catalog=Reading.catalog(chapters)
     local scope=host.settings:get_auth_scope()
     if not id or not catalog or not scope or not Source.web_access(host.settings) then
-        if options.resume_plan then host:showInfo(_(resume_changed));return false end
+        if options.resume_plan then host:showInfo(_(options.separate_chapters and selection_changed or resume_changed));return false end
         return host.downloader:start(book,chapters,suffix,options)
     end
     local targets={}
@@ -91,8 +106,12 @@ function M.start(host,book,chapters,suffix,options)
     end
     local page_current=Scope.capture(host,host.shelf_view)
     local full=suffix=='full' and not options.single_chapter and not options.separate_chapters
-    local plan_store=full and host.library_db and Plan:new(host.library_db,scope,'standard')
+    local selected=options.separate_chapters and not options.single_chapter
+    local plan_kind=full and 'standard' or selected and host.library_db
+        and type(host.library_db.compareProfileState)=='function' and 'selected'
+    local plan_store=plan_kind and host.library_db and Plan:new(host.library_db,scope,plan_kind)
     local resume=options.resume_plan
+    local resume_message=selected and selection_changed or resume_changed
     local ctx={scope=scope,catalog=catalog,version=FileIdentity.version(book.bookVersion),
         fingerprint=WorkerSettings.fingerprint(host.settings),api_key=host.settings:get('api_key',''),
         owner=options.recovery_owner or (not full and host._chapter_list_view or nil),
@@ -124,11 +143,14 @@ function M.start(host,book,chapters,suffix,options)
     end
     local launch,recover
     local download_book=book
-    local expired_message=full and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
+    local expired_message=plan_store and selected and 'WeRead login expired. Sign in to continue from Unfinished downloads.'
+        or full and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
         or 'WeRead login expired. Please sign in again and retry the download.'
-    local catalog_message=full and 'Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again.'
+    local catalog_message=plan_store and selected and selection_changed
+        or full and 'Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again.'
         or 'Could not verify the selected chapters. Download stopped. Try again.'
-    local limit_message=full and 'WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later.'
+    local limit_message=plan_store and selected and 'WeRead is limiting requests. Try continuing from Unfinished downloads later.'
+        or full and 'WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later.'
         or 'WeRead is limiting requests. Download stopped. Please try again later.'
     local function recheck()
         if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
@@ -185,6 +207,9 @@ function M.start(host,book,chapters,suffix,options)
             -- existing resumable behavior but mark the new source as unknown.
             download_book={};for key,value in pairs(book) do download_book[key]=value end
             download_book.bookVersion=version
+            -- An unknown version after renewal cannot verify chapters from the
+            -- old session. Keep the saved UIDs and restart their transfer.
+            ctx.reset_selection=selected and version==0
             launch()
         end)
         if not ok or not started then finish(false,'unavailable',catalog_message) end
@@ -240,23 +265,37 @@ function M.start(host,book,chapters,suffix,options)
         else finish(ok,value) end
     end
     launch=function()
+        local identity=plan_store and Plan.standard_catalog(id,FileIdentity.version(download_book.bookVersion),catalog)
         if resume and not ctx.plan and not matches_plan(plan_store,resume,
-            Plan.standard_catalog(id,FileIdentity.version(download_book.bookVersion),catalog),current) then
-            finish(false,'catalog_changed',resume_changed);return false
+            identity,current) then
+            finish(false,'catalog_changed',resume_message);return false
         end
         local copy={};for key,value in pairs(options) do copy[key]=value end
         copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
         if plan_store then
+            if selected then
+                copy.selection_checkpoint=require('weread.lib.crypto').sha256_hex(plan_store.account..':'..identity.reading_digest)
+                copy.reset_selection=ctx.reset_selection
+            end
             copy.on_start=function()
-                if not current() then return end
+                if not current() then
+                    if selected then host.downloader:cancelRequest(ctx.complete,'navigation_changed') end
+                    return
+                end
+                identity.version=FileIdentity.version(download_book.bookVersion)
+                if selected and ctx.plan and not matches_plan(plan_store,ctx.plan,identity,current) then
+                    host.downloader:cancelRequest(ctx.complete,'catalog_changed')
+                    finish(false,'catalog_changed',resume_message)
+                    return
+                end
                 if not ctx.plan then
-                    local identity=Plan.standard_catalog(id,FileIdentity.version(download_book.bookVersion),catalog)
                     if not resume or matches_plan(plan_store,resume,identity,current) then
                         ctx.plan=plan_store:begin(identity,nil,resume or plan_store:read(id,current),current)
                     end
-                    if resume and not ctx.plan then
+                    if (resume or selected) and not ctx.plan then
                         host.downloader:cancelRequest(ctx.complete,'catalog_changed')
-                        finish(false,'catalog_changed',resume_changed);return
+                        finish(false,'catalog_changed',resume and resume_message or 'Could not save book information. Check storage and try again.')
+                        return
                     end
                 end
                 if type(options.on_start)=='function' then options.on_start() end
