@@ -241,18 +241,49 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     local a={bookId='990701',title='合成进度回填',finishReading=0,secret=1}
     local b={bookId='990702',title='合成稳定进度',finishReading=0}
     local grid_books={a,b}
+    local BB=require('ffi/blitbuffer')
+    local cover_cache=plugin:getShelfCoverCache()
+    a.cover='https://cover.example.invalid/region-progress.png'
+    assert(cover_cache:_ensureDir())
+    local cover=BB.new(96,144,BB.TYPE_BB8)
+    cover:fill(BB.COLOR_GRAY)
+    cover:paintRect(48,24,40,120,BB.COLOR_BLACK)
+    cover:writePNG(cover_cache.dir..'/'..cover_cache:key(a)..'.thumb.png')
+    cover:free()
     local function reset_grid_progress()
         assert(plugin.library_db:putShelfProgress({
             {book_id=a.bookId,percent=91,exact_percent=91,fetched_at=0},
             {book_id=b.bookId,percent=55,exact_percent=55,fetched_at=os.time()},
         }))
     end
-    local function check_badge_repaint(view, gets)
+    local function same_region(actual,expected)
+        return actual and expected and actual.x==expected.x and actual.y==expected.y
+            and actual.w==expected.w and actual.h==expected.h
+    end
+    local function assert_pixels(view,initial,dirty)
+        assert(Screen.bb:getBpp()==8,'expected the grayscale emulator framebuffer')
         UIManager:forceRePaint()
+        local partial=BB.tostring(Screen.bb)
+        local stride=tonumber(Screen.bb.stride)
+        local first,last=dirty.y*stride,(dirty.y+dirty.h)*stride+1
+        assert(initial:sub(1,first)==partial:sub(1,first) and initial:sub(last)==partial:sub(last),
+            'progress repaint changed pixels above or below the requested region')
+        for y=dirty.y,dirty.y+dirty.h-1 do
+            local start=y*stride
+            local left,right=start+dirty.x,start+dirty.x+dirty.w+1
+            assert(initial:sub(start+1,left)==partial:sub(start+1,left)
+                and initial:sub(right,start+stride)==partial:sub(right,start+stride),
+                'progress repaint changed pixels beside the requested region')
+        end
+        UIManager:setDirty(view,'ui',view.dimen);UIManager:forceRePaint()
+        assert(partial==BB.tostring(Screen.bb),'progress repaint pixels differed from a full repaint')
+    end
+    local function watch_grid_repaint(view,update)
+        UIManager:forceRePaint()
+        local initial=BB.tostring(Screen.bb)
         local first,second=view._item_rows[1],view._item_rows[2]
-        assert(first._progress_badge_text=='91%' and first._has_private_badge
-            and second._progress_badge_text=='55%')
-        local old_badge,other_badge=first._progress_badge,second._progress_badge
+        local old_region=first._progress_badge and first._progress_badge.dimen:copy()
+        local other_badge=second._progress_badge
         local repaint,set_dirty=UIManager.widgetRepaint,UIManager.setDirty
         local cells,regions=0,{}
         UIManager.widgetRepaint=function(ui,widget,...)
@@ -263,21 +294,54 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
             if not widget and mode=='ui' and region then regions[#regions+1]=region end
             return set_dirty(ui,widget,mode,region,...)
         end
-        local ok,failure=pcall(wait_progress)
+        local ok,changed_focus=pcall(update,first)
         UIManager.widgetRepaint,UIManager.setDirty=repaint,set_dirty
-        assert(ok,failure)
-        assert(plugin.shelf_view==view and cells==1 and #regions==1
-            and count('/web/book/getProgress')==gets+1,'progress completion rebuilt the grid or repeated a request')
+        assert(ok,changed_focus)
+        assert(plugin.shelf_view==view and cells==1 and #regions==1 and second._progress_badge==other_badge,
+            'progress completion rebuilt the grid or repainted another card')
+        local after=first._progress_badge and first._progress_badge.dimen
+        local expected=changed_focus and first.frame.dimen
+            or old_region and after and old_region:combine(after) or old_region or after
+        assert(same_region(regions[1],expected),'progress dirty region missed part of the old or new badge')
+        assert_pixels(view,initial,regions[1])
+        return regions[1]
+    end
+    local function check_badge_repaint(view, gets)
+        local first,second=view._item_rows[1],view._item_rows[2]
+        assert(first._progress_badge_text=='91%' and first._has_private_badge and first._has_cover
+            and second._progress_badge_text=='55%')
+        local old_badge=first._progress_badge
+        local region=watch_grid_repaint(view,function() wait_progress() end)
+        assert(count('/web/book/getProgress')==gets+1 and first._progress_badge~=old_badge
+            and first._progress_badge_text=='0%' and first._has_private_badge,'progress update lost a badge or repeated a request')
         local dimen=first.frame.dimen
-        assert(regions[1].x==dimen.x and regions[1].y==dimen.y and regions[1].w==dimen.w and regions[1].h==dimen.h
-            and first._progress_badge~=old_badge and first._progress_badge_text=='0%' and first._has_private_badge
-            and second._progress_badge==other_badge,'progress completion redrew the wrong cell')
-        local BB=require('ffi/blitbuffer')
-        UIManager:forceRePaint()
-        local partial=BB.tostring(Screen.bb)
-        UIManager:setDirty(view,'ui',view.dimen);UIManager:forceRePaint()
-        assert(partial==BB.tostring(Screen.bb),'progress repaint pixels differed from a full repaint')
-        return {w=dimen.w,h=dimen.h}
+        assert(region.w*region.h<dimen.w*dimen.h,'a badge-only update refreshed its entire card')
+        return {w=region.w,h=region.h,card_w=dimen.w,card_h=dimen.h}
+    end
+    local function check_badge_transitions(view)
+        for _,transition in ipairs({
+            {},                         -- remove the badge and reveal its cover
+            {progress=91},              -- add it on the restored backing pixels
+            {estimate=77.5},            -- replace cloud progress with a local estimate
+            {progress=10,focus=true},   -- pending focus change requires the full card
+            {progress=55},              -- unchanged focus still uses the badge region
+            {focus=false},              -- remove the badge and clear cell inversion
+        }) do
+            watch_grid_repaint(view,function(cell)
+                local changed_focus=transition.focus~=nil and (not not cell.frame.invert)~=transition.focus
+                if transition.focus~=nil then
+                    if transition.focus then cell:onFocus() else cell:onUnfocus() end
+                end
+                assert(view:refreshVisibleProgress(function()
+                    cell.book._shelf_progress=transition.progress
+                    cell.book._shelf_progress_exact=transition.progress
+                    cell.book._shelf_progress_local=false
+                    cell.book._shelf_native_estimate=transition.estimate
+                    return {}
+                end))
+                return changed_focus
+            end)
+        end
     end
     shelf=settings:get('shelf');shelf.view_mode='cover';shelf.paginated=true;shelf.sort_order='default'
     settings:set('shelf',shelf)
@@ -287,6 +351,7 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
     local gets=count('/web/book/getProgress')
     plugin:showShelfView('books')
     local shelf_region=check_badge_repaint(plugin.shelf_view,gets)
+    check_badge_transitions(plugin.shelf_view)
     plugin:closeWeReadUI()
     reset_grid_progress()
     local home=plugin:homePreferences();home.view_mode='cover'
@@ -325,8 +390,6 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
 
     local function check_list_repaint(view, requests_before, clipped)
         UIManager:forceRePaint()
-        local BB=require('ffi/blitbuffer')
-        assert(Screen.bb:getBpp()==8,'expected the grayscale emulator framebuffer')
         local initial_pixels=BB.tostring(Screen.bb)
         local row,other=view._item_rows[1],view._item_rows[2]
         assert(row.status:find('91%%') and other.status:find('55%%'))
@@ -361,21 +424,7 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
         local dirty=regions[1]
         assert(dirty.x==expected.x and dirty.y==expected.y and dirty.w==expected.w and dirty.h==expected.h
             and count('/web/book/getProgress')==requests_before+1,'list progress escaped the visible row or repeated a request')
-        UIManager:forceRePaint()
-        local partial=BB.tostring(Screen.bb)
-        local stride=tonumber(Screen.bb.stride)
-        local first,last=dirty.y*stride,(dirty.y+dirty.h)*stride+1
-        assert(initial_pixels:sub(1,first)==partial:sub(1,first) and initial_pixels:sub(last)==partial:sub(last),
-            'list progress changed pixels above or below the requested region')
-        for y=dirty.y,dirty.y+dirty.h-1 do
-            local start=y*stride
-            local left,right=start+dirty.x,start+dirty.x+dirty.w+1
-            assert(initial_pixels:sub(start+1,left)==partial:sub(start+1,left)
-                and initial_pixels:sub(right,start+stride)==partial:sub(right,start+stride),
-                'list progress changed pixels beside the requested region')
-        end
-        UIManager:setDirty(view,'ui',view.dimen);UIManager:forceRePaint()
-        assert(partial==BB.tostring(Screen.bb),'list progress pixels differed from a full repaint')
+        assert_pixels(view,initial_pixels,dirty)
         return {w=dirty.w,h=dirty.h,scroll_y=offset.y}
     end
 

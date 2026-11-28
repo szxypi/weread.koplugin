@@ -537,6 +537,13 @@ function ShelfRow:onUnfocus()
     return true
 end
 
+local CoverCellFrame = FrameContainer:extend{}
+
+function CoverCellFrame:paintTo(bb, x, y)
+    FrameContainer.paintTo(self, bb, x, y)
+    self._painted_invert = not not self.invert
+end
+
 local CoverCell = InputContainer:extend{
     book = nil,
     width = nil,
@@ -812,7 +819,7 @@ function CoverCell:init()
             card_contents[#card_contents+1]=frame
         end
     end
-    self.frame = FrameContainer:new{
+    self.frame = CoverCellFrame:new{
         bordersize = 0,
         radius = 0,
         margin = 0,
@@ -1891,6 +1898,13 @@ function LibraryView:refreshVisibleCovers(cache)
     return true
 end
 
+local function progress_badge_region(badge, bounds)
+    if not badge then return nil end
+    local region = painted_region(badge)
+    if region and region.w > 0 and region.h > 0 and bounds:contains(region) then return region end
+    return false
+end
+
 local function refresh_grid_progress(self, prepare)
     if self.scroll._is_scrollable then return end
     local snapshots = prepare(self:getVisibleBooks())
@@ -1903,8 +1917,23 @@ local function refresh_grid_progress(self, prepare)
             updates[#updates + 1] = { cell = cell, text = text, region = region }
         end
     end
-    for _, update in ipairs(updates) do update.cell:setProgressBadge(update.text) end
-    repaint_cover_cells(updates)
+    local dirty
+    for _, update in ipairs(updates) do
+        local cell, bounds = update.cell, update.region
+        local before = progress_badge_region(cell._progress_badge, bounds)
+        local stable_focus = cell.frame._painted_invert == (not not cell.frame.invert)
+        cell:setProgressBadge(update.text)
+        -- Repaint the backing cell so a smaller or removed badge reveals its
+        -- exact cover pixels. Only the changed badge area needs panel refresh.
+        UIManager:widgetRepaint(cell.frame, bounds.x, bounds.y)
+        local after = progress_badge_region(cell._progress_badge, bounds)
+        local region = bounds
+        if stable_focus and before ~= false and after ~= false then
+            region = before and after and before:combine(after) or before or after or bounds
+        end
+        dirty = dirty and dirty:combine(region) or region
+    end
+    if dirty then UIManager:setDirty(nil, 'ui', dirty) end
     return snapshots
 end
 
